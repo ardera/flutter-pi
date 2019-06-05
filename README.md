@@ -3,7 +3,9 @@ A light-weight, single-file Flutter Engine Embedder for Raspberry Pi that's usin
 
 ## Running
 Run using
-    ./flutter-pi /path/without/trailing/slash [flutter arguments...]
+```bash
+./flutter-pi /path/without/trailing/slash [flutter arguments...]
+```
 where `/path/without/trailing/slash` is the path of the flutter asset bundle directory (i.e. the directory containing the kernel_blob.bin)
 of the flutter app you're trying to run.
 
@@ -17,12 +19,14 @@ are some rough guidelines on how to build it.
 ## Cross-Compiling
 You need a valid `libflutter_engine.so`, `flutter_embedder.h`, a valid raspberry pi sysroot including the /opt directory, and a valid toolchain targeting
 arm-linux-gnueabihf. Then execute:
-    /path/to/cross_c_compiler \
-      -D_GNU_SOURCE \
-      --sysroot /path/to/sysroot \
-      -I/path/to/sysroot/opt/vc/include \
-      -I/directory/containing/flutter_embedder.h/ \
-      -L/path/to/sysroot/opt/vc/lib \
-      -L/directory/containing/libflutter_engine.so/ \
-      -lrt -lbrcmEGL -lbrcmGLESv2 -lflutter_engine -lpthread -ldl -lbcm_host -lvcos -lvchiq_arm -lm \
-      ./main.c -o ./flutter-rpi
+```bash
+/path/to/cross_c_compiler \
+  -D_GNU_SOURCE \
+  --sysroot /path/to/sysroot \
+  -I/path/to/sysroot/opt/vc/include \
+  -I/directory/containing/flutter_embedder.h/ \
+  -L/path/to/sysroot/opt/vc/lib \
+  -L/directory/containing/libflutter_engine.so/ \
+  -lrt -lbrcmEGL -lbrcmGLESv2 -lflutter_engine -lpthread -ldl -lbcm_host -lvcos -lvchiq_arm -lm \
+  ./main.c -o ./flutter-rpi
+```
