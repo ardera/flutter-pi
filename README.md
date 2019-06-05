@@ -14,8 +14,11 @@ The `[flutter arguments...]` will be passed as commandline arguments to the flut
 ## Compiling
 You first need a valid `libflutter_engine.so`. [Here](https://medium.com/flutter/flutter-on-raspberry-pi-mostly-from-scratch-2824c5e7dcb1)
 are some rough guidelines on how to build it.
-    cc -D_GNU_SOURCE -lrt -lbrcmGLESv2 -lflutter_engine -lpthread -ldl -lbcm_host -lvcos -lvchiq_arm -lm ./main.c -o ./flutter-pi
-
+```bash
+cc -D_GNU_SOURCE \
+  -lrt -lbrcmGLESv2 -lflutter_engine -lpthread -ldl -lbcm_host -lvcos -lvchiq_arm -lm \
+  ./main.c -o ./flutter-pi
+```
 ## Cross-Compiling
 You need a valid `libflutter_engine.so`, `flutter_embedder.h`, a valid raspberry pi sysroot including the /opt directory, and a valid toolchain targeting
 arm-linux-gnueabihf. Then execute:
