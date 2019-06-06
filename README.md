@@ -1,6 +1,9 @@
 # flutter-pi
 A light-weight, single-file Flutter Engine Embedder for Raspberry Pi that's using the broadcom APIs. Inspired by https://github.com/chinmaygarde/flutter_from_scratch.
 
+Currently supported are basic, pure-dart Apps & mouse input (no mouse cursor yet).
+Not yet supported are Method & Platform-channels, touchscreen input; and probably a lot more.
+
 ## Running
 Run using
 ```bash
@@ -19,6 +22,7 @@ cc -D_GNU_SOURCE \
   -lrt -lbrcmGLESv2 -lflutter_engine -lpthread -ldl -lbcm_host -lvcos -lvchiq_arm -lm \
   ./main.c -o ./flutter-pi
 ```
+
 ## Cross-Compiling
 You need a valid `libflutter_engine.so`, `flutter_embedder.h`, a valid raspberry pi sysroot including the /opt directory, and a valid toolchain targeting
 arm-linux-gnueabihf. Then execute:
