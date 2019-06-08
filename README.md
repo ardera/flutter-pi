@@ -1,5 +1,5 @@
 # flutter-pi
-A light-weight, single-file Flutter Engine Embedder for Raspberry Pi that's using the broadcom APIs. Inspired by https://github.com/chinmaygarde/flutter_from_scratch.
+A light-weight Flutter Engine Embedder for Raspberry Pi that's using the broadcom APIs. Inspired by https://github.com/chinmaygarde/flutter_from_scratch.
 
 Currently supported are basic, pure-dart Apps & mouse input (no mouse cursor yet).
 Not yet supported are Method & Platform-channels, touchscreen input; and probably a lot more.
@@ -25,6 +25,8 @@ After that `./flutter/examples/flutter_gallery/build/flutter_assets` would be a 
 ## Compiling
 You first need a valid `libflutter_engine.so`. [Here](https://medium.com/flutter/flutter-on-raspberry-pi-mostly-from-scratch-2824c5e7dcb1)
 are some rough guidelines on how to build it.
+
+Compiling the embedder:
 ```bash
 mkdir out
 cc -D_GNU_SOURCE \
