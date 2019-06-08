@@ -8,15 +8,20 @@
 #include <bcm_host.h>
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
+#include <GLES/gl.h>
 #include <linux/input.h>
+
+#include <math.h>
+#include <limits.h>
+#include <float.h>
 
 #include <flutter_embedder.h>
 
+#include "flutter-pi.h"
 #include "methodchannel.h"
 
-//#define ICUDTL_IN_EXECUTABLE_DIR
-
 #define PATH_EXISTS(path) (access((path),R_OK)==0)
+
 
 char* usage = "Flutter Raspberry Pi\n\nUsage:\n  flutter-pi <asset_bundle_path> <flutter_flags>\n";
 
@@ -37,14 +42,15 @@ DISPMANX_ELEMENT_HANDLE_T dispman_element;
 EGL_DISPMANX_WINDOW_T native_window;
 FlutterRendererConfig renderer_config;
 FlutterProjectArgs project_args;
-FlutterEngine engine;
 int mouse_filehandle;
 double mouse_x = 0;
 double mouse_y = 0;
-int last_button = -1;
+uint8_t button = 0;
 
-// flutter callbacks
-bool make_current(void* userdata) {
+/*********************
+ * FLUTTER CALLBACKS *
+ *********************/
+bool  make_current(void* userdata) {
 	if (eglMakeCurrent(display, surface, surface, context) != EGL_TRUE) {
 		fprintf(stderr, "Could not make the context current.\n");
 		return false;
@@ -52,7 +58,7 @@ bool make_current(void* userdata) {
 	
 	return true;
 }
-bool clear_current(void* userdata) {
+bool  clear_current(void* userdata) {
 	if (eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT) != EGL_TRUE) {
 		fprintf(stderr, "Could not clear the current context.\n");
 		return false;
@@ -60,10 +66,15 @@ bool clear_current(void* userdata) {
 	
 	return true;
 }
-bool present(void* userdata) {
+bool  present(void* userdata) {
 	if (eglSwapBuffers(display, surface) != EGL_TRUE) {
 		fprintf(stderr, "Could not swap buffers to present the screen.\n");
 		return false;
+	}
+
+	GLenum error = glGetError();
+	if (error != GL_NO_ERROR) {
+		printf("got gl error: %d\n", error);
 	}
 	
 	return true;
@@ -74,6 +85,8 @@ uint32_t fbo_callback(void* userdata) {
 void* proc_resolver(void* userdata, const char* name) {
 	if (name == NULL) return NULL;
 	
+	printf("calling proc_resolver with %s\n", name);
+
 	void* address;
 	if ((address = dlsym(RTLD_DEFAULT, name))) {
 		return address;
@@ -81,50 +94,22 @@ void* proc_resolver(void* userdata, const char* name) {
 	
 	return NULL;
 }
-void on_platform_message(const FlutterPlatformMessage* message, void* userdata) {
+void  on_platform_message(const FlutterPlatformMessage* message, void* userdata) {
 	printf("Got Platform Message on Channel: %s\n", message->channel);
-}
 
-bool set_window_size(size_t width, size_t height) {
-	FlutterWindowMetricsEvent event = {
-		.struct_size = sizeof(FlutterWindowMetricsEvent),
-		.width = width,
-		.height = height,
-		.pixel_ratio = 1.0
-	};
-
-	return FlutterEngineSendWindowMetricsEvent(engine, &event) == kSuccess;
-}
-bool send_pointer_event(int button, double x, double y) {
-	FlutterPointerPhase phase = kCancel;
-
-	if (last_button == -1) {
-		phase = kAdd;
-	} else if (last_button == 0 && button == 0) {
-		phase = kHover;
-	} else if (last_button == 0 && button != 0) {
-		phase = kDown;
-	} else if (last_button == button) {
-		phase = kMove;
-	} else {
-		phase = kUp;
+	struct MethodCall methodcall;
+	if (!MethodChannel_decode(message->message_size, (uint8_t*) (message->message), &methodcall)) {
+		fprintf(stderr, "Decoding method call failed\n");
+		return;
 	}
+	printf("MethodCall: method name: %s argument type: %d\n", methodcall.method, methodcall.argument.type);
 
-	last_button = button;
-
-	FlutterPointerEvent event = {
-		.struct_size = sizeof(FlutterPointerEvent),
-		.phase = phase,
-		.timestamp = (size_t) (FlutterEngineGetCurrentTime()*1000),
-		.x = x,
-		.y = y,
-		.signal_kind = kFlutterPointerSignalKindNone,
-	};
-
-	return FlutterEngineSendPointerEvent(engine, &event, 1) == kSuccess;
+	MethodChannel_freeMethodCall(&methodcall);
 }
 
-
+/******************
+ * INITIALIZATION *
+ ******************/
 bool setup_paths(void) {
 	if (!PATH_EXISTS(asset_bundle_path)) {
 		fprintf(stderr, "Asset Bundle Directory \"%s\" does not exist\n", asset_bundle_path);
@@ -285,21 +270,22 @@ void destroy_display(void) {
 bool init_application(void) {
 	// configure flutter rendering
 	renderer_config.type = kOpenGL;
-	renderer_config.open_gl.struct_size = sizeof(renderer_config.open_gl);
-	renderer_config.open_gl.make_current = &make_current;
-	renderer_config.open_gl.clear_current = &clear_current;
-	renderer_config.open_gl.present = &present;
-	renderer_config.open_gl.fbo_callback = &fbo_callback;
-	renderer_config.open_gl.gl_proc_resolver = &proc_resolver;
+	renderer_config.open_gl.struct_size		= sizeof(renderer_config.open_gl);
+	renderer_config.open_gl.make_current	= make_current;
+	renderer_config.open_gl.clear_current	= clear_current;
+	renderer_config.open_gl.present			= present;
+	renderer_config.open_gl.fbo_callback	= fbo_callback;
+	renderer_config.open_gl.gl_proc_resolver= proc_resolver;
 	
 	// configure flutter
-	project_args.struct_size = sizeof(FlutterProjectArgs);
-	project_args.assets_path = asset_bundle_path;
-	project_args.icu_data_path = icu_data_path;
-	project_args.command_line_argc = argc;
-	project_args.command_line_argv = argv;
-	project_args.platform_message_callback = &on_platform_message;
+	project_args.struct_size				= sizeof(FlutterProjectArgs);
+	project_args.assets_path				= asset_bundle_path;
+	project_args.icu_data_path				= icu_data_path;
+	project_args.command_line_argc			= argc;
+	project_args.command_line_argv			= argv;
+	project_args.platform_message_callback	= on_platform_message;
 	
+	// spin up the engine
 	FlutterEngineResult _result = FlutterEngineRun(FLUTTER_ENGINE_VERSION, &renderer_config, &project_args, NULL, &engine);
 	
 	if (_result != kSuccess) {
@@ -307,7 +293,13 @@ bool init_application(void) {
 		return false;
 	}
 
-	if (!set_window_size(width, height)) {
+	// update window size
+	bool ok = FlutterEngineSendWindowMetricsEvent(
+		engine,
+		&(FlutterWindowMetricsEvent) {.struct_size = sizeof(FlutterWindowMetricsEvent), .width=width, .height=height, .pixel_ratio=1.0}
+	) == kSuccess;
+
+	if (!ok) {
 		fprintf(stderr, "Could not update Flutter application size.\n");
 		return false;
 	}
@@ -333,49 +325,75 @@ bool init_inputs(void) {
 
 	return true;
 }
-
 bool read_input_events(void) {
-	struct input_event event[64];
+	FlutterPointerPhase	phase;
+	struct input_event	event[64];
+	bool 				ok;
 
-	send_pointer_event(0, mouse_x, mouse_y);
+	// first, tell flutter that the mouse is inside the engine window
+	ok = FlutterEngineSendPointerEvent(
+		engine,
+		& (FlutterPointerEvent) {
+			.struct_size = sizeof(FlutterPointerEvent),
+			.phase = kAdd,
+			.timestamp = (size_t) (FlutterEngineGetCurrentTime()*1000),
+			.x = mouse_x,
+			.y = mouse_y,
+			.signal_kind = kFlutterPointerSignalKindNone
+		}, 
+		1
+	) == kSuccess;
+	if (!ok) return false;
+
 
 	while (1) {
+		// read up to 64 input events
 		int rd = read(mouse_filehandle, &event, sizeof(struct input_event)*64);
-
 		if (rd < (int) sizeof(struct input_event)) {
 			perror("error reading from mouse");
 			return false;
 		}
 
+		// process the input events
+		// TODO: instead of processing an input event, and then send the single resulting Pointer Event (i.e., one at a time) to the Flutter Engine,
+		//       process all input events, and send all resulting pointer events at once.
 		for (int i = 0; i < rd / sizeof(struct input_event); i++) {
-			bool changed = false;
-			int button = last_button;
+			phase = kCancel;
 
 			if (event[i].type == EV_REL) {
-				if (event[i].code == REL_X) {
-					// mouse moved in x direction
-
+				if (event[i].code == REL_X) {			// mouse moved in the x-direction
 					mouse_x += event[i].value;
-					changed = true;
-				} else if (event[i].code == REL_Y) {
-					// mouse moved in y direction
-
+					phase = button ? kMove : kHover;
+				} else if (event[i].code == REL_Y) {	// mouse moved in the y-direction
 					mouse_y += event[i].value;
-					changed = true;
+					phase = button ? kMove : kHover;	
 				}
-			} else if (event[i].type == EV_KEY) {
-				if ((event[i].code == BTN_LEFT) || (event[i].code == BTN_RIGHT)) {
-					// mouse left or right button pressed or released
-					
-					button = event[i].value;
-					changed = true;
-				}
+			} else if ((event[i].type == EV_KEY) && ((event[i].code == BTN_LEFT) || (event[i].code == BTN_RIGHT))) {
+				// either the left or the right mouse button was pressed
+				// the 1st bit in "button" is set when BTN_LEFT is down. the 2nd bit when BTN_RIGHT is down.
+				uint8_t mask = event[i].code == BTN_LEFT ? 1 : 2;
+				if (event[i].value == 1)	button |=  mask;
+				else						button &= ~mask;
+				
+				phase = event[i].value == 1 ? kDown : kUp;
 			}
 			
-			if (changed) {
-				send_pointer_event(button, mouse_x, mouse_y);
+			if (phase != kCancel) {
+				// if something changed, send the pointer event to flutter
+				ok = FlutterEngineSendPointerEvent(
+					engine,
+					& (FlutterPointerEvent) {
+						.struct_size = sizeof(FlutterPointerEvent),
+						.timestamp = (size_t) (FlutterEngineGetCurrentTime()*1000),
+						.phase=phase,  .x=mouse_x,  .y=mouse_y,
+						.signal_kind = kFlutterPointerSignalKindNone
+					}, 
+					1
+				) == kSuccess;
+				if (!ok) return false;
 			}
 		}
+
 		printf("mouse position: %f, %f\n", mouse_x, mouse_y);
 	}
 
@@ -422,3 +440,6 @@ int main(int argc, const char *const * argv) {
 	
 	return EXIT_SUCCESS;
 }
+
+
+#undef PATH_EXISTS
