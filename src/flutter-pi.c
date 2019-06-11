@@ -1,3 +1,4 @@
+#include <features.h>
 #include <dlfcn.h>
 #include <fcntl.h>
 #include <stdio.h>
@@ -10,6 +11,9 @@
 #include <EGL/eglext.h>
 #include <GLES/gl.h>
 #include <linux/input.h>
+#include <pthread.h>
+#include <signal.h>
+#include <errno.h>
 
 #include <math.h>
 #include <limits.h>
@@ -19,8 +23,6 @@
 
 #include "flutter-pi.h"
 #include "methodchannel.h"
-
-#define PATH_EXISTS(path) (access((path),R_OK)==0)
 
 
 char* usage = "Flutter Raspberry Pi\n\nUsage:\n  flutter-pi <asset_bundle_path> <flutter_flags>\n";
@@ -47,10 +49,18 @@ double mouse_x = 0;
 double mouse_y = 0;
 uint8_t button = 0;
 
+pthread_t io_thread_id;
+pthread_t platform_thread_id;
+struct LinkedTaskListElement task_list_head_sentinel
+								= {.next = NULL, .target_time = 0, .task = {.runner = NULL, .task = 0}};
+pthread_mutex_t task_list_lock;
+bool should_notify_platform_thread = false;
+sigset_t sigusr1_set;
+
 /*********************
  * FLUTTER CALLBACKS *
  *********************/
-bool  make_current(void* userdata) {
+bool     make_current(void* userdata) {
 	if (eglMakeCurrent(display, surface, surface, context) != EGL_TRUE) {
 		fprintf(stderr, "Could not make the context current.\n");
 		return false;
@@ -58,7 +68,7 @@ bool  make_current(void* userdata) {
 	
 	return true;
 }
-bool  clear_current(void* userdata) {
+bool     clear_current(void* userdata) {
 	if (eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT) != EGL_TRUE) {
 		fprintf(stderr, "Could not clear the current context.\n");
 		return false;
@@ -66,7 +76,7 @@ bool  clear_current(void* userdata) {
 	
 	return true;
 }
-bool  present(void* userdata) {
+bool     present(void* userdata) {
 	if (eglSwapBuffers(display, surface) != EGL_TRUE) {
 		fprintf(stderr, "Could not swap buffers to present the screen.\n");
 		return false;
@@ -82,7 +92,7 @@ bool  present(void* userdata) {
 uint32_t fbo_callback(void* userdata) {
 	return 0;
 }
-void* proc_resolver(void* userdata, const char* name) {
+void*    proc_resolver(void* userdata, const char* name) {
 	if (name == NULL) return NULL;
 	
 	printf("calling proc_resolver with %s\n", name);
@@ -94,9 +104,7 @@ void* proc_resolver(void* userdata, const char* name) {
 	
 	return NULL;
 }
-void  on_platform_message(const FlutterPlatformMessage* message, void* userdata) {
-	printf("Got Platform Message on Channel: %s\n", message->channel);
-
+void     on_platform_message(const FlutterPlatformMessage* message, void* userdata) {
 	struct MethodCall methodcall;
 	if (!MethodChannel_decode(message->message_size, (uint8_t*) (message->message), &methodcall)) {
 		fprintf(stderr, "Decoding method call failed\n");
@@ -104,13 +112,110 @@ void  on_platform_message(const FlutterPlatformMessage* message, void* userdata)
 	}
 	printf("MethodCall: method name: %s argument type: %d\n", methodcall.method, methodcall.argument.type);
 
+	if (strcmp(methodcall.method, "counter") == 0) {
+		printf("method \"counter\" was called with argument %d\n", methodcall.argument.value.int_value);
+	}
+
 	MethodChannel_freeMethodCall(&methodcall);
 }
+
+/************************
+ * PLATFORM TASK-RUNNER *
+ ************************/
+void  handle_signal(int _) {}
+bool  init_message_loop() {
+	platform_thread_id = pthread_self();
+
+	// first, initialize the task heap mutex
+	if (pthread_mutex_init(&task_list_lock, NULL) != 0) {
+		fprintf(stderr, "Could not initialize task list mutex\n");
+		return false;
+	}
+
+	sigemptyset(&sigusr1_set);
+	sigaddset(&sigusr1_set, SIGUSR1);
+	
+	sigaction(SIGUSR1, &(struct sigaction) {.sa_handler = &handle_signal}, NULL);
+	pthread_sigmask(SIG_UNBLOCK, &sigusr1_set, NULL);
+
+	return true;
+}
+bool  message_loop(void) {
+	should_notify_platform_thread =  true;
+
+	while (true) {
+		pthread_mutex_lock(&task_list_lock);
+		if (task_list_head_sentinel.next == NULL) {
+			pthread_mutex_unlock(&task_list_lock);
+
+			sigwaitinfo(&sigusr1_set, NULL);
+		} else {
+			uint64_t target_time = task_list_head_sentinel.next->target_time;
+			uint64_t current_time = FlutterEngineGetCurrentTime();
+
+			if (target_time > current_time) {
+				uint64_t diff = target_time - current_time;
+
+				struct timespec target_timespec = {
+					.tv_sec = (uint64_t) (diff / 1000000000l),
+					.tv_nsec = (uint64_t) (diff % 1000000000l)
+				};
+
+				pthread_mutex_unlock(&task_list_lock);
+
+				int result = sigtimedwait(&sigusr1_set, NULL, &target_timespec);
+				if (result == EINTR) continue;
+			} else {
+				pthread_mutex_unlock(&task_list_lock);
+			}
+		}
+
+		pthread_mutex_lock(&task_list_lock);
+		FlutterTask task = task_list_head_sentinel.next->task;
+
+		struct LinkedTaskListElement* new_first = task_list_head_sentinel.next->next;
+		free(task_list_head_sentinel.next);
+		task_list_head_sentinel.next = new_first;
+		pthread_mutex_unlock(&task_list_lock);
+
+		if (FlutterEngineRunTask(engine, &task) != kSuccess) {
+			fprintf(stderr, "Error running platform task\n");
+			return false;
+		};
+	}
+
+	return true;
+}
+void  post_platform_task(FlutterTask task, uint64_t target_time, void* userdata) {
+	struct LinkedTaskListElement* to_insert = malloc(sizeof(struct LinkedTaskListElement));
+	to_insert->next = NULL;
+	to_insert->task = task;
+	to_insert->target_time = target_time;
+	
+	pthread_mutex_lock(&task_list_lock);
+	struct LinkedTaskListElement* this = &task_list_head_sentinel;
+	while ((this->next) != NULL && (target_time > this->next->target_time))
+		this = this->next;
+
+	to_insert->next = this->next;
+	this->next = to_insert;
+	pthread_mutex_unlock(&task_list_lock);
+
+	if (should_notify_platform_thread) {
+		pthread_kill(platform_thread_id, SIGUSR1);
+	}
+}
+bool  runs_platform_tasks_on_current_thread(void* userdata) {
+	return pthread_equal(pthread_self(), platform_thread_id) != 0;
+}
+
 
 /******************
  * INITIALIZATION *
  ******************/
 bool setup_paths(void) {
+	#define PATH_EXISTS(path) (access((path),R_OK)==0)
+
 	if (!PATH_EXISTS(asset_bundle_path)) {
 		fprintf(stderr, "Asset Bundle Directory \"%s\" does not exist\n", asset_bundle_path);
 		return false;
@@ -141,6 +246,8 @@ bool setup_paths(void) {
 	}
 
 	return true;
+
+	#undef PATH_EXISTS
 }
 
 bool init_display(void) {
@@ -284,6 +391,15 @@ bool init_application(void) {
 	project_args.command_line_argc			= argc;
 	project_args.command_line_argv			= argv;
 	project_args.platform_message_callback	= on_platform_message;
+	project_args.custom_task_runners		= &(FlutterCustomTaskRunners) {
+		.struct_size = sizeof(FlutterCustomTaskRunners),
+		.platform_task_runner = &(FlutterTaskRunnerDescription) {
+			.struct_size = sizeof(FlutterTaskRunnerDescription),
+			.user_data = NULL,
+			.runs_task_on_current_thread_callback = &runs_platform_tasks_on_current_thread,
+			.post_task_callback = &post_platform_task
+		}
+	};
 	
 	// spin up the engine
 	FlutterEngineResult _result = FlutterEngineRun(FLUTTER_ENGINE_VERSION, &renderer_config, &project_args, NULL, &engine);
@@ -316,7 +432,10 @@ void destroy_application(void) {
 	}
 }
 
-bool init_inputs(void) {
+/****************
+ * Input-Output *
+ ****************/
+bool  init_io(void) {
 	mouse_filehandle = open("/dev/input/event0", O_RDONLY);
 	if (mouse_filehandle < 0) {
 		perror("error opening the mouse file");
@@ -325,7 +444,7 @@ bool init_inputs(void) {
 
 	return true;
 }
-bool read_input_events(void) {
+void* io_loop(void* userdata) {
 	FlutterPointerPhase	phase;
 	struct input_event	event[64];
 	bool 				ok;
@@ -397,8 +516,24 @@ bool read_input_events(void) {
 		printf("mouse position: %f, %f\n", mouse_x, mouse_y);
 	}
 
+	return NULL;
+}
+bool  run_io_thread(void) {
+	int ok = pthread_create(&io_thread_id, NULL, &io_loop, NULL);
+	if (ok != 0) {
+		fprintf(stderr, "couldn't create flutter-pi io thread: [%s]", strerror(ok));
+		return false;
+	}
+
+	ok = pthread_setname_np(io_thread_id, "io.flutter-pi");
+	if (ok != 0) {
+		fprintf(stderr, "couldn't set name of flutter-pi io thread: [%s]", strerror(ok));
+		return false;
+	}
+
 	return true;
 }
+
 
 int main(int argc, const char *const * argv) {
 	if (argc <= 1) {
@@ -413,6 +548,10 @@ int main(int argc, const char *const * argv) {
 	if (!setup_paths()) {
 		return EXIT_FAILURE;
 	}
+
+	if (!init_message_loop()) {
+		return EXIT_FAILURE;
+	}
 	
 	// initialize display
 	printf("initializing display...\n");
@@ -421,7 +560,7 @@ int main(int argc, const char *const * argv) {
 	}
 	
 	printf("Initializing Input devices...\n");
-	if (!init_inputs()) {
+	if (!init_io()) {
 		return EXIT_FAILURE;
 	}
 
@@ -432,7 +571,12 @@ int main(int argc, const char *const * argv) {
 	}
 	
 	// read input events
-	read_input_events();
+	printf("Running IO thread...\n");
+	run_io_thread();
+
+	// run message loop
+	printf("Running message loop...\n");
+	message_loop();
 
 	// exit
 	destroy_application();
@@ -440,6 +584,3 @@ int main(int argc, const char *const * argv) {
 	
 	return EXIT_SUCCESS;
 }
-
-
-#undef PATH_EXISTS

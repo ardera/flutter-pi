@@ -22,6 +22,7 @@
 #define _ALIGN_REMAINING(buffer, remaining, n) do {(buffer) = (uint8_t*) ((((uint64_t) (buffer) + (n)-1) | (n)-1) - (n-1));} while (false);
 #define ALIGN(...) _GET_MACRO(__VA_ARGS__, _ALIGN_REMAINING, _ALIGN)(__VA_ARGS__)
 
+#define ASSERT_RETURN_BOOL(cond, err) if (!(cond)) {fprintf(stderr, "%s\n", err); return false;}
 
 bool MethodChannel_calculateValueSizeInBuffer(struct MethodChannelValue* value, size_t* p_buffer_size) {
 	MessageValueDiscriminator type = value->type;
@@ -298,56 +299,51 @@ bool MethodChannel_respond(FlutterPlatformMessageResponseHandle* response_handle
 
 
 bool MethodChannel_decodeSize(uint8_t** p_buffer, size_t* buffer_remaining, size_t* size) {
-	assert((*buffer_remaining >= 1) && "Error decoding platform message: while decoding size: message ended too soon");
-	*size = **p_buffer;
+	ASSERT_RETURN_BOOL(*buffer_remaining >= 1, "Error decoding platform message: while decoding size: message ended too soon")
+	*size = *(uint8_t*) *p_buffer;
 	NEXT(*p_buffer, *buffer_remaining)
 
 	if (*size == 254) {
-		assert((*buffer_remaining >= 2) && "Error decoding platform message: while decoding size: message ended too soon");
+		ASSERT_RETURN_BOOL(*buffer_remaining >= 2, "Error decoding platform message: while decoding size: message ended too soon")
 		*size = *(uint16_t*) *p_buffer;
 		NEXTN(*p_buffer, *buffer_remaining, 2)
-
-		return true;
-	} else {
-		assert((*buffer_remaining >= 4) && "Error decoding platform message: while decoding size: message ended too soon");
+	} else if (*size == 255) {
+		ASSERT_RETURN_BOOL(*buffer_remaining >= 4, "Error decoding platform message: while decoding size: message ended too soon")
 		*size = *(uint32_t*) *p_buffer;
 		NEXTN(*p_buffer, *buffer_remaining, 4)
-
-		return true;
 	}
 
 	return true;
 }
 bool MethodChannel_decodeValue(uint8_t** p_buffer, size_t* buffer_remaining, struct MethodChannelValue* value) {
-	assert((*buffer_remaining >= 1) && "Error decoding platform message: while decoding value type: message ended to soon");
-
+	ASSERT_RETURN_BOOL(*buffer_remaining >= 1, "Error decoding platform message: while decoding value type: message ended to soon")
 	MessageValueDiscriminator type = **p_buffer;
 	NEXT(*p_buffer, *buffer_remaining)
 
 	value->type = type;
 
-	size_t size; char* c_string; uint8_t* byteArray; int32_t* intArray; int64_t* longArray;
+	size_t size = 0; char* c_string = 0; uint8_t* byteArray = 0; int32_t* intArray = 0; int64_t* longArray = 0;
 	switch (type) {
 		case kNull:
 		case kTrue:
 		case kFalse:
 			break;
 		case kTypeInt:
-			assert((*buffer_remaining >= 4) && "Error decoding platform message: while decoding kTypeInt: message ended to soon");
+			ASSERT_RETURN_BOOL(*buffer_remaining >= 4, "Error decoding platform message: while decoding kTypeInt: message ended to soon")
 
 			value->value.int_value = *(int32_t*) *p_buffer;
 			NEXTN(*p_buffer, *buffer_remaining, 4)
 
 			break;
 		case kTypeLong:
-			assert((*buffer_remaining >= 8) && "Error decoding platform message: while decoding kTypeLong: message ended too soon");
+			ASSERT_RETURN_BOOL(*buffer_remaining >= 8, "Error decoding platform message: while decoding kTypeLong: message ended too soon")
 
 			value->value.long_value = *(int64_t*) *p_buffer;
 			NEXTN(*p_buffer, *buffer_remaining, 8)
 
 			break;
 		case kTypeDouble:
-			assert((*buffer_remaining >= 8 + ALIGNMENT_DIFF(*p_buffer, 8)) && "Error decoding platform message: while decoding kTypeDouble: message ended too soon");
+			ASSERT_RETURN_BOOL(*buffer_remaining >= 8 + ALIGNMENT_DIFF(*p_buffer, 8), "Error decoding platform message: while decoding kTypeDouble: message ended too soon")
 			ALIGN(*p_buffer, *buffer_remaining, 8)
 
 			value->value.double_value = *(double*) *p_buffer;
@@ -357,7 +353,7 @@ bool MethodChannel_decodeValue(uint8_t** p_buffer, size_t* buffer_remaining, str
 		case kTypeString:
 			if (!MethodChannel_decodeSize(p_buffer, buffer_remaining, &size)) return false;
 
-			assert((*buffer_remaining >= size) && "Error decoding platform message: while decoding kTypeString: message ended too soon");
+			ASSERT_RETURN_BOOL(*buffer_remaining >= size, "Error decoding platform message: while decoding kTypeString: message ended too soon")
 			char* c_string = calloc(size+1, sizeof(char));
 
 			for (int i = 0; i < size; i++) {
@@ -370,7 +366,7 @@ bool MethodChannel_decodeValue(uint8_t** p_buffer, size_t* buffer_remaining, str
 		case kTypeByteArray:
 			if (!MethodChannel_decodeSize(p_buffer, buffer_remaining, &size)) return false;
 
-			assert((*buffer_remaining >= size) && "Error decoding platform message: while decoding kTypeByteArray: message ended too soon");
+			ASSERT_RETURN_BOOL(*buffer_remaining >= size, "Error decoding platform message: while decoding kTypeByteArray: message ended too soon")
 			value->value.bytearray_value.size = size;
 			value->value.bytearray_value.array = *p_buffer;
 			
@@ -380,7 +376,7 @@ bool MethodChannel_decodeValue(uint8_t** p_buffer, size_t* buffer_remaining, str
 		case kTypeIntArray:
 			if (!MethodChannel_decodeSize(p_buffer, buffer_remaining, &size)) return false;
 
-			assert((*buffer_remaining >= size*4 + ALIGNMENT_DIFF(*p_buffer, 4)) && "Error decoding platform message: while decoding kTypeIntArray: message ended too soon");
+			ASSERT_RETURN_BOOL(*buffer_remaining >= size*4 + ALIGNMENT_DIFF(*p_buffer, 4), "Error decoding platform message: while decoding kTypeIntArray: message ended too soon")
 			ALIGN(*p_buffer, *buffer_remaining, 4)
 
 			value->value.intarray_value.size = size;
@@ -392,7 +388,7 @@ bool MethodChannel_decodeValue(uint8_t** p_buffer, size_t* buffer_remaining, str
 		case kTypeLongArray:
 			if (!MethodChannel_decodeSize(p_buffer, buffer_remaining, &size)) return false;
 
-			assert((*buffer_remaining >= size*8 + ALIGNMENT_DIFF(*p_buffer, 8)) && "Error decoding platform message: while decoding kTypeLongArray: message ended too soon");
+			ASSERT_RETURN_BOOL(*buffer_remaining >= size*8 + ALIGNMENT_DIFF(*p_buffer, 8), "Error decoding platform message: while decoding kTypeLongArray: message ended too soon")
 			ALIGN(*p_buffer, *buffer_remaining, 8)
 
 			value->value.longarray_value.size = size;
@@ -404,7 +400,7 @@ bool MethodChannel_decodeValue(uint8_t** p_buffer, size_t* buffer_remaining, str
 		case kTypeDoubleArray:
 			if (!MethodChannel_decodeSize(p_buffer, buffer_remaining, &size)) return false;
 
-			assert((*buffer_remaining >= size*8 + ALIGNMENT_DIFF(*p_buffer, 8)) && "Error decoding platform message: while decoding kTypeIntArray: message ended too soon");
+			ASSERT_RETURN_BOOL(*buffer_remaining >= size*8 + ALIGNMENT_DIFF(*p_buffer, 8), "Error decoding platform message: while decoding kTypeIntArray: message ended too soon")
 			ALIGN(*p_buffer, *buffer_remaining, 8)
 
 			value->value.doublearray_value.size = size;
@@ -445,7 +441,7 @@ bool MethodChannel_decodeValue(uint8_t** p_buffer, size_t* buffer_remaining, str
 }
 bool MethodChannel_decode(size_t buffer_size, uint8_t* buffer, struct MethodCall* result) {
 	uint8_t* buffer_cursor = buffer;
-	size_t buffer_remaining = buffer_size;
+	size_t  buffer_remaining = buffer_size;
 	
 	struct MethodChannelValue method_name;
 	if (!MethodChannel_decodeValue(&buffer_cursor, &buffer_remaining, &method_name)) return false;
