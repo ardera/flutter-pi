@@ -10,6 +10,13 @@ struct LinkedTaskListElement {
     uint64_t target_time;
 };
 
+struct TouchscreenSlot {
+	int id;
+	int x;
+	int y;
+	FlutterPointerPhase phase;
+};
+
 FlutterEngine engine;
 
 #endif

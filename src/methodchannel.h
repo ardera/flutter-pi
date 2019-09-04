@@ -55,10 +55,14 @@ struct MethodChannelValue {
             size_t size;
             struct MethodChannelValue* map;
         } map_value;
-    } value;
+    };
 };
 
 struct MethodCall {
+    enum {
+        kStandardProtocol,
+        kJSONProtocol
+    } protocol;
     char* method;
     struct MethodChannelValue argument;
 };

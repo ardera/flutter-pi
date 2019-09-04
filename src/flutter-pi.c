@@ -25,14 +25,21 @@
 #include "methodchannel.h"
 
 
-char* usage = "Flutter Raspberry Pi\n\nUsage:\n  flutter-pi <asset_bundle_path> <flutter_flags>\n";
+char* usage ="\
+Flutter for Raspberry Pi\n\n\
+Usage:\n\
+  flutter-pi [options] <asset_bundle_path> <flutter_flags...>\n\n\
+Options:\n\
+  -m <device_path>   Path to the mouse device file. Typically /dev/input/mouseX or /dev/input/eventX\n\
+  -t <device_path>   Path to the touchscreen device file. Typically /dev/input/touchscreenX or /dev/input/eventX\n\
+";
 
-int argc;
-const char* const *argv;
-char asset_bundle_path[1024];
-char kernel_blob_path[1024];
-char executable_path[1024];
-char icu_data_path[1024];
+int engine_argc;
+const char* const *engine_argv;
+char asset_bundle_path[1024] 	= {0};
+char kernel_blob_path[1024] 	= {0};
+char executable_path[1024] 		= {0};
+char icu_data_path[1024] 		= {0};
 uint32_t width;
 uint32_t height;
 EGLDisplay display;
@@ -44,10 +51,15 @@ DISPMANX_ELEMENT_HANDLE_T dispman_element;
 EGL_DISPMANX_WINDOW_T native_window;
 FlutterRendererConfig renderer_config;
 FlutterProjectArgs project_args;
-int mouse_filehandle;
+
+bool input_is_mouse = false;
+char input_device_path[1024];
+int  input_filehandle;
 double mouse_x = 0;
 double mouse_y = 0;
 uint8_t button = 0;
+struct TouchscreenSlot ts_slots[10];
+struct TouchscreenSlot* ts_slot = &(ts_slots[0]);
 
 pthread_t io_thread_id;
 pthread_t platform_thread_id;
@@ -77,10 +89,15 @@ bool     clear_current(void* userdata) {
 	return true;
 }
 bool     present(void* userdata) {
+	printf("*** PRESENT ***\n");
+	eglWaitClient();
+
 	if (eglSwapBuffers(display, surface) != EGL_TRUE) {
 		fprintf(stderr, "Could not swap buffers to present the screen.\n");
 		return false;
 	}
+
+	eglWaitNative(EGL_CORE_NATIVE_ENGINE);
 
 	GLenum error = glGetError();
 	if (error != GL_NO_ERROR) {
@@ -94,8 +111,6 @@ uint32_t fbo_callback(void* userdata) {
 }
 void*    proc_resolver(void* userdata, const char* name) {
 	if (name == NULL) return NULL;
-	
-	printf("calling proc_resolver with %s\n", name);
 
 	void* address;
 	if ((address = dlsym(RTLD_DEFAULT, name))) {
@@ -113,7 +128,7 @@ void     on_platform_message(const FlutterPlatformMessage* message, void* userda
 	printf("MethodCall: method name: %s argument type: %d\n", methodcall.method, methodcall.argument.type);
 
 	if (strcmp(methodcall.method, "counter") == 0) {
-		printf("method \"counter\" was called with argument %d\n", methodcall.argument.value.int_value);
+		printf("method \"counter\" was called with argument %d\n", methodcall.argument.int_value);
 	}
 
 	MethodChannel_freeMethodCall(&methodcall);
@@ -276,6 +291,9 @@ bool init_display(void) {
 		EGL_GREEN_SIZE,		8,
 		EGL_BLUE_SIZE,		8,
 		EGL_ALPHA_SIZE,		8,
+		EGL_DEPTH_SIZE,		8,
+		EGL_STENCIL_SIZE,	1,
+		EGL_RENDERABLE_TYPE,EGL_OPENGL_ES2_BIT,
 		EGL_SURFACE_TYPE,	EGL_WINDOW_BIT,
 		EGL_NONE
 	};
@@ -288,8 +306,7 @@ bool init_display(void) {
 	
 	// create the EGL context
 	EGLint context_attributes[] = {
-		EGL_CONTEXT_CLIENT_VERSION,
-		2,
+		EGL_CONTEXT_CLIENT_VERSION,	2,
 		EGL_NONE
 	};
 	
@@ -383,13 +400,14 @@ bool init_application(void) {
 	renderer_config.open_gl.present			= present;
 	renderer_config.open_gl.fbo_callback	= fbo_callback;
 	renderer_config.open_gl.gl_proc_resolver= proc_resolver;
+	//renderer_config.open_gl.fbo_reset_after_present = true;
 	
 	// configure flutter
 	project_args.struct_size				= sizeof(FlutterProjectArgs);
 	project_args.assets_path				= asset_bundle_path;
 	project_args.icu_data_path				= icu_data_path;
-	project_args.command_line_argc			= argc;
-	project_args.command_line_argv			= argv;
+	project_args.command_line_argc			= engine_argc;
+	project_args.command_line_argv			= engine_argv;
 	project_args.platform_message_callback	= on_platform_message;
 	project_args.custom_task_runners		= &(FlutterCustomTaskRunners) {
 		.struct_size = sizeof(FlutterCustomTaskRunners),
@@ -436,9 +454,9 @@ void destroy_application(void) {
  * Input-Output *
  ****************/
 bool  init_io(void) {
-	mouse_filehandle = open("/dev/input/event0", O_RDONLY);
-	if (mouse_filehandle < 0) {
-		perror("error opening the mouse file");
+	input_filehandle = open(input_device_path, O_RDONLY);
+	if (input_filehandle < 0) {
+		perror("error opening the input device file");
 		return false;
 	}
 
@@ -447,29 +465,36 @@ bool  init_io(void) {
 void* io_loop(void* userdata) {
 	FlutterPointerPhase	phase;
 	struct input_event	event[64];
+	struct input_event*	ev;
+	FlutterPointerEvent pointer_event[64];
+	int					n_pointerevents = 0;
 	bool 				ok;
 
 	// first, tell flutter that the mouse is inside the engine window
-	ok = FlutterEngineSendPointerEvent(
-		engine,
-		& (FlutterPointerEvent) {
-			.struct_size = sizeof(FlutterPointerEvent),
-			.phase = kAdd,
-			.timestamp = (size_t) (FlutterEngineGetCurrentTime()*1000),
-			.x = mouse_x,
-			.y = mouse_y,
-			.signal_kind = kFlutterPointerSignalKindNone
+	if (input_is_mouse) {
+		ok = FlutterEngineSendPointerEvent(
+			engine,
+			& (FlutterPointerEvent) {
+				.struct_size = sizeof(FlutterPointerEvent),
+				.phase = kAdd,
+				.timestamp = (size_t) (FlutterEngineGetCurrentTime()*1000),
+				.x = mouse_x,
+				.y = mouse_y,
+				.signal_kind = kFlutterPointerSignalKindNone
+			}, 
 		}, 
-		1
-	) == kSuccess;
-	if (!ok) return false;
+			}, 
+			1
+		) == kSuccess;
+		if (!ok) return false;
+	}
 
-
-	while (1) {
+	// mouse
+	while (input_is_mouse) {
 		// read up to 64 input events
-		int rd = read(mouse_filehandle, &event, sizeof(struct input_event)*64);
+		int rd = read(input_filehandle, &event, sizeof(struct input_event)*64);
 		if (rd < (int) sizeof(struct input_event)) {
-			perror("error reading from mouse");
+			perror("error reading from input device");
 			return false;
 		}
 
@@ -478,23 +503,32 @@ void* io_loop(void* userdata) {
 		//       process all input events, and send all resulting pointer events at once.
 		for (int i = 0; i < rd / sizeof(struct input_event); i++) {
 			phase = kCancel;
+			ev = &(event[i]);
 
-			if (event[i].type == EV_REL) {
-				if (event[i].code == REL_X) {			// mouse moved in the x-direction
-					mouse_x += event[i].value;
+			if (ev->type == EV_REL) {
+				if (ev->code == REL_X) {			// mouse moved in the x-direction
+					mouse_x += ev->value;
 					phase = button ? kMove : kHover;
-				} else if (event[i].code == REL_Y) {	// mouse moved in the y-direction
-					mouse_y += event[i].value;
+				} else if (ev->code == REL_Y) {	// mouse moved in the y-direction
+					mouse_y += ev->value;
 					phase = button ? kMove : kHover;	
 				}
-			} else if ((event[i].type == EV_KEY) && ((event[i].code == BTN_LEFT) || (event[i].code == BTN_RIGHT))) {
+			} else if (ev->type == EV_ABS) {
+				if (ev->code == ABS_X) {
+					mouse_x = ev->value;
+					phase = button ? kMove : kHover;
+				} else if (ev->code == ABS_Y) {
+					mouse_y = ev->value;
+					phase = button ? kMove : kHover;
+				}
+			} else if ((ev->type == EV_KEY) && ((ev->code == BTN_LEFT) || (ev->code == BTN_RIGHT))) {
 				// either the left or the right mouse button was pressed
 				// the 1st bit in "button" is set when BTN_LEFT is down. the 2nd bit when BTN_RIGHT is down.
-				uint8_t mask = event[i].code == BTN_LEFT ? 1 : 2;
-				if (event[i].value == 1)	button |=  mask;
+				uint8_t mask = ev->code == BTN_LEFT ? 1 : 2;
+				if (ev->value == 1)	button |=  mask;
 				else						button &= ~mask;
 				
-				phase = event[i].value == 1 ? kDown : kUp;
+				phase = ev->value == 1 ? kDown : kUp;
 			}
 			
 			if (phase != kCancel) {
@@ -516,6 +550,90 @@ void* io_loop(void* userdata) {
 		printf("mouse position: %f, %f\n", mouse_x, mouse_y);
 	}
 
+	if (!input_is_mouse) {
+		for (int j = 0; j<10; j++) {
+			printf("Sending kAdd %d to Flutter Engine\n", j);
+			ts_slots[j].id = -1;
+			ok = FlutterEngineSendPointerEvent(
+				engine,
+				& (FlutterPointerEvent) {
+					.struct_size = sizeof(FlutterPointerEvent),
+					.phase = kAdd,
+					.timestamp = (size_t) (FlutterEngineGetCurrentTime()*1000),
+					.device = j,
+					.x = 0,
+					.y = 0,
+					.signal_kind = kFlutterPointerSignalKindNone
+				},
+				1
+			) == kSuccess;
+			if (!ok) {
+				fprintf(stderr, "Error sending Pointer message to flutter engine\n");
+				return false;
+			}
+		}
+	}
+
+	// touchscreen
+	while (!input_is_mouse) {
+		int rd = read(input_filehandle, &event, sizeof(struct input_event)*64);
+		if (rd < (int) sizeof(struct input_event)) {
+			perror("error reading from input device");
+			return false;
+		}
+
+		n_pointerevents = 0;
+		for (int i = 0; i < rd / sizeof(struct input_event); i++) {
+			ev = &(event[i]);
+
+			if (ev->type == EV_ABS) {
+				if (ev->code == ABS_MT_SLOT) {
+					ts_slot = &(ts_slots[ev->value]);
+				} else if (ev->code == ABS_MT_TRACKING_ID) {
+					if (ts_slot->id == -1) {
+						ts_slot->id = ev->value;
+						ts_slot->phase = kDown;
+					} else if (ev->value == -1) {
+						ts_slot->id = ev->value;
+						ts_slot->phase = kUp;
+					}
+				} else if (ev->code == ABS_MT_POSITION_X) {
+					ts_slot->x = ev->value;
+					if (ts_slot->phase == kCancel) ts_slot->phase = kMove;
+				} else if (ev->code == ABS_MT_POSITION_Y) {
+					ts_slot->y = ev->value;
+					if (ts_slot->phase == kCancel) ts_slot->phase = kMove;
+				}
+			} else if ((ev->type == EV_SYN) && (ev->code == SYN_REPORT)) {
+				for (int j = 0; j < 10; j++) {
+					if (ts_slots[j].phase != kCancel) {
+						pointer_event[n_pointerevents++] = (FlutterPointerEvent) {
+							.struct_size = sizeof(FlutterPointerEvent),
+							.phase = ts_slots[j].phase,
+							.timestamp = (size_t) (FlutterEngineGetCurrentTime()*1000),
+							.device = j,
+							.x = ts_slots[j].x,
+							.y = ts_slots[j].y,
+							.signal_kind = kFlutterPointerSignalKindNone
+						};
+						ts_slots[j].phase = kCancel;
+					}
+				}
+			}
+		}
+
+		ok = FlutterEngineSendPointerEvent(
+			engine,
+			pointer_event,
+			n_pointerevents
+		) == kSuccess;
+
+		if (!ok) {
+			fprintf(stderr, "Error sending pointer events to flutter\n");
+			return false;
+		}
+	}
+
 	return NULL;
 }
 bool  run_io_thread(void) {
@@ -534,17 +652,58 @@ bool  run_io_thread(void) {
 	return true;
 }
 
+bool  parse_cmd_args(int argc, const char *const * argv) {
+	int opt;
+	int index = 0;
+
+	while ((opt = getopt(argc, (char *const *) argv, "m:t:")) != -1) {
+		index++;
+		switch(opt) {
+			case 'm':
+				printf("Using mouse input from mouse %s\n", optarg);
+				snprintf(input_device_path, 1023, "%s", optarg);
+				input_is_mouse = true;
+
+				index++;
+				break;
+			case 't':
+				printf("Using touchscreen input from %s\n", optarg);
+				snprintf(input_device_path, 1023, "%s", optarg);
+				input_is_mouse = false;
+
+				index++;
+				break;
+			default:
+				fprintf(stderr, "Unknown Option: %c\n%s", (char) optopt, usage);
+				return false;
+		}
+	}
+
+	if (strlen(input_device_path) == 0) {
+		fprintf(stderr, "At least one of -t or -r has to be given\n%s", usage);
+		return false;
+	}
+
+	if (optind >= argc) {
+		fprintf(stderr, "Expected Asset bundle path argument after options\n%s", usage);
+		return false;
+	}
+
+	snprintf(asset_bundle_path, 1023, "%s", argv[optind]);
+	printf("Asset bundle path: %s\n", asset_bundle_path);
+
+	engine_argc = argc-optind-1;
+	engine_argv = &(argv[optind+1]);
+
+	return true;
+}
 
 int main(int argc, const char *const * argv) {
-	if (argc <= 1) {
-		fprintf(stderr, "Invalid Arguments\n");
-		fprintf(stdout, "%s", usage);
+	if (!parse_cmd_args(argc, argv)) {
 		return EXIT_FAILURE;
 	}
-	
+
 	// check if asset bundle path is valid
-	printf("asset_bundle_path: %s\n", argv[1]);
-	snprintf(asset_bundle_path, 1024, "%s", argv[1]);
 	if (!setup_paths()) {
 		return EXIT_FAILURE;
 	}
