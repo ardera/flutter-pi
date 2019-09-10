@@ -437,7 +437,10 @@ bool MethodChannel_decodeValue(uint8_t** p_buffer, size_t* buffer_remaining, str
 
 	return true;
 }
-bool MethodChannel_decode(size_t buffer_size, uint8_t* buffer, struct MethodCall* result) {
+bool MethodChannel_decode(size_t buffer_size, uint8_t* buffer, struct MethodCall** presult) {
+	*presult = malloc(sizeof(struct MethodCall));
+	struct MethodCall* result = *presult;
+	
 	uint8_t* buffer_cursor = buffer;
 	size_t  buffer_remaining = buffer_size;
 	
@@ -487,9 +490,14 @@ bool MethodChannel_freeValue(struct MethodChannelValue* p_value) {
 
 	return true;
 }
-bool MethodChannel_freeMethodCall(struct MethodCall* methodcall) {
+bool MethodChannel_freeMethodCall(struct MethodCall **pmethodcall) {
+	struct MethodCall* methodcall = *pmethodcall;
+
 	free(methodcall->method);
 	if (!MethodChannel_freeValue(&(methodcall->argument))) return false;
+	free(methodcall);
+
+	*pmethodcall = NULL;
 
 	return true;
 }
