@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <string.h>
+#include <stdlib.h>
 #include <unistd.h>
 #include <stdbool.h>
 #include <pthread.h>
@@ -15,7 +16,6 @@
 #include <float.h>
 #include <assert.h>
 
-//#include <bcm_host.h>
 #include <xf86drm.h>
 #include <xf86drmMode.h>
 #include <drm_fourcc.h>
@@ -29,6 +29,7 @@
 
 #include "flutter-pi.h"
 #include "methodchannel.h"
+
 
 char* usage ="\
 Flutter for Raspberry Pi\n\n\
@@ -118,6 +119,7 @@ struct LinkedTaskListElement task_list_head_sentinel = {
 pthread_mutex_t task_list_lock;
 bool should_notify_platform_thread = false;
 sigset_t sigusr1_set;
+
 
 
 /*********************
@@ -403,6 +405,8 @@ void	 		vsync_callback(void* userdata, intptr_t baton) {
 	drmWaitVBlank(drm.fd, &vbl);
 }
 
+
+
 /************************
  * PLATFORM TASK-RUNNER *
  ************************/
@@ -492,6 +496,7 @@ void  post_platform_task(FlutterTask task, uint64_t target_time, void* userdata)
 bool  runs_platform_tasks_on_current_thread(void* userdata) {
 	return pthread_equal(pthread_self(), platform_thread_id) != 0;
 }
+
 
 
 /******************
@@ -894,6 +899,8 @@ void destroy_application(void) {
 	}
 }
 
+
+
 /****************
  * Input-Output *
  ****************/
@@ -1095,6 +1102,7 @@ bool  run_io_thread(void) {
 
 	return true;
 }
+
 
 
 bool  parse_cmd_args(int argc, char **argv) {
