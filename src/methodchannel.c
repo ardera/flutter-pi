@@ -48,21 +48,21 @@ bool MethodChannel_calculateValueSizeInBuffer(struct MethodChannelValue* value, 
 
 			break;
 		case kTypeString:
-			size = strlen(value->value.string_value);
+			size = strlen(value->string_value);
 
 			*p_buffer_size += (size < 254) ? 1 : (size <= 0xFFFF) ? 3 : 5;	// write array size
 			*p_buffer_size += size;
 
 			break;
 		case kTypeByteArray:
-			size = value->value.bytearray_value.size;
+			size = value->bytearray_value.size;
 
 			*p_buffer_size += (size < 254) ? 1 : (size <= 0xFFFF) ? 3 : 5;	// write array size
 			*p_buffer_size += size;
 
 			break;
 		case kTypeIntArray:
-			size = value->value.intarray_value.size;
+			size = value->intarray_value.size;
 
 			*p_buffer_size += (size < 254) ? 1 : (size <= 0xFFFF) ? 3 : 5;	// write array size
 			*p_buffer_size = (((*p_buffer_size) + 3) | 3) - 3;				// 4-byte aligned
@@ -70,7 +70,7 @@ bool MethodChannel_calculateValueSizeInBuffer(struct MethodChannelValue* value, 
 
 			break;
 		case kTypeLongArray:
-			size = value->value.longarray_value.size;
+			size = value->longarray_value.size;
 			
 			*p_buffer_size += (size < 254) ? 1 : (size <= 0xFFFF) ? 3 : 5;	// write array size
 			*p_buffer_size = (((*p_buffer_size) + 7) | 7) - 7;				// 8-byte aligned
@@ -78,7 +78,7 @@ bool MethodChannel_calculateValueSizeInBuffer(struct MethodChannelValue* value, 
 
 			break;
 		case kTypeDoubleArray:
-			size = value->value.doublearray_value.size;
+			size = value->doublearray_value.size;
 			
 			*p_buffer_size += (size < 254) ? 1 : (size <= 0xFFFF) ? 3 : 5;	// write array size
 			*p_buffer_size = (((*p_buffer_size) + 7) | 7) - 7;				// 8-byte aligned
@@ -86,20 +86,20 @@ bool MethodChannel_calculateValueSizeInBuffer(struct MethodChannelValue* value, 
 
 			break;
 		case kTypeList:
-			size = value->value.list_value.size;
+			size = value->list_value.size;
 
 			*p_buffer_size += (size < 254) ? 1 : (size <= 0xFFFF) ? 3 : 5;	// write list size
 			for (int i = 0; i<size; i++)
-				if (!MethodChannel_calculateValueSizeInBuffer(&(value->value.list_value.list[i]), p_buffer_size))    return false;
+				if (!MethodChannel_calculateValueSizeInBuffer(&(value->list_value.list[i]), p_buffer_size))    return false;
 			
 			break;
 		case kTypeMap:
-			size = value->value.map_value.size;
+			size = value->map_value.size;
 
 			*p_buffer_size += (size < 254) ? 1 : (size <= 0xFFFF) ? 3 : 5;	// write map size
 			for (int i = 0; i<size; i++) {
-				if (!MethodChannel_calculateValueSizeInBuffer(&(value->value.list_value.list[i*2  ]), p_buffer_size)) return false;
-				if (!MethodChannel_calculateValueSizeInBuffer(&(value->value.list_value.list[i*2+1]), p_buffer_size)) return false;
+				if (!MethodChannel_calculateValueSizeInBuffer(&(value->list_value.list[i*2  ]), p_buffer_size)) return false;
+				if (!MethodChannel_calculateValueSizeInBuffer(&(value->list_value.list[i*2+1]), p_buffer_size)) return false;
 			}
 
 			break;
@@ -145,31 +145,31 @@ bool MethodChannel_writeValueToBuffer(struct MethodChannelValue* value, uint8_t*
 		case kFalse:
 			break;
 		case kTypeInt:
-			*(int32_t*) *p_buffer = value->value.int_value;
+			*(int32_t*) *p_buffer = value->int_value;
 			NEXTN(*p_buffer, 4)
 			break;
 		case kTypeLong:
-			*(int64_t*) *p_buffer = value->value.long_value;
+			*(int64_t*) *p_buffer = value->long_value;
 			NEXTN(*p_buffer, 8)
 			break;
 		case kTypeDouble:
 			MethodChannel_alignBuffer(8, p_buffer);
 			
-			*(double*) *p_buffer = value->value.double_value;
+			*(double*) *p_buffer = value->double_value;
 			NEXTN(*p_buffer, 8)
 			break;
 		case kTypeBigInt:
 		case kTypeString:
 		case kTypeByteArray:
 			if (value->type == kTypeBigInt) {
-				size = strlen(value->value.bigint_value);
-				byteArray = (uint8_t*) value->value.bigint_value;
+				size = strlen(value->bigint_value);
+				byteArray = (uint8_t*) value->bigint_value;
 			} else if (value->type == kTypeString) {
-				size = strlen(value->value.string_value);
-				byteArray = (uint8_t*) value->value.string_value;
+				size = strlen(value->string_value);
+				byteArray = (uint8_t*) value->string_value;
 			} else if (value->type == kTypeByteArray) {
-				size = value->value.bytearray_value.size;
-				byteArray = (uint8_t*) value->value.bytearray_value.array;
+				size = value->bytearray_value.size;
+				byteArray = (uint8_t*) value->bytearray_value.array;
 			}
 
 			MethodChannel_writeSizeValueToBuffer(size, p_buffer);
@@ -179,55 +179,55 @@ bool MethodChannel_writeValueToBuffer(struct MethodChannelValue* value, uint8_t*
 			}
 			break;
 		case kTypeIntArray:
-			size = value->value.intarray_value.size;
+			size = value->intarray_value.size;
 
 			MethodChannel_writeSizeValueToBuffer(size, p_buffer);
 			MethodChannel_alignBuffer(4, p_buffer);
 			
 			for (int i=0; i<size; i++) {
-				*(int32_t*) *p_buffer = value->value.intarray_value.array[i];
+				*(int32_t*) *p_buffer = value->intarray_value.array[i];
 				NEXTN(*p_buffer, 4)
 			}
 			break;
 		case kTypeLongArray:
-			size = value->value.longarray_value.size;
+			size = value->longarray_value.size;
 
 			MethodChannel_writeSizeValueToBuffer(size, p_buffer);
 			MethodChannel_alignBuffer(8, p_buffer);
 
 			for (int i=0; i<size; i++) {
-				*(int64_t*) *p_buffer = value->value.longarray_value.array[i];
+				*(int64_t*) *p_buffer = value->longarray_value.array[i];
 				NEXTN(*p_buffer, 8)
 			}
 			break;
 		case kTypeDoubleArray:
-			size = value->value.doublearray_value.size;
+			size = value->doublearray_value.size;
 
 			MethodChannel_writeSizeValueToBuffer(size, p_buffer);
 			MethodChannel_alignBuffer(8, p_buffer);
 
 			for (int i=0; i<size; i++) {
-				*(double*) *p_buffer = value->value.doublearray_value.array[i];
+				*(double*) *p_buffer = value->doublearray_value.array[i];
 				NEXTN(*p_buffer, 8)
 			}
 			break;
 		case kTypeList:
-			size = value->value.list_value.size;
+			size = value->list_value.size;
 
 			MethodChannel_writeSizeValueToBuffer(size, p_buffer);
 
 			for (int i=0; i<size; i++)
-				if (!MethodChannel_writeValueToBuffer(&(value->value.list_value.list[i]), p_buffer)) return false;
+				if (!MethodChannel_writeValueToBuffer(&(value->list_value.list[i]), p_buffer)) return false;
 			
 			break;
 		case kTypeMap:
-			size = value->value.map_value.size;
+			size = value->map_value.size;
 
 			MethodChannel_writeSizeValueToBuffer(size, p_buffer);
 
 			for (int i=0; i<size; i++) {
-				if (!MethodChannel_writeValueToBuffer(&(value->value.map_value.map[i*2  ]), p_buffer)) return false;
-				if (!MethodChannel_writeValueToBuffer(&(value->value.map_value.map[i*2+1]), p_buffer)) return false;
+				if (!MethodChannel_writeValueToBuffer(&(value->map_value.map[i*2  ]), p_buffer)) return false;
+				if (!MethodChannel_writeValueToBuffer(&(value->map_value.map[i*2+1]), p_buffer)) return false;
 			}
 			break;
 		default:
@@ -246,9 +246,7 @@ bool MethodChannel_call(char* channel, char* method, struct MethodChannelValue* 
 	// the method name is encoded as a String value and is the first value written to the buffer.
 	struct MethodChannelValue method_name_value = {
 		.type = kTypeString,
-		.value = {
-			.string_value = method
-		}
+		.string_value = method
 	};
 
 	// calculate buffer size
@@ -331,14 +329,14 @@ bool MethodChannel_decodeValue(uint8_t** p_buffer, size_t* buffer_remaining, str
 		case kTypeInt:
 			ASSERT_RETURN_BOOL(*buffer_remaining >= 4, "Error decoding platform message: while decoding kTypeInt: message ended to soon")
 
-			value->value.int_value = *(int32_t*) *p_buffer;
+			value->int_value = *(int32_t*) *p_buffer;
 			NEXTN(*p_buffer, *buffer_remaining, 4)
 
 			break;
 		case kTypeLong:
 			ASSERT_RETURN_BOOL(*buffer_remaining >= 8, "Error decoding platform message: while decoding kTypeLong: message ended too soon")
 
-			value->value.long_value = *(int64_t*) *p_buffer;
+			value->long_value = *(int64_t*) *p_buffer;
 			NEXTN(*p_buffer, *buffer_remaining, 8)
 
 			break;
@@ -346,7 +344,7 @@ bool MethodChannel_decodeValue(uint8_t** p_buffer, size_t* buffer_remaining, str
 			ASSERT_RETURN_BOOL(*buffer_remaining >= 8 + ALIGNMENT_DIFF(*p_buffer, 8), "Error decoding platform message: while decoding kTypeDouble: message ended too soon")
 			ALIGN(*p_buffer, *buffer_remaining, 8)
 
-			value->value.double_value = *(double*) *p_buffer;
+			value->double_value = *(double*) *p_buffer;
 			NEXTN(*p_buffer, *buffer_remaining, 8)
 
 			break;
@@ -360,15 +358,15 @@ bool MethodChannel_decodeValue(uint8_t** p_buffer, size_t* buffer_remaining, str
 				c_string[i] = **p_buffer;
 				NEXT(*p_buffer, *buffer_remaining)
 			}
-			value->value.string_value = c_string;
+			value->string_value = c_string;
 
 			break;
 		case kTypeByteArray:
 			if (!MethodChannel_decodeSize(p_buffer, buffer_remaining, &size)) return false;
 
 			ASSERT_RETURN_BOOL(*buffer_remaining >= size, "Error decoding platform message: while decoding kTypeByteArray: message ended too soon")
-			value->value.bytearray_value.size = size;
-			value->value.bytearray_value.array = *p_buffer;
+			value->bytearray_value.size = size;
+			value->bytearray_value.array = *p_buffer;
 			
 			NEXTN(*p_buffer, *buffer_remaining, size);
 
@@ -379,8 +377,8 @@ bool MethodChannel_decodeValue(uint8_t** p_buffer, size_t* buffer_remaining, str
 			ASSERT_RETURN_BOOL(*buffer_remaining >= size*4 + ALIGNMENT_DIFF(*p_buffer, 4), "Error decoding platform message: while decoding kTypeIntArray: message ended too soon")
 			ALIGN(*p_buffer, *buffer_remaining, 4)
 
-			value->value.intarray_value.size = size;
-			value->value.intarray_value.array = (int32_t*) *p_buffer;
+			value->intarray_value.size = size;
+			value->intarray_value.array = (int32_t*) *p_buffer;
 
 			NEXTN(*p_buffer, *buffer_remaining, size*4)
 
@@ -391,8 +389,8 @@ bool MethodChannel_decodeValue(uint8_t** p_buffer, size_t* buffer_remaining, str
 			ASSERT_RETURN_BOOL(*buffer_remaining >= size*8 + ALIGNMENT_DIFF(*p_buffer, 8), "Error decoding platform message: while decoding kTypeLongArray: message ended too soon")
 			ALIGN(*p_buffer, *buffer_remaining, 8)
 
-			value->value.longarray_value.size = size;
-			value->value.longarray_value.array = (int64_t*) *p_buffer;
+			value->longarray_value.size = size;
+			value->longarray_value.array = (int64_t*) *p_buffer;
 
 			NEXTN(*p_buffer, *buffer_remaining, size*8)
 
@@ -403,8 +401,8 @@ bool MethodChannel_decodeValue(uint8_t** p_buffer, size_t* buffer_remaining, str
 			ASSERT_RETURN_BOOL(*buffer_remaining >= size*8 + ALIGNMENT_DIFF(*p_buffer, 8), "Error decoding platform message: while decoding kTypeIntArray: message ended too soon")
 			ALIGN(*p_buffer, *buffer_remaining, 8)
 
-			value->value.doublearray_value.size = size;
-			value->value.doublearray_value.array = (double*) *p_buffer;
+			value->doublearray_value.size = size;
+			value->doublearray_value.array = (double*) *p_buffer;
 
 			NEXTN(*p_buffer, *buffer_remaining, size*8)
 
@@ -412,23 +410,23 @@ bool MethodChannel_decodeValue(uint8_t** p_buffer, size_t* buffer_remaining, str
 		case kTypeList:
 			if (!MethodChannel_decodeSize(p_buffer, buffer_remaining, &size)) return false;
 
-			value->value.list_value.size = size;
-			value->value.list_value.list = calloc(size, sizeof(struct MethodChannelValue));
+			value->list_value.size = size;
+			value->list_value.list = calloc(size, sizeof(struct MethodChannelValue));
 
 			for (int i = 0; i < size; i++) {
-				if (!MethodChannel_decodeValue(p_buffer, buffer_remaining, &(value->value.list_value.list[i]))) return false;
+				if (!MethodChannel_decodeValue(p_buffer, buffer_remaining, &(value->list_value.list[i]))) return false;
 			}
 
 			break;
 		case kTypeMap:
 			if (!MethodChannel_decodeSize(p_buffer, buffer_remaining, &size)) return false;
 
-			value->value.map_value.size = size;
-			value->value.map_value.map = calloc(size*2, sizeof(struct MethodChannelValue));
+			value->map_value.size = size;
+			value->map_value.map = calloc(size*2, sizeof(struct MethodChannelValue));
 
 			for (int i = 0; i < size; i++) {
-				if (!MethodChannel_decodeValue(p_buffer, buffer_remaining, &(value->value.list_value.list[i*2  ]))) return false;
-				if (!MethodChannel_decodeValue(p_buffer, buffer_remaining, &(value->value.list_value.list[i*2+1]))) return false;
+				if (!MethodChannel_decodeValue(p_buffer, buffer_remaining, &(value->list_value.list[i*2  ]))) return false;
+				if (!MethodChannel_decodeValue(p_buffer, buffer_remaining, &(value->list_value.list[i*2+1]))) return false;
 			}
 
 			break;
@@ -439,9 +437,20 @@ bool MethodChannel_decodeValue(uint8_t** p_buffer, size_t* buffer_remaining, str
 
 	return true;
 }
-bool MethodChannel_decode(size_t buffer_size, uint8_t* buffer, struct MethodCall* result) {
+bool MethodChannel_decode(size_t buffer_size, uint8_t* buffer, struct MethodCall** presult) {
+	*presult = malloc(sizeof(struct MethodCall));
+	struct MethodCall* result = *presult;
+	
 	uint8_t* buffer_cursor = buffer;
 	size_t  buffer_remaining = buffer_size;
+	
+	if (*buffer == (char) 123) {
+		result->protocol = kJSONProtocol;
+		fprintf(stderr, "Error decoding Method Call: JSON Protocol not supported yet.\n");
+		return false;
+	} else {
+		result->protocol = kStandardProtocol;
+	}
 	
 	struct MethodChannelValue method_name;
 	if (!MethodChannel_decodeValue(&buffer_cursor, &buffer_remaining, &method_name)) return false;
@@ -449,7 +458,7 @@ bool MethodChannel_decode(size_t buffer_size, uint8_t* buffer, struct MethodCall
 		fprintf(stderr, "Error decoding Method Call: expected type of first value in buffer to be string (i.e. method name), got %d\n", method_name.type);
 		return false;
 	}
-	result->method = method_name.value.string_value;
+	result->method = method_name.string_value;
 
 	if (!MethodChannel_decodeValue(&buffer_cursor, &buffer_remaining, &(result->argument))) return false;
 
@@ -460,30 +469,35 @@ bool MethodChannel_decode(size_t buffer_size, uint8_t* buffer, struct MethodCall
 bool MethodChannel_freeValue(struct MethodChannelValue* p_value) {
 	switch (p_value->type) {
 		case kTypeString:
-			free(p_value->value.string_value);
+			free(p_value->string_value);
 			break;
 		case kTypeList:
-			for (int i=0; i < p_value->value.list_value.size; i++)
-				if (!MethodChannel_freeValue(&(p_value->value.list_value.list[i]))) return false;
+			for (int i=0; i < p_value->list_value.size; i++)
+				if (!MethodChannel_freeValue(&(p_value->list_value.list[i]))) return false;
 			
-			free(p_value->value.list_value.list);
+			free(p_value->list_value.list);
 			break;
 		case kTypeMap:
-			for (int i=0; i< p_value->value.map_value.size; i++) {
-				if (!MethodChannel_freeValue(&(p_value->value.map_value.map[i*2  ]))) return false;
-				if (!MethodChannel_freeValue(&(p_value->value.map_value.map[i*2+1]))) return false;
+			for (int i=0; i< p_value->map_value.size; i++) {
+				if (!MethodChannel_freeValue(&(p_value->map_value.map[i*2  ]))) return false;
+				if (!MethodChannel_freeValue(&(p_value->map_value.map[i*2+1]))) return false;
 			}
 
-			free(p_value->value.map_value.map);
+			free(p_value->map_value.map);
 		default:
 			break;
 	}
 
 	return true;
 }
-bool MethodChannel_freeMethodCall(struct MethodCall* methodcall) {
+bool MethodChannel_freeMethodCall(struct MethodCall **pmethodcall) {
+	struct MethodCall* methodcall = *pmethodcall;
+
 	free(methodcall->method);
 	if (!MethodChannel_freeValue(&(methodcall->argument))) return false;
+	free(methodcall);
+
+	*pmethodcall = NULL;
 
 	return true;
 }

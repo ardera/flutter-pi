@@ -55,17 +55,21 @@ struct MethodChannelValue {
             size_t size;
             struct MethodChannelValue* map;
         } map_value;
-    } value;
+    };
 };
 
 struct MethodCall {
+    enum {
+        kStandardProtocol,
+        kJSONProtocol
+    } protocol;
     char* method;
     struct MethodChannelValue argument;
 };
 
 bool MethodChannel_call(char* channel, char* method, struct MethodChannelValue* argument);
 bool MethodChannel_respond(FlutterPlatformMessageResponseHandle* response_handle, struct MethodChannelValue* response_value);
-bool MethodChannel_decode(size_t buffer_size, uint8_t* buffer, struct MethodCall* result);
-bool MethodChannel_freeMethodCall(struct MethodCall* methodcall);
+bool MethodChannel_decode(size_t buffer_size, uint8_t* buffer, struct MethodCall** presult);
+bool MethodChannel_freeMethodCall(struct MethodCall** pmethodcall);
 
 #endif
