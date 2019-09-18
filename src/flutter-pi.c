@@ -50,7 +50,7 @@ uint32_t refresh_rate;
 // this is the pixel ratio (used by flutter) for the Official Raspberry Pi 7inch display.
 // if a HDMI screen is connected and being used by this application, the pixel ratio will be 
 // computed inside init_display.
-// for DSI the pixel ratio can not be calculated, because there's no way to query the physical
+// for DSI the pixel ratio can not be calculated, because there's no (general) way to query the physical
 // size for DSI displays.
 double pixel_ratio = 1.3671;
 
@@ -99,13 +99,14 @@ struct {
 } flutter = {0};
 
 struct {
-	bool is_mouse;
 	char device_path[128];
 	int  fd;
 	double x, y;
 	uint8_t button;
 	struct TouchscreenSlot  ts_slots[10];
 	struct TouchscreenSlot* ts_slot;
+	bool is_mouse;
+	bool is_touchscreen;
 } input = {0};
 
 pthread_t io_thread_id;
@@ -218,7 +219,7 @@ bool     		present(void* userdata) {
 	next_bo = gbm_surface_lock_front_buffer(gbm.surface);
 	fb = drm_fb_get_from_bo(next_bo);
 
-	/*
+	/* wait for vsync, 
 	ok = drmModePageFlip(drm.fd, drm.crtc_id, fb->fb_id, DRM_MODE_PAGE_FLIP_EVENT, &drm.waiting_for_flip);
 	if (ok) {
 		fprintf(stderr, "failed to queue page flip: %s\n", strerror(errno));
@@ -395,14 +396,8 @@ void     		on_platform_message(const FlutterPlatformMessage* message, void* user
 	MethodChannel_freeMethodCall(&methodcall);
 }
 void	 		vsync_callback(void* userdata, intptr_t baton) {
-	flutter.next_vblank_baton = baton;
-
-	drmVBlank vbl;
-	vbl.request.type = DRM_VBLANK_EVENT | DRM_VBLANK_RELATIVE;
-	vbl.request.sequence = 1;
-	vbl.request.signal = SIGUSR2;
-	
-	drmWaitVBlank(drm.fd, &vbl);
+	// not yet implemented
+	fprintf(stderr, "flutter vsync callback not yet implemented\n");
 }
 
 
@@ -657,8 +652,6 @@ bool init_display(void) {
 		return false;
 	}
 
-	
-
 	/**********************
 	 * EGL INITIALIZATION *
 	 **********************/
@@ -831,7 +824,7 @@ bool init_display(void) {
 	return true;
 }
 void destroy_display(void) {
-
+	fprintf(stderr, "Deinitializing display not yet implemented\n");
 }
 
 bool init_application(void) {
@@ -851,6 +844,14 @@ bool init_application(void) {
 	flutter.args.struct_size				= sizeof(FlutterProjectArgs);
 	flutter.args.assets_path				= flutter.asset_bundle_path;
 	flutter.args.icu_data_path				= flutter.icu_data_path;
+	flutter.args.isolate_snapshot_data_size = 0;
+	flutter.args.isolate_snapshot_data		= NULL;
+	flutter.args.isolate_snapshot_instructions_size = 0;
+	flutter.args.isolate_snapshot_instructions	 = NULL;
+	flutter.args.vm_snapshot_data_size		= 0;
+	flutter.args.vm_snapshot_data			= NULL;
+	flutter.args.vm_snapshot_instructions_size = 0;
+	flutter.args.vm_snapshot_instructions	= NULL;
 	flutter.args.command_line_argc			= flutter.engine_argc;
 	flutter.args.command_line_argv			= flutter.engine_argv;
 	flutter.args.platform_message_callback	= on_platform_message;
@@ -936,70 +937,68 @@ void* io_loop(void* userdata) {
 			1
 		) == kSuccess;
 		if (!ok) return false;
-	}
 
-	// mouse
-	while (input.is_mouse) {
-		// read up to 64 input events
-		int rd = read(input.fd, &event, sizeof(struct input_event)*64);
-		if (rd < (int) sizeof(struct input_event)) {
-			fprintf(stderr, "Read %d bytes from input device, should have been %d; error msg: %s\n", rd, sizeof(struct input_event), strerror(errno));
-			return false;
-		}
+		// mouse
+		while (1) {
+			// read up to 64 input events
+			int rd = read(input.fd, &event, sizeof(struct input_event)*64);
+			if (rd < (int) sizeof(struct input_event)) {
+				fprintf(stderr, "Read %d bytes from input device, should have been %d; error msg: %s\n", rd, sizeof(struct input_event), strerror(errno));
+				return false;
+			}
 
-		// process the input events
-		// TODO: instead of processing an input event, and then send the single resulting Pointer Event (i.e., one at a time) to the Flutter Engine,
-		//       process all input events, and send all resulting pointer events at once.
-		for (int i = 0; i < rd / sizeof(struct input_event); i++) {
-			phase = kCancel;
-			ev = &(event[i]);
+			// process the input events
+			// TODO: instead of processing an input event, and then send the single resulting Pointer Event (i.e., one at a time) to the Flutter Engine,
+			//       process all input events, and send all resulting pointer events at once.
+			for (int i = 0; i < rd / sizeof(struct input_event); i++) {
+				phase = kCancel;
+				ev = &(event[i]);
 
-			if (ev->type == EV_REL) {
-				if (ev->code == REL_X) {			// mouse moved in the x-direction
-					input.x += ev->value;
-					phase = input.button ? kMove : kHover;
-				} else if (ev->code == REL_Y) {	// mouse moved in the y-direction
-					input.y += ev->value;
-					phase = input.button ? kMove : kHover;	
+				if (ev->type == EV_REL) {
+					if (ev->code == REL_X) {			// mouse moved in the x-direction
+						input.x += ev->value;
+						phase = input.button ? kMove : kHover;
+					} else if (ev->code == REL_Y) {	// mouse moved in the y-direction
+						input.y += ev->value;
+						phase = input.button ? kMove : kHover;	
+					}
+				} else if (ev->type == EV_ABS) {
+					if (ev->code == ABS_X) {
+						input.x = ev->value;
+						phase = input.button ? kMove : kHover;
+					} else if (ev->code == ABS_Y) {
+						input.y = ev->value;
+						phase = input.button ? kMove : kHover;
+					}
+				} else if ((ev->type == EV_KEY) && ((ev->code == BTN_LEFT) || (ev->code == BTN_RIGHT))) {
+					// either the left or the right mouse button was pressed
+					// the 1st bit in "button" is set when BTN_LEFT is down. the 2nd bit when BTN_RIGHT is down.
+					uint8_t mask = ev->code == BTN_LEFT ? 1 : 2;
+					if (ev->value == 1)	input.button |=  mask;
+					else				input.button &= ~mask;
+					
+					phase = ev->value == 1 ? kDown : kUp;
 				}
-			} else if (ev->type == EV_ABS) {
-				if (ev->code == ABS_X) {
-					input.x = ev->value;
-					phase = input.button ? kMove : kHover;
-				} else if (ev->code == ABS_Y) {
-					input.y = ev->value;
-					phase = input.button ? kMove : kHover;
-				}
-			} else if ((ev->type == EV_KEY) && ((ev->code == BTN_LEFT) || (ev->code == BTN_RIGHT))) {
-				// either the left or the right mouse button was pressed
-				// the 1st bit in "button" is set when BTN_LEFT is down. the 2nd bit when BTN_RIGHT is down.
-				uint8_t mask = ev->code == BTN_LEFT ? 1 : 2;
-				if (ev->value == 1)	input.button |=  mask;
-				else				input.button &= ~mask;
 				
-				phase = ev->value == 1 ? kDown : kUp;
+				if (phase != kCancel) {
+					// if something changed, send the pointer event to flutter
+					ok = FlutterEngineSendPointerEvent(
+						engine,
+						& (FlutterPointerEvent) {
+							.struct_size = sizeof(FlutterPointerEvent),
+							.timestamp = (size_t) (ev->time.tv_sec * 1000000ul) + ev->time.tv_usec,
+							.phase=phase,  .x=input.x,  .y=input.y,
+							.signal_kind = kFlutterPointerSignalKindNone
+						}, 
+						1
+					) == kSuccess;
+					if (!ok) return false;
+				}
 			}
-			
-			if (phase != kCancel) {
-				// if something changed, send the pointer event to flutter
-				ok = FlutterEngineSendPointerEvent(
-					engine,
-					& (FlutterPointerEvent) {
-						.struct_size = sizeof(FlutterPointerEvent),
-						.timestamp = (size_t) (FlutterEngineGetCurrentTime()*1000),
-						.phase=phase,  .x=input.x,  .y=input.y,
-						.signal_kind = kFlutterPointerSignalKindNone
-					}, 
-					1
-				) == kSuccess;
-				if (!ok) return false;
-			}
+
+			printf("mouse position: %f, %f\n", input.x, input.y);
 		}
-
-		printf("mouse position: %f, %f\n", input.x, input.y);
-	}
-
-	if (!input.is_mouse) {
+	} else if (input.is_touchscreen) {
 		for (int j = 0; j<10; j++) {
 			printf("Sending kAdd %d to Flutter Engine\n", j);
 			input.ts_slots[j].id = -1;
@@ -1023,65 +1022,63 @@ void* io_loop(void* userdata) {
 		}
 
 		input.ts_slot = &(input.ts_slots[0]);
-	}
+		while (1) {
+			int rd = read(input.fd, &event, sizeof(struct input_event)*64);
+			if (rd < (int) sizeof(struct input_event)) {
+				perror("error reading from input device");
+				return false;
+			}
 
-	// touchscreen
-	while (!input.is_mouse) {
-		int rd = read(input.fd, &event, sizeof(struct input_event)*64);
-		if (rd < (int) sizeof(struct input_event)) {
-			perror("error reading from input device");
-			return false;
-		}
+			n_pointerevents = 0;
+			for (int i = 0; i < rd / sizeof(struct input_event); i++) {
+				ev = &(event[i]);
 
-		n_pointerevents = 0;
-		for (int i = 0; i < rd / sizeof(struct input_event); i++) {
-			ev = &(event[i]);
-
-			if (ev->type == EV_ABS) {
-				if (ev->code == ABS_MT_SLOT) {
-					input.ts_slot = &(input.ts_slots[ev->value]);
-				} else if (ev->code == ABS_MT_TRACKING_ID) {
-					if (input.ts_slot->id == -1) {
-						input.ts_slot->id = ev->value;
-						input.ts_slot->phase = kDown;
-					} else if (ev->value == -1) {
-						input.ts_slot->id = ev->value;
-						input.ts_slot->phase = kUp;
+				if (ev->type == EV_ABS) {
+					if (ev->code == ABS_MT_SLOT) {
+						input.ts_slot = &(input.ts_slots[ev->value]);
+					} else if (ev->code == ABS_MT_TRACKING_ID) {
+						if (input.ts_slot->id == -1) {
+							input.ts_slot->id = ev->value;
+							input.ts_slot->phase = kDown;
+						} else if (ev->value == -1) {
+							input.ts_slot->id = ev->value;
+							input.ts_slot->phase = kUp;
+						}
+					} else if (ev->code == ABS_MT_POSITION_X) {
+						input.ts_slot->x = ev->value;
+						if (input.ts_slot->phase == kCancel) input.ts_slot->phase = kMove;
+					} else if (ev->code == ABS_MT_POSITION_Y) {
+						input.ts_slot->y = ev->value;
+						if (input.ts_slot->phase == kCancel) input.ts_slot->phase = kMove;
 					}
-				} else if (ev->code == ABS_MT_POSITION_X) {
-					input.ts_slot->x = ev->value;
-					if (input.ts_slot->phase == kCancel) input.ts_slot->phase = kMove;
-				} else if (ev->code == ABS_MT_POSITION_Y) {
-					input.ts_slot->y = ev->value;
-					if (input.ts_slot->phase == kCancel) input.ts_slot->phase = kMove;
-				}
-			} else if ((ev->type == EV_SYN) && (ev->code == SYN_REPORT)) {
-				for (int j = 0; j < 10; j++) {
-					if (input.ts_slots[j].phase != kCancel) {
-						pointer_event[n_pointerevents++] = (FlutterPointerEvent) {
-							.struct_size = sizeof(FlutterPointerEvent),
-							.phase = input.ts_slots[j].phase,
-							.timestamp = (size_t) (FlutterEngineGetCurrentTime()*1000),
-							.device = j,
-							.x = input.ts_slots[j].x,
-							.y = input.ts_slots[j].y,
-							.signal_kind = kFlutterPointerSignalKindNone
-						};
-						input.ts_slots[j].phase = kCancel;
+				} else if ((ev->type == EV_SYN) && (ev->code == SYN_REPORT)) {
+					for (int j = 0; j < 10; j++) {
+						if (input.ts_slots[j].phase != kCancel) {
+							pointer_event[n_pointerevents++] = (FlutterPointerEvent) {
+								.struct_size = sizeof(FlutterPointerEvent),
+								.phase = input.ts_slots[j].phase,
+								.timestamp = (size_t) (ev->time.tv_sec * 1000000ul) + ev->time.tv_usec,
+								.device = j,
+								.x = input.ts_slots[j].x,
+								.y = input.ts_slots[j].y,
+								.signal_kind = kFlutterPointerSignalKindNone
+							};
+							input.ts_slots[j].phase = kCancel;
+						}
 					}
 				}
 			}
-		}
 
-		ok = FlutterEngineSendPointerEvent(
-			engine,
-			pointer_event,
-			n_pointerevents
-		) == kSuccess;
+			ok = FlutterEngineSendPointerEvent(
+				engine,
+				pointer_event,
+				n_pointerevents
+			) == kSuccess;
 
-		if (!ok) {
-			fprintf(stderr, "Error sending pointer events to flutter\n");
-			return false;
+			if (!ok) {
+				fprintf(stderr, "Error sending pointer events to flutter\n");
+				return false;
+			}
 		}
 	}
 
@@ -1116,6 +1113,7 @@ bool  parse_cmd_args(int argc, char **argv) {
 				printf("Using mouse input from mouse %s\n", optarg);
 				snprintf(input.device_path, sizeof(input.device_path), "%s", optarg);
 				input.is_mouse = true;
+				input.is_touchscreen = false;
 
 				index++;
 				break;
@@ -1123,6 +1121,7 @@ bool  parse_cmd_args(int argc, char **argv) {
 				printf("Using touchscreen input from %s\n", optarg);
 				snprintf(input.device_path, sizeof(input.device_path), "%s", optarg);
 				input.is_mouse = false;
+				input.is_touchscreen = true;
 
 				index++;
 				break;
