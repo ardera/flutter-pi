@@ -56,5 +56,5 @@ Performance is actually better than I expected. With most of the apps inside the
 ## Touchscreen Bug
 ~~If you use the official 7 inch touchscreen, performance will feel much worse while dragging something. This seems to be some bug in the touchscreen driver. The embedder / userspace only gets around 25 touch events a second, meaning that while dragging something (like in tabbed_app_bar.dart), the position of the object being dragged is only updated 25 times a second. This results in the app looking like it runs at 25fps. The touchscreen could do up to 100 touch updates a second though.~~
 
-[This has been fixed.](https://github.com/raspberrypi/linux/issues/3227) If you want to get the fix, you can run (rpi-update)[https://github.com/hexxeh/rpi-update], which will update your system to the newest version.
+[This has been fixed.](https://github.com/raspberrypi/linux/issues/3227) If you want to get the fix, you can run [rpi-update](https://github.com/hexxeh/rpi-update), which will update your firmware & operating system to the newest version.
 
