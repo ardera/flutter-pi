@@ -8,27 +8,25 @@ typedef enum {
     kNull = 0,
     kTrue,
     kFalse,
-    kTypeInt,
-    kTypeLong,
-    kTypeBigInt,
-    kTypeDouble,
-    kTypeString,
-    kTypeByteArray,
-    kTypeIntArray,
-    kTypeLongArray,
-    kTypeDoubleArray,
-    kTypeList,
-    kTypeMap,
-    kNoValue = 0xFFFF
+    kInt32,
+    kInt64,
+    kLargeInt, // treat as kString
+    kFloat64,
+    kString,
+    kUInt8Array,
+    kInt32Array,
+    kInt64Array,
+    kFloat64Array,
+    kList,
+    kMap
 } MessageValueDiscriminator;
 
-struct MethodChannelValue {
+struct MessageChannelValue {
     MessageValueDiscriminator type;
     union {
         bool bool_value;
         int32_t int_value;
         int64_t long_value;
-        char* bigint_value;
         double double_value;
         char* string_value;
         struct {
@@ -49,11 +47,11 @@ struct MethodChannelValue {
         } doublearray_value;
         struct {
             size_t size;
-            struct MethodChannelValue* list;
+            struct MessageChannelValue* list;
         } list_value;
         struct {
             size_t size;
-            struct MethodChannelValue* map;
+            struct MessageChannelValue* map;
         } map_value;
     };
 };
@@ -64,11 +62,11 @@ struct MethodCall {
         kJSONProtocol
     } protocol;
     char* method;
-    struct MethodChannelValue argument;
+    struct MessageChannelValue argument;
 };
 
-bool MethodChannel_call(char* channel, char* method, struct MethodChannelValue* argument);
-bool MethodChannel_respond(FlutterPlatformMessageResponseHandle* response_handle, struct MethodChannelValue* response_value);
+bool MethodChannel_call(char* channel, char* method, struct MessageChannelValue* argument);
+bool MethodChannel_respond(FlutterPlatformMessageResponseHandle* response_handle, struct MessageChannelValue* response_value);
 bool MethodChannel_decode(size_t buffer_size, uint8_t* buffer, struct MethodCall** presult);
 bool MethodChannel_freeMethodCall(struct MethodCall** pmethodcall);
 

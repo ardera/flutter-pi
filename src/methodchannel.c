@@ -8,135 +8,103 @@
 #include "methodchannel.h"
 #include "flutter-pi.h"
 
-#define _NEXTN(buffer,n) ((buffer) = &((buffer)[n]));
-#define _NEXTN_REMAINING(buffer,remaining,n) do {_NEXTN(buffer,n) (remaining)-=(n);} while (false);
-#define _NEXT(buffer) _NEXTN(buffer, 1)
-#define _NEXT_REMAINING(buffer,remaining) _NEXTN_REMAINING(buffer,remaining,1)
+// only 32bit support for now.
+#define __ALIGN4_REMAINING(value, remaining) __align((uint32_t*) (value), 4, remaining)
+#define __ALIGN8_REMAINING(value, remaining) __align((uint32_t*) (value), 8, remaining)
+#define align4(...) _ALIGN4_REMAINING(__VA_ARGS__, NULL)
+#define align8(...) _ALIGN8_REMAINING(__VA_ARGS__, NULL)
 
-#define _GET_MACRO(_1,_2,_3,NAME,...) NAME
-#define NEXT(...) _GET_MACRO(__VA_ARGS__, _NEXT_REMAINING, _NEXT_REMAINING, _NEXT)(__VA_ARGS__)
-#define NEXTN(...) _GET_MACRO(__VA_ARGS__, _NEXTN_REMAINING, _NEXTN)(__VA_ARGS__)
+#define alignmentDiff(value, alignment) __alignmentDiff((uint64_t) value, alignment)
 
-#define ALIGNMENT_DIFF(buffer, n) (((uint64_t) (buffer) - (((uint64_t) (buffer) + (n)-1) | (n)-1) - (n)-1))
-#define _ALIGN(buffer, n) do {(buffer) = (uint8_t*) ((((uint64_t) (buffer) + (n)-1) | (n)-1) - (n-1));} while (false);
-#define _ALIGN_REMAINING(buffer, remaining, n) do {(buffer) = (uint8_t*) ((((uint64_t) (buffer) + (n)-1) | (n)-1) - (n-1));} while (false);
-#define ALIGN(...) _GET_MACRO(__VA_ARGS__, _ALIGN_REMAINING, _ALIGN)(__VA_ARGS__)
+#define __ADVANCE_REMAINING(value, n, remaining) __advance((uint32_t*) (value), n, remaining)
+#define advance(...) _ADVANCE_REMAINING(__VA_ARGS__, NULL)
 
-#define ASSERT_RETURN_BOOL(cond, err) if (!(cond)) {fprintf(stderr, "%s\n", err); return false;}
+#define ASSERT_RETURN_FALSE(cond, err) if (!(cond)) {fprintf(stderr, "%s\n", err); return false;}
 
-bool MethodChannel_calculateValueSizeInBuffer(struct MethodChannelValue* value, size_t* p_buffer_size) {
-	MessageValueDiscriminator type = value->type;
-
-	// Type Byte
-	*p_buffer_size += 1;
-
-	size_t size;
-	switch (type) {
-		case kNull:
-		case kTrue:
-		case kFalse:
-			break;
-		case kTypeInt:
-			*p_buffer_size += 4;
-			break;
-		case kTypeLong:
-			*p_buffer_size += 8;
-			break;
-		case kTypeDouble:
-			*p_buffer_size = (((*p_buffer_size) + 7) | 7) - 7;	// 8-byte aligned
-			*p_buffer_size += 8;
-
-			break;
-		case kTypeString:
-			size = strlen(value->string_value);
-
-			*p_buffer_size += (size < 254) ? 1 : (size <= 0xFFFF) ? 3 : 5;	// write array size
-			*p_buffer_size += size;
-
-			break;
-		case kTypeByteArray:
-			size = value->bytearray_value.size;
-
-			*p_buffer_size += (size < 254) ? 1 : (size <= 0xFFFF) ? 3 : 5;	// write array size
-			*p_buffer_size += size;
-
-			break;
-		case kTypeIntArray:
-			size = value->intarray_value.size;
-
-			*p_buffer_size += (size < 254) ? 1 : (size <= 0xFFFF) ? 3 : 5;	// write array size
-			*p_buffer_size = (((*p_buffer_size) + 3) | 3) - 3;				// 4-byte aligned
-			*p_buffer_size += size*4;
-
-			break;
-		case kTypeLongArray:
-			size = value->longarray_value.size;
-			
-			*p_buffer_size += (size < 254) ? 1 : (size <= 0xFFFF) ? 3 : 5;	// write array size
-			*p_buffer_size = (((*p_buffer_size) + 7) | 7) - 7;				// 8-byte aligned
-			*p_buffer_size += size*8;
-
-			break;
-		case kTypeDoubleArray:
-			size = value->doublearray_value.size;
-			
-			*p_buffer_size += (size < 254) ? 1 : (size <= 0xFFFF) ? 3 : 5;	// write array size
-			*p_buffer_size = (((*p_buffer_size) + 7) | 7) - 7;				// 8-byte aligned
-			*p_buffer_size += size*8;
-
-			break;
-		case kTypeList:
-			size = value->list_value.size;
-
-			*p_buffer_size += (size < 254) ? 1 : (size <= 0xFFFF) ? 3 : 5;	// write list size
-			for (int i = 0; i<size; i++)
-				if (!MethodChannel_calculateValueSizeInBuffer(&(value->list_value.list[i]), p_buffer_size))    return false;
-			
-			break;
-		case kTypeMap:
-			size = value->map_value.size;
-
-			*p_buffer_size += (size < 254) ? 1 : (size <= 0xFFFF) ? 3 : 5;	// write map size
-			for (int i = 0; i<size; i++) {
-				if (!MethodChannel_calculateValueSizeInBuffer(&(value->list_value.list[i*2  ]), p_buffer_size)) return false;
-				if (!MethodChannel_calculateValueSizeInBuffer(&(value->list_value.list[i*2+1]), p_buffer_size)) return false;
-			}
-
-			break;
-		default:
-			fprintf(stderr, "Error calculating Message Codec Value size: Unsupported Value type: %d\n", type);
-			return false;
-	}
-
-	return true;
-}
-
-bool MethodChannel_writeSizeValueToBuffer(size_t size, uint8_t** p_buffer) {
-	if (size < 254) {
-		**p_buffer = size;
-		NEXT(*p_buffer)
-	} else if (size <= 0xFFFF) {
-		**p_buffer = 254;
-		NEXT(*p_buffer)
-		*(uint16_t*) *p_buffer = size;
-		NEXTN(*p_buffer, 2)
-	} else {
-		**p_buffer = 255;
-		NEXT(*p_buffer)
-		*(uint32_t*) *p_buffer = size;
-		NEXTN(*p_buffer, 4)
-	}
-
-	return true;
-}
-bool MethodChannel_alignBuffer(unsigned int alignment, uint8_t** p_buffer) {
+inline int __alignmentDiff(uint64_t value, int alignment) {
 	alignment--;
-	*p_buffer = (uint8_t*) ((((uint64_t) *p_buffer + alignment) | alignment) - alignment);
+	return value - (((((uint64_t) value) + alignment) | alignment) - alignment);
+}
+inline void __align(uint32_t *value, int alignment, size_t *remaining) {
+	if (remaining != NULL)
+		remaining -= alignmentDiff((uint64_t) *value, alignment);	
+	alignment--;
+
+	*value = (uint32_t) ((((*value + alignment) | alignment) - alignment);
+}
+inline void __advance(uint32_t *value, int n_bytes) {
+	*value += n_bytes;
+}
+
+inline void write8(uint8_t **pbuffer, uint8_t value) {
+	*(uint8_t*) *pbuffer = value;
+}
+inline uint8_t read8(uint8_t **pbuffer) {
+	return *(uint8_t *) *pbuffer;
+}
+inline void write16(uint8_t **pbuffer, uint16_t value) {
+	*(uint16_t*) *pbuffer = value;
+}
+inline uint16_t read16(uint8_t **pbuffer) {
+	return *(uint16_t *) *pbuffer;
+}
+inline void write32(uint8_t **pbuffer, uint32_t value) {
+	*(uint32_t*) *pbuffer = value;
+}
+inline uint32_t read32(uint8_t **pbuffer) {
+	return *(int32_t *) *pbuffer;
+}
+inline void write64(uint8_t **pbuffer, uint64_t value) {
+	*(uint64_t*) *pbuffer = value;
+}
+inline uint64_t read64(uint8_t **pbuffer) {
+	return *(int64_t *) *pbuffer;
+}
+
+inline int  nSizeBytes(int size) {
+	return (size < 254) ? 1 : (size <= 0xFFFF) ? 3 : 5;
+}
+inline void writeSize(uint8_t **pbuffer, int size) {
+	if (size < 254) {
+		write8(pbuffer, (uint8_t) size);
+		advance(pbuffer, 1);
+	} else if (size <= 0xFFFF) {
+		write8(pbuffer, 0xFE);
+		advance(pbuffer, 1);
+
+		write16(pbuffer, (uint16_t) size);
+		advance(pbuffer, 2);
+	} else {
+		write8(pbuffer, 0xFF);
+		advance(pbuffer, 1);
+
+		write32(pbuffer, (uint32_t) size);
+		advance(pbuffer, 4);
+	}
+}
+inline bool readSize(uint8_t** pbuffer, size_t* remaining, uint32_t* size) {
+	ASSERT_RETURN_FALSE(*remaining >= 1, "Error decoding platform message: while decoding size: message ended too soon")
+	*size = read8(pbuffer);
+	advance(pbuffer, 1, remaining);
+
+	if (*size == 254) {
+		ASSERT_RETURN_FALSE(*remaining >= 2, "Error decoding platform message: while decoding size: message ended too soon")
+
+		*size = read16(pbuffer);
+		advance(pbuffer, 2, remaining);
+	} else if (*size == 255) {
+		ASSERT_RETURN_BOOL(*remaining >= 4, "Error decoding platform message: while decoding size: message ended too soon")
+		
+		*size = read32(pbuffer);
+		advance(pbuffer, 4, remaining);
+	}
+
 	return true;
 }
-bool MethodChannel_writeValueToBuffer(struct MethodChannelValue* value, uint8_t** p_buffer) {
-	**p_buffer = (uint8_t) value->type;
-	NEXT(*p_buffer)
+
+bool MessageChannel_writeValueToBuffer(struct MessageChannelValue* value, uint8_t** pbuffer) {
+	write8(pbuffer, value->type);
+	advance(pbuffer, 1);
 
 	size_t size; uint8_t* byteArray;
 	switch (value->type) {
@@ -144,90 +112,84 @@ bool MethodChannel_writeValueToBuffer(struct MethodChannelValue* value, uint8_t*
 		case kTrue:
 		case kFalse:
 			break;
-		case kTypeInt:
-			*(int32_t*) *p_buffer = value->int_value;
-			NEXTN(*p_buffer, 4)
+		case kInt32:
+			write32(pbuffer, value->int_value);
+			advance(pbuffer, 4);
 			break;
-		case kTypeLong:
-			*(int64_t*) *p_buffer = value->long_value;
-			NEXTN(*p_buffer, 8)
+		case kInt64:
+			write64(pbuffer, value->long_value);
+			advance(pbuffer, 8);
 			break;
-		case kTypeDouble:
-			MethodChannel_alignBuffer(8, p_buffer);
-			
-			*(double*) *p_buffer = value->double_value;
-			NEXTN(*p_buffer, 8)
+		case kFloat64:
+			align8(pbuffer);
+			write64(pbuffer, (uint64_t) value->double_value);
+			advance(pbuffer, 8);
 			break;
-		case kTypeBigInt:
-		case kTypeString:
-		case kTypeByteArray:
-			if (value->type == kTypeBigInt) {
-				size = strlen(value->bigint_value);
-				byteArray = (uint8_t*) value->bigint_value;
-			} else if (value->type == kTypeString) {
+		case kLargeInt:
+		case kString:
+		case kUInt8Array:
+			if ((value->type == kLargeInt) || (value->type == kString)) {
 				size = strlen(value->string_value);
 				byteArray = (uint8_t*) value->string_value;
-			} else if (value->type == kTypeByteArray) {
+			} else if (value->type == kUInt8Array) {
 				size = value->bytearray_value.size;
 				byteArray = (uint8_t*) value->bytearray_value.array;
 			}
 
-			MethodChannel_writeSizeValueToBuffer(size, p_buffer);
+			writeSize(size, pbuffer);
 			for (int i=0; i<size; i++) {
-				**p_buffer = byteArray[i];
-				NEXT(*p_buffer)
+				write8(pbuffer, byteArray[i]);
+				advance(pbuffer, 1);
 			}
 			break;
-		case kTypeIntArray:
+		case kInt32Array:
 			size = value->intarray_value.size;
 
-			MethodChannel_writeSizeValueToBuffer(size, p_buffer);
-			MethodChannel_alignBuffer(4, p_buffer);
+			writeSize(pbuffer, size);
+			align(pbuffer, 4);
 			
 			for (int i=0; i<size; i++) {
-				*(int32_t*) *p_buffer = value->intarray_value.array[i];
-				NEXTN(*p_buffer, 4)
+				write32(pbuffer, value->intarray_value.array[i]);
+				advance(pbuffer, 4);
 			}
 			break;
-		case kTypeLongArray:
+		case kInt64Array:
+		case kFloat64Array:
 			size = value->longarray_value.size;
 
-			MethodChannel_writeSizeValueToBuffer(size, p_buffer);
-			MethodChannel_alignBuffer(8, p_buffer);
-
+			writeSize(pbuffer, size);
+			align(pbuffer, 8);
 			for (int i=0; i<size; i++) {
-				*(int64_t*) *p_buffer = value->longarray_value.array[i];
-				NEXTN(*p_buffer, 8)
+				write64(pbuffer, value->longarray_value.array[i]);
+				advance(pbuffer, 8);
 			}
 			break;
-		case kTypeDoubleArray:
+		/*case kFloat64Array:
 			size = value->doublearray_value.size;
 
-			MethodChannel_writeSizeValueToBuffer(size, p_buffer);
-			MethodChannel_alignBuffer(8, p_buffer);
+			writeSize(pbuffer, size);
+			align(pbuffer, 8);
 
 			for (int i=0; i<size; i++) {
-				*(double*) *p_buffer = value->doublearray_value.array[i];
-				NEXTN(*p_buffer, 8)
+				write64(pbuffer, value->doublearray_value.array[i]);
+				advance(pbuffer, 8)
 			}
-			break;
-		case kTypeList:
+			break;*/
+		case kList:
 			size = value->list_value.size;
 
-			MethodChannel_writeSizeValueToBuffer(size, p_buffer);
-
+			writeSize(pbuffer, size);
 			for (int i=0; i<size; i++)
-				if (!MethodChannel_writeValueToBuffer(&(value->list_value.list[i]), p_buffer)) return false;
+				if (!MethodChannel_writeValueToBuffer(&(value->list_value.list[i]), pbuffer)) return false;
 			
 			break;
-		case kTypeMap:
+		case kMap:
 			size = value->map_value.size;
 
-			MethodChannel_writeSizeValueToBuffer(size, p_buffer);
-
+			writeSize(pbuffer, size);
 			for (int i=0; i<size; i++) {
-				if (!MethodChannel_writeValueToBuffer(&(value->map_value.map[i*2  ]), p_buffer)) return false;
-				if (!MethodChannel_writeValueToBuffer(&(value->map_value.map[i*2+1]), p_buffer)) return false;
+				if (!MethodChannel_writeValueToBuffer(&(value->map_value.map[i*2  ]), pbuffer)) return false;
+				if (!MethodChannel_writeValueToBuffer(&(value->map_value.map[i*2+1]), pbuffer)) return false;
 			}
 			break;
 		default:
@@ -239,27 +201,27 @@ bool MethodChannel_writeValueToBuffer(struct MethodChannelValue* value, uint8_t*
 }
 
 
-bool MethodChannel_call(char* channel, char* method, struct MethodChannelValue* argument) {
+bool MethodChannel_call(char* channel, char* method, struct MessageChannelValue* argument) {
 	uint8_t *buffer, *buffer_cursor;
 	size_t   buffer_size = 0;
 
 	// the method name is encoded as a String value and is the first value written to the buffer.
-	struct MethodChannelValue method_name_value = {
+	struct MessageChannelValue method_name_value = {
 		.type = kTypeString,
 		.string_value = method
 	};
 
 	// calculate buffer size
-	if (!MethodChannel_calculateValueSizeInBuffer(&method_name_value,	&buffer_size)) return false;
-	if (!MethodChannel_calculateValueSizeInBuffer(argument, 			&buffer_size)) return false;
+	if (!MessageChannel_calculateValueSizeInBuffer(&method_name_value,	&buffer_size)) return false;
+	if (!MessageChannel_calculateValueSizeInBuffer(argument, 			&buffer_size)) return false;
 
 	// allocate buffer
 	buffer = (uint8_t*) malloc(buffer_size);
 	buffer_cursor = buffer;
 
 	// write buffer
-	if (!MethodChannel_writeValueToBuffer(&method_name_value,	&buffer_cursor)) return false;
-	if (!MethodChannel_writeValueToBuffer(argument,				&buffer_cursor)) return false;
+	if (!MessageChannel_writeValueToBuffer(&method_name_value,	&buffer_cursor)) return false;
+	if (!MessageChannel_writeValueToBuffer(argument,			&buffer_cursor)) return false;
 
 	// send message buffer to flutter engine
 	FlutterEngineResult result = FlutterEngineSendPlatformMessage(
@@ -275,7 +237,7 @@ bool MethodChannel_call(char* channel, char* method, struct MethodChannelValue* 
 	free(buffer);
 	return result == kSuccess;
 }
-bool MethodChannel_respond(FlutterPlatformMessageResponseHandle* response_handle, struct MethodChannelValue* response_value) {
+bool MethodChannel_respond(FlutterPlatformMessageResponseHandle* response_handle, struct MessageChannelValue* response_value) {
 	uint8_t *buffer, *buffer_cursor;
 	size_t   buffer_size;
 
@@ -295,28 +257,10 @@ bool MethodChannel_respond(FlutterPlatformMessageResponseHandle* response_handle
 	return result == kSuccess;
 }
 
-
-bool MethodChannel_decodeSize(uint8_t** p_buffer, size_t* buffer_remaining, size_t* size) {
-	ASSERT_RETURN_BOOL(*buffer_remaining >= 1, "Error decoding platform message: while decoding size: message ended too soon")
-	*size = *(uint8_t*) *p_buffer;
-	NEXT(*p_buffer, *buffer_remaining)
-
-	if (*size == 254) {
-		ASSERT_RETURN_BOOL(*buffer_remaining >= 2, "Error decoding platform message: while decoding size: message ended too soon")
-		*size = *(uint16_t*) *p_buffer;
-		NEXTN(*p_buffer, *buffer_remaining, 2)
-	} else if (*size == 255) {
-		ASSERT_RETURN_BOOL(*buffer_remaining >= 4, "Error decoding platform message: while decoding size: message ended too soon")
-		*size = *(uint32_t*) *p_buffer;
-		NEXTN(*p_buffer, *buffer_remaining, 4)
-	}
-
-	return true;
-}
-bool MethodChannel_decodeValue(uint8_t** p_buffer, size_t* buffer_remaining, struct MethodChannelValue* value) {
-	ASSERT_RETURN_BOOL(*buffer_remaining >= 1, "Error decoding platform message: while decoding value type: message ended to soon")
-	MessageValueDiscriminator type = **p_buffer;
-	NEXT(*p_buffer, *buffer_remaining)
+bool MessageChannel_decodeValue(uint8_t** pbuffer, size_t* buffer_remaining, struct MessageChannelValue* value) {
+	ASSERT_RETURN_FALSE(*buffer_remaining >= 1, "Error decoding platform message: while decoding value type: message ended to soon")
+	MessageValueDiscriminator type = **pbuffer;
+	advance(pbuffer, 1, buffer_remaining);
 
 	value->type = type;
 
@@ -326,147 +270,118 @@ bool MethodChannel_decodeValue(uint8_t** p_buffer, size_t* buffer_remaining, str
 		case kTrue:
 		case kFalse:
 			break;
-		case kTypeInt:
-			ASSERT_RETURN_BOOL(*buffer_remaining >= 4, "Error decoding platform message: while decoding kTypeInt: message ended to soon")
+		case kInt32:
+			ASSERT_RETURN_FALSE(*buffer_remaining >= 4, "Error decoding platform message: while decoding kTypeInt: message ended to soon")
 
-			value->int_value = *(int32_t*) *p_buffer;
-			NEXTN(*p_buffer, *buffer_remaining, 4)
-
-			break;
-		case kTypeLong:
-			ASSERT_RETURN_BOOL(*buffer_remaining >= 8, "Error decoding platform message: while decoding kTypeLong: message ended too soon")
-
-			value->long_value = *(int64_t*) *p_buffer;
-			NEXTN(*p_buffer, *buffer_remaining, 8)
+			value->int_value = (int32_t) read32(pbuffer);
+			advance(pbuffer, 4, buffer_remaining);
 
 			break;
-		case kTypeDouble:
-			ASSERT_RETURN_BOOL(*buffer_remaining >= 8 + ALIGNMENT_DIFF(*p_buffer, 8), "Error decoding platform message: while decoding kTypeDouble: message ended too soon")
-			ALIGN(*p_buffer, *buffer_remaining, 8)
+		case kInt64:
+			ASSERT_RETURN_FALSE(*buffer_remaining >= 8, "Error decoding platform message: while decoding kTypeLong: message ended too soon")
 
-			value->double_value = *(double*) *p_buffer;
-			NEXTN(*p_buffer, *buffer_remaining, 8)
+			value->long_value = (int64_t) read64(pbuffer);
+			advance(pbuffer, 8, buffer_remaining);
 
 			break;
-		case kTypeString:
-			if (!MethodChannel_decodeSize(p_buffer, buffer_remaining, &size)) return false;
+		case kFloat64:
+			ASSERT_RETURN_FALSE(*buffer_remaining >= (8 + alignmentDiff(*pbuffer, 8)), "Error decoding platform message: while decoding kTypeDouble: message ended too soon")
+			
+			align(pbuffer, 8, buffer_remaining);
+			value->double_value = (double) read64(pbuffer);
+			advance(pbuffer, 8, buffer_remaining);
 
-			ASSERT_RETURN_BOOL(*buffer_remaining >= size, "Error decoding platform message: while decoding kTypeString: message ended too soon")
+			break;
+		case kLargeInt:
+		case kString:
+			if (!readSize(pbuffer, buffer_remaining, &size)) return false;
+
+			ASSERT_RETURN_FALSE(*buffer_remaining >= size, "Error decoding platform message: while decoding kTypeString: message ended too soon")
 			char* c_string = calloc(size+1, sizeof(char));
 
 			for (int i = 0; i < size; i++) {
-				c_string[i] = **p_buffer;
-				NEXT(*p_buffer, *buffer_remaining)
+				c_string[i] = read8(pbuffer);
+				advance(pbuffer, 1, buffer_remaining);
 			}
 			value->string_value = c_string;
 
 			break;
-		case kTypeByteArray:
-			if (!MethodChannel_decodeSize(p_buffer, buffer_remaining, &size)) return false;
+		case kUInt8Array:
+			if (!readSize(pbuffer, buffer_remaining, &size)) return false;
 
-			ASSERT_RETURN_BOOL(*buffer_remaining >= size, "Error decoding platform message: while decoding kTypeByteArray: message ended too soon")
+			ASSERT_RETURN_FALSE(*buffer_remaining >= size, "Error decoding platform message: while decoding kTypeByteArray: message ended too soon")
 			value->bytearray_value.size = size;
-			value->bytearray_value.array = *p_buffer;
-			
-			NEXTN(*p_buffer, *buffer_remaining, size);
+			value->bytearray_value.array = *pbuffer;
+			align(pbuffer, size, buffer_remaining);
 
 			break;
-		case kTypeIntArray:
-			if (!MethodChannel_decodeSize(p_buffer, buffer_remaining, &size)) return false;
+		case kInt32Array:
+			if (!readSize(pbuffer, buffer_remaining, &size)) return false;
 
-			ASSERT_RETURN_BOOL(*buffer_remaining >= size*4 + ALIGNMENT_DIFF(*p_buffer, 4), "Error decoding platform message: while decoding kTypeIntArray: message ended too soon")
-			ALIGN(*p_buffer, *buffer_remaining, 4)
+			ASSERT_RETURN_FALSE(*buffer_remaining >= size*4 + alignmentDiff(*pbuffer, 4), "Error decoding platform message: while decoding kTypeIntArray: message ended too soon")
+			align(pbuffer, 4, buffer_remaining);
 
 			value->intarray_value.size = size;
-			value->intarray_value.array = (int32_t*) *p_buffer;
+			value->intarray_value.array = (int32_t*) *pbuffer;
 
-			NEXTN(*p_buffer, *buffer_remaining, size*4)
+			advance(pbuffer, size*4, buffer_remaining);
 
 			break;
-		case kTypeLongArray:
-			if (!MethodChannel_decodeSize(p_buffer, buffer_remaining, &size)) return false;
+		case kInt64Array:
+			if (!readSize(pbuffer, buffer_remaining, &size)) return false;
 
-			ASSERT_RETURN_BOOL(*buffer_remaining >= size*8 + ALIGNMENT_DIFF(*p_buffer, 8), "Error decoding platform message: while decoding kTypeLongArray: message ended too soon")
-			ALIGN(*p_buffer, *buffer_remaining, 8)
+			ASSERT_RETURN_FALSE(*buffer_remaining >= size*8 + alignmentDiff(*pbuffer, 8), "Error decoding platform message: while decoding kTypeLongArray: message ended too soon")
+			align(pbuffer, 8, buffer_remaining);
 
 			value->longarray_value.size = size;
-			value->longarray_value.array = (int64_t*) *p_buffer;
+			value->longarray_value.array = (int64_t*) *pbuffer;
 
-			NEXTN(*p_buffer, *buffer_remaining, size*8)
+			advance(pbuffer, size*8, buffer_remaining);
 
 			break;
-		case kTypeDoubleArray:
-			if (!MethodChannel_decodeSize(p_buffer, buffer_remaining, &size)) return false;
+		case kFloat64Array:
+			if (!readSize(pbuffer, buffer_remaining, &size)) return false;
 
-			ASSERT_RETURN_BOOL(*buffer_remaining >= size*8 + ALIGNMENT_DIFF(*p_buffer, 8), "Error decoding platform message: while decoding kTypeIntArray: message ended too soon")
-			ALIGN(*p_buffer, *buffer_remaining, 8)
+			ASSERT_RETURN_FALSE(*buffer_remaining >= size*8 + alignmentDiff(*pbuffer, 8), "Error decoding platform message: while decoding kTypeIntArray: message ended too soon")
+			align(pbuffer, 8, buffer_remaining);
 
 			value->doublearray_value.size = size;
-			value->doublearray_value.array = (double*) *p_buffer;
+			value->doublearray_value.array = (double*) *pbuffer;
 
-			NEXTN(*p_buffer, *buffer_remaining, size*8)
+			advance(pbuffer, size*8, buffer_remaining);
 
 			break;
-		case kTypeList:
-			if (!MethodChannel_decodeSize(p_buffer, buffer_remaining, &size)) return false;
+		case kList:
+			if (!readSize(pbuffer, buffer_remaining, &size)) return false;
 
 			value->list_value.size = size;
-			value->list_value.list = calloc(size, sizeof(struct MethodChannelValue));
+			value->list_value.list = calloc(size, sizeof(struct MessageChannelValue));
 
 			for (int i = 0; i < size; i++) {
-				if (!MethodChannel_decodeValue(p_buffer, buffer_remaining, &(value->list_value.list[i]))) return false;
+				if (!MethodChannel_decodeValue(pbuffer, buffer_remaining, &(value->list_value.list[i]))) return false;
 			}
 
 			break;
-		case kTypeMap:
-			if (!MethodChannel_decodeSize(p_buffer, buffer_remaining, &size)) return false;
+		case kMap:
+			if (!readSize(pbuffer, buffer_remaining, &size)) return false;
 
 			value->map_value.size = size;
-			value->map_value.map = calloc(size*2, sizeof(struct MethodChannelValue));
+			value->map_value.map = calloc(size*2, sizeof(struct MessageChannelValue));
 
 			for (int i = 0; i < size; i++) {
-				if (!MethodChannel_decodeValue(p_buffer, buffer_remaining, &(value->list_value.list[i*2  ]))) return false;
-				if (!MethodChannel_decodeValue(p_buffer, buffer_remaining, &(value->list_value.list[i*2+1]))) return false;
+				if (!MethodChannel_decodeValue(pbuffer, buffer_remaining, &(value->list_value.list[i*2  ]))) return false;
+				if (!MethodChannel_decodeValue(pbuffer, buffer_remaining, &(value->list_value.list[i*2+1]))) return false;
 			}
 
 			break;
 		default:
-			fprintf(stderr, "Error decoding platform message: unknown value type: %d\n", type);
+			fprintf(stderr, "Error decoding platform message: unknown value type: 0x%02X\n", type);
 			return false;
 	}
 
 	return true;
 }
-bool MethodChannel_decode(size_t buffer_size, uint8_t* buffer, struct MethodCall** presult) {
-	*presult = malloc(sizeof(struct MethodCall));
-	struct MethodCall* result = *presult;
-	
-	uint8_t* buffer_cursor = buffer;
-	size_t  buffer_remaining = buffer_size;
-	
-	if (*buffer == (char) 123) {
-		result->protocol = kJSONProtocol;
-		fprintf(stderr, "Error decoding Method Call: JSON Protocol not supported yet.\n");
-		return false;
-	} else {
-		result->protocol = kStandardProtocol;
-	}
-	
-	struct MethodChannelValue method_name;
-	if (!MethodChannel_decodeValue(&buffer_cursor, &buffer_remaining, &method_name)) return false;
-	if (method_name.type != kTypeString) {
-		fprintf(stderr, "Error decoding Method Call: expected type of first value in buffer to be string (i.e. method name), got %d\n", method_name.type);
-		return false;
-	}
-	result->method = method_name.string_value;
-
-	if (!MethodChannel_decodeValue(&buffer_cursor, &buffer_remaining, &(result->argument))) return false;
-
-	return true;
-}
-
-
-bool MethodChannel_freeValue(struct MethodChannelValue* p_value) {
+bool MessageChannel_freeValue(struct MessageChannelValue* p_value) {
 	switch (p_value->type) {
 		case kTypeString:
 			free(p_value->string_value);
@@ -490,11 +405,39 @@ bool MethodChannel_freeValue(struct MethodChannelValue* p_value) {
 
 	return true;
 }
+
+bool MethodChannel_decode(size_t buffer_size, uint8_t* buffer, struct MethodCall** presult) {
+	*presult = malloc(sizeof(struct MethodCall));
+	struct MethodCall* result = *presult;
+	
+	uint8_t* buffer_cursor = buffer;
+	size_t  buffer_remaining = buffer_size;
+	
+	if (*buffer == (char) 123) {
+		result->protocol = kJSONProtocol;
+		fprintf(stderr, "Error decoding Method Call: JSON Protocol not supported yet.\n");
+		return false;
+	} else {
+		result->protocol = kStandardProtocol;
+	}
+	
+	struct MessageChannelValue method_name;
+	if (!MessageChannel_decodeValue(&buffer_cursor, &buffer_remaining, &method_name)) return false;
+	if (method_name.type != kString) {
+		fprintf(stderr, "Error decoding Method Call: expected type of first value in buffer to be string (i.e. method name), got %d\n", method_name.type);
+		return false;
+	}
+	result->method = method_name.string_value;
+
+	if (!MessageChannel_decodeValue(&buffer_cursor, &buffer_remaining, &(result->argument))) return false;
+
+	return true;
+}
 bool MethodChannel_freeMethodCall(struct MethodCall **pmethodcall) {
 	struct MethodCall* methodcall = *pmethodcall;
 
 	free(methodcall->method);
-	if (!MethodChannel_freeValue(&(methodcall->argument))) return false;
+	if (!MessageChannel_freeValue(&(methodcall->argument))) return false;
 	free(methodcall);
 
 	*pmethodcall = NULL;
@@ -503,14 +446,11 @@ bool MethodChannel_freeMethodCall(struct MethodCall **pmethodcall) {
 }
 
 
-#undef _NEXTN
-#undef _NEXTN_REMAINING
-#undef _NEXT
-#undef _NEXT_REMAINING
-#undef _GET_MACRO
-#undef NEXT
-#undef NEXTN
-#undef ALIGNMENT_DIFF
-#undef _ALIGN
-#undef _ALIGN_REMAINING
-#undef ALIGN
+#undef __ALIGN4_REMAINING
+#undef __ALIGN8_REMAINING
+#undef align4
+#undef align8
+#undef alignmentDiff
+#undef __ADVANCE_REMAINING
+#undef advance
+#undef ASSERT_RETURN_FALSE
