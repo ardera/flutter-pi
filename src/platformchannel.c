@@ -5,8 +5,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include <flutter_embedder.h>
-#include "methodchannel.h"
+
+#include "platformchannel.h"
 #include "flutter-pi.h"
+
 
 // only 32bit support for now.
 #define __ALIGN4_REMAINING(value, remaining) __align((uint32_t*) (value), 4, remaining)
@@ -20,6 +22,8 @@
 #define advance(...) _ADVANCE_REMAINING(__VA_ARGS__, NULL)
 
 #define ASSERT_RETURN_FALSE(cond, err) if (!(cond)) {fprintf(stderr, "%s\n", err); return false;}
+
+
 
 inline int __alignmentDiff(uint64_t value, int alignment) {
 	alignment--;
@@ -39,23 +43,24 @@ inline void __advance(uint32_t *value, int n_bytes) {
 inline void write8(uint8_t **pbuffer, uint8_t value) {
 	*(uint8_t*) *pbuffer = value;
 }
-inline uint8_t read8(uint8_t **pbuffer) {
-	return *(uint8_t *) *pbuffer;
-}
 inline void write16(uint8_t **pbuffer, uint16_t value) {
 	*(uint16_t*) *pbuffer = value;
-}
-inline uint16_t read16(uint8_t **pbuffer) {
-	return *(uint16_t *) *pbuffer;
 }
 inline void write32(uint8_t **pbuffer, uint32_t value) {
 	*(uint32_t*) *pbuffer = value;
 }
-inline uint32_t read32(uint8_t **pbuffer) {
-	return *(int32_t *) *pbuffer;
-}
 inline void write64(uint8_t **pbuffer, uint64_t value) {
 	*(uint64_t*) *pbuffer = value;
+}
+
+inline uint8_t  read8(uint8_t **pbuffer) {
+	return *(uint8_t *) *pbuffer;
+}
+inline uint16_t read16(uint8_t **pbuffer) {
+	return *(uint16_t *) *pbuffer;
+}
+inline uint32_t read32(uint8_t **pbuffer) {
+	return *(int32_t *) *pbuffer;
 }
 inline uint64_t read64(uint8_t **pbuffer) {
 	return *(int64_t *) *pbuffer;
@@ -102,7 +107,88 @@ inline bool readSize(uint8_t** pbuffer, size_t* remaining, uint32_t* size) {
 	return true;
 }
 
-bool MessageChannel_writeValueToBuffer(struct MessageChannelValue* value, uint8_t** pbuffer) {
+
+bool PlatformChannel_calculateValueSizeInBuffer(struct MethodChannelValue* value, size_t* psize) {
+	MessageValueDiscriminator type = value->type;
+
+	// Type Byte
+	advance(psize, 1);
+
+	size_t size;
+	switch (type) {
+		case kNull:
+		case kTrue:
+		case kFalse:
+			break;
+		case kInt32:
+			advance(psize, 4);
+			break;
+		case kInt64:
+			advance(psize, 8);
+			break;
+		case kFloat64:
+			align  (psize, 8);
+			advance(psize, 8);
+			break;
+		case kString:
+		case kLargeInt:
+			size = strlen(value->string_value);
+			advance(psize, size + nSizeBytes(size));
+			break;
+		case kUInt8Array:
+			size = value->bytearray_value.size;
+			advance(psize, size + nSizeBytes(size));
+			break;
+		case kInt32Array:
+			size = value->intarray_value.size;
+
+			advance(psize, nSizeBytes(size));
+			align  (psize, 4);
+			advance(psize, size*4);
+
+			break;
+		case kInt64Array:
+			size = value->longarray_value.size;
+			
+			advance(psize, nSizeBytes(size));
+			align  (psize, 8);
+			advance(psize, size*8);
+
+			break;
+		case kFloat64Array:
+			size = value->doublearray_value.size;
+			
+			advance(psize, nSizeBytes(size));
+			align  (psize, 8);
+			advance(psize, size*8);
+
+			break;
+		case kTypeList:
+			size = value->list_value.size;
+
+			advance(psize, nSizeBytes(size));
+			for (int i = 0; i<size; i++)
+				if (!PlatformChannel_calculateValueSizeInBuffer(&(value->list_value.list[i]), psize))    return false;
+			
+			break;
+		case kTypeMap:
+			size = value->map_value.size;
+
+			advance(psize, nSizeBytes(size));
+			for (int i = 0; i<size; i++) {
+				if (!PlatformChannel_calculateValueSizeInBuffer(&(value->list_value.list[i*2  ]), psize)) return false;
+				if (!PlatformChannel_calculateValueSizeInBuffer(&(value->list_value.list[i*2+1]), psize)) return false;
+			}
+
+			break;
+		default:
+			fprintf(stderr, "Error calculating Message Codec Value size: Unsupported Value type: %d\n", type);
+			return false;
+	}
+
+	return true;
+}
+bool PlatformChannel_writeValueToBuffer(struct MessageChannelValue *value, uint8_t **pbuffer) {
 	write8(pbuffer, value->type);
 	advance(pbuffer, 1);
 
@@ -199,65 +285,7 @@ bool MessageChannel_writeValueToBuffer(struct MessageChannelValue* value, uint8_
 
 	return true;
 }
-
-
-bool MethodChannel_call(char* channel, char* method, struct MessageChannelValue* argument) {
-	uint8_t *buffer, *buffer_cursor;
-	size_t   buffer_size = 0;
-
-	// the method name is encoded as a String value and is the first value written to the buffer.
-	struct MessageChannelValue method_name_value = {
-		.type = kTypeString,
-		.string_value = method
-	};
-
-	// calculate buffer size
-	if (!MessageChannel_calculateValueSizeInBuffer(&method_name_value,	&buffer_size)) return false;
-	if (!MessageChannel_calculateValueSizeInBuffer(argument, 			&buffer_size)) return false;
-
-	// allocate buffer
-	buffer = (uint8_t*) malloc(buffer_size);
-	buffer_cursor = buffer;
-
-	// write buffer
-	if (!MessageChannel_writeValueToBuffer(&method_name_value,	&buffer_cursor)) return false;
-	if (!MessageChannel_writeValueToBuffer(argument,			&buffer_cursor)) return false;
-
-	// send message buffer to flutter engine
-	FlutterEngineResult result = FlutterEngineSendPlatformMessage(
-		engine,
-		& (const FlutterPlatformMessage) {
-			.struct_size = sizeof(FlutterPlatformMessage),
-			.channel = (const char*) channel,
-			.message = (const uint8_t*) buffer,
-			.message_size = (const size_t) buffer_size
-		}
-	);
-
-	free(buffer);
-	return result == kSuccess;
-}
-bool MethodChannel_respond(FlutterPlatformMessageResponseHandle* response_handle, struct MessageChannelValue* response_value) {
-	uint8_t *buffer, *buffer_cursor;
-	size_t   buffer_size;
-
-	// calculate buffer size
-	if (!MethodChannel_calculateValueSizeInBuffer(response_value, &buffer_size)) return false;
-	
-	// allocate buffer
-	buffer_cursor = buffer = (uint8_t*) malloc(buffer_size);
-
-	// write buffer
-	if (!MethodChannel_writeValueToBuffer(response_value, &buffer_cursor)) return false;
-
-	// send message buffer to flutter engine
-	FlutterEngineResult result = FlutterEngineSendPlatformMessageResponse(engine, response_handle, buffer, buffer_size);
-	
-	free(buffer);
-	return result == kSuccess;
-}
-
-bool MessageChannel_decodeValue(uint8_t** pbuffer, size_t* buffer_remaining, struct MessageChannelValue* value) {
+bool PlatformChannel_decodeValue(uint8_t** pbuffer, size_t* buffer_remaining, struct MessageChannelValue* value) {
 	ASSERT_RETURN_FALSE(*buffer_remaining >= 1, "Error decoding platform message: while decoding value type: message ended to soon")
 	MessageValueDiscriminator type = **pbuffer;
 	advance(pbuffer, 1, buffer_remaining);
@@ -381,7 +409,7 @@ bool MessageChannel_decodeValue(uint8_t** pbuffer, size_t* buffer_remaining, str
 
 	return true;
 }
-bool MessageChannel_freeValue(struct MessageChannelValue* p_value) {
+bool PlatformChannel_freeValue(struct MessageChannelValue* p_value) {
 	switch (p_value->type) {
 		case kTypeString:
 			free(p_value->string_value);
@@ -406,7 +434,103 @@ bool MessageChannel_freeValue(struct MessageChannelValue* p_value) {
 	return true;
 }
 
-bool MethodChannel_decode(size_t buffer_size, uint8_t* buffer, struct MethodCall** presult) {
+bool PlatformChannel_sendMessage(char *channel, struct MessageChannelValue *argument) {
+	uint8_t *buffer, *buffer_cursor;
+	size_t   buffer_size = 0;
+
+	if (!MessageChannel_calculateValueSizeInBuffer(argument, &buffer_size)) return false;
+
+	buffer (uint8_t*) malloc(buffer_size);
+	buffer_cursor = buffer;
+
+	if (!MessageChannel_writeValueToBuffer(argument, &buffer_cursor)) return false;
+
+	FlutterEngineResult result = FlutterEngineSendPlatformMessage(
+		engine,
+		& (const FlutterPlatformMessage) {
+			.struct_size = sizeof(FlutterPlatformMessage),
+			.channel = (const char*) channel,
+			.message = (const uint8_t*) buffer,
+			.message_size = (const size_t) buffer_size
+		}
+	);
+
+	free(buffer);
+	return result == kSuccess;
+}
+bool PlatformChannel_decodeMessage(size_t buffer_size, uint8_t *buffer, struct MessageChannelValue **presult) {
+	*presult = malloc(sizeof(struct MessageChannelValue));
+	if (!*presult) {
+		errno = ENOMEM;
+		return false;
+	}
+
+	struct MessageChannelValue *result = *presult;
+
+	uint8_t *buffer_cursor = buffer;
+	size_t   buffer_remaining = buffer_size;
+
+	if (!MessageChannel_decodeValue(&buffer_cursor, &buffer_remaining, result)) return false;
+
+	return true;
+}
+bool PlatformChannel_respond(FlutterPlatformMessageResponseHandle *response_handle, struct MessageChannelValue *response) {
+	uint8_t *buffer, *buffer_cursor;
+	size_t   buffer_size;
+
+	// calculate buffer size
+	if (!MethodChannel_calculateValueSizeInBuffer(response_value, &buffer_size)) return false;
+	
+	// allocate buffer
+	buffer_cursor = buffer = (uint8_t*) malloc(buffer_size);
+
+	// write buffer
+	if (!MethodChannel_writeValueToBuffer(response_value, &buffer_cursor)) return false;
+
+	// send message buffer to flutter engine
+	FlutterEngineResult result = FlutterEngineSendPlatformMessageResponse(engine, response_handle, buffer, buffer_size);
+	
+	free(buffer);
+	return result == kSuccess;
+}
+
+bool PlatformChannel_call(char *channel, char *method, struct MessageChannelValue *argument) {
+	uint8_t *buffer, *buffer_cursor;
+	size_t   buffer_size = 0;
+
+	// the method name is encoded as a String value and is the first value written to the buffer.
+	struct MessageChannelValue method_name_value = {
+		.type = kTypeString,
+		.string_value = method
+	};
+
+	// calculate buffer size
+	if (!MessageChannel_calculateValueSizeInBuffer(&method_name_value,	&buffer_size)) return false;
+	if (!MessageChannel_calculateValueSizeInBuffer(argument, 			&buffer_size)) return false;
+
+	// allocate buffer
+	buffer = (uint8_t*) malloc(buffer_size);
+	buffer_cursor = buffer;
+
+	// write buffer
+	if (!MessageChannel_writeValueToBuffer(&method_name_value,	&buffer_cursor)) return false;
+	if (!MessageChannel_writeValueToBuffer(argument,			&buffer_cursor)) return false;
+
+	// send message buffer to flutter engine
+	FlutterEngineResult result = FlutterEngineSendPlatformMessage(
+		engine,
+		& (const FlutterPlatformMessage) {
+			.struct_size = sizeof(FlutterPlatformMessage),
+			.channel = (const char*) channel,
+			.message = (const uint8_t*) buffer,
+			.message_size = (const size_t) buffer_size
+		}
+	);
+
+	free(buffer);
+	return result == kSuccess;
+}
+bool PlatformChannel_decodeMethodCall(size_t buffer_size, uint8_t* buffer, struct MethodCall** presult) {
 	*presult = malloc(sizeof(struct MethodCall));
 	struct MethodCall* result = *presult;
 	
@@ -433,7 +557,7 @@ bool MethodChannel_decode(size_t buffer_size, uint8_t* buffer, struct MethodCall
 
 	return true;
 }
-bool MethodChannel_freeMethodCall(struct MethodCall **pmethodcall) {
+bool PlatformChannel_freeMethodCall(struct MethodCall **pmethodcall) {
 	struct MethodCall* methodcall = *pmethodcall;
 
 	free(methodcall->method);

@@ -28,7 +28,8 @@
 #include <flutter_embedder.h>
 
 #include "flutter-pi.h"
-#include "methodchannel.h"
+#include "platformchannel.h"
+#include "pluginregistry.h"
 
 
 char* usage ="\
@@ -96,6 +97,7 @@ struct {
 	int engine_argc;
 	const char* const *engine_argv;
 	intptr_t next_vblank_baton;
+	struct FlutterPiPluginRegistry *registry;
 } flutter = {0};
 
 struct {
@@ -381,7 +383,9 @@ void*    		proc_resolver(void* userdata, const char* name) {
 }
 void     		on_platform_message(const FlutterPlatformMessage* message, void* userdata) {
 	struct MethodCall* methodcall;
-
+	int ok;
+	
+	
 	if (!MethodChannel_decode(message->message_size, (uint8_t*) (message->message), &methodcall)) {
 		fprintf(stderr, "Decoding method call failed\n");
 		return;
@@ -389,8 +393,9 @@ void     		on_platform_message(const FlutterPlatformMessage* message, void* user
 
 	printf("MethodCall: method name: %s argument type: %d\n", methodcall->method, methodcall->argument.type);
 
-	if (strcmp(methodcall->method, "counter") == 0) {
-		printf("method \"counter\" was called with argument %d\n", methodcall->argument.int_value);
+	int ok = PluginRegistry_onMethodCall(flutter->registry, message->channel, methodcall);
+	if (ok != 0) {
+		fprintf(stderr, "PluginRegistry_onMethodCall failed: %s\n", strerror(ok));
 	}
 
 	MethodChannel_freeMethodCall(&methodcall);
@@ -828,6 +833,12 @@ void destroy_display(void) {
 }
 
 bool init_application(void) {
+	int ok = PluginRegistry_init(&(flutter->registry));
+	if (ok != 0) {
+		fprintf(stderr, "Could not initialize plugin registry: %s\n", strerror(ok));
+		return false;
+	}
+
 	// configure flutter rendering
 	flutter.renderer_config.type = kOpenGL;
 	flutter.renderer_config.open_gl.struct_size		= sizeof(flutter.renderer_config.open_gl);
@@ -891,16 +902,20 @@ bool init_application(void) {
 	return true;
 }
 void destroy_application(void) {
-	if (engine == NULL) return;
-	
-	FlutterEngineResult _result = FlutterEngineShutdown(engine);
-	
-	if (_result != kSuccess) {
-		fprintf(stderr, "Could not shutdown the flutter engine.\n");
+	if (engine != NULL) {
+		FlutterEngineResult _result = FlutterEngineShutdown(engine);
+		engine = NULL;
+
+		if (_result != kSuccess) {
+			fprintf(stderr, "Could not shutdown the flutter engine.\n");
+		}
+	}
+
+	int ok = PluginRegistry_deinit(&flutter->registry);
+	if (ok != 0) {
+		fprintf(stderr, "Could not deinitialize plugin registry: %s\n", strerror(ok));
 	}
 }
-
-
 
 /****************
  * Input-Output *
@@ -1099,7 +1114,6 @@ bool  run_io_thread(void) {
 
 	return true;
 }
-
 
 
 bool  parse_cmd_args(int argc, char **argv) {
