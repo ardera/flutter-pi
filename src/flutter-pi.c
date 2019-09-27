@@ -286,7 +286,7 @@ const GLubyte*	hacked_glGetString(GLenum name) {
 		static GLubyte* extensions;
 
 		if (extensions == NULL) {
-			GLubyte* orig_extensions = glGetString(GL_EXTENSIONS);
+			GLubyte* orig_extensions = (GLubyte *) glGetString(GL_EXTENSIONS);
 			size_t len_orig_extensions = strlen(orig_extensions);
 			
 			extensions = malloc(len_orig_extensions+1);
@@ -382,23 +382,9 @@ void*    		proc_resolver(void* userdata, const char* name) {
 	return NULL;
 }
 void     		on_platform_message(const FlutterPlatformMessage* message, void* userdata) {
-	struct MethodCall* methodcall;
 	int ok;
-	
-	
-	if (!MethodChannel_decode(message->message_size, (uint8_t*) (message->message), &methodcall)) {
-		fprintf(stderr, "Decoding method call failed\n");
-		return;
-	}
-
-	printf("MethodCall: method name: %s argument type: %d\n", methodcall->method, methodcall->argument.type);
-
-	int ok = PluginRegistry_onMethodCall(flutter->registry, message->channel, methodcall);
-	if (ok != 0) {
-		fprintf(stderr, "PluginRegistry_onMethodCall failed: %s\n", strerror(ok));
-	}
-
-	MethodChannel_freeMethodCall(&methodcall);
+	if ((ok = PluginRegistry_onPlatformMessage((FlutterPlatformMessage *)message)) != 0)
+		fprintf(stderr, "PluginRegistry_onPlatformMessage failed: %s\n", strerror(ok));
 }
 void	 		vsync_callback(void* userdata, intptr_t baton) {
 	// not yet implemented
@@ -833,7 +819,10 @@ void destroy_display(void) {
 }
 
 bool init_application(void) {
-	int ok = PluginRegistry_init(&(flutter->registry));
+	int ok;
+
+	printf("Initializing Plugin Registry...\n");
+	ok = PluginRegistry_init();
 	if (ok != 0) {
 		fprintf(stderr, "Could not initialize plugin registry: %s\n", strerror(ok));
 		return false;
@@ -848,9 +837,6 @@ bool init_application(void) {
 	flutter.renderer_config.open_gl.fbo_callback	= fbo_callback;
 	flutter.renderer_config.open_gl.gl_proc_resolver= proc_resolver;
 
-	for (int i=0; i<flutter.engine_argc; i++)
-		printf("engine_argv[%i] = %s\n", i, flutter.engine_argv[i]);
-	
 	// configure flutter
 	flutter.args.struct_size				= sizeof(FlutterProjectArgs);
 	flutter.args.assets_path				= flutter.asset_bundle_path;
@@ -879,17 +865,13 @@ bool init_application(void) {
 	
 	// spin up the engine
 	FlutterEngineResult _result = FlutterEngineRun(FLUTTER_ENGINE_VERSION, &flutter.renderer_config, &flutter.args, NULL, &engine);
-
-	for (int i=0; i<flutter.engine_argc; i++)
-		printf("engine_argv[%i] = %s\n", i, flutter.engine_argv[i]);
-	
 	if (_result != kSuccess) {
 		fprintf(stderr, "Could not run the flutter engine\n");
 		return false;
 	}
 
 	// update window size
-	bool ok = FlutterEngineSendWindowMetricsEvent(
+	ok = FlutterEngineSendWindowMetricsEvent(
 		engine,
 		&(FlutterWindowMetricsEvent) {.struct_size = sizeof(FlutterWindowMetricsEvent), .width=width, .height=height, .pixel_ratio = pixel_ratio}
 	) == kSuccess;
@@ -902,17 +884,16 @@ bool init_application(void) {
 	return true;
 }
 void destroy_application(void) {
-	if (engine != NULL) {
-		FlutterEngineResult _result = FlutterEngineShutdown(engine);
-		engine = NULL;
+	int ok;
 
-		if (_result != kSuccess) {
+	if (engine != NULL) {
+		if (FlutterEngineShutdown(engine) != kSuccess)
 			fprintf(stderr, "Could not shutdown the flutter engine.\n");
-		}
+
+		engine = NULL;
 	}
 
-	int ok = PluginRegistry_deinit(&flutter->registry);
-	if (ok != 0) {
+	if ((ok = PluginRegistry_deinit()) != 0) {
 		fprintf(stderr, "Could not deinitialize plugin registry: %s\n", strerror(ok));
 	}
 }
@@ -1160,7 +1141,7 @@ bool  parse_cmd_args(int argc, char **argv) {
 
 	argv[optind] = argv[0];
 	flutter.engine_argc = argc-optind;
-	flutter.engine_argv = &(argv[optind]);
+	flutter.engine_argv = (const char* const*) &(argv[optind]);
 
 	for (int i=0; i<flutter.engine_argc; i++)
 		printf("engine_argv[%i] = %s\n", i, flutter.engine_argv[i]);

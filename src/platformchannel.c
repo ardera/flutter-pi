@@ -1,4 +1,6 @@
 #include <assert.h>
+#include <ctype.h>
+#include <errno.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -6,37 +8,45 @@
 #include <string.h>
 #include <flutter_embedder.h>
 
-#include "platformchannel.h"
 #include "flutter-pi.h"
+#include "platformchannel.h"
+#include "jsmn.h"
 
 
 // only 32bit support for now.
-#define __ALIGN4_REMAINING(value, remaining) __align((uint32_t*) (value), 4, remaining)
-#define __ALIGN8_REMAINING(value, remaining) __align((uint32_t*) (value), 8, remaining)
-#define align4(...) _ALIGN4_REMAINING(__VA_ARGS__, NULL)
-#define align8(...) _ALIGN8_REMAINING(__VA_ARGS__, NULL)
+#define __ALIGN4_REMAINING(value, remaining, ...) __align((uint32_t*) (value), 4, remaining)
+#define __ALIGN8_REMAINING(value, remaining, ...) __align((uint32_t*) (value), 8, remaining)
+#define align4(...) __ALIGN4_REMAINING(__VA_ARGS__, NULL)
+#define align8(...) __ALIGN8_REMAINING(__VA_ARGS__, NULL)
 
-#define alignmentDiff(value, alignment) __alignmentDiff((uint64_t) value, alignment)
+#define alignmentDiff(value, alignment) __alignmentDiff((uint32_t) value, alignment)
 
-#define __ADVANCE_REMAINING(value, n, remaining) __advance((uint32_t*) (value), n, remaining)
-#define advance(...) _ADVANCE_REMAINING(__VA_ARGS__, NULL)
-
-#define ASSERT_RETURN_FALSE(cond, err) if (!(cond)) {fprintf(stderr, "%s\n", err); return false;}
+#define __ADVANCE_REMAINING(value, n, remaining, ...) __advance((uint32_t*) (value), n, remaining)
+#define advance(...) __ADVANCE_REMAINING(__VA_ARGS__, NULL)
 
 
+struct ResponseHandlerData {
+	enum ChannelCodec codec;
+	PlatformMessageResponseCallback on_response;
+	void *userdata;
+};
 
-inline int __alignmentDiff(uint64_t value, int alignment) {
+
+inline int __alignmentDiff(uint32_t value, int alignment) {
 	alignment--;
-	return value - (((((uint64_t) value) + alignment) | alignment) - alignment);
+	return value - (((((uint32_t) value) + alignment) | alignment) - alignment);
 }
 inline void __align(uint32_t *value, int alignment, size_t *remaining) {
 	if (remaining != NULL)
-		remaining -= alignmentDiff((uint64_t) *value, alignment);	
+		*remaining -= alignmentDiff((uint32_t) *value, alignment);	
 	alignment--;
 
-	*value = (uint32_t) ((((*value + alignment) | alignment) - alignment);
+	*value = (uint32_t) (((*value + alignment) | alignment) - alignment);
 }
-inline void __advance(uint32_t *value, int n_bytes) {
+inline void __advance(uint32_t *value, int n_bytes, size_t *remaining) {
+	if (remaining != NULL)
+		*remaining -= n_bytes;
+	
 	*value += n_bytes;
 }
 
@@ -87,34 +97,118 @@ inline void writeSize(uint8_t **pbuffer, int size) {
 		advance(pbuffer, 4);
 	}
 }
-inline bool readSize(uint8_t** pbuffer, size_t* remaining, uint32_t* size) {
-	ASSERT_RETURN_FALSE(*remaining >= 1, "Error decoding platform message: while decoding size: message ended too soon")
-	*size = read8(pbuffer);
-	advance(pbuffer, 1, remaining);
+inline int  readSize(uint8_t **pbuffer, size_t *premaining, uint32_t *psize) {
+	if (*premaining < 1) return EBADMSG;
 
-	if (*size == 254) {
-		ASSERT_RETURN_FALSE(*remaining >= 2, "Error decoding platform message: while decoding size: message ended too soon")
+	*psize = read8(pbuffer);
+	advance(pbuffer, 1, premaining);
 
-		*size = read16(pbuffer);
-		advance(pbuffer, 2, remaining);
-	} else if (*size == 255) {
-		ASSERT_RETURN_BOOL(*remaining >= 4, "Error decoding platform message: while decoding size: message ended too soon")
+	if (*psize == 254) {
+		if (*premaining < 2) return EBADMSG;
+
+		*psize = read16(pbuffer);
+		advance(pbuffer, 2, premaining);
+	} else if (*psize == 255) {
+		if (*premaining < 4) return EBADMSG;
 		
-		*size = read32(pbuffer);
-		advance(pbuffer, 4, remaining);
+		*psize = read32(pbuffer);
+		advance(pbuffer, 4, premaining);
 	}
 
-	return true;
+	return 0;
 }
 
 
-bool PlatformChannel_calculateValueSizeInBuffer(struct MethodChannelValue* value, size_t* psize) {
-	MessageValueDiscriminator type = value->type;
+int PlatformChannel_freeStdMsgCodecValue(struct StdMsgCodecValue *value) {
+	int ok;
+
+	switch (value->type) {
+		case kString:
+			free(value->string_value);
+			break;
+		case kList:
+			for (int i=0; i < value->size; i++) {
+				ok = PlatformChannel_freeStdMsgCodecValue(&(value->list[i]));
+				if (ok != 0) return ok;
+			}
+			free(value->list);
+			break;
+		case kMap:
+			for (int i=0; i < value->size; i++) {
+				ok = PlatformChannel_freeStdMsgCodecValue(&(value->keys[i]));
+				if (ok != 0) return ok;
+				ok = PlatformChannel_freeStdMsgCodecValue(&(value->values[i]));
+				if (ok != 0) return ok;
+			}
+			free(value->keys);
+			break;
+		default:
+			break;
+	}
+
+	return 0;
+}
+int PlatformChannel_freeJSONMsgCodecValue(struct JSONMsgCodecValue *value, bool shallow) {
+	int ok;
+	
+	switch (value->type) {
+		case kJSArray:
+			if (!shallow) {
+				for (int i = 0; i < value->size; i++) {
+					ok = PlatformChannel_freeJSONMsgCodecValue(&(value->array[i]), false);
+					if (ok != 0) return ok;
+				}
+			}
+
+			free(value->array);
+			break;
+		case kJSObject:
+			if (!shallow) {
+				for (int i = 0; i < value->size; i++) {
+					ok = PlatformChannel_freeJSONMsgCodecValue(&(value->values[i]), false);
+					if (ok != 0) return ok;
+				}
+			}
+
+			free(value->keys);
+			break;
+		default:
+			break;
+	}
+
+	return 0;
+}
+int PlatformChannel_free(struct ChannelObject *object) {
+	switch (object->codec) {
+		case kStringCodec:
+			free(object->string_value);
+			break;
+		case kBinaryCodec:
+			break;
+		case kJSONMessageCodec:
+			PlatformChannel_freeJSONMsgCodecValue(&(object->jsonmsgcodec_value), false);
+			break;
+		case kStandardMessageCodec:
+			PlatformChannel_freeStdMsgCodecValue(&(object->stdmsgcodec_value));
+			break;
+		case kStandardMethodCall:
+			free(object->method);
+			PlatformChannel_freeStdMsgCodecValue(&(object->stdarg));
+			break;
+		case kJSONMethodCall:
+			PlatformChannel_freeJSONMsgCodecValue(&(object->jsarg), false);
+	}
+
+	return 0;
+}
+
+int PlatformChannel_calculateStdMsgCodecValueSize(struct StdMsgCodecValue* value, size_t* psize) {
+	enum StdMsgCodecValueType type = value->type;
+	size_t size;
+	int ok;
 
 	// Type Byte
 	advance(psize, 1);
-
-	size_t size;
 	switch (type) {
 		case kNull:
 		case kTrue:
@@ -127,7 +221,7 @@ bool PlatformChannel_calculateValueSizeInBuffer(struct MethodChannelValue* value
 			advance(psize, 8);
 			break;
 		case kFloat64:
-			align  (psize, 8);
+			align8 (psize);
 			advance(psize, 8);
 			break;
 		case kString:
@@ -136,79 +230,81 @@ bool PlatformChannel_calculateValueSizeInBuffer(struct MethodChannelValue* value
 			advance(psize, size + nSizeBytes(size));
 			break;
 		case kUInt8Array:
-			size = value->bytearray_value.size;
+			size = value->size;
 			advance(psize, size + nSizeBytes(size));
 			break;
 		case kInt32Array:
-			size = value->intarray_value.size;
+			size = value->size;
 
 			advance(psize, nSizeBytes(size));
-			align  (psize, 4);
+			align4 (psize);
 			advance(psize, size*4);
 
 			break;
 		case kInt64Array:
-			size = value->longarray_value.size;
+			size = value->size;
 			
 			advance(psize, nSizeBytes(size));
-			align  (psize, 8);
+			align8 (psize);
 			advance(psize, size*8);
 
 			break;
 		case kFloat64Array:
-			size = value->doublearray_value.size;
+			size = value->size;
 			
 			advance(psize, nSizeBytes(size));
-			align  (psize, 8);
+			align8 (psize);
 			advance(psize, size*8);
 
 			break;
-		case kTypeList:
-			size = value->list_value.size;
+		case kList:
+			size = value->size;
 
 			advance(psize, nSizeBytes(size));
 			for (int i = 0; i<size; i++)
-				if (!PlatformChannel_calculateValueSizeInBuffer(&(value->list_value.list[i]), psize))    return false;
+				if ((ok = PlatformChannel_calculateStdMsgCodecValueSize(&(value->list[i]), psize))   != 0)    return ok;
 			
 			break;
-		case kTypeMap:
-			size = value->map_value.size;
+		case kMap:
+			size = value->size;
 
 			advance(psize, nSizeBytes(size));
 			for (int i = 0; i<size; i++) {
-				if (!PlatformChannel_calculateValueSizeInBuffer(&(value->list_value.list[i*2  ]), psize)) return false;
-				if (!PlatformChannel_calculateValueSizeInBuffer(&(value->list_value.list[i*2+1]), psize)) return false;
+				if ((ok = PlatformChannel_calculateStdMsgCodecValueSize(&(value->keys[i]), psize))   != 0) return ok;
+				if ((ok = PlatformChannel_calculateStdMsgCodecValueSize(&(value->values[i]), psize)) != 0) return ok;
 			}
 
 			break;
 		default:
-			fprintf(stderr, "Error calculating Message Codec Value size: Unsupported Value type: %d\n", type);
-			return false;
+			return EINVAL;
 	}
 
-	return true;
+	return 0;
 }
-bool PlatformChannel_writeValueToBuffer(struct MessageChannelValue *value, uint8_t **pbuffer) {
+int PlatformChannel_writeStdMsgCodecValueToBuffer(struct StdMsgCodecValue* value, uint8_t **pbuffer) {
+	uint8_t* byteArray;
+	size_t size;
+	int ok;
+
 	write8(pbuffer, value->type);
 	advance(pbuffer, 1);
 
-	size_t size; uint8_t* byteArray;
 	switch (value->type) {
 		case kNull:
 		case kTrue:
 		case kFalse:
 			break;
 		case kInt32:
-			write32(pbuffer, value->int_value);
+			write32(pbuffer, value->int32_value);
 			advance(pbuffer, 4);
 			break;
 		case kInt64:
-			write64(pbuffer, value->long_value);
+			write64(pbuffer, value->int64_value);
 			advance(pbuffer, 8);
 			break;
 		case kFloat64:
 			align8(pbuffer);
-			write64(pbuffer, (uint64_t) value->double_value);
+			write64(pbuffer, (uint64_t) value->float64_value);
 			advance(pbuffer, 8);
 			break;
 		case kLargeInt:
@@ -218,357 +314,795 @@ bool PlatformChannel_writeValueToBuffer(struct MessageChannelValue *value, uint8
 				size = strlen(value->string_value);
 				byteArray = (uint8_t*) value->string_value;
 			} else if (value->type == kUInt8Array) {
-				size = value->bytearray_value.size;
-				byteArray = (uint8_t*) value->bytearray_value.array;
+				size = value->size;
+				byteArray = value->uint8array;
 			}
 
-			writeSize(size, pbuffer);
+			writeSize(pbuffer, size);
 			for (int i=0; i<size; i++) {
 				write8(pbuffer, byteArray[i]);
 				advance(pbuffer, 1);
 			}
 			break;
 		case kInt32Array:
-			size = value->intarray_value.size;
+			size = value->size;
 
 			writeSize(pbuffer, size);
-			align(pbuffer, 4);
+			align4(pbuffer);
 			
 			for (int i=0; i<size; i++) {
-				write32(pbuffer, value->intarray_value.array[i]);
+				write32(pbuffer, value->int32array[i]);
 				advance(pbuffer, 4);
 			}
 			break;
 		case kInt64Array:
-		case kFloat64Array:
-			size = value->longarray_value.size;
+			size = value->size;
 
 			writeSize(pbuffer, size);
-			align(pbuffer, 8);
+			align8(pbuffer);
 			for (int i=0; i<size; i++) {
-				write64(pbuffer, value->longarray_value.array[i]);
+				write64(pbuffer, value->int64array[i]);
 				advance(pbuffer, 8);
 			}
 			break;
-		/*case kFloat64Array:
-			size = value->doublearray_value.size;
+		case kFloat64Array:
+			size = value->size;
 
 			writeSize(pbuffer, size);
-			align(pbuffer, 8);
+			align8(pbuffer);
 
 			for (int i=0; i<size; i++) {
-				write64(pbuffer, value->doublearray_value.array[i]);
-				advance(pbuffer, 8)
+				write64(pbuffer, value->float64array[i]);
+				advance(pbuffer, 8);
 			}
-			break;*/
+			break;
 		case kList:
-			size = value->list_value.size;
+			size = value->size;
 
 			writeSize(pbuffer, size);
 			for (int i=0; i<size; i++)
-				if (!MethodChannel_writeValueToBuffer(&(value->list_value.list[i]), pbuffer)) return false;
+				if ((ok = PlatformChannel_writeStdMsgCodecValueToBuffer(&(value->list[i]), pbuffer))   != 0) return ok;
 			
 			break;
 		case kMap:
-			size = value->map_value.size;
+			size = value->size;
 
 			writeSize(pbuffer, size);
 			for (int i=0; i<size; i++) {
-				if (!MethodChannel_writeValueToBuffer(&(value->map_value.map[i*2  ]), pbuffer)) return false;
-				if (!MethodChannel_writeValueToBuffer(&(value->map_value.map[i*2+1]), pbuffer)) return false;
+				if ((ok = PlatformChannel_writeStdMsgCodecValueToBuffer(&(value->keys[i]), pbuffer))   != 0) return ok;
+				if ((ok = PlatformChannel_writeStdMsgCodecValueToBuffer(&(value->values[i]), pbuffer)) != 0) return ok;
 			}
 			break;
 		default:
-			fprintf(stderr, "Error encoding Message Codec Value: Unsupported Value type: %d\n", value->type);
-			return false;
+			return EINVAL;
 	}
 
-	return true;
+	return 0;
 }
-bool PlatformChannel_decodeValue(uint8_t** pbuffer, size_t* buffer_remaining, struct MessageChannelValue* value) {
-	ASSERT_RETURN_FALSE(*buffer_remaining >= 1, "Error decoding platform message: while decoding value type: message ended to soon")
-	MessageValueDiscriminator type = **pbuffer;
-	advance(pbuffer, 1, buffer_remaining);
+size_t PlatformChannel_calculateJSONMsgCodecValueSize(struct JSONMsgCodecValue *value) {
+	size_t size = 0;
 
-	value->type = type;
+	switch (value->type) {
+		case kJSNull:
+		case kJSTrue:
+			return 4;
+		case kJSFalse:
+			return 5;
+		case kJSNumber: ;
+			char numBuffer[32];
+			return sprintf(numBuffer, "%lf", value->number_value);
+		case kJSString:
+			return strlen(value->string_value) +2;
+		case kJSArray:
+			size += 2;
+			for (int i=0; i < value->size; i++) {
+				size += PlatformChannel_calculateJSONMsgCodecValueSize(&(value->array[i]));
+				if (i+1 != value->size) size += 1;
+			}
+			return size;
+		case kJSObject:
+			size += 2;
+			for (int i=0; i < value->size; i++) {
+				size += strlen(value->keys[i]) + 3 + PlatformChannel_calculateJSONMsgCodecValueSize(&(value->values[i]));
+				if (i+1 != value->size) size += 1;
+			}
+			return size;
+		default:
+			return EINVAL;
+	}
 
-	size_t size = 0; char* c_string = 0; uint8_t* byteArray = 0; int32_t* intArray = 0; int64_t* longArray = 0;
+	return 0;
+}
+int PlatformChannel_writeJSONMsgCodecValueToBuffer(struct JSONMsgCodecValue* value, uint8_t **pbuffer) {
+	switch (value->type) {
+		case kJSNull:
+			*pbuffer += sprintf((char*) *pbuffer, "null");
+			break;
+		case kJSTrue:
+			*pbuffer += sprintf((char*) *pbuffer, "true");
+			break;
+		case kJSFalse:
+			*pbuffer += sprintf((char*) *pbuffer, "false");
+			break;
+		case kJSNumber:
+			*pbuffer += sprintf((char*) *pbuffer, "%lf", value->number_value);
+			break;
+		case kJSString:
+			*pbuffer += sprintf((char*) *pbuffer, "\"%s\"", value->string_value);
+			break;
+		case kJSArray:
+			*pbuffer += sprintf((char*) *pbuffer, "[");
+			for (int i=0; i < value->size; i++) {
+				PlatformChannel_writeJSONMsgCodecValueToBuffer(&(value->array[i]), pbuffer);
+				if (i+1 != value->size) *pbuffer += sprintf((char*) *pbuffer, ",");
+			}
+			*pbuffer += sprintf((char*) *pbuffer, "]");
+			break;	
+		case kJSObject:
+			*pbuffer += sprintf((char*) *pbuffer, "{");
+			for (int i=0; i < value->size; i++) {
+				*pbuffer += sprintf((char*) *pbuffer, "\"%s\":", value->keys[i]);
+				PlatformChannel_writeJSONMsgCodecValueToBuffer(&(value->values[i]), pbuffer);
+				if (i+1 != value->size) *pbuffer += sprintf((char*) *pbuffer, ",");
+			}
+			*pbuffer += sprintf((char*) *pbuffer, "}");
+			break;
+		default:
+			return EINVAL;
+	}
+
+	return 0;
+}
+int PlatformChannel_decodeStdMsgCodecValue(uint8_t **pbuffer, size_t *premaining, struct StdMsgCodecValue *value_out) {
+	int64_t *longArray = 0;
+	int32_t *intArray = 0;
+	uint8_t *byteArray = 0;
+	char *c_string = 0; 
+	size_t size = 0;
+	int ok;
+	
+	enum StdMsgCodecValueType type = read8(pbuffer);
+	advance(pbuffer, 1, premaining);
+
+	value_out->type = type;
 	switch (type) {
 		case kNull:
 		case kTrue:
 		case kFalse:
 			break;
 		case kInt32:
-			ASSERT_RETURN_FALSE(*buffer_remaining >= 4, "Error decoding platform message: while decoding kTypeInt: message ended to soon")
+			if (*premaining < 4) return EBADMSG;
 
-			value->int_value = (int32_t) read32(pbuffer);
-			advance(pbuffer, 4, buffer_remaining);
+			value_out->int32_value = (int32_t) read32(pbuffer);
+			advance(pbuffer, 4, premaining);
 
 			break;
 		case kInt64:
-			ASSERT_RETURN_FALSE(*buffer_remaining >= 8, "Error decoding platform message: while decoding kTypeLong: message ended too soon")
+			if (*premaining < 8) return EBADMSG;
 
-			value->long_value = (int64_t) read64(pbuffer);
-			advance(pbuffer, 8, buffer_remaining);
+			value_out->int64_value = (int64_t) read64(pbuffer);
+			advance(pbuffer, 8, premaining);
 
 			break;
 		case kFloat64:
-			ASSERT_RETURN_FALSE(*buffer_remaining >= (8 + alignmentDiff(*pbuffer, 8)), "Error decoding platform message: while decoding kTypeDouble: message ended too soon")
-			
-			align(pbuffer, 8, buffer_remaining);
-			value->double_value = (double) read64(pbuffer);
-			advance(pbuffer, 8, buffer_remaining);
+			if (*premaining < (8 + alignmentDiff(*pbuffer, 8))) return EBADMSG;
+
+			align8(pbuffer, premaining);
+			uint64_t temp = read64(pbuffer);
+			value_out->float64_value = *((double*) (&temp));
+			advance(pbuffer, 8, premaining);
 
 			break;
 		case kLargeInt:
 		case kString:
-			if (!readSize(pbuffer, buffer_remaining, &size)) return false;
+			if ((ok = readSize(pbuffer, premaining, &size)) != 0) return ok;
+			if (*premaining < size) return EBADMSG;
 
-			ASSERT_RETURN_FALSE(*buffer_remaining >= size, "Error decoding platform message: while decoding kTypeString: message ended too soon")
-			char* c_string = calloc(size+1, sizeof(char));
-
-			for (int i = 0; i < size; i++) {
-				c_string[i] = read8(pbuffer);
-				advance(pbuffer, 1, buffer_remaining);
-			}
-			value->string_value = c_string;
+			value_out->string_value = calloc(size+1, sizeof(char));
+			if (!value_out->string_value) return ENOMEM;
+			memcpy(value_out->string_value, *pbuffer, size);
+			advance(pbuffer, size, premaining);
 
 			break;
 		case kUInt8Array:
-			if (!readSize(pbuffer, buffer_remaining, &size)) return false;
+			if ((ok = readSize(pbuffer, premaining, &size)) != 0) return ok;
+			if (*premaining < size) return EBADMSG;
 
-			ASSERT_RETURN_FALSE(*buffer_remaining >= size, "Error decoding platform message: while decoding kTypeByteArray: message ended too soon")
-			value->bytearray_value.size = size;
-			value->bytearray_value.array = *pbuffer;
-			align(pbuffer, size, buffer_remaining);
+			value_out->size = size;
+			value_out->uint8array = *pbuffer;
+			advance(pbuffer, size, premaining);
 
 			break;
 		case kInt32Array:
-			if (!readSize(pbuffer, buffer_remaining, &size)) return false;
+			if ((ok = readSize(pbuffer, premaining, &size)) != 0) return ok;
+			if (*premaining < (size*4 + alignmentDiff(*pbuffer, 4))) return EBADMSG;
 
-			ASSERT_RETURN_FALSE(*buffer_remaining >= size*4 + alignmentDiff(*pbuffer, 4), "Error decoding platform message: while decoding kTypeIntArray: message ended too soon")
-			align(pbuffer, 4, buffer_remaining);
-
-			value->intarray_value.size = size;
-			value->intarray_value.array = (int32_t*) *pbuffer;
-
-			advance(pbuffer, size*4, buffer_remaining);
+			align4(pbuffer, premaining);
+			value_out->size = size;
+			value_out->int32array = (int32_t*) *pbuffer;
+			advance(pbuffer, size*4, premaining);
 
 			break;
 		case kInt64Array:
-			if (!readSize(pbuffer, buffer_remaining, &size)) return false;
+			if ((ok = readSize(pbuffer, premaining, &size)) != 0) return ok;
+			if (*premaining < (size*8 + alignmentDiff(*pbuffer, 8))) return EBADMSG;
 
-			ASSERT_RETURN_FALSE(*buffer_remaining >= size*8 + alignmentDiff(*pbuffer, 8), "Error decoding platform message: while decoding kTypeLongArray: message ended too soon")
-			align(pbuffer, 8, buffer_remaining);
-
-			value->longarray_value.size = size;
-			value->longarray_value.array = (int64_t*) *pbuffer;
-
-			advance(pbuffer, size*8, buffer_remaining);
+			align8(pbuffer, premaining);
+			value_out->size = size;
+			value_out->int64array = (int64_t*) *pbuffer;
+			advance(pbuffer, size*8, premaining);
 
 			break;
 		case kFloat64Array:
-			if (!readSize(pbuffer, buffer_remaining, &size)) return false;
+			if ((ok = readSize(pbuffer, premaining, &size)) != 0) return ok;
+			if (*premaining < (size*8 + alignmentDiff(*pbuffer, 8))) return EBADMSG;
 
-			ASSERT_RETURN_FALSE(*buffer_remaining >= size*8 + alignmentDiff(*pbuffer, 8), "Error decoding platform message: while decoding kTypeIntArray: message ended too soon")
-			align(pbuffer, 8, buffer_remaining);
-
-			value->doublearray_value.size = size;
-			value->doublearray_value.array = (double*) *pbuffer;
-
-			advance(pbuffer, size*8, buffer_remaining);
+			align8(pbuffer, premaining);
+			value_out->size = size;
+			value_out->float64array = (double*) *pbuffer;
+			advance(pbuffer, size*8, premaining);
 
 			break;
 		case kList:
-			if (!readSize(pbuffer, buffer_remaining, &size)) return false;
+			if ((ok = readSize(pbuffer, premaining, &size)) != 0) return ok;
 
-			value->list_value.size = size;
-			value->list_value.list = calloc(size, sizeof(struct MessageChannelValue));
+			value_out->size = size;
+			value_out->list = calloc(size, sizeof(struct StdMsgCodecValue));
 
 			for (int i = 0; i < size; i++) {
-				if (!MethodChannel_decodeValue(pbuffer, buffer_remaining, &(value->list_value.list[i]))) return false;
+				ok = PlatformChannel_decodeStdMsgCodecValue(pbuffer, premaining, &(value_out->list[i]));
+				if (ok != 0) return ok;
 			}
 
 			break;
 		case kMap:
-			if (!readSize(pbuffer, buffer_remaining, &size)) return false;
+			if ((ok = readSize(pbuffer, premaining, &size)) != 0) return ok;
 
-			value->map_value.size = size;
-			value->map_value.map = calloc(size*2, sizeof(struct MessageChannelValue));
+			value_out->size = size;
+			value_out->keys = calloc(size*2, sizeof(struct StdMsgCodecValue));
+			if (!value_out->keys) return ENOMEM;
+			value_out->values = &(value_out->keys[size]);
 
 			for (int i = 0; i < size; i++) {
-				if (!MethodChannel_decodeValue(pbuffer, buffer_remaining, &(value->list_value.list[i*2  ]))) return false;
-				if (!MethodChannel_decodeValue(pbuffer, buffer_remaining, &(value->list_value.list[i*2+1]))) return false;
+				ok = PlatformChannel_decodeStdMsgCodecValue(pbuffer, premaining, &(value_out->keys[i]));
+				if (ok != 0) return ok;
+				
+				ok = PlatformChannel_decodeStdMsgCodecValue(pbuffer, premaining, &(value_out->values[i]));
+				if (ok != 0) return ok;
 			}
 
 			break;
 		default:
-			fprintf(stderr, "Error decoding platform message: unknown value type: 0x%02X\n", type);
-			return false;
+			return EBADMSG;
 	}
 
-	return true;
+	return 0;
 }
-bool PlatformChannel_freeValue(struct MessageChannelValue* p_value) {
-	switch (p_value->type) {
-		case kTypeString:
-			free(p_value->string_value);
-			break;
-		case kTypeList:
-			for (int i=0; i < p_value->list_value.size; i++)
-				if (!MethodChannel_freeValue(&(p_value->list_value.list[i]))) return false;
-			
-			free(p_value->list_value.list);
-			break;
-		case kTypeMap:
-			for (int i=0; i< p_value->map_value.size; i++) {
-				if (!MethodChannel_freeValue(&(p_value->map_value.map[i*2  ]))) return false;
-				if (!MethodChannel_freeValue(&(p_value->map_value.map[i*2+1]))) return false;
-			}
-
-			free(p_value->map_value.map);
-		default:
-			break;
-	}
-
-	return true;
-}
-
-bool PlatformChannel_sendMessage(char *channel, struct MessageChannelValue *argument) {
-	uint8_t *buffer, *buffer_cursor;
-	size_t   buffer_size = 0;
-
-	if (!MessageChannel_calculateValueSizeInBuffer(argument, &buffer_size)) return false;
-
-	buffer (uint8_t*) malloc(buffer_size);
-	buffer_cursor = buffer;
-
-	if (!MessageChannel_writeValueToBuffer(argument, &buffer_cursor)) return false;
-
-	FlutterEngineResult result = FlutterEngineSendPlatformMessage(
-		engine,
-		& (const FlutterPlatformMessage) {
-			.struct_size = sizeof(FlutterPlatformMessage),
-			.channel = (const char*) channel,
-			.message = (const uint8_t*) buffer,
-			.message_size = (const size_t) buffer_size
-		}
-	);
-
-	free(buffer);
-	return result == kSuccess;
-}
-bool PlatformChannel_decodeMessage(size_t buffer_size, uint8_t *buffer, struct MessageChannelValue **presult) {
-	*presult = malloc(sizeof(struct MessageChannelValue));
-	if (!*presult) {
-		errno = ENOMEM;
-		return false;
-	}
-
-	struct MessageChannelValue *result = *presult;
-
-	uint8_t *buffer_cursor = buffer;
-	size_t   buffer_remaining = buffer_size;
-
-	if (!MessageChannel_decodeValue(&buffer_cursor, &buffer_remaining, result)) return false;
-
-	return true;
-}
-bool PlatformChannel_respond(FlutterPlatformMessageResponseHandle *response_handle, struct MessageChannelValue *response) {
-	uint8_t *buffer, *buffer_cursor;
-	size_t   buffer_size;
-
-	// calculate buffer size
-	if (!MethodChannel_calculateValueSizeInBuffer(response_value, &buffer_size)) return false;
+int PlatformChannel_decodeJSONMsgCodecValue(char *message, size_t size, jsmntok_t **pptoken, size_t *ptokensremaining, struct JSONMsgCodecValue *value_out) {
+	jsmntok_t *ptoken;
+	int result, ok;
 	
-	// allocate buffer
-	buffer_cursor = buffer = (uint8_t*) malloc(buffer_size);
+	if (!pptoken) {
+		// if we have no token list yet, parse the message & create one.
 
-	// write buffer
-	if (!MethodChannel_writeValueToBuffer(response_value, &buffer_cursor)) return false;
+		jsmntok_t tokens[JSON_DECODE_TOKENLIST_SIZE];
+		jsmn_parser parser;
+		size_t tokensremaining;
 
-	// send message buffer to flutter engine
-	FlutterEngineResult result = FlutterEngineSendPlatformMessageResponse(engine, response_handle, buffer, buffer_size);
-	
-	free(buffer);
-	return result == kSuccess;
-}
+		memset(tokens, sizeof(tokens), 0);
 
-bool PlatformChannel_call(char *channel, char *method, struct MessageChannelValue *argument) {
-	uint8_t *buffer, *buffer_cursor;
-	size_t   buffer_size = 0;
+		jsmn_init(&parser);
+		result = jsmn_parse(&parser, (const char *) message, (const size_t) size, tokens, JSON_DECODE_TOKENLIST_SIZE);
+		if (result < 0) return EBADMSG;
+		
+		tokensremaining = (size_t) result;
+		ptoken = tokens;
 
-	// the method name is encoded as a String value and is the first value written to the buffer.
-	struct MessageChannelValue method_name_value = {
-		.type = kTypeString,
-		.string_value = method
-	};
-
-	// calculate buffer size
-	if (!MessageChannel_calculateValueSizeInBuffer(&method_name_value,	&buffer_size)) return false;
-	if (!MessageChannel_calculateValueSizeInBuffer(argument, 			&buffer_size)) return false;
-
-	// allocate buffer
-	buffer = (uint8_t*) malloc(buffer_size);
-	buffer_cursor = buffer;
-
-	// write buffer
-	if (!MessageChannel_writeValueToBuffer(&method_name_value,	&buffer_cursor)) return false;
-	if (!MessageChannel_writeValueToBuffer(argument,			&buffer_cursor)) return false;
-
-	// send message buffer to flutter engine
-	FlutterEngineResult result = FlutterEngineSendPlatformMessage(
-		engine,
-		& (const FlutterPlatformMessage) {
-			.struct_size = sizeof(FlutterPlatformMessage),
-			.channel = (const char*) channel,
-			.message = (const uint8_t*) buffer,
-			.message_size = (const size_t) buffer_size
-		}
-	);
-
-	free(buffer);
-	return result == kSuccess;
-}
-bool PlatformChannel_decodeMethodCall(size_t buffer_size, uint8_t* buffer, struct MethodCall** presult) {
-	*presult = malloc(sizeof(struct MethodCall));
-	struct MethodCall* result = *presult;
-	
-	uint8_t* buffer_cursor = buffer;
-	size_t  buffer_remaining = buffer_size;
-	
-	if (*buffer == (char) 123) {
-		result->protocol = kJSONProtocol;
-		fprintf(stderr, "Error decoding Method Call: JSON Protocol not supported yet.\n");
-		return false;
+		ok = PlatformChannel_decodeJSONMsgCodecValue(message, size, &ptoken, &tokensremaining, value_out);
+		if (ok != 0) return ok;
 	} else {
-		result->protocol = kStandardProtocol;
+		// message is already tokenized
+
+		ptoken = *pptoken;
+
+		(*pptoken) += 1;
+		*ptokensremaining -= 1;
+
+		switch (ptoken->type) {
+			case JSMN_UNDEFINED:
+				return EBADMSG;
+			case JSMN_PRIMITIVE:
+				if (message[ptoken->start] == 'n') {
+					value_out->type = kJSNull;
+				} else if (message[ptoken->start] == 't') {
+					value_out->type = kJSTrue;
+				} else if (message[ptoken->start] == 'f') {
+					value_out->type = kJSFalse;
+				} else {
+					value_out->type = kJSNumber;
+
+					// hacky, but should work in normal circumstances. If the platform message solely consists
+					//   of this number and nothing else, this could fail.
+					char old = message[ptoken->end];
+					message[ptoken->end] = '\0';
+					value_out->number_value = strtod(message + ptoken->start, NULL);
+					message[ptoken->end] = old;
+				}
+
+				break;
+			case JSMN_STRING: ;
+				// use zero-copy approach.
+
+				message[ptoken->end] = '\0';
+				char *string = message + ptoken->start;
+
+				value_out->type = kJSString;
+				value_out->string_value = string;
+
+				break;
+			case JSMN_ARRAY: ;
+				struct JSONMsgCodecValue *array = calloc(ptoken->size, sizeof(struct JSONMsgCodecValue));
+				if (!array) return ENOMEM;
+
+				for (int i=0; i < ptoken->size; i++) {
+					ok = PlatformChannel_decodeJSONMsgCodecValue(message, size, pptoken, ptokensremaining, &array[i]);
+					if (ok != 0) return ok;
+				}
+
+				value_out->type = kJSArray;
+				value_out->size = ptoken->size;
+				value_out->array = array;
+
+				break;
+			case JSMN_OBJECT: ;
+				struct JSONMsgCodecValue  key;
+				char                    **keys = calloc(ptoken->size, sizeof(char *));
+				struct JSONMsgCodecValue *values = calloc(ptoken->size, sizeof(struct JSONMsgCodecValue));
+				if ((!keys) || (!values)) return ENOMEM;
+
+				for (int i=0; i < ptoken->size; i++) {
+					ok = PlatformChannel_decodeJSONMsgCodecValue(message, size, pptoken, ptokensremaining, &key);
+					if (ok != 0) return ok;
+
+					if (key.type != kJSString) return EBADMSG;
+					keys[i] = key.string_value;
+
+					ok = PlatformChannel_decodeJSONMsgCodecValue(message, size, pptoken, ptokensremaining, &values[i]);
+					if (ok != 0) return ok;
+				}
+
+				value_out->type = kJSObject;
+				value_out->size = ptoken->size;
+				value_out->keys = keys;
+				value_out->values = values;
+
+				break;
+			default:
+				return EBADMSG;
+		}
 	}
+
+	return 0;
+}
+
+int PlatformChannel_decode(uint8_t *buffer, size_t size, enum ChannelCodec codec, struct ChannelObject *object_out) {
+	struct JSONMsgCodecValue root_jsvalue;
+	uint8_t *buffer_cursor = buffer;
+	size_t   remaining = size;
+	int      ok;
 	
-	struct MessageChannelValue method_name;
-	if (!MessageChannel_decodeValue(&buffer_cursor, &buffer_remaining, &method_name)) return false;
-	if (method_name.type != kString) {
-		fprintf(stderr, "Error decoding Method Call: expected type of first value in buffer to be string (i.e. method name), got %d\n", method_name.type);
-		return false;
+	
+	object_out->codec = codec;
+	switch (codec) {
+		case kStringCodec: ;
+			/// buffer is a non-null-terminated, UTF8-encoded string.
+			/// it's really sad we have to allocate a new memory block for this, but we have to since string codec buffers are not null-terminated.
+
+			char *string;
+			if (!(string = malloc(size +1))) return ENOMEM;
+			memcpy(string, buffer, size);
+			string[size] = '\0';
+
+			object_out->string_value = string;
+
+			break;
+		case kBinaryCodec:
+			object_out->binarydata = buffer;
+			object_out->binarydata_size = size;
+
+			break;
+		case kJSONMessageCodec:
+			ok = PlatformChannel_decodeJSONMsgCodecValue((char *) buffer, size, NULL, NULL, &(object_out->jsonmsgcodec_value));
+			if (ok != 0) return ok;
+
+			break;
+		case kJSONMethodCall: ;
+			ok = PlatformChannel_decodeJSONMsgCodecValue((char *) buffer, size, NULL, NULL, &root_jsvalue);
+			if (ok != 0) return ok;
+
+			if (root_jsvalue.type != kJSObject) return EBADMSG;
+			
+			for (int i=0; i < root_jsvalue.size; i++) {
+				if ((strcmp(root_jsvalue.keys[i], "method") == 0) && (root_jsvalue.values[i].type == kJSString)) {
+					object_out->method = root_jsvalue.values[i].string_value;
+				} else if (strcmp(root_jsvalue.keys[i], "args") == 0) {
+					object_out->jsarg = root_jsvalue.values[i];
+				} else return EBADMSG;
+			}
+
+			PlatformChannel_freeJSONMsgCodecValue(&root_jsvalue, true);
+
+			break;
+		case kJSONMethodCallResponse: ;
+			ok = PlatformChannel_decodeJSONMsgCodecValue((char *) buffer, size, NULL, NULL, &root_jsvalue);
+			if (ok != 0) return ok;
+			if (root_jsvalue.type != kJSArray) return EBADMSG;
+			
+			if (root_jsvalue.size == 1) {
+				object_out->success = true;
+				object_out->jsresult = root_jsvalue.array[0];
+				return PlatformChannel_freeJSONMsgCodecValue(&root_jsvalue, true);
+			} else if ((root_jsvalue.size == 3) &&
+					   (root_jsvalue.array[0].type == kJSString) &&
+					   ((root_jsvalue.array[1].type == kJSString) || (root_jsvalue.array[1].type == kJSNull))) {
+				
+				
+				object_out->success = false;
+				object_out->errorcode = root_jsvalue.array[0].string_value;
+				object_out->errormessage = root_jsvalue.array[1].string_value;
+				object_out->jserrordetails = root_jsvalue.array[2];
+				return PlatformChannel_freeJSONMsgCodecValue(&root_jsvalue, true);
+			} else return EBADMSG;
+
+			break;
+		case kStandardMessageCodec:
+			ok = PlatformChannel_decodeStdMsgCodecValue(&buffer_cursor, &remaining, &(object_out->stdmsgcodec_value));
+			if (ok != 0) return ok;
+			break;
+		case kStandardMethodCall: ;
+			struct StdMsgCodecValue methodname;
+
+			ok = PlatformChannel_decodeStdMsgCodecValue(&buffer_cursor, &remaining, &methodname);
+			if (ok != 0) return ok;
+			if (methodname.type != kString) {
+				PlatformChannel_freeStdMsgCodecValue(&methodname);
+				return EPROTO;
+			}
+			object_out->method = methodname.string_value;
+
+			ok = PlatformChannel_decodeStdMsgCodecValue(&buffer_cursor, &remaining, &(object_out->stdarg));
+			if (ok != 0) return ok;
+
+			break;
+		case kStandardMethodCallResponse: ;
+			object_out->success = read8(&buffer_cursor) == 0;
+			advance(&buffer_cursor, 1, &remaining);
+
+			if (object_out->success) {
+				struct StdMsgCodecValue result;
+
+				ok = PlatformChannel_decodeStdMsgCodecValue(&buffer_cursor, &remaining, &(object_out->stdresult));
+				if (ok != 0) return ok;
+			} else {
+				struct StdMsgCodecValue errorcode, errormessage;
+
+				ok = PlatformChannel_decodeStdMsgCodecValue(&buffer_cursor, &remaining, &errorcode);
+				if (ok != 0) return ok;
+				ok = PlatformChannel_decodeStdMsgCodecValue(&buffer_cursor, &remaining, &errormessage);
+				if (ok != 0) return ok;
+				ok = PlatformChannel_decodeStdMsgCodecValue(&buffer_cursor, &remaining, &(object_out->stderrordetails));
+				if (ok != 0) return ok;
+
+				if ((errorcode.type == kString) && ((errormessage.type == kString) || (errormessage.type == kNull))) {
+					object_out->errorcode = errorcode.string_value;
+					object_out->errormessage = (errormessage.type == kString) ? errormessage.string_value : NULL;
+				} else {
+					return EBADMSG;
+				}
+			}
+			break;
+		default:
+			return EINVAL;
 	}
-	result->method = method_name.string_value;
 
-	if (!MessageChannel_decodeValue(&buffer_cursor, &buffer_remaining, &(result->argument))) return false;
-
-	return true;
+	return 0;
 }
-bool PlatformChannel_freeMethodCall(struct MethodCall **pmethodcall) {
-	struct MethodCall* methodcall = *pmethodcall;
+int PlatformChannel_encode(struct ChannelObject *object, uint8_t **buffer_out, size_t *size_out) {
+	struct StdMsgCodecValue stdmethod, stderrcode, stderrmessage;
+	struct JSONMsgCodecValue jsmethod, jserrcode, jserrmessage, jsroot;
+	uint8_t *buffer, *buffer_cursor;
+	size_t   size = 0;
+	int		 ok = 0;
 
-	free(methodcall->method);
-	if (!MessageChannel_freeValue(&(methodcall->argument))) return false;
-	free(methodcall);
+	*size_out = 0;
+	*buffer_out = NULL;
 
-	*pmethodcall = NULL;
+	switch (object->codec) {
+		case kStringCodec:
+			size = strlen(object->string_value);
+			break;
+		case kBinaryCodec:
+			*buffer_out = object->binarydata;
+			*size_out = object->binarydata_size;
+			return 0;
+		case kJSONMessageCodec:
+			size = PlatformChannel_calculateJSONMsgCodecValueSize(&(object->jsonmsgcodec_value));
+			size += 1;  // JSONMsgCodec uses sprintf, which null-terminates strings,
+						// so lets allocate one more byte for the last null-terminator.
+						// this is decremented again in the second switch-case, so flutter
+						// doesn't complain about a malformed message.
+			break;
+		case kStandardMessageCodec:
+			ok = PlatformChannel_calculateStdMsgCodecValueSize(&(object->stdmsgcodec_value), &size);
+			if (ok != 0) return ok;
+			break;
+		case kStandardMethodCall:
+			stdmethod.type = kString;
+			stdmethod.string_value = object->method;
+			
+			ok = PlatformChannel_calculateStdMsgCodecValueSize(&stdmethod, &size);
+			if (ok != 0) return ok;
 
-	return true;
+			ok = PlatformChannel_calculateStdMsgCodecValueSize(&(object->stdarg), &size);
+			if (ok != 0) return ok;
+
+			break;
+		case kStandardMethodCallResponse:
+			size += 1;
+
+			if (object->success) {
+				ok = PlatformChannel_calculateStdMsgCodecValueSize(&(object->stdresult), &size);
+				if (ok != 0) return ok;
+			} else {
+				stderrcode = (struct StdMsgCodecValue) {
+					.type = kString,
+					.string_value = object->errorcode
+				};
+				stderrmessage = (struct StdMsgCodecValue) {
+					.type = kString,
+					.string_value = object->errormessage
+				};
+				
+				ok = PlatformChannel_calculateStdMsgCodecValueSize(&stderrcode, &size);
+				if (ok != 0) return ok;
+				ok = PlatformChannel_calculateStdMsgCodecValueSize(&stderrmessage, &size);
+				if (ok != 0) return ok;
+				ok = PlatformChannel_calculateStdMsgCodecValueSize(&(object->stderrordetails), &size);
+				if (ok != 0) return ok;
+			}
+			break;
+		case kJSONMethodCall:
+			jsroot.type = kJSObject;
+			jsroot.size = 2;
+			jsroot.keys = (char*[]) {"method", "args"};
+			jsroot.values = (struct JSONMsgCodecValue[]) {
+				{.type = kJSString, .string_value = object->method},
+				object->jsarg
+			};
+
+			size = PlatformChannel_calculateJSONMsgCodecValueSize(&jsroot);
+			size += 1;
+			break;
+		case kJSONMethodCallResponse:
+			jsroot.type = kJSArray;
+			if (object->success) {
+				jsroot.size = 1;
+				jsroot.array = (struct JSONMsgCodecValue[]) {
+					object->jsresult
+				};
+			} else {
+				jsroot.size = 3;
+				jsroot.array = (struct JSONMsgCodecValue[]) {
+					{.type = kJSString, .string_value = object->errorcode},
+					{.type = (object->errormessage != NULL) ? kJSString : kJSNull, .string_value = object->errormessage},
+					object->jserrordetails
+				};
+			}
+
+			size = PlatformChannel_calculateJSONMsgCodecValueSize(&jsroot);
+			size += 1;
+			break;
+		default:
+			return EINVAL;
+	}
+
+	if (!(buffer = malloc(size))) return ENOMEM;
+	buffer_cursor = buffer;
+	
+	switch (object->codec) {
+		case kStringCodec:
+			memcpy(buffer, object->string_value, size);
+			break;
+		case kStandardMessageCodec:
+			ok = PlatformChannel_writeStdMsgCodecValueToBuffer(&(object->stdmsgcodec_value), &buffer_cursor);
+			if (ok != 0) goto free_buffer_and_return_ok;
+			break;
+		case kStandardMethodCall:
+			ok = PlatformChannel_writeStdMsgCodecValueToBuffer(&stdmethod, &buffer_cursor);
+			if (ok != 0) goto free_buffer_and_return_ok;
+
+			ok = PlatformChannel_writeStdMsgCodecValueToBuffer(&(object->stdarg), &buffer_cursor);
+			if (ok != 0) goto free_buffer_and_return_ok;
+
+			break;
+		case kStandardMethodCallResponse:
+			if (object->success) {
+				write8(&buffer_cursor, 0x00);
+				advance(&buffer_cursor, 1);
+
+				ok = PlatformChannel_writeStdMsgCodecValueToBuffer(&(object->stdresult), &buffer_cursor);
+				if (ok != 0) goto free_buffer_and_return_ok;
+			} else {
+				write8(&buffer_cursor, 0x01);
+				advance(&buffer_cursor, 1);
+				
+				ok = PlatformChannel_writeStdMsgCodecValueToBuffer(&stderrcode, &buffer_cursor);
+				if (ok != 0) goto free_buffer_and_return_ok;
+				ok = PlatformChannel_writeStdMsgCodecValueToBuffer(&stderrmessage, &buffer_cursor);
+				if (ok != 0) goto free_buffer_and_return_ok;
+				ok = PlatformChannel_writeStdMsgCodecValueToBuffer(&(object->stderrordetails), &buffer_cursor);
+				if (ok != 0) goto free_buffer_and_return_ok;
+			}
+			
+			break;
+		case kJSONMessageCodec:
+			size -= 1;
+			ok = PlatformChannel_writeJSONMsgCodecValueToBuffer(&(object->jsonmsgcodec_value), &buffer_cursor);
+			if (ok != 0) goto free_buffer_and_return_ok;
+			break;
+		case kJSONMethodCall: ;
+			size -= 1;
+			ok = PlatformChannel_writeJSONMsgCodecValueToBuffer(&jsroot, &buffer_cursor);
+			if (ok != 0) goto free_buffer_and_return_ok;
+			break;
+		default:
+			return EINVAL;
+	}
+
+	*buffer_out = buffer;
+	*size_out = size;
+	return 0;
+
+
+	free_buffer_and_return_ok:
+	free(buffer);
+	return ok;
 }
 
+void PlatformChannel_internalOnResponse(const uint8_t *buffer, size_t size, void *userdata) {
+	struct ResponseHandlerData *handlerdata;
+	struct ChannelObject object;
+	int ok;
+
+	handlerdata = (struct ResponseHandlerData *) userdata;
+	ok = PlatformChannel_decode((uint8_t*) buffer, size, handlerdata->codec, &object);
+	if (ok != 0) return;
+
+	ok = handlerdata->on_response(&object, handlerdata->userdata);
+	if (ok != 0) return;
+
+	free(handlerdata);
+
+	ok = PlatformChannel_free(&object);
+	if (ok != 0) return;
+}
+int PlatformChannel_send(char *channel, struct ChannelObject *object, enum ChannelCodec response_codec, PlatformMessageResponseCallback on_response, void *userdata) {
+	struct ResponseHandlerData *handlerdata = NULL;
+	FlutterPlatformMessageResponseHandle *response_handle = NULL;
+	FlutterEngineResult result;
+	uint8_t *buffer;
+	size_t   size;
+	int ok;
+
+	ok = PlatformChannel_encode(object, &buffer, &size);
+	if (ok != 0) return ok;
+
+	if (on_response) {
+		handlerdata = malloc(sizeof(struct ResponseHandlerData));
+		if (!handlerdata) return ENOMEM;
+		
+		handlerdata->codec = response_codec;
+		handlerdata->on_response = on_response;
+		handlerdata->userdata = userdata;
+
+		result = FlutterPlatformMessageCreateResponseHandle(engine, PlatformChannel_internalOnResponse, handlerdata, &response_handle);
+		if (result != kSuccess) return EINVAL;
+	}
+
+	result = FlutterEngineSendPlatformMessage(
+		engine,
+		& (const FlutterPlatformMessage) {
+			.struct_size = sizeof(FlutterPlatformMessage),
+			.channel = (const char*) channel,
+			.message = (const uint8_t*) buffer,
+			.message_size = (const size_t) size,
+			.response_handle = response_handle
+		}
+	);
+
+	if (on_response) {
+		result = FlutterPlatformMessageReleaseResponseHandle(engine, response_handle);
+		if (result != kSuccess) return EINVAL;
+	}
+
+	if (object->codec != kBinaryCodec)
+		free(buffer);
+	
+	return (result == kSuccess) ? 0 : EINVAL;
+}
+int PlatformChannel_stdcall(char *channel, char *method, struct StdMsgCodecValue *argument, PlatformMessageResponseCallback on_response, void *userdata) {
+	struct ChannelObject object = {
+		.codec = kStandardMethodCall,
+		.method = method,
+		.stdarg = *argument
+	};
+	
+	return PlatformChannel_send(channel, &object, kStandardMethodCallResponse, on_response, userdata);
+}
+int PlatformChannel_jsoncall(char *channel, char *method, struct JSONMsgCodecValue *argument, PlatformMessageResponseCallback on_response, void *userdata) {
+	return PlatformChannel_send(channel,
+								&(struct ChannelObject) {
+									.codec = kJSONMethodCall,
+									.method = method,
+									.jsarg = *argument
+								},
+								kJSONMethodCallResponse,
+								on_response,
+								userdata);
+}
+int PlatformChannel_respond(FlutterPlatformMessageResponseHandle *handle, struct ChannelObject *response) {
+	FlutterEngineResult result;
+	uint8_t *buffer;
+	size_t   size;
+	int ok;
+
+	ok = PlatformChannel_encode(response, &buffer, &size);
+	if (ok != 0) return ok;
+
+	result = FlutterEngineSendPlatformMessageResponse(engine, (const FlutterPlatformMessageResponseHandle*) handle, (const uint8_t*) buffer, size);
+	
+	free(buffer);
+	
+	return (result == kSuccess) ? 0 : EINVAL;
+}
+int PlatformChannel_respondNotImplemented(FlutterPlatformMessageResponseHandle *handle) {
+	return PlatformChannel_respond(
+		(FlutterPlatformMessageResponseHandle *) handle,
+		&(struct ChannelObject) {
+			.codec = kBinaryCodec,
+			.binarydata = NULL,
+			.binarydata_size = 0
+		});
+}
+int PlatformChannel_respondError(FlutterPlatformMessageResponseHandle *handle, enum ChannelCodec codec, char *errorcode, char *errormessage, void *errordetails) {
+	if ((codec == kStandardMessageCodec) || (codec == kStandardMethodCall) || (codec == kStandardMethodCallResponse)) {
+		return PlatformChannel_respond(handle, &(struct ChannelObject) {
+			.codec = kStandardMethodCallResponse,
+			.success = false,
+			.errorcode = errorcode,
+			.errormessage = errormessage,
+			.stderrordetails = *((struct StdMsgCodecValue *) errordetails)
+		});
+	} else if ((codec == kJSONMessageCodec) || (codec == kJSONMethodCall) || (codec == kJSONMethodCallResponse)) {
+		return PlatformChannel_respond(handle, &(struct ChannelObject) {
+			.codec = kJSONMethodCallResponse,
+			.success = false,
+			.errorcode = errorcode,
+			.errormessage = errormessage,
+			.jserrordetails = *((struct JSONMsgCodecValue *) errordetails)
+		});
+	} else return EINVAL;
+}
+
+struct JSONMsgCodecValue *json_get(struct JSONMsgCodecValue *object, char *key) {
+	int i;
+	for (i=0; i < object->size; i++)
+		if (strcmp(object->keys[i], key) == 0) break;
+
+
+	if (i != object->size) return &(object->values[i]);
+	return NULL;
+}
 
 #undef __ALIGN4_REMAINING
 #undef __ALIGN8_REMAINING
@@ -577,4 +1111,3 @@ bool PlatformChannel_freeMethodCall(struct MethodCall **pmethodcall) {
 #undef alignmentDiff
 #undef __ADVANCE_REMAINING
 #undef advance
-#undef ASSERT_RETURN_FALSE

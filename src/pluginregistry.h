@@ -1,31 +1,31 @@
+#ifndef FLUTTER_PI_REGISTRY_H_
+#define FLUTTER_PI_REGISTRY_H_ 1
+
 #include <stdbool.h>
 #include <stdlib.h>
+#include <flutter_embedder.h>
 
 #include "platformchannel.h"
 
-#ifndef FLUTTER_PI_REGISTRY_H_
-#define FLUTTER_PI_REGISTRY_H_
+typedef int (*InitDeinitCallback)(void);
+typedef int (*ChannelObjectReceiveCallback)(char*, struct ChannelObject*, FlutterPlatformMessageResponseHandle *responsehandle);
 
-typedef bool (*FlutterPiPluginRegistryCallback)(struct FlutterPiPluginRegistry *registry, void **userdata);
-typedef bool (*FlutterPiMethodCallCallback)(void *userdata, char *channel, struct MethodCall *methodcall);
-typedef bool (*FlutterPiPlatformMessageCallback)(void *userdata, FlutterPlatformMessage *message);
 struct FlutterPiPluginRegistry;
 
 struct FlutterPiPlugin {
     const char const* name;
-	FlutterPiPluginRegistryCallback init;
-	FlutterPiPluginRegistryCallback deinit;
-    void *userdata;
+	InitDeinitCallback init;
+	InitDeinitCallback deinit;
 };
 
-const struct FlutterPiPlugin hardcoded_plugins[] = {
-    {.name="connectivity", .init=NULL, .deinit=NULL, .userdata=NULL}
-};
 
-extern int PluginRegistry_init(struct FlutterPiPluginRegistry **registry);
-extern int PluginRegistry_onMethodCall(struct FlutterPiPluginRegistry *registry, char *channel, struct MethodCall *methodcall);
-extern int PluginRegistry_setMethodCallHandler(struct FlutterPiPluginRegistry *registry, char *methodchannel,
-                                               FlutterPiMethodCallCallback callback,  void *userdata);
-extern int PluginRegistry_deinit(struct FlutterPiPluginRegistry **registry);
+extern int hardcoded_plugins_count;
+extern struct FlutterPiPlugin hardcoded_plugins[];
+extern struct FlutterPiPluginRegistry *pluginregistry;
+
+int PluginRegistry_init();
+int PluginRegistry_onPlatformMessage(FlutterPlatformMessage *message);
+int PluginRegistry_setReceiver(char *channel, enum ChannelCodec codec, ChannelObjectReceiveCallback callback);
+int PluginRegistry_deinit();
 
 #endif
