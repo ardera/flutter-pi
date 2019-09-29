@@ -5,8 +5,8 @@
 #include "pluginregistry.h"
 
 // hardcoded plugin headers
-#include "services-plugin.h"
-#include "testplugin.h"
+#include "plugins/services-plugin.h"
+#include "plugins/testplugin.h"
 
 
 struct ChannelObjectReceiverData {
