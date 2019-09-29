@@ -690,7 +690,11 @@ int PlatformChannel_decode(uint8_t *buffer, size_t size, enum ChannelCodec codec
 	uint8_t *buffer_cursor = buffer;
 	size_t   remaining = size;
 	int      ok;
-	
+
+	if ((size == 0) && (buffer == NULL)) {
+		object_out->codec = kNotImplemented;
+		return 0;
+	}
 	
 	object_out->codec = codec;
 	switch (codec) {
@@ -818,6 +822,10 @@ int PlatformChannel_encode(struct ChannelObject *object, uint8_t **buffer_out, s
 	*buffer_out = NULL;
 
 	switch (object->codec) {
+		case kNotImplemented:
+			*size_out = 0;
+			*buffer_out = NULL;
+			return 0;
 		case kStringCodec:
 			size = strlen(object->string_value);
 			break;
@@ -1061,7 +1069,7 @@ int PlatformChannel_respond(FlutterPlatformMessageResponseHandle *handle, struct
 
 	result = FlutterEngineSendPlatformMessageResponse(engine, (const FlutterPlatformMessageResponseHandle*) handle, (const uint8_t*) buffer, size);
 	
-	free(buffer);
+	if (buffer != NULL) free(buffer);
 	
 	return (result == kSuccess) ? 0 : EINVAL;
 }
@@ -1069,9 +1077,7 @@ int PlatformChannel_respondNotImplemented(FlutterPlatformMessageResponseHandle *
 	return PlatformChannel_respond(
 		(FlutterPlatformMessageResponseHandle *) handle,
 		&(struct ChannelObject) {
-			.codec = kBinaryCodec,
-			.binarydata = NULL,
-			.binarydata_size = 0
+			.codec = kNotImplemented
 		});
 }
 int PlatformChannel_respondError(FlutterPlatformMessageResponseHandle *handle, enum ChannelCodec codec, char *errorcode, char *errormessage, void *errordetails) {
@@ -1094,13 +1100,168 @@ int PlatformChannel_respondError(FlutterPlatformMessageResponseHandle *handle, e
 	} else return EINVAL;
 }
 
-struct JSONMsgCodecValue *json_get(struct JSONMsgCodecValue *object, char *key) {
+bool jsvalue_equals(struct JSONMsgCodecValue *a, struct JSONMsgCodecValue *b) {
+	if (a == b) return true;
+	if ((a == NULL) ^ (b == NULL)) return false;
+	if (a->type != b->type) return false;
+
+	switch (a->type) {
+		case kJSNull:
+		case kJSTrue:
+		case kJSFalse:
+			return true;
+		case kJSNumber:
+			return a->number_value == b->number_value;
+		case kJSString:
+			return strcmp(a->string_value, b->string_value) == 0;
+		case kJSArray:
+			if (a->size != b->size) return false;
+			if (a->array == b->array) return true;
+			for (int i = 0; i < a->size; i++)
+				if (!jsvalue_equals(&a->array[i], &b->array[i]))
+					return false;
+			return true;
+		case kJSObject:
+			if (a->size != b->size) return false;
+			if ((a->keys == b->keys) && (a->values == b->values)) return true;
+
+			bool _keyInBAlsoInA[a->size];
+			memset(_keyInBAlsoInA, false, a->size * sizeof(bool));
+
+			for (int i = 0; i < a->size; i++) {
+				// The key we're searching for in b.
+				char *key = a->keys[i];
+				
+				int j = 0;
+				while (j < a->size) {
+					while (_keyInBAlsoInA[j] && (j < a->size))  j++;	// skip all keys with _keyInBAlsoInA set to true.
+					if (strcmp(key, b->keys[j]) != 0)   		j++;	// if b->keys[j] is not equal to "key", continue searching
+					else {
+						_keyInBAlsoInA[j] = true;
+
+						// the values of "key" in a and b must (of course) also be equivalent.
+						if (!jsvalue_equals(&a->values[i], &b->values[j])) return false;
+						break;
+					}
+				}
+
+				// we did not find a->keys[i] in b.
+				if (j + 1 >= a->size) return false;
+			}
+
+			return true;
+	}
+}
+struct JSONMsgCodecValue *jsobject_get(struct JSONMsgCodecValue *object, char *key) {
 	int i;
 	for (i=0; i < object->size; i++)
 		if (strcmp(object->keys[i], key) == 0) break;
 
 
 	if (i != object->size) return &(object->values[i]);
+	return NULL;
+}
+bool stdvalue_equals(struct StdMsgCodecValue *a, struct StdMsgCodecValue *b) {
+	if (a == b) return true;
+	if ((a == NULL) ^  (b == NULL)) return false;
+	if (a->type != b->type) return false;
+
+	switch (a->type) {
+		case kNull:
+		case kTrue:
+		case kFalse:
+			return true;
+		case kInt32:
+			return a->int32_value == b->int32_value;
+		case kInt64:
+			return a->int64_value == b->int64_value;
+		case kLargeInt:
+		case kString:
+			return strcmp(a->string_value, b->string_value) == 0;
+		case kFloat64:
+			return a->float64_value == b->float64_value;
+		case kUInt8Array:
+			if (a->size != b->size) return false;
+			if (a->uint8array == b->uint8array) return true;
+			for (int i = 0; i < a->size; i++)
+				if (a->uint8array[i] != b->uint8array[i])
+					return false;
+			return true;
+		case kInt32Array:
+			if (a->size != b->size) return false;
+			if (a->int32array == b->int32array) return true;
+			for (int i = 0; i < a->size; i++)
+				if (a->int32array[i] != b->int32array[i])
+					return false;
+			return true;
+		case kInt64Array:
+			if (a->size != b->size) return false;
+			if (a->int64array == b->int64array) return true;
+			for (int i = 0; i < a->size; i++)
+				if (a->int64array[i] != b->int64array[i])
+					return false;
+			return true;
+		case kFloat64Array:
+			if (a->size != b->size) return false;
+			if (a->float64array == b->float64array) return true;
+			for (int i = 0; i < a->size; i++)
+				if (a->float64array[i] != b->float64array[i])
+					return false;
+			return true;
+		case kList:
+			// the order of list elements is important
+			if (a->size != b->size) return false;
+			if (a->list == b->list) return true;
+
+			for (int i = 0; i < a->size; i++)
+				if (!stdvalue_equals(&(a->list[i]), &(b->list[i])));
+					return false;
+			
+			return true;
+		case kMap: {
+			// the order is not important here, which makes it a bit difficult to compare
+			if (a->size != b->size) return false;
+			if ((a->keys == b->keys) && (a->values == b->values)) return true;
+
+			// _keyInBAlsoInA[i] == true means that there's a key in a that matches b->keys[i]
+			//   so if we're searching for a key in b, we can safely ignore / don't need to compare
+			//   keys in b that have they're _keyInBAlsoInA set to true.
+			bool _keyInBAlsoInA[a->size];
+			memset(_keyInBAlsoInA, false, a->size * sizeof(bool));
+
+			for (int i = 0; i < a->size; i++) {
+				// The key we're searching for in b.
+				struct StdMsgCodecValue *key = &(a->keys[i]);
+				
+				int j = 0;
+				while (j < a->size) {
+					while (_keyInBAlsoInA[j] && (j < a->size))  j++;	// skip all keys with _keyInBAlsoInA set to true.
+					if (!stdvalue_equals(key, &(b->keys[j])))   j++;	// if b->keys[j] is not equal to "key", continue searching
+					else {
+						_keyInBAlsoInA[j] = true;
+
+						// the values of "key" in a and b must (of course) also be equivalent.
+						if (!stdvalue_equals(&(a->values[i]), &(b->values[j]))) return false;
+						break;
+					}
+				}
+
+				// we did not find a->keys[i] in b.
+				if (j + 1 >= a->size) return false;
+			}
+
+			return true;
+		}
+		default: return false;
+	}
+
+	return false;
+}
+struct StdMsgCodecValue *stdmap_get(struct StdMsgCodecValue *map, struct StdMsgCodecValue *key) {
+	for (int i=0; i < map->size; i++)
+		if (stdvalue_equals(&map->keys[i], key))
+			return &map->values[i];
+
 	return NULL;
 }
 

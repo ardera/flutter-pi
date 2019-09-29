@@ -145,6 +145,11 @@ int printStd(struct StdMsgCodecValue *value, int indent) {
 int TestPlugin_onReceiveResponseJSON(struct ChannelObject *object, void *userdata) {
     uint64_t dt = FlutterEngineGetCurrentTime() - *((uint64_t*) userdata);
     free(userdata);
+    
+    if (object->codec == kNotImplemented) {
+        printf("channel " TESTPLUGIN_CHANNEL_JSON " not implented on flutter side\n");
+        return 0;
+    }
 
     if (object->success) {
         printf("TestPlugin_onReceiveResponseJSON(dt: %lluns)\n"
@@ -197,6 +202,11 @@ int TestPlugin_sendJSON() {
 int TestPlugin_onReceiveResponseStd(struct ChannelObject *object, void *userdata) {
     uint64_t dt = FlutterEngineGetCurrentTime() - *((uint64_t*) userdata);
     free(userdata);
+
+    if (object->codec == kNotImplemented) {
+        printf("channel " TESTPLUGIN_CHANNEL_STD " not implented on flutter side\n");
+        return 0;
+    }
 
     if (object->success) {
         printf("TestPlugin_onReceiveResponseStd(dt: %lluns)\n"

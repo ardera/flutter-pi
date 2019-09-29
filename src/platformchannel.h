@@ -86,6 +86,7 @@ struct StdMsgCodecValue {
 /// These tell this API how it should encode ChannelObjects -> platform messages
 /// and how to decode platform messages -> ChannelObjects.
 enum ChannelCodec {
+    kNotImplemented,
     kStringCodec,
     kBinaryCodec,
     kJSONMessageCodec,
@@ -98,6 +99,9 @@ enum ChannelCodec {
 
 /// Abstract Channel Object.
 /// Different properties are "valid" for different codecs:
+///   kNotImplemented:
+///     no values associated with this "codec".
+///     this represents a platform message with no buffer and zero length. (so just an empty response)
 ///   kStringCodec:
 ///     - string_value is the raw byte data of a platform message, but with an additional null-byte at the end.
 ///   kBinaryCodec:
@@ -228,7 +232,25 @@ int PlatformChannel_respondError(FlutterPlatformMessageResponseHandle *handle, e
 /// not freeing ChannelObjects may result in a memory leak.
 int PlatformChannel_free(struct ChannelObject *object);
 
-int json_findKey(struct JSONMsgCodecValue *object, char *key);
-struct JSONMsgCodecValue *json_get(struct JSONMsgCodecValue *object, char *key);
+/// returns true if values a and b are equal.
+/// for JS arrays, the order of the values is relevant
+/// (so two arrays are only equal if the same values in appear in exactly same order)
+/// for objects, the order of the entries is irrelevant.
+bool jsvalue_equals(struct JSONMsgCodecValue *a, struct JSONMsgCodecValue *b);
+
+/// given a JS object as an argument, it searches for an entry with key "key"
+/// and returns the value associated with it.
+/// if the key is not found, returns NULL.
+struct JSONMsgCodecValue *jsobject_get(struct JSONMsgCodecValue *object, char *key);
+
+/// StdMsgCodecValue equivalent of jsvalue_equals.
+/// again, for lists, the order of values is relevant
+/// for maps, it's not.
+bool stdvalue_equals(struct StdMsgCodecValue *a, struct StdMsgCodecValue *b);
+
+/// StdMsgCodecValue equivalent of jsobject_get, just that the key can be
+/// any arbitrary StdMsgCodecValue (and must not be a string as for jsobject_get)
+struct StdMsgCodecValue *stdmap_get(struct StdMsgCodecValue *map, struct StdMsgCodecValue *key);
+
 
 #endif

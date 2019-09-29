@@ -74,17 +74,17 @@ int Services_onReceivePlatform(char *channel, struct ChannelObject *object, Flut
          *      The "primaryColor" can also be zero to indicate that the system default should be used.
          */
         
-        /*
-        value = json_get(arg, "label");
+        value = jsobject_get(arg, "label");
         if (value && (value->type == kJSString))
             snprintf(ServicesPlugin.label, sizeof(ServicesPlugin.label), "%s", value->string_value);
         
-        printf("ServicesPlugin responding with true\n");
         return PlatformChannel_respond(responsehandle, &(struct ChannelObject) {
-            .codec = kStringCodec,
-            .string_value = "[true]"
+            .codec = kJSONMethodCallResponse,
+            .success = true,
+            .jsresult = {
+                .type = kNull
+            }
         });
-        */
     } else if (strcmp(object->method, "SystemChrome.setEnabledSystemUIOverlays") == 0) {
         /*
          *  SystemChrome.setEnabledSystemUIOverlays(List overlays)
