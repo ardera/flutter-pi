@@ -2,34 +2,35 @@
 A light-weight Flutter Engine Embedder for Raspberry Pi. Inspired by https://github.com/chinmaygarde/flutter_from_scratch.
 Flutter-pi also runs without X11, so you don't need to boot into Raspbian Desktop & have X11 and LXDE load up; just boot into the command-line.
 
-Currently supported are basic, pure-dart Apps (not using any plugins), mouse input (no mouse cursor yet), touchscreen input, and the StandardMethodCodec method-channels (currently needs fixing).
-Not yet supported are JSON method-channels. Generally, flutter-pi is not yet ready to be used as a base for your project.
+You can now theoretically run every flutter app you want using flutter-pi, also including extensions & plugins, just that you'd have to build the platform side of the plugins you'd like to use yourself.
+
+_The difference between extensions and plugins is that extensions don't include any native code, they are just pure dart. Plugins (like the [connectivity plugin](https://github.com/flutter/plugins/tree/master/packages/connectivity)) include platform-specific code._
 
 ## Running
-This branch (feature-v3d-anholt) doesn't support the legacy GL driver anymore. You need to activate the anholt v3d driver in raspi-config. Go to raspi-config -> Advanced -> GL Driver -> and select fake-KMS. Full-KMS is a bit buggy and doesn't work with the Raspberry Pi 7" display (or generally, any DSI display).
+flutter-pi doesn't support the legacy GL driver anymore. You need to activate the anholt v3d driver in raspi-config. Go to `raspi-config -> Advanced -> GL Driver` and select fake-KMS. Full-KMS is a bit buggy and doesn't work with the Raspberry Pi 7" display (or generally, any DSI display).
 
-For some reason performance is much better when I gave the GPU only 16M RAM in fake-kms. I don't know why.
+For some reason performance is much better when you give the VideCore only 16MB of RAM in fake-kms. I don't know why.
 
-Also, you need to tell flutter-pi which input device to use and whether it's a touchscreen or mouse. Input devices are typically located at `/dev/input/...`. Just run `evtest` (`sudo apt install evtest`) to find out which exact path you should use. Currently only one input device is supported by flutter-pi.
+Also, you need to tell flutter-pi which input device to use and whether it's a touchscreen or mouse. Input devices are typically located at `/dev/input/...`. Just run `evtest` (`sudo apt install evtest`) to find out which exact path you should use. Currently only one input device is supported by flutter-pi. In the future, I will probably let flutter-pi search for an input device by itself.
 
 Run using
 ```bash
-./flutter-pi [flutter-pi options...] /path/without/trailing/slash [flutter engine arguments...]
+./flutter-pi [flutter-pi options...] /path/to/assets/bundle/directory [flutter engine arguments...]
 ```
 
 `[flutter-pi options...]` are:
 - `-t /path/to/device` where `/path/to/device` is a path to a touchscreen input device (typically `/dev/input/event0` or similiar)
 - `-m /path/to/device` where `/path/to/device` is a path to a mouse input device (typically `/dev/input/mouse0` or `/dev/input/event0` or similiar)
 
-`/path/without/trailing/slash` is the path of the flutter asset bundle directory (i.e. the directory containing the kernel_blob.bin)
+`/path/to/assets/bundle/directory` is the path of the flutter asset bundle directory (i.e. the directory containing the kernel_blob.bin)
 of the flutter app you're trying to run.
 
-`[flutter engine arguments...]` will be passed as commandline arguments to the flutter engine. You can find a list of commandline options for the flutter engine [Here](https://github.com/flutter/engine/blob/master/shell/common/switches.h);
+`[flutter engine arguments...]` will be passed as commandline arguments to the flutter engine. You can find a list of commandline options for the flutter engine [Here](https://github.com/flutter/engine/blob/master/shell/common/switches.h).
 
 ## Building the asset bundle
 You need a correctly installed flutter SDK. (i.e. the `flutter` tool must be in your PATH)
 
-Example for flutter_gallery: (note that the flutter_gallery example doesn't work with flutter-pi, since it requires plugins)
+Example for flutter_gallery: (note that the flutter_gallery example doesn't work with flutter-pi, since it includes which have not platform-implementation for the raspberry pi yet)
 ```bash
 cd flutter/examples/flutter_gallery
 flutter build bundle
@@ -40,14 +41,14 @@ After that `flutter/examples/flutter_gallery/build/flutter_assets` would be a va
 You first need a `libflutter_engine.so` and `flutter_embedder.h`. [Here](https://medium.com/flutter/flutter-on-raspberry-pi-mostly-from-scratch-2824c5e7dcb1)
 are some rough guidelines on how to build it. (Note: the icudtl.dat that is generated during the engine compilation needs to be on the RPi too, but it's not needed for compilation of flutter-pi)
 
-You also need some dependencies; run `sudo apt install libgl1-mesa-dev libgles2-mesa-dev libegl-meso0 libdrm-dev libgbm-dev`.
+You also need some dependencies; run `sudo apt install libgl1-mesa-dev libgles2-mesa-dev libegl-mesa0 libdrm-dev libgbm-dev`.
 
 Compiling the embedder:
 ```bash
 mkdir out
 cc -D_GNU_SOURCE \
   `pkg-config --cflags --libs dri gbm libdrm glesv2 egl` -lrt -lflutter_engine -lpthread -ldl \
-  ./src/flutter-pi.c ./src/methodchannel.c -o ./out/flutter-pi
+  ./src/flutter-pi.c ./src/platformchannel.c ./src/pluginregistry.c ./src/services-plugin.c -o ./out/flutter-pi
 ```
 
 ## Performance
@@ -57,4 +58,6 @@ Performance is actually better than I expected. With most of the apps inside the
 ~~If you use the official 7 inch touchscreen, performance will feel much worse while dragging something. This seems to be some bug in the touchscreen driver. The embedder / userspace only gets around 25 touch events a second, meaning that while dragging something (like in tabbed_app_bar.dart), the position of the object being dragged is only updated 25 times a second. This results in the app looking like it runs at 25fps. The touchscreen could do up to 100 touch updates a second though.~~
 
 [This has been fixed.](https://github.com/raspberrypi/linux/issues/3227) If you want to get the fix, you can run [rpi-update](https://github.com/hexxeh/rpi-update), which will update your firmware & operating system to the newest version.
+
+Still, there's some delta between you touching the touchscreen and a touch event arriving at userspace. This is because of the implementation of the touch driver in the firmware & in the linux kernel. I think on average, there's a delay of 17ms. If I have enough time in the future, I'll try to build a better touchscreen driver to lower the delay.
 
