@@ -2,9 +2,23 @@
 #define _METHODCHANNEL_H
 
 #include <stdint.h>
+#include <errno.h>
 #include <flutter_embedder.h>
 
 #define JSON_DECODE_TOKENLIST_SIZE  128
+
+// andrew
+// only 32bit support for now.
+#define __ALIGN4_REMAINING(value, remaining, ...) __align((uint32_t*) (value), 4, remaining)
+#define __ALIGN8_REMAINING(value, remaining, ...) __align((uint32_t*) (value), 8, remaining)
+#define align4(...) __ALIGN4_REMAINING(__VA_ARGS__, NULL)
+#define align8(...) __ALIGN8_REMAINING(__VA_ARGS__, NULL)
+
+#define alignmentDiff(value, alignment) __alignmentDiff((uint32_t) value, alignment)
+
+#define __ADVANCE_REMAINING(value, n, remaining, ...) __advance((uint32_t*) (value), n, remaining)
+#define advance(...) __ADVANCE_REMAINING(__VA_ARGS__, NULL)
+
 
 /*
  * It may be simpler for plugins if the two message value types were unified.
@@ -252,5 +266,90 @@ bool stdvalue_equals(struct StdMsgCodecValue *a, struct StdMsgCodecValue *b);
 /// any arbitrary StdMsgCodecValue (and must not be a string as for jsobject_get)
 struct StdMsgCodecValue *stdmap_get(struct StdMsgCodecValue *map, struct StdMsgCodecValue *key);
 
+/// Andrew: Definitions
+static inline int __alignmentDiff(uint32_t value, int alignment) {
+	alignment--;
+	return value - (((((uint32_t) value) + alignment) | alignment) - alignment);
+}
+static inline void __align(uint32_t *value, int alignment, size_t *remaining) {
+	if (remaining != NULL)
+		*remaining -= alignmentDiff((uint32_t) *value, alignment);	
+	alignment--;
 
+	*value = (uint32_t) (((*value + alignment) | alignment) - alignment);
+}
+static inline void __advance(uint32_t *value, int n_bytes, size_t *remaining) {
+	if (remaining != NULL)
+		*remaining -= n_bytes;
+	
+	*value += n_bytes;
+}
+
+static inline void write8(uint8_t **pbuffer, uint8_t value) {
+	*(uint8_t*) *pbuffer = value;
+}
+static inline void write16(uint8_t **pbuffer, uint16_t value) {
+	*(uint16_t*) *pbuffer = value;
+}
+static inline void write32(uint8_t **pbuffer, uint32_t value) {
+	*(uint32_t*) *pbuffer = value;
+}
+static inline void write64(uint8_t **pbuffer, uint64_t value) {
+	*(uint64_t*) *pbuffer = value;
+}
+
+static inline uint8_t  read8(uint8_t **pbuffer) {
+	return *(uint8_t *) *pbuffer;
+}
+static inline uint16_t read16(uint8_t **pbuffer) {
+	return *(uint16_t *) *pbuffer;
+}
+static inline uint32_t read32(uint8_t **pbuffer) {
+	return *(int32_t *) *pbuffer;
+}
+static inline uint64_t read64(uint8_t **pbuffer) {
+	return *(int64_t *) *pbuffer;
+}
+
+static inline int  nSizeBytes(int size) {
+	return (size < 254) ? 1 : (size <= 0xFFFF) ? 3 : 5;
+}
+static inline void writeSize(uint8_t **pbuffer, int size) {
+	if (size < 254) {
+		write8(pbuffer, (uint8_t) size);
+		advance(pbuffer, 1);
+	} else if (size <= 0xFFFF) {
+		write8(pbuffer, 0xFE);
+		advance(pbuffer, 1);
+
+		write16(pbuffer, (uint16_t) size);
+		advance(pbuffer, 2);
+	} else {
+		write8(pbuffer, 0xFF);
+		advance(pbuffer, 1);
+
+		write32(pbuffer, (uint32_t) size);
+		advance(pbuffer, 4);
+	}
+}
+static inline int  readSize(uint8_t **pbuffer, size_t *premaining, uint32_t *psize) {
+	if (*premaining < 1) return EBADMSG;
+
+	*psize = read8(pbuffer);
+	advance(pbuffer, 1, premaining);
+
+	if (*psize == 254) {
+		if (*premaining < 2) return EBADMSG;
+
+		*psize = read16(pbuffer);
+		advance(pbuffer, 2, premaining);
+	} else if (*psize == 255) {
+		if (*premaining < 4) return EBADMSG;
+		
+		*psize = read32(pbuffer);
+		advance(pbuffer, 4, premaining);
+	}
+
+	return 0;
+}
 #endif

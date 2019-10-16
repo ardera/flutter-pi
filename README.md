@@ -47,10 +47,10 @@ Compiling the embedder:
 ```bash
 mkdir out
 cc -D_GNU_SOURCE \
-  `pkg-config --cflags --libs dri gbm libdrm glesv2 egl` -lrt -lflutter_engine -lpthread -ldl \
-  ./src/flutter-pi.c ./src/platformchannel.c ./src/pluginregistry.c ./src/services-plugin.c -o ./out/flutter-pi
+-lEGL -ldrm -lgbm -lGLESv2 -lrt -lflutter_engine -lpthread -ldl \
+-I./include -I/usr/include -I/usr/include/libdrm ./src/flutter-pi.c \
+./src/platformchannel.c ./src/pluginregistry.c ./src/plugins/services-plugin.c -o out/flutter-pi 
 ```
-
 ## Performance
 Performance is actually better than I expected. With most of the apps inside the `flutter SDK -> examples -> catalog` directory I get smooth 50-60fps.
 
