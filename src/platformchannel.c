@@ -1165,11 +1165,3 @@ struct StdMsgCodecValue *stdmap_get(struct StdMsgCodecValue *map, struct StdMsgC
 
 	return NULL;
 }
-
-#undef __ALIGN4_REMAINING
-#undef __ALIGN8_REMAINING
-#undef align4
-#undef align8
-#undef alignmentDiff
-#undef __ADVANCE_REMAINING
-#undef advance
