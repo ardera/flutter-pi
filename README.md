@@ -6,7 +6,38 @@ You can now theoretically run every flutter app you want using flutter-pi, also 
 
 _The difference between extensions and plugins is that extensions don't include any native code, they are just pure dart. Plugins (like the [connectivity plugin](https://github.com/flutter/plugins/tree/master/packages/connectivity)) include platform-specific code._
 
-## Running
+## Running your App on the Raspberry Pi
+### Patching the App
+First, you need to override the default target platform in your flutter app, i.e. add the following line to your _main_ method, before the _runApp_ call:
+```dart
+debugDefaultTargetPlatformOverride = TargetPlatform.fuchsia;
+```
+The _debugDefaultTargetPlatformOverride_ property is in the foundation library, so you need to import that.
+
+Your main dart file should probably look similiar to this now:
+```dart
+import 'package:flutter/foundation.dart';
+
+. . .
+
+void main() {
+  debugDefaultTargetPlatformOverride = TargetPlatform.fuchsia;
+  runApp(MyApp());
+}
+
+. . .
+```
+
+### Building the Asset bundle
+Then to build the asset bundle, run the following commands. I'm using flutter_gallery in this example. (note that the flutter_gallery example **does not work** with flutter-pi, since it includes plugins that have no platform-side implementation for the raspberry pi yet)
+```bash
+cd flutter/examples/flutter_gallery
+flutter build bundle
+```
+
+After that `flutter/examples/flutter_gallery/build/flutter_assets` would be a valid path to pass as an argument to flutter-pi.
+
+### Running your App with flutter-pi
 flutter-pi doesn't support the legacy GL driver anymore. You need to activate the anholt v3d driver in raspi-config. Go to `raspi-config -> Advanced -> GL Driver` and select fake-KMS. Full-KMS is a bit buggy and doesn't work with the Raspberry Pi 7" display (or generally, any DSI display).
 
 For some reason performance is much better when you give the VideCore only 16MB of RAM in fake-kms. I don't know why.
@@ -27,17 +58,7 @@ of the flutter app you're trying to run.
 
 `[flutter engine arguments...]` will be passed as commandline arguments to the flutter engine. You can find a list of commandline options for the flutter engine [Here](https://github.com/flutter/engine/blob/master/shell/common/switches.h).
 
-## Building the asset bundle
-You need a correctly installed flutter SDK. (i.e. the `flutter` tool must be in your PATH)
-
-Example for flutter_gallery: (note that the flutter_gallery example doesn't work with flutter-pi, since it includes which have not platform-implementation for the raspberry pi yet)
-```bash
-cd flutter/examples/flutter_gallery
-flutter build bundle
-```
-After that `flutter/examples/flutter_gallery/build/flutter_assets` would be a valid path to pass as an argument to flutter-pi.
-
-## Compiling (on the Raspberry Pi)
+## Compiling flutter-pi (on the Raspberry Pi)
 You first need a `libflutter_engine.so` and `flutter_embedder.h`. [Here](https://medium.com/flutter/flutter-on-raspberry-pi-mostly-from-scratch-2824c5e7dcb1)
 are some rough guidelines on how to build it. (Note: the icudtl.dat that is generated during the engine compilation needs to be on the RPi too, but it's not needed for compilation of flutter-pi)
 
