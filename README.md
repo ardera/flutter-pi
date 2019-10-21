@@ -58,13 +58,20 @@ of the flutter app you're trying to run.
 
 `[flutter engine arguments...]` will be passed as commandline arguments to the flutter engine. You can find a list of commandline options for the flutter engine [Here](https://github.com/flutter/engine/blob/master/shell/common/switches.h).
 
+## Dependencies
+### flutter engine
+flutter-pi needs `libflutter_engine.so` and `flutter_embedder.h` to compile. It also needs the flutter engine's `icudtl.dat` at runtime.
+You have to options here:
+
+- you build the engine yourself. takes a lot of time, and it most probably won't work on the first try. But once you have it set up, you have unlimited freedom on which engine version you want to use. You can find some rough guidelines [here](https://medium.com/flutter/flutter-on-raspberry-pi-mostly-from-scratch-2824c5e7dcb1). [Andrew jones](https://github.com/andyjjones28) is working on some more detailed instructions.
+- you can use the pre-built engine binaries I am providing [in the _engine-binaries_ branch of this project.](https://github.com/ardera/flutter-pi/tree/engine-binaries). I will only provide binaries for some engine versions though (most likely the stable ones).
+
+### graphics libs
+Additionally, flutter-pi depends on mesa's OpenGL, OpenGL ES, EGL implementation and libdrm & libgbm.
+You can easily install those with `sudo apt install libgl1-mesa-dev libgles2-mesa-dev libegl-mesa0 libdrm-dev libgbm-dev`.
+
 ## Compiling flutter-pi (on the Raspberry Pi)
-You first need a `libflutter_engine.so` and `flutter_embedder.h`. [Here](https://medium.com/flutter/flutter-on-raspberry-pi-mostly-from-scratch-2824c5e7dcb1)
-are some rough guidelines on how to build it. (Note: the icudtl.dat that is generated during the engine compilation needs to be on the RPi too, but it's not needed for compilation of flutter-pi)
-
-You also need some dependencies; run `sudo apt install libgl1-mesa-dev libgles2-mesa-dev libegl-mesa0 libdrm-dev libgbm-dev`.
-
-Compiling the embedder:
+fetch all the dependencies, clone this repo and run:
 ```bash
 mkdir out
 cc -D_GNU_SOURCE \
@@ -72,6 +79,7 @@ cc -D_GNU_SOURCE \
 -I./include -I/usr/include -I/usr/include/libdrm ./src/flutter-pi.c \
 ./src/platformchannel.c ./src/pluginregistry.c ./src/plugins/services-plugin.c -o out/flutter-pi 
 ```
+
 ## Performance
 Performance is actually better than I expected. With most of the apps inside the `flutter SDK -> examples -> catalog` directory I get smooth 50-60fps.
 
