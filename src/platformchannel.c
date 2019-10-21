@@ -1082,6 +1082,9 @@ int PlatformChannel_respondNotImplemented(FlutterPlatformMessageResponseHandle *
 }
 int PlatformChannel_respondError(FlutterPlatformMessageResponseHandle *handle, enum ChannelCodec codec, char *errorcode, char *errormessage, void *errordetails) {
 	if ((codec == kStandardMessageCodec) || (codec == kStandardMethodCall) || (codec == kStandardMethodCallResponse)) {
+		if (errordetails == NULL)
+			errordetails = &(struct StdMsgCodecValue) {.type = kNull};
+		
 		return PlatformChannel_respond(handle, &(struct ChannelObject) {
 			.codec = kStandardMethodCallResponse,
 			.success = false,
@@ -1090,6 +1093,9 @@ int PlatformChannel_respondError(FlutterPlatformMessageResponseHandle *handle, e
 			.stderrordetails = *((struct StdMsgCodecValue *) errordetails)
 		});
 	} else if ((codec == kJSONMessageCodec) || (codec == kJSONMethodCall) || (codec == kJSONMethodCallResponse)) {
+		if (errordetails == NULL)
+			errordetails = &(struct JSONMsgCodecValue) {.type = kJSNull};
+		
 		return PlatformChannel_respond(handle, &(struct ChannelObject) {
 			.codec = kJSONMethodCallResponse,
 			.success = false,

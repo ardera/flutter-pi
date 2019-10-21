@@ -7,6 +7,7 @@
 // hardcoded plugin headers
 #include "plugins/services-plugin.h"
 #include "plugins/testplugin.h"
+#include "plugins/elm327plugin.h"
 
 
 struct ChannelObjectReceiverData {
@@ -28,6 +29,8 @@ struct FlutterPiPlugin hardcoded_plugins[] = {
 #ifdef INCLUDE_TESTPLUGIN	
 	{.name = "testplugin",   .init = TestPlugin_init, .deinit = TestPlugin_deinit}
 #endif
+
+	{.name = "elm327",       .init = ELM327Plugin_init, .deinit = ELM327Plugin_deinit}
 };
 size_t hardcoded_plugins_count;
 
