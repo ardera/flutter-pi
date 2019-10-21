@@ -430,6 +430,9 @@ void *run_pidqq_processor(void* arg) {
             }
         } else {
             pthread_mutex_unlock(&pidqq_mutex);
+			sleep(1);	// in the future, we should use signals to notify the pidqq_processor
+						// when a query has arrived in the queue, but this at least stops
+						// busy waiting for now.
         }
     }
 
@@ -441,8 +444,9 @@ void *run_pidqq_processor(void* arg) {
  *****************/
 void ELM327Plugin_onPidQueryCompletion(struct pidqq_element query, uint32_t result) {
 	struct ChannelObject obj = {
-		.codec = kStandardMessageCodec,
-		.stdmsgcodec_value = {
+		.codec = kStandardMethodCallResponse,
+		.success = true,
+		.stdresult = {
 			.type = kFloat64,
 			.float64_value = 0.0
 		}
@@ -465,31 +469,14 @@ void ELM327Plugin_onPidQueryCompletion(struct pidqq_element query, uint32_t resu
 			obj.stdmsgcodec_value.type = kInt32;
 			obj.stdmsgcodec_value.int32_value = (int32_t) result;
 			break;
-		default:
+		default: 
 			break;
 	}
 
     PlatformChannel_send(query.channel, &obj, kStandardMessageCodec, NULL, NULL);
 }
 int ELM327Plugin_onEventChannelListen(char *channel, uint8_t pid, FlutterPlatformMessageResponseHandle *handle) {
-    pthread_mutex_lock(&pidqq_mutex);
-
-    pidqq_add(&(struct pidqq_element) {
-        .priority = 1,
-        .pid = pid,
-        .repeat = true,
-        .completionCallback = ELM327Plugin_onPidQueryCompletion
-    });
-
-    pthread_mutex_unlock(&pidqq_mutex);
-
-    if (elm_pid_supported(pid)) {
-        PlatformChannel_respond(handle, &(struct ChannelObject) {
-            .codec = kStandardMethodCallResponse,
-            .success = true,
-            .stdresult = {.type = kNull}
-        });
-    } else {
+	if (!elm_pid_supported(pid)) {
         PlatformChannel_respondError(
             handle, kStandardMethodCallResponse,
             "notsupported",
@@ -497,6 +484,22 @@ int ELM327Plugin_onEventChannelListen(char *channel, uint8_t pid, FlutterPlatfor
             NULL
         );
     }
+
+	// insert a new query into pidqq
+	pthread_mutex_lock(&pidqq_mutex);
+    pidqq_add(&(struct pidqq_element) {
+        .priority = 1,
+        .pid = pid,
+        .repeat = true,
+        .completionCallback = ELM327Plugin_onPidQueryCompletion
+    });
+    pthread_mutex_unlock(&pidqq_mutex);
+
+	PlatformChannel_respond(handle, &(struct ChannelObject) {
+		.codec = kStandardMethodCallResponse,
+		.success = true,
+		.stdresult = {.type = kNull}
+	});
 }
 int ELM327Plugin_onEventChannelCancel(char *channel, uint8_t pid, FlutterPlatformMessageResponseHandle *handle) {
     pthread_mutex_lock(&pidqq_mutex);
