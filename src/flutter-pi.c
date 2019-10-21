@@ -27,9 +27,9 @@
 
 #include <flutter_embedder.h>
 
-#include "flutter-pi.h"
-#include "platformchannel.h"
-#include "pluginregistry.h"
+#include <flutter-pi.h>
+#include <platformchannel.h>
+#include <pluginregistry.h>
 
 
 char* usage ="\

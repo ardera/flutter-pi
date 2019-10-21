@@ -1,7 +1,7 @@
 #include <ctype.h>
 #include <errno.h>
 
-#include "../pluginregistry.h"
+#include <pluginregistry.h>
 #include "services-plugin.h"
 
 struct {

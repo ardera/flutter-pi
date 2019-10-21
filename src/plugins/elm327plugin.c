@@ -16,7 +16,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#include "../pluginregistry.h"
+#include <pluginregistry.h>
 #include "elm327plugin.h"
 
 

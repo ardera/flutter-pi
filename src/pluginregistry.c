@@ -1,8 +1,8 @@
 #include <sys/errno.h>
 #include <string.h>
 
-#include "platformchannel.h"
-#include "pluginregistry.h"
+#include <platformchannel.h>
+#include <pluginregistry.h>
 
 // hardcoded plugin headers
 #include "plugins/services-plugin.h"
