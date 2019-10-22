@@ -41,19 +41,24 @@ Options:\n\
   -t <device_path>   Path to the touchscreen device file. Typically /dev/input/touchscreenX or /dev/input/eventX\n\
 ";
 
-// width & height of the display in pixels
+/// width & height of the display in pixels
 uint32_t width, height;
 
-// physical width & height of the display in millimeters
-uint32_t width_mm, height_mm;
+/// physical width & height of the display in millimeters
+/// the physical size can only be queried for HDMI displays (and even then, most displays will
+///   probably return bogus values like 160mm x 90mm).
+/// for DSI displays, the physical size of the official 7-inch display will be set in init_display.
+/// init_display will only update width_mm and height_mm if they are set to zero, allowing you
+///   to hardcode values for you individual display.
+uint32_t width_mm = 0, height_mm = 0;
 uint32_t refresh_rate;
 
-// this is the pixel ratio (used by flutter) for the Official Raspberry Pi 7inch display.
-// if a HDMI screen is connected and being used by this application, the pixel ratio will be 
-// computed inside init_display.
-// for DSI the pixel ratio can not be calculated, because there's no (general) way to query the physical
-// size for DSI displays.
-double pixel_ratio = 1.3671;
+/// The pixel ratio used by flutter.
+/// This is computed inside init_display using width_mm and height_mm.
+/// flutter only accepts pixel ratios >= 1.0
+/// init_display will only update this value if it is equal to zero,
+///   allowing you to hardcode values.
+double pixel_ratio = 0.0;
 
 struct {
 	char device[128];
@@ -104,7 +109,7 @@ struct {
 	char device_path[128];
 	int  fd;
 	double x, y;
-	uint8_t button;
+	uint8_t buttons;
 	struct TouchscreenSlot  ts_slots[10];
 	struct TouchscreenSlot* ts_slot;
 	bool is_mouse;
@@ -564,8 +569,24 @@ bool init_display(void) {
 
 		if ((connector == NULL) && (conn->connection == DRM_MODE_CONNECTED)) {
 			connector = conn;
-			width_mm = conn->mmWidth;
-			height_mm = conn->mmHeight;
+
+			// only update the physical size of the display if the values
+			//   are not yet initialized / not set with a commandline option
+			if (!((width_mm == 0) && (height_mm == 0))) {
+				if ((conn->mmWidth == 160) && (conn->mmHeight == 90)) {
+					// if width and height is exactly 160mm x 90mm, the values are probably bogus.
+					width_mm = 0;
+					height_mm = 0;
+				} else if ((conn->connector_type == DRM_MODE_CONNECTOR_DSI) && (conn->mmWidth == 0) && (conn->mmHeight == 0)) {
+					// if it's connected via DSI, and the width & height are 0,
+					//   it's probably the official 7 inch touchscreen.
+					width_mm = 155;
+					height_mm = 86;
+				} else {
+					width_mm = conn->mmWidth;
+					height_mm = conn->mmHeight;
+				}
+			}
 		} else {
 			drmModeFreeConnector(conn);
 		}
@@ -588,18 +609,15 @@ bool init_display(void) {
 		// we choose the highest resolution with the highest refresh rate, preferably non-interlaced (= progressive) here.
 		int current_area = current_mode->hdisplay * current_mode->vdisplay;
 		if (( current_area  > area) ||
-			((current_area == area) && (drm.mode->vrefresh > refresh_rate)) || 
-			((current_area == area) && (drm.mode->vrefresh == refresh_rate) && ((drm.mode->flags & DRM_MODE_FLAG_INTERLACE) == 0)) ||
+			((current_area == area) && (current_mode->vrefresh >  refresh_rate)) || 
+			((current_area == area) && (current_mode->vrefresh == refresh_rate) && ((current_mode->flags & DRM_MODE_FLAG_INTERLACE) == 0)) ||
 			( current_mode->type & DRM_MODE_TYPE_PREFERRED)) {
 
 			drm.mode = current_mode;
-			width = drm.mode->hdisplay;
-			height = drm.mode->vdisplay;
-			refresh_rate = drm.mode->vrefresh;
+			width = current_mode->hdisplay;
+			height = current_mode->vdisplay;
+			refresh_rate = current_mode->vrefresh;
 			area = current_area;
-
-			if (width_mm) pixel_ratio = (10.0 * width) / (width_mm * 38.0);
-			if (pixel_ratio < 1.0) pixel_ratio = 1.0;
 
 			// if the preferred DRM mode is bogus, we're screwed.
 			if (current_mode->type & DRM_MODE_TYPE_PREFERRED) {
@@ -611,6 +629,16 @@ bool init_display(void) {
 	if (!drm.mode) {
 		fprintf(stderr, "could not find a suitable DRM mode!\n");
 		return false;
+	}
+	
+	// calculate the pixel ratio
+	if (pixel_ratio == 0.0) {
+		if ((width_mm == 0) || (height_mm == 0)) {
+			pixel_ratio = 1.0;
+		} else {
+			pixel_ratio = (10.0 * width) / (width_mm * 38.0);
+			if (pixel_ratio < 1.0) pixel_ratio = 1.0;
+		}
 	}
 
 	printf("Display properties:\n  %u x %u, %uHz\n  %umm x %umm\n  pixel_ratio = %f\n", width, height, refresh_rate, width_mm, height_mm, pixel_ratio);
@@ -946,8 +974,11 @@ void* io_loop(void* userdata) {
 	int					n_pointerevents = 0;
 	bool 				ok;
 
-	// first, tell flutter that the mouse is inside the engine window
+	
 	if (input.is_mouse) {
+
+		// first, tell flutter that the mouse is inside the engine window
+		printf("sending initial mouse pointer event to flutter\n");
 		ok = FlutterEngineSendPointerEvent(
 			engine,
 			& (FlutterPointerEvent) {
@@ -956,13 +987,14 @@ void* io_loop(void* userdata) {
 				.timestamp = (size_t) (FlutterEngineGetCurrentTime()*1000),
 				.x = input.x,
 				.y = input.y,
-				.signal_kind = kFlutterPointerSignalKindNone
+				.signal_kind = kFlutterPointerSignalKindNone,
+				.device_kind = kFlutterPointerDeviceKindMouse,
+				.buttons = 0
 			}, 
 			1
 		) == kSuccess;
 		if (!ok) return false;
 
-		// mouse
 		while (1) {
 			// read up to 64 input events
 			int rd = read(input.fd, &event, sizeof(struct input_event)*64);
@@ -981,25 +1013,25 @@ void* io_loop(void* userdata) {
 				if (ev->type == EV_REL) {
 					if (ev->code == REL_X) {			// mouse moved in the x-direction
 						input.x += ev->value;
-						phase = input.button ? kMove : kHover;
+						phase = input.buttons ? kMove : kHover;
 					} else if (ev->code == REL_Y) {	// mouse moved in the y-direction
 						input.y += ev->value;
-						phase = input.button ? kMove : kHover;	
+						phase = input.buttons ? kMove : kHover;	
 					}
 				} else if (ev->type == EV_ABS) {
 					if (ev->code == ABS_X) {
 						input.x = ev->value;
-						phase = input.button ? kMove : kHover;
+						phase = input.buttons ? kMove : kHover;
 					} else if (ev->code == ABS_Y) {
 						input.y = ev->value;
-						phase = input.button ? kMove : kHover;
+						phase = input.buttons ? kMove : kHover;
 					}
 				} else if ((ev->type == EV_KEY) && ((ev->code == BTN_LEFT) || (ev->code == BTN_RIGHT))) {
 					// either the left or the right mouse button was pressed
-					// the 1st bit in "button" is set when BTN_LEFT is down. the 2nd bit when BTN_RIGHT is down.
-					uint8_t mask = ev->code == BTN_LEFT ? 1 : 2;
-					if (ev->value == 1)	input.button |=  mask;
-					else				input.button &= ~mask;
+					// the 1st bit in "buttons" is set when BTN_LEFT is down. the 2nd bit when BTN_RIGHT is down.
+					uint8_t mask = ev->code == BTN_LEFT ? kFlutterPointerButtonMousePrimary : kFlutterPointerButtonMouseSecondary;
+					if (ev->value == 1)	input.buttons |=  mask;
+					else				input.buttons &= ~mask;
 					
 					phase = ev->value == 1 ? kDown : kUp;
 				}
@@ -1010,9 +1042,12 @@ void* io_loop(void* userdata) {
 						engine,
 						& (FlutterPointerEvent) {
 							.struct_size = sizeof(FlutterPointerEvent),
+							.phase=phase,
 							.timestamp = (size_t) (ev->time.tv_sec * 1000000ul) + ev->time.tv_usec,
-							.phase=phase,  .x=input.x,  .y=input.y,
-							.signal_kind = kFlutterPointerSignalKindNone
+							.x=input.x,  .y=input.y,
+							.signal_kind = kFlutterPointerSignalKindNone,
+							.device_kind = kFlutterPointerDeviceKindMouse,
+							.buttons = input.buttons
 						}, 
 						1
 					) == kSuccess;
@@ -1035,7 +1070,8 @@ void* io_loop(void* userdata) {
 					.device = j,
 					.x = 0,
 					.y = 0,
-					.signal_kind = kFlutterPointerSignalKindNone
+					.signal_kind = kFlutterPointerSignalKindNone,
+					.device_kind = kFlutterPointerDeviceKindTouch
 				},
 				1
 			) == kSuccess;
@@ -1085,23 +1121,26 @@ void* io_loop(void* userdata) {
 								.device = j,
 								.x = input.ts_slots[j].x,
 								.y = input.ts_slots[j].y,
-								.signal_kind = kFlutterPointerSignalKindNone
+								.signal_kind = kFlutterPointerSignalKindNone,
+								.device_kind = kFlutterPointerDeviceKindTouch
 							};
 							input.ts_slots[j].phase = kCancel;
 						}
 					}
 				}
 			}
+			
+			if (n_pointerevents > 0) {
+				ok = FlutterEngineSendPointerEvent(
+					engine,
+					pointer_event,
+					n_pointerevents
+				) == kSuccess;
 
-			ok = FlutterEngineSendPointerEvent(
-				engine,
-				pointer_event,
-				n_pointerevents
-			) == kSuccess;
-
-			if (!ok) {
-				fprintf(stderr, "Error sending pointer events to flutter\n");
-				return false;
+				if (!ok) {
+					fprintf(stderr, "Error sending pointer events to flutter\n");
+					return false;
+				}
 			}
 		}
 	}
