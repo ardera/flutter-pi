@@ -545,41 +545,67 @@ bool init_display(void) {
 	}
 
 
-	printf("Finding a connected connector...\n");
+	printf("Finding a connected connector from %d available connectors...\n", resources->count_connectors);
+	connector = NULL;
 	for (i = 0; i < resources->count_connectors; i++) {
-		connector = drmModeGetConnector(drm.fd, resources->connectors[i]);
-		if (connector->connection == DRM_MODE_CONNECTED) {
-			width_mm = connector->mmWidth;
-			height_mm = connector->mmHeight;
-			break;
+		drmModeConnector *conn = drmModeGetConnector(drm.fd, resources->connectors[i]);
+		
+		printf("  connectors[%d]: connected? %s, type: 0x%02X%s, %umm x %umm\n",
+			   i,
+			   (conn->connection == DRM_MODE_CONNECTED) ? "yes" :
+			   (conn->connection == DRM_MODE_DISCONNECTED) ? "no" : "unknown",
+			   conn->connector_type,
+			   (conn->connector_type == DRM_MODE_CONNECTOR_HDMIA) ? " (HDMI-A)" :
+			   (conn->connector_type == DRM_MODE_CONNECTOR_HDMIB) ? " (HDMI-B)" :
+			   (conn->connector_type == DRM_MODE_CONNECTOR_DSI) ? " (DSI)" :
+			   (conn->connector_type == DRM_MODE_CONNECTOR_DisplayPort) ? " (DisplayPort)" : "",
+			   conn->mmWidth, conn->mmHeight
+		);
+
+		if ((connector == NULL) && (conn->connection == DRM_MODE_CONNECTED)) {
+			connector = conn;
+			width_mm = conn->mmWidth;
+			height_mm = conn->mmHeight;
+		} else {
+			drmModeFreeConnector(conn);
 		}
-		drmModeFreeConnector(connector);
-		connector = NULL;
 	}
 	if (!connector) {
 		fprintf(stderr, "could not find a connected connector!\n");
 		return false;
 	}
 
-	printf("Choosing DRM mode...\n");
+	printf("Choosing DRM mode from %d available modes...\n", connector->count_modes);
 	for (i = 0, area = 0; i < connector->count_modes; i++) {
 		drmModeModeInfo *current_mode = &connector->modes[i];
 
-		if (current_mode->type & DRM_MODE_TYPE_PREFERRED) {
+		printf("  modes[%d]: name: \"%s\", %ux%u%s, %uHz, type: %u, flags: %u\n",
+			   i, current_mode->name, current_mode->hdisplay, current_mode->vdisplay,
+			   (current_mode->flags & DRM_MODE_FLAG_INTERLACE) ? "i" : "p",
+			   current_mode->vrefresh, current_mode->type, current_mode->flags
+		);
+
+		// we choose the highest resolution with the highest refresh rate, preferably non-interlaced (= progressive) here.
+		int current_area = current_mode->hdisplay * current_mode->vdisplay;
+		if (( current_area  > area) ||
+			((current_area == area) && (drm.mode->vrefresh > refresh_rate)) || 
+			((current_area == area) && (drm.mode->vrefresh == refresh_rate) && ((drm.mode->flags & DRM_MODE_FLAG_INTERLACE) == 0)) ||
+			( current_mode->type & DRM_MODE_TYPE_PREFERRED)) {
+
 			drm.mode = current_mode;
 			width = drm.mode->hdisplay;
 			height = drm.mode->vdisplay;
 			refresh_rate = drm.mode->vrefresh;
+			area = current_area;
 
 			if (width_mm) pixel_ratio = (10.0 * width) / (width_mm * 38.0);
+			if (pixel_ratio < 1.0) pixel_ratio = 1.0;
 
-			break;
-		}
-
-		int current_area = current_mode->hdisplay * current_mode->vdisplay;
-		if (current_area > area) {
-			drm.mode = current_mode;
-			area = current_area;
+			// if the preferred DRM mode is bogus, we're screwed.
+			if (current_mode->type & DRM_MODE_TYPE_PREFERRED) {
+				printf("the chosen DRM mode is preferred by DRM. (DRM_MODE_TYPE_PREFERRED)\n");
+				break;
+			}
 		}
 	}
 	if (!drm.mode) {
@@ -868,6 +894,8 @@ bool init_application(void) {
 	if (_result != kSuccess) {
 		fprintf(stderr, "Could not run the flutter engine\n");
 		return false;
+	} else {
+		printf("flutter engine successfully started up.\n");
 	}
 
 	// update window size

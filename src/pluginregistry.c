@@ -30,9 +30,11 @@ struct FlutterPiPlugin hardcoded_plugins[] = {
 	{.name = "testplugin",   .init = TestPlugin_init, .deinit = TestPlugin_deinit}
 #endif
 
+#ifdef INCLUDE_ELM327PLUGIN
 	{.name = "elm327",       .init = ELM327Plugin_init, .deinit = ELM327Plugin_deinit}
+#endif
 };
-size_t hardcoded_plugins_count;
+//size_t hardcoded_plugins_count;
 
 
 int PluginRegistry_init() {
