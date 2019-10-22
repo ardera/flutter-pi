@@ -70,6 +70,13 @@ You have to options here:
 Additionally, flutter-pi depends on mesa's OpenGL, OpenGL ES, EGL implementation and libdrm & libgbm.
 You can easily install those with `sudo apt install libgl1-mesa-dev libgles2-mesa-dev libegl-mesa0 libdrm-dev libgbm-dev`.
 
+### fonts
+The flutter engine, by default, uses the _Arial_ font. Since that doesn't come included with Raspbian, you need to install it using:
+```bash
+sudo apt install ttf-mscorefonts-installer
+sudo fc-cache
+```
+
 ## Compiling flutter-pi (on the Raspberry Pi)
 fetch all the dependencies, clone this repo and run:
 ```bash
