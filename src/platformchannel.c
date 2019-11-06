@@ -204,7 +204,7 @@ int PlatformChannel_writeStdMsgCodecValueToBuffer(struct StdMsgCodecValue* value
 			break;
 		case kFloat64:
 			align8(pbuffer);
-			write64(pbuffer, (uint64_t) value->float64_value);
+			write64(pbuffer, *((uint64_t*) &(value->float64_value)));
 			advance(pbuffer, 8);
 			break;
 		case kLargeInt:
@@ -871,7 +871,6 @@ int PlatformChannel_encode(struct ChannelObject *object, uint8_t **buffer_out, s
 	*size_out = size;
 	return 0;
 
-
 	free_buffer_and_return_ok:
 	free(buffer);
 	return ok;
@@ -917,6 +916,13 @@ int PlatformChannel_send(char *channel, struct ChannelObject *object, enum Chann
 		if (result != kSuccess) return EINVAL;
 	}
 
+	//printf("[platformchannel] sending platform message to flutter on channel \"%s\". message_size: %d, has response_handle? %s\n", channel, size, response_handle ? "yes" : "no");
+	//printf("  message buffer: \"");
+	//for (int i = 0; i < size; i++)
+	//	if (isprint(buffer[i])) printf("%c", buffer[i]);
+	//	else printf("\\x%02X", buffer[i]);
+	//printf("\"\n");
+	
 	result = FlutterEngineSendPlatformMessage(
 		engine,
 		& (const FlutterPlatformMessage) {
@@ -960,8 +966,8 @@ int PlatformChannel_jsoncall(char *channel, char *method, struct JSONMsgCodecVal
 }
 int PlatformChannel_respond(FlutterPlatformMessageResponseHandle *handle, struct ChannelObject *response) {
 	FlutterEngineResult result;
-	uint8_t *buffer;
-	size_t   size;
+	uint8_t *buffer = NULL;
+	size_t   size = 0;
 	int ok;
 
 	ok = PlatformChannel_encode(response, &buffer, &size);

@@ -15,6 +15,7 @@
 #include <limits.h>
 #include <float.h>
 #include <assert.h>
+#include <time.h>
 
 #include <xf86drm.h>
 #include <xf86drmMode.h>
@@ -118,16 +119,14 @@ struct {
 
 pthread_t io_thread_id;
 pthread_t platform_thread_id;
-struct LinkedTaskListElement task_list_head_sentinel = {
+struct FlutterPiTask tasklist = {
 	.next = NULL,
 	.is_vblank_event = false,
 	.target_time = 0,
 	.task = {.runner = NULL, .task = 0}
 };
-pthread_mutex_t task_list_lock;
-bool should_notify_platform_thread = false;
-sigset_t sigusr1_set;
-
+pthread_mutex_t tasklist_lock = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t  task_added = PTHREAD_COND_INITIALIZER;
 
 
 /*********************
@@ -135,7 +134,7 @@ sigset_t sigusr1_set;
  *********************/
 bool     		make_current(void* userdata) {
 	if (eglMakeCurrent(egl.display, egl.surface, egl.surface, egl.context) != EGL_TRUE) {
-		fprintf(stderr, "Could not make the context current.\n");
+		fprintf(stderr, "make_current: could not make the context current.\n");
 		return false;
 	}
 	
@@ -143,7 +142,7 @@ bool     		make_current(void* userdata) {
 }
 bool     		clear_current(void* userdata) {
 	if (eglMakeCurrent(egl.display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT) != EGL_TRUE) {
-		fprintf(stderr, "Could not clear the current context.\n");
+		fprintf(stderr, "clear_current: could not clear the current context.\n");
 		return false;
 	}
 	
@@ -165,10 +164,12 @@ struct drm_fb*	drm_fb_get_from_bo(struct gbm_bo *bo) {
 	uint32_t width, height, format, strides[4] = {0}, handles[4] = {0}, offsets[4] = {0}, flags = 0;
 	int ok = -1;
 
+	// if the buffer object already has some userdata associated with it,
+	//   it's the framebuffer we allocated.
 	struct drm_fb *fb = gbm_bo_get_user_data(bo);
-
 	if (fb) return fb;
 
+	// if there's no framebuffer for the bo, we need to create one.
 	fb = calloc(1, sizeof(struct drm_fb));
 	fb->bo = bo;
 
@@ -197,7 +198,7 @@ struct drm_fb*	drm_fb_get_from_bo(struct gbm_bo *bo) {
 
 	if (ok) {
 		if (flags)
-			fprintf(stderr, "Modifiers failed!\n");
+			fprintf(stderr, "drm_fb_get_from_bo: modifiers failed!\n");
 		
 		memcpy(handles, (uint32_t [4]){gbm_bo_get_handle(bo).u32,0,0,0}, 16);
 		memcpy(strides, (uint32_t [4]){gbm_bo_get_stride(bo),0,0,0}, 16);
@@ -207,7 +208,7 @@ struct drm_fb*	drm_fb_get_from_bo(struct gbm_bo *bo) {
 	}
 
 	if (ok) {
-		fprintf(stderr, "failed to create fb: %s\n", strerror(errno));
+		fprintf(stderr, "drm_fb_get_from_bo: failed to create fb: %s\n", strerror(errno));
 		free(fb);
 		return NULL;
 	}
@@ -286,7 +287,7 @@ void 	 		cut_word_from_string(char* string, char* word) {
 		} while (word_in_str[i++ + word_length] != 0);
 	}
 }
-const GLubyte*	hacked_glGetString(GLenum name) {
+const GLubyte  *hacked_glGetString(GLenum name) {
 	if (name == GL_EXTENSIONS) {
 		static GLubyte* extensions;
 
@@ -365,7 +366,7 @@ const GLubyte*	hacked_glGetString(GLenum name) {
 		return glGetString(name);
 	}
 }
-void*    		proc_resolver(void* userdata, const char* name) {
+void           *proc_resolver(void* userdata, const char* name) {
 	if (name == NULL) return NULL;
 
 	/*  
@@ -405,58 +406,36 @@ void  handle_sigusr1(int _) {}
 bool  init_message_loop() {
 	platform_thread_id = pthread_self();
 
-	// first, initialize the task heap mutex
-	if (pthread_mutex_init(&task_list_lock, NULL) != 0) {
-		fprintf(stderr, "Could not initialize task list mutex\n");
-		return false;
-	}
-
-	sigemptyset(&sigusr1_set);
-	sigaddset(&sigusr1_set, SIGUSR1);
-	sigaction(SIGUSR1, &(struct sigaction) {.sa_handler = &handle_sigusr1}, NULL);
-	pthread_sigmask(SIG_UNBLOCK, &sigusr1_set, NULL);
-
 	return true;
 }
 bool  message_loop(void) {
-	should_notify_platform_thread =  true;
+	struct timespec abstargetspec;
+	uint64_t currenttime, abstarget;
 
 	while (true) {
-		pthread_mutex_lock(&task_list_lock);
-		if (task_list_head_sentinel.next == NULL) {
-			pthread_mutex_unlock(&task_list_lock);
-			sigwaitinfo(&sigusr1_set, NULL);
-			continue;
-		} else {
-			uint64_t target_time = task_list_head_sentinel.next->target_time;
-			uint64_t current_time = FlutterEngineGetCurrentTime();
+		pthread_mutex_lock(&tasklist_lock);
 
-			if (target_time > current_time) {
-				uint64_t diff = target_time - current_time;
-
-				struct timespec target_timespec = {
-					.tv_sec = (uint64_t) (diff / 1000000000ull),
-					.tv_nsec = (uint64_t) (diff % 1000000000ull)
-				};
-
-				pthread_mutex_unlock(&task_list_lock);
-				sigtimedwait(&sigusr1_set, NULL, &target_timespec);
-				continue;
-			}
+		// wait for a task to be inserted into the list
+		while ((tasklist.next == NULL))
+			pthread_cond_wait(&task_added, &tasklist_lock);
+		
+		// wait for a task to be ready to be run
+		while (tasklist.target_time > (currenttime = FlutterEngineGetCurrentTime())) {
+			clock_gettime(CLOCK_REALTIME, &abstargetspec);
+			abstarget = abstargetspec.tv_nsec + abstargetspec.tv_sec*1000000000ull - currenttime;
+			abstargetspec.tv_nsec = abstarget % 1000000000;
+			abstargetspec.tv_sec =  abstarget / 1000000000;
+			
+			pthread_cond_timedwait(&task_added, &tasklist_lock, &abstargetspec);
 		}
 
-		FlutterTask task = task_list_head_sentinel.next->task;
-		bool is_vblank_event = task_list_head_sentinel.next->is_vblank_event;
-		drmVBlankReply vbl = task_list_head_sentinel.next->vbl;
+		FlutterTask task = tasklist.next->task;
+		struct FlutterPiTask* new_first = tasklist.next->next;
+		free(tasklist.next);
+		tasklist.next = new_first;
 
-		struct LinkedTaskListElement* new_first = task_list_head_sentinel.next->next;
-		free(task_list_head_sentinel.next);
-		task_list_head_sentinel.next = new_first;
-		pthread_mutex_unlock(&task_list_lock);
-		
-		if (is_vblank_event) {
-			
-		} else if (FlutterEngineRunTask(engine, &task) != kSuccess) {
+		pthread_mutex_unlock(&tasklist_lock);
+		if (FlutterEngineRunTask(engine, &task) != kSuccess) {
 			fprintf(stderr, "Error running platform task\n");
 			return false;
 		};
@@ -465,24 +444,22 @@ bool  message_loop(void) {
 	return true;
 }
 void  post_platform_task(FlutterTask task, uint64_t target_time, void* userdata) {
-	struct LinkedTaskListElement* to_insert = malloc(sizeof(struct LinkedTaskListElement));
+	// prepare the task to be inserted into the tasklist.
+	struct FlutterPiTask* to_insert = malloc(sizeof(struct FlutterPiTask));
 	to_insert->next = NULL;
-	to_insert->is_vblank_event = false;
 	to_insert->task = task;
 	to_insert->target_time = target_time;
 	
-	pthread_mutex_lock(&task_list_lock);
-	struct LinkedTaskListElement* this = &task_list_head_sentinel;
-	while ((this->next) != NULL && (target_time > this->next->target_time))
-		this = this->next;
+	// insert the task at a fitting position. (the tasks are ordered by target time)
+	pthread_mutex_lock(&tasklist_lock);
+		struct FlutterPiTask* this = &tasklist;
+		while ((this->next) != NULL && (target_time > this->next->target_time))
+			this = this->next;
 
-	to_insert->next = this->next;
-	this->next = to_insert;
-	pthread_mutex_unlock(&task_list_lock);
-
-	if (should_notify_platform_thread) {
-		pthread_kill(platform_thread_id, SIGUSR1);
-	}
+		to_insert->next = this->next;
+		this->next = to_insert;
+	pthread_mutex_unlock(&tasklist_lock);
+	pthread_cond_signal(&task_added);
 }
 bool  runs_platform_tasks_on_current_thread(void* userdata) {
 	return pthread_equal(pthread_self(), platform_thread_id) != 0;
@@ -572,7 +549,7 @@ bool init_display(void) {
 
 			// only update the physical size of the display if the values
 			//   are not yet initialized / not set with a commandline option
-			if (!((width_mm == 0) && (height_mm == 0))) {
+			if ((width_mm == 0) && (height_mm == 0)) {
 				if ((conn->mmWidth == 160) && (conn->mmHeight == 90)) {
 					// if width and height is exactly 160mm x 90mm, the values are probably bogus.
 					width_mm = 0;
@@ -939,6 +916,7 @@ bool init_application(void) {
 	
 	return true;
 }
+
 void destroy_application(void) {
 	int ok;
 

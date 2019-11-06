@@ -22,7 +22,7 @@
 #define ELM327_VERSION			"ATI"
 #define ELM327_ECHO_OFF 		"AT E0"
 #define ELM327_LINEFEEDS_OFF	"AT L0"
-#define ELM327_EOC      		"\r\n"
+#define ELM327_EOC      		"\r"
 
 #define ELM327_OK       		"OK"				// command successfully executed
 #define ELM327_INVALID			"?"					// ELM could not understand the command
@@ -77,7 +77,7 @@
 #define OBDII_PID_ACTUAL_PERCENT_TORQUE		0x62
 #define OBDII_PID_REFERENCE_TORQUE			0x63
 
-enum elm_errno {
+enum elm327plugin_errno {
 	ELM_ERRNO_OK,
 	ELM_ERRNO_INVALID,
 	ELM_ERRNO_ACT_ALERT,
@@ -106,12 +106,12 @@ struct elm327 {
 	int fd;
 	int baudrate;
 	bool is_online;
-	enum elm_errno elm_errno;
+	enum elm327plugin_errno elm_errno;
 };
-extern struct elm327 elm;
 
 struct pidqq_element;
-typedef void (*ELM327PluginPIDQueryCompletionCallback)(struct pidqq_element query, uint32_t result);
+typedef void (*ELM327PluginPIDQueryCompletionCallback)(struct pidqq_element query, uint32_t result, enum elm327plugin_errno elm_errno);
+
 // pid queries take time to execute, so we queue all queries.
 // every query has priority (so it's actually a priority queue)
 struct pidqq_element {
@@ -124,17 +124,17 @@ struct pidqq_element {
                             // after it was executed.
     ELM327PluginPIDQueryCompletionCallback completionCallback;
 };
-extern struct pidqq_element *pidqq;
-extern size_t pidqq_size;
 
-#define ELM327PLUGIN_CHANNEL "plugins.flutter.io/elmdev"
-#define ELM327PLUGIN_RPM_CHANNEL "plugins.flutter.io/elmdev/rpm"
-#define ELM327PLUGIN_ENGINELOAD_CHANNEL "plugins.flutter.io/elmdev/engineload"
-#define ELM327PLUGIN_COOLANTTEMP_CHANNEL "plugins.flutter.io/elmdev/coolanttemp"
-#define ELM327PLUGIN_SPEED_CHANNEL "plugins.flutter.io/elmdev/speed"
-#define ELM327PLUGIN_THROTTLE_CHANNEL "plugins.flutter.io/elmdev/throttle"
+
+#define ELM327PLUGIN_CHANNEL "plugins.flutter-pi.io/elm327"
+#define ELM327PLUGIN_RPM_CHANNEL "plugins.flutter-pi.io/elm327/rpm"
+#define ELM327PLUGIN_ENGINELOAD_CHANNEL "plugins.flutter-pi.io/elm327/engineload"
+#define ELM327PLUGIN_COOLANTTEMP_CHANNEL "plugins.flutter-pi.io/elm327/coolanttemp"
+#define ELM327PLUGIN_SPEED_CHANNEL "plugins.flutter-pi.io/elm327/speed"
+#define ELM327PLUGIN_THROTTLE_CHANNEL "plugins.flutter-pi.io/elm327/throttle"
 
 #define ELM327PLUGIN_DEVICE_PATH "/dev/rfcomm0"
+#define ELM327PLUGIN_BAUDRATE 9600
 
 int ELM327Plugin_init(void);
 int ELM327Plugin_deinit(void);

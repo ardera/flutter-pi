@@ -26,12 +26,12 @@ struct {
 struct FlutterPiPlugin hardcoded_plugins[] = {
 	{.name = "services",     .init = Services_init, .deinit = Services_deinit},
 
-#ifdef INCLUDE_TESTPLUGIN	
+#ifdef BUILD_TESTPLUGIN	
 	{.name = "testplugin",   .init = TestPlugin_init, .deinit = TestPlugin_deinit}
 #endif
 
-#ifdef INCLUDE_ELM327PLUGIN
-	{.name = "elm327",       .init = ELM327Plugin_init, .deinit = ELM327Plugin_deinit}
+#ifdef BUILD_ELM327PLUGIN
+	{.name = "elm327plugin", .init = ELM327Plugin_init, .deinit = ELM327Plugin_deinit}
 #endif
 };
 //size_t hardcoded_plugins_count;

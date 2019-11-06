@@ -9,8 +9,8 @@
 
 #define EGL_PLATFORM_GBM_KHR	0x31D7
 
-struct LinkedTaskListElement {
-    struct LinkedTaskListElement* next;
+struct FlutterPiTask {
+    struct FlutterPiTask* next;
 	bool is_vblank_event;
 	union {
 		FlutterTask task;
