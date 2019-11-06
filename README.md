@@ -73,7 +73,7 @@ You can easily install those with `sudo apt install libgl1-mesa-dev libgles2-mes
 ### fonts
 The flutter engine, by default, uses the _Arial_ font. Since that doesn't come included with Raspbian, you need to install it using:
 ```bash
-sudo apt install ttf-mscorefonts-installer
+sudo apt install ttf-mscorefonts-installer fontconfig
 sudo fc-cache
 ```
 
