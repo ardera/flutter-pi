@@ -78,14 +78,7 @@ sudo fc-cache
 ```
 
 ## Compiling flutter-pi (on the Raspberry Pi)
-fetch all the dependencies, clone this repo and run:
-```bash
-mkdir out
-cc -D_GNU_SOURCE \
--lEGL -ldrm -lgbm -lGLESv2 -lrt -lflutter_engine -lpthread -ldl \
--I./include -I/usr/include -I/usr/include/libdrm ./src/flutter-pi.c \
-./src/platformchannel.c ./src/pluginregistry.c ./src/plugins/services-plugin.c -o out/flutter-pi 
-```
+fetch all the dependencies, clone this repo and run `make`. The _flutter-pi_ executable will then be located inside the `out` directory.
 
 ## Performance
 Performance is actually better than I expected. With most of the apps inside the `flutter SDK -> examples -> catalog` directory I get smooth 50-60fps.
