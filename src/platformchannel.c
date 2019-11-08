@@ -8,10 +8,9 @@
 #include <string.h>
 #include <flutter_embedder.h>
 
-#include "platformchannel.h"
-#include "flutter-pi.h"
-#include "jsmn.h"
-
+#include <platformchannel.h>
+#include <flutter-pi.h>
+#include <jsmn.h>
 
 
 struct ResponseHandlerData {
@@ -205,7 +204,7 @@ int PlatformChannel_writeStdMsgCodecValueToBuffer(struct StdMsgCodecValue* value
 			break;
 		case kFloat64:
 			align8(pbuffer);
-			write64(pbuffer, (uint64_t) value->float64_value);
+			write64(pbuffer, *((uint64_t*) &(value->float64_value)));
 			advance(pbuffer, 8);
 			break;
 		case kLargeInt:
@@ -872,7 +871,6 @@ int PlatformChannel_encode(struct ChannelObject *object, uint8_t **buffer_out, s
 	*size_out = size;
 	return 0;
 
-
 	free_buffer_and_return_ok:
 	free(buffer);
 	return ok;
@@ -918,6 +916,13 @@ int PlatformChannel_send(char *channel, struct ChannelObject *object, enum Chann
 		if (result != kSuccess) return EINVAL;
 	}
 
+	//printf("[platformchannel] sending platform message to flutter on channel \"%s\". message_size: %d, has response_handle? %s\n", channel, size, response_handle ? "yes" : "no");
+	//printf("  message buffer: \"");
+	//for (int i = 0; i < size; i++)
+	//	if (isprint(buffer[i])) printf("%c", buffer[i]);
+	//	else printf("\\x%02X", buffer[i]);
+	//printf("\"\n");
+	
 	result = FlutterEngineSendPlatformMessage(
 		engine,
 		& (const FlutterPlatformMessage) {
@@ -961,8 +966,8 @@ int PlatformChannel_jsoncall(char *channel, char *method, struct JSONMsgCodecVal
 }
 int PlatformChannel_respond(FlutterPlatformMessageResponseHandle *handle, struct ChannelObject *response) {
 	FlutterEngineResult result;
-	uint8_t *buffer;
-	size_t   size;
+	uint8_t *buffer = NULL;
+	size_t   size = 0;
 	int ok;
 
 	ok = PlatformChannel_encode(response, &buffer, &size);
@@ -983,6 +988,9 @@ int PlatformChannel_respondNotImplemented(FlutterPlatformMessageResponseHandle *
 }
 int PlatformChannel_respondError(FlutterPlatformMessageResponseHandle *handle, enum ChannelCodec codec, char *errorcode, char *errormessage, void *errordetails) {
 	if ((codec == kStandardMessageCodec) || (codec == kStandardMethodCall) || (codec == kStandardMethodCallResponse)) {
+		if (errordetails == NULL)
+			errordetails = &(struct StdMsgCodecValue) {.type = kNull};
+		
 		return PlatformChannel_respond(handle, &(struct ChannelObject) {
 			.codec = kStandardMethodCallResponse,
 			.success = false,
@@ -991,6 +999,9 @@ int PlatformChannel_respondError(FlutterPlatformMessageResponseHandle *handle, e
 			.stderrordetails = *((struct StdMsgCodecValue *) errordetails)
 		});
 	} else if ((codec == kJSONMessageCodec) || (codec == kJSONMethodCall) || (codec == kJSONMethodCallResponse)) {
+		if (errordetails == NULL)
+			errordetails = &(struct JSONMsgCodecValue) {.type = kJSNull};
+		
 		return PlatformChannel_respond(handle, &(struct ChannelObject) {
 			.codec = kJSONMethodCallResponse,
 			.success = false,

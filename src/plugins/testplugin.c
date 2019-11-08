@@ -2,7 +2,7 @@
 #include <string.h>
 #include <inttypes.h>
 
-#include "pluginregistry.h"
+#include <pluginregistry.h>
 
 #define TESTPLUGIN_CHANNEL_JSON "plugins.flutter-pi.io/testjson"
 #define TESTPLUGIN_CHANNEL_STD "plugins.flutter-pi.io/teststd"

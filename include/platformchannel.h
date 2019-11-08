@@ -201,10 +201,10 @@ int PlatformChannel_encode(struct ChannelObject *object, uint8_t **buffer_out, s
 
 /// Encodes a generic ChannelObject (anything, string/binary codec or Standard/JSON Method Calls and responses) as a platform message
 /// and sends it to flutter on channel `channel`
-/// When flutter responds to this message, it is automatically decoded using the codec given in `response_codec`.
-/// Then, on_response is called with the decoded ChannelObject and the userdata as an argument.
-/// Flutter _should_ always respond to platform messages, so it's okay if not calling your handler would cause a memory leak
-///   (since that should never happen)
+/// If you supply a response callback (i.e. on_response is != NULL):
+///   when flutter responds to this message, it is automatically decoded using the codec given in `response_codec`.
+///   Then, on_response is called with the decoded ChannelObject and the userdata as an argument.
+///   It's possible that flutter won't respond to your platform message, like when sending events via an EventChannel.
 /// userdata can be NULL.
 int PlatformChannel_send(char *channel, struct ChannelObject *object, enum ChannelCodec response_codec, PlatformMessageResponseCallback on_response, void *userdata);
 

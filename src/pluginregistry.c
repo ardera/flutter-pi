@@ -1,12 +1,13 @@
 #include <sys/errno.h>
 #include <string.h>
 
-#include "platformchannel.h"
-#include "pluginregistry.h"
+#include <platformchannel.h>
+#include <pluginregistry.h>
 
 // hardcoded plugin headers
 #include "plugins/services-plugin.h"
 #include "plugins/testplugin.h"
+#include "plugins/elm327plugin.h"
 
 
 struct ChannelObjectReceiverData {
@@ -25,11 +26,15 @@ struct {
 struct FlutterPiPlugin hardcoded_plugins[] = {
 	{.name = "services",     .init = Services_init, .deinit = Services_deinit},
 
-#ifdef INCLUDE_TESTPLUGIN	
+#ifdef BUILD_TESTPLUGIN	
 	{.name = "testplugin",   .init = TestPlugin_init, .deinit = TestPlugin_deinit}
 #endif
+
+#ifdef BUILD_ELM327PLUGIN
+	{.name = "elm327plugin", .init = ELM327Plugin_init, .deinit = ELM327Plugin_deinit}
+#endif
 };
-size_t hardcoded_plugins_count;
+//size_t hardcoded_plugins_count;
 
 
 int PluginRegistry_init() {
