@@ -6,6 +6,21 @@ You can now theoretically run every flutter app you want using flutter-pi, also 
 
 _The difference between extensions and plugins is that extensions don't include any native code, they are just pure dart. Plugins (like the [connectivity plugin](https://github.com/flutter/plugins/tree/master/packages/connectivity)) include platform-specific code._
 
+## Contents
+
+1. **[Running your App on the Raspberry Pi](#running-your-app-on-the-raspberry-pi)**  
+1.1 [Patching the App](#patching-the-app)  
+1.2 [Building the Asset bundle](building-the-asset-bundle)  
+1.3 [Running your App with flutter-pi](running-your-app-with-flutter-pi)  
+2. **[Dependencies](#dependencies)**  
+2.1 [flutter engine](#flutter-engine)  
+2.2 [graphics libs](#graphics-libs)  
+2.3 [fonts](#fonts)  
+3. **[Compiling flutter-pi (on the Raspberry Pi)](#compiling-flutter-pi-on-the-raspberry-pi)**  
+4. **[Performance](#performance)**  
+5. **[Touchscreen Bug](#touchscreen-bug)**  
+
+
 ## Running your App on the Raspberry Pi
 ### Patching the App
 First, you need to override the default target platform in your flutter app, i.e. add the following line to your _main_ method, before the _runApp_ call:
@@ -57,6 +72,8 @@ Run using
 of the flutter app you're trying to run.
 
 `[flutter engine arguments...]` will be passed as commandline arguments to the flutter engine. You can find a list of commandline options for the flutter engine [Here](https://github.com/flutter/engine/blob/master/shell/common/switches.h).
+
+**Note for Pi 4 users:** currently, flutter-pi will crash on the raspberry pi because it tries to open the wrong DRM device. [See Issue #13](https://github.com/ardera/flutter-pi/issues/13#issuecomment-554322089). A temporary fix is to change the path inside flutter-pi.c in the line where it says `. . . = open("/dev/dri/card0", O_RDWR);` to `/dev/dri/card1`. I'm working on an update that will enable flutter-pi to automatically select its devices.
 
 ## Dependencies
 ### flutter engine
