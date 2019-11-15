@@ -1,3 +1,5 @@
+#define  _GNU_SOURCE
+
 #include <features.h>
 #include <dlfcn.h>
 #include <fcntl.h>
@@ -110,6 +112,7 @@ struct {
 	char device_path[128];
 	int  fd;
 	double x, y;
+	int32_t min_x, max_x, min_y, max_y;
 	uint8_t buttons;
 	struct TouchscreenSlot  ts_slots[10];
 	struct TouchscreenSlot* ts_slot;
@@ -936,11 +939,35 @@ void destroy_application(void) {
  * Input-Output *
  ****************/
 bool  init_io(void) {
+	int ok;
+
 	input.fd = open(input.device_path, O_RDONLY);
 	if (input.fd < 0) {
 		perror("error opening the input device file");
 		return false;
 	}
+
+	struct input_absinfo absinfo;
+	ok = ioctl(input.fd, EVIOCGABS(ABS_X), &absinfo);
+	if (ok == -1) {
+		perror("could not get input devices input_absinfo for ABS_X");
+		fprintf(stderr, "maybe the device given is not an input device?\n");
+		return false;
+	}
+
+	input.min_x = absinfo.minimum;
+	input.max_x = absinfo.maximum;
+	
+
+	ok = ioctl(input.fd, EVIOCGABS(ABS_Y), &absinfo);
+	if (ok == -1) {
+		perror("could not get input devices input_absinfo for ABS_Y");
+		fprintf(stderr, "maybe the device given is not an input device?\n");
+		return false;
+	}
+
+	input.min_y = absinfo.minimum;
+	input.max_y = absinfo.maximum;
 
 	return true;
 }
@@ -1083,10 +1110,10 @@ void* io_loop(void* userdata) {
 							input.ts_slot->phase = kUp;
 						}
 					} else if (ev->code == ABS_MT_POSITION_X) {
-						input.ts_slot->x = ev->value;
+						input.ts_slot->x = (ev->value - input.min_x) * width  / (input.max_x - input.min_x);
 						if (input.ts_slot->phase == kCancel) input.ts_slot->phase = kMove;
 					} else if (ev->code == ABS_MT_POSITION_Y) {
-						input.ts_slot->y = ev->value;
+						input.ts_slot->y = (ev->value - input.min_y) * height / (input.max_y - input.min_y);
 						if (input.ts_slot->phase == kCancel) input.ts_slot->phase = kMove;
 					}
 				} else if ((ev->type == EV_SYN) && (ev->code == SYN_REPORT)) {
