@@ -64,7 +64,8 @@ uint32_t refresh_rate;
 double pixel_ratio = 0.0;
 
 struct {
-	char device[128];
+	char device[PATH_MAX];
+	bool has_device;
 	int fd;
 	uint32_t connector_id;
 	drmModeModeInfo *mode;
@@ -89,6 +90,7 @@ struct {
 	EGLSurface surface;
 
 	bool	   modifiers_supported;
+	char      *renderer;
 
 	EGLDisplay (*eglGetPlatformDisplayEXT)(EGLenum platform, void *native_display, const EGLint *attrib_list);
 	EGLSurface (*eglCreatePlatformWindowSurfaceEXT)(EGLDisplay dpy, EGLConfig config, void *native_window, const EGLint *attrib_list);
@@ -372,12 +374,17 @@ const GLubyte  *hacked_glGetString(GLenum name) {
 void           *proc_resolver(void* userdata, const char* name) {
 	if (name == NULL) return NULL;
 
+	static int is_videocore4 = -1;
+
 	/*  
 	 * The mesa v3d driver reports some OpenGL ES extensions as supported and working
 	 * even though they aren't. hacked_glGetString is a workaround for this, which will
 	 * cut out the non-working extensions from the list of supported extensions.
 	 */ 
-	if (strcmp(name, "glGetString") == 0) {
+
+	if (is_videocore4 == -1) is_videocore4 = strcmp(egl.renderer, "VC4 V3D 2.1") == 0;
+
+	if (is_videocore4 && (strcmp(name, "glGetString") == 0)) {
 		return hacked_glGetString;
 	}
 
@@ -494,7 +501,7 @@ bool setup_paths(void) {
 		return false;
 	}
 
-	snprintf(drm.device, sizeof(drm.device), "/dev/dri/card0");
+	//snprintf(drm.device, sizeof(drm.device), "/dev/dri/card0");
 
 	return true;
 
@@ -511,22 +518,110 @@ bool init_display(void) {
 	drmModeEncoder *encoder;
 	int i, ok, area;
 	
+	if (!drm.has_device) {
+		printf("Finding a suitable DRM device, since none is given...\n");
+		drmDevicePtr devices[64] = { NULL };
+		int num_devices, fd = -1;
 
-	printf("Opening DRM device...\n");
-	drm.fd = open(drm.device, O_RDWR);
-	if (drm.fd < 0) {
-		fprintf(stderr, "Could not open DRM device\n");
-		return false;
+		num_devices = drmGetDevices2(0, devices, sizeof(devices)/sizeof(drmDevicePtr));
+		if (num_devices < 0) {
+			fprintf(stderr, "could not query drm device list: %s\n", strerror(-num_devices));
+			return false;
+		}
+		
+		printf("looking for a suitable DRM device from %d available DRM devices...\n", num_devices);
+		for (i = 0; i < num_devices; i++) {
+			drmDevicePtr device = devices[i];
+
+			printf("  devices[%d]: \n", i);
+
+			printf("    available nodes: ");
+			if (device->available_nodes & (1 << DRM_NODE_PRIMARY)) printf("DRM_NODE_PRIMARY, ");
+			if (device->available_nodes & (1 << DRM_NODE_CONTROL)) printf("DRM_NODE_CONTROL, ");
+			if (device->available_nodes & (1 << DRM_NODE_RENDER))  printf("DRM_NODE_RENDER");
+			printf("\n");
+
+			for (int j=0; j < DRM_NODE_MAX; j++) {
+				if (device->available_nodes & (1 << j)) {
+					printf("    nodes[%s] = \"%s\"\n",
+						j == DRM_NODE_PRIMARY ? "DRM_NODE_PRIMARY" :
+						j == DRM_NODE_CONTROL ? "DRM_NODE_CONTROL" :
+						j == DRM_NODE_RENDER  ? "DRM_NODE_RENDER" : "unknown",
+						device->nodes[j]
+					);
+				}
+			}
+
+			printf("    bustype: %s\n",
+						device->bustype == DRM_BUS_PCI ? "DRM_BUS_PCI" :
+						device->bustype == DRM_BUS_USB ? "DRM_BUS_USB" :
+						device->bustype == DRM_BUS_PLATFORM ? "DRM_BUS_PLATFORM" :
+						device->bustype == DRM_BUS_HOST1X ? "DRM_BUS_HOST1X" :
+						"unknown"
+				);
+
+			if (device->bustype == DRM_BUS_PLATFORM) {
+				printf("    businfo.fullname: %s\n", device->businfo.platform->fullname);
+				// seems like deviceinfo.platform->compatible is not really used.
+				//printf("    deviceinfo.compatible: %s\n", device->deviceinfo.platform->compatible);
+			}
+
+			// we want a device that's DRM_NODE_PRIMARY and that we can call a drmModeGetResources on.
+			if (drm.has_device) continue;
+			if (!(device->available_nodes & (1 << DRM_NODE_PRIMARY))) continue;
+			
+			printf("    opening DRM device candidate at \"%s\"...\n", device->nodes[DRM_NODE_PRIMARY]);
+			fd = open(device->nodes[DRM_NODE_PRIMARY], O_RDWR);
+			if (fd < 0) {
+				printf("      could not open DRM device candidate at \"%s\": %s\n", device->nodes[DRM_NODE_PRIMARY], strerror(errno));
+				continue;
+			}
+
+			printf("    getting resources of DRM device candidate at \"%s\"...\n", device->nodes[DRM_NODE_PRIMARY]);
+			resources = drmModeGetResources(fd);
+			if (resources == NULL) {
+				printf("      could not query DRM resources for DRM device candidate at \"%s\":", device->nodes[DRM_NODE_PRIMARY]);
+				if ((errno = EOPNOTSUPP) || (errno = EINVAL)) printf("doesn't look like a modeset device.\n");
+				else										  printf("%s\n", strerror(errno));
+				close(fd);
+				continue;
+			}
+
+			// we found our DRM device.
+			printf("    flutter-pi chose \"%s\" as its DRM device.\n", device->nodes[DRM_NODE_PRIMARY]);
+			drm.fd = fd;
+			drm.has_device = true;
+			snprintf(drm.device, sizeof(drm.device)-1, device->nodes[DRM_NODE_PRIMARY]);
+		}
+
+		if (!drm.has_device) {
+			fprintf(stderr, "flutter-pi couldn't find a usable DRM device.\n"
+							"Please make sure you've enabled the Fake-KMS driver in raspi-config.\n"
+							"If you're not using a Raspberry Pi, please make sure there's KMS support for your graphics chip.\n");
+			return false;
+		}
 	}
 
+	if (drm.fd <= 0) {
+		printf("Opening DRM device...\n");
+		drm.fd = open(drm.device, O_RDWR);
+		if (drm.fd < 0) {
+			fprintf(stderr, "Could not open DRM device\n");
+			return false;
+		}
+	}
 
-	printf("Getting DRM resources...\n");
-	resources = drmModeGetResources(drm.fd);
-	if (resources == NULL) {
-		if (errno == EOPNOTSUPP)	fprintf(stderr, "%s doesn't look like a modeset device\n", drm.device);
-		else						fprintf(stderr, "drmModeGetResources failed: %s\n", strerror(errno));
-		
-		return false;
+	if (!resources) {
+		printf("Getting DRM resources...\n");
+		resources = drmModeGetResources(drm.fd);
+		if (resources == NULL) {
+			if ((errno == EOPNOTSUPP) || (errno = EINVAL))
+				fprintf(stderr, "%s doesn't look like a modeset device\n", drm.device);
+			else
+				fprintf(stderr, "drmModeGetResources failed: %s\n", strerror(errno));
+			
+			return false;
+		}
 	}
 
 
@@ -577,6 +672,7 @@ bool init_display(void) {
 	}
 
 	printf("Choosing DRM mode from %d available modes...\n", connector->count_modes);
+	bool found_preferred = false;
 	for (i = 0, area = 0; i < connector->count_modes; i++) {
 		drmModeModeInfo *current_mode = &connector->modes[i];
 
@@ -585,6 +681,8 @@ bool init_display(void) {
 			   (current_mode->flags & DRM_MODE_FLAG_INTERLACE) ? "i" : "p",
 			   current_mode->vrefresh, current_mode->type, current_mode->flags
 		);
+
+		if (found_preferred) continue;
 
 		// we choose the highest resolution with the highest refresh rate, preferably non-interlaced (= progressive) here.
 		int current_area = current_mode->hdisplay * current_mode->vdisplay;
@@ -601,11 +699,12 @@ bool init_display(void) {
 
 			// if the preferred DRM mode is bogus, we're screwed.
 			if (current_mode->type & DRM_MODE_TYPE_PREFERRED) {
-				printf("the chosen DRM mode is preferred by DRM. (DRM_MODE_TYPE_PREFERRED)\n");
-				break;
+				printf("    this mode is preferred by DRM. (DRM_MODE_TYPE_PREFERRED)\n");
+				found_preferred = true;
 			}
 		}
 	}
+
 	if (!drm.mode) {
 		fprintf(stderr, "could not find a suitable DRM mode!\n");
 		return false;
@@ -689,6 +788,10 @@ bool init_display(void) {
 
 	const EGLint config_attribs[] = {
 		EGL_SURFACE_TYPE, EGL_WINDOW_BIT,
+		EGL_RED_SIZE, 1,
+		EGL_GREEN_SIZE, 1,
+		EGL_BLUE_SIZE, 1,
+		EGL_ALPHA_SIZE, 0,
 		EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
 		EGL_NONE
 	};
@@ -799,15 +902,19 @@ bool init_display(void) {
 		return false;
 	}
 
+	egl.renderer = (char*) glGetString(GL_RENDERER);
+
 	gl_exts = (char*) glGetString(GL_EXTENSIONS);
 	printf("===================================\n");
-	printf("OpenGL ES 2.x information:\n");
+	printf("OpenGL ES information:\n");
 	printf("  version: \"%s\"\n", glGetString(GL_VERSION));
 	printf("  shading language version: \"%s\"\n", glGetString(GL_SHADING_LANGUAGE_VERSION));
 	printf("  vendor: \"%s\"\n", glGetString(GL_VENDOR));
 	printf("  renderer: \"%s\"\n", glGetString(GL_RENDERER));
 	printf("  extensions: \"%s\"\n", gl_exts);
 	printf("===================================\n");
+
+	
 
 
 	drm.evctx.version = 2;
