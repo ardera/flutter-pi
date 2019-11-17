@@ -232,6 +232,8 @@ bool     		present(void* userdata) {
 	next_bo = gbm_surface_lock_front_buffer(gbm.surface);
 	fb = drm_fb_get_from_bo(next_bo);
 
+	printf("***PRESENT***\n");
+
 	/* wait for vsync, 
 	ok = drmModePageFlip(drm.fd, drm.crtc_id, fb->fb_id, DRM_MODE_PAGE_FLIP_EVENT, &drm.waiting_for_flip);
 	if (ok) {
@@ -758,13 +760,14 @@ bool init_display(void) {
 	gbm.device = gbm_create_device(drm.fd);
 	gbm.format = DRM_FORMAT_XRGB8888;
 	gbm.surface = NULL;
+	gbm.modifier = DRM_FORMAT_MOD_LINEAR;
 
 	if (gbm_surface_create_with_modifiers) {
 		gbm.surface = gbm_surface_create_with_modifiers(gbm.device, width, height, gbm.format, &gbm.modifier, 1);
 	}
 
 	if (!gbm.surface) {
-		if (gbm.modifier != 0) {
+		if (gbm.modifier != DRM_FORMAT_MOD_LINEAR) {
 			fprintf(stderr, "GBM Surface creation modifiers requested but not supported by GBM\n");
 			return false;
 		}
@@ -793,6 +796,7 @@ bool init_display(void) {
 		EGL_BLUE_SIZE, 1,
 		EGL_ALPHA_SIZE, 0,
 		EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
+		EGL_SAMPLES, 0,
 		EGL_NONE
 	};
 
