@@ -296,7 +296,7 @@ void 	 		cut_word_from_string(char* string, char* word) {
 }
 const GLubyte  *hacked_glGetString(GLenum name) {
 	if (name == GL_EXTENSIONS) {
-		static GLubyte* extensions;
+		static GLubyte* extensions = NULL;
 
 		if (extensions == NULL) {
 			GLubyte* orig_extensions = (GLubyte *) glGetString(GL_EXTENSIONS);
@@ -373,21 +373,43 @@ const GLubyte  *hacked_glGetString(GLenum name) {
 		return glGetString(name);
 	}
 }
+const GLubyte  *hacked2_glGetString(GLenum name) {
+	if (name == GL_EXTENSIONS) {
+		static GLubyte* extensions = NULL;
+
+		// no extensions.
+		return "";
+	} else {
+		return glGetString(name);
+	}
+}
 void           *proc_resolver(void* userdata, const char* name) {
 	if (name == NULL) return NULL;
 
 	static int is_videocore4 = -1;
+	static int is_videocore6 = -1;
 
 	/*  
-	 * The mesa v3d driver reports some OpenGL ES extensions as supported and working
+	 * The mesa V3D driver reports some OpenGL ES extensions as supported and working
 	 * even though they aren't. hacked_glGetString is a workaround for this, which will
 	 * cut out the non-working extensions from the list of supported extensions.
 	 */ 
 
-	if (is_videocore4 == -1) is_videocore4 = strcmp(egl.renderer, "VC4 V3D 2.1") == 0;
+	if (is_videocore4 == -1) {
+		is_videocore4 = strcmp(egl.renderer, "VC4 V3D 2.1") == 0;
+		if (is_videocore4) printf("detected VideoCore IV as underlying graphics chip. Reporting modified GL_EXTENSIONS string that doesn't contain non-working extensions.\n");
+	}
+	if (is_videocore6 == -1) {
+		is_videocore6 = strcmp(egl.renderer, "V3D 4.2") == 0;
+		if (is_videocore6) printf("detected VideoCore VI as underlying graphics chip. Reporting no GL Extensions.\n");
+	}
 
-	if (is_videocore4 && (strcmp(name, "glGetString") == 0)) {
-		return hacked_glGetString;
+	if (strcmp(name, "glGetString") == 0) {
+		if (is_videocore4) {
+			return hacked_glGetString;
+		} else if (is_videocore6) {
+			return hacked2_glGetString;
+		}
 	}
 
 	void* address;
