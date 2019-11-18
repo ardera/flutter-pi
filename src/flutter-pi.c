@@ -137,7 +137,7 @@ pthread_cond_t  task_added = PTHREAD_COND_INITIALIZER;
 /*********************
  * FLUTTER CALLBACKS *
  *********************/
-bool     		make_current(void* userdata) {
+bool     	   make_current(void* userdata) {
 	if (eglMakeCurrent(egl.display, egl.surface, egl.surface, egl.context) != EGL_TRUE) {
 		fprintf(stderr, "make_current: could not make the context current.\n");
 		return false;
@@ -145,7 +145,7 @@ bool     		make_current(void* userdata) {
 	
 	return true;
 }
-bool     		clear_current(void* userdata) {
+bool     	   clear_current(void* userdata) {
 	if (eglMakeCurrent(egl.display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT) != EGL_TRUE) {
 		fprintf(stderr, "clear_current: could not clear the current context.\n");
 		return false;
@@ -153,11 +153,11 @@ bool     		clear_current(void* userdata) {
 	
 	return true;
 }
-void	 		page_flip_handler(int fd, unsigned int frame, unsigned int sec, unsigned int usec, void *data) {
+void	 	   page_flip_handler(int fd, unsigned int frame, unsigned int sec, unsigned int usec, void *data) {
 	int *waiting_for_flip = data;
 	*waiting_for_flip = 0;
 }
-void     		drm_fb_destroy_callback(struct gbm_bo *bo, void *data) {
+void     	   drm_fb_destroy_callback(struct gbm_bo *bo, void *data) {
 	struct drm_fb *fb = data;
 
 	if (fb->fb_id)
@@ -165,7 +165,7 @@ void     		drm_fb_destroy_callback(struct gbm_bo *bo, void *data) {
 	
 	free(fb);
 }
-struct drm_fb*	drm_fb_get_from_bo(struct gbm_bo *bo) {
+struct drm_fb *drm_fb_get_from_bo(struct gbm_bo *bo) {
 	uint32_t width, height, format, strides[4] = {0}, handles[4] = {0}, offsets[4] = {0}, flags = 0;
 	int ok = -1;
 
@@ -222,7 +222,7 @@ struct drm_fb*	drm_fb_get_from_bo(struct gbm_bo *bo) {
 
 	return fb;
 }
-bool     		present(void* userdata) {
+bool     	   present(void* userdata) {
 	fd_set fds;
 	struct gbm_bo *next_bo;
 	struct drm_fb *fb;
@@ -231,8 +231,6 @@ bool     		present(void* userdata) {
 	eglSwapBuffers(egl.display, egl.surface);
 	next_bo = gbm_surface_lock_front_buffer(gbm.surface);
 	fb = drm_fb_get_from_bo(next_bo);
-
-	printf("***PRESENT***\n");
 
 	/* wait for vsync, 
 	ok = drmModePageFlip(drm.fd, drm.crtc_id, fb->fb_id, DRM_MODE_PAGE_FLIP_EVENT, &drm.waiting_for_flip);
@@ -274,12 +272,12 @@ bool     		present(void* userdata) {
 	
 	return true;
 }
-uint32_t 		fbo_callback(void* userdata) {
+uint32_t 	   fbo_callback(void* userdata) {
 	return 0;
 }
-void 	 		cut_word_from_string(char* string, char* word) {
+void 	 	   cut_word_from_string(char* string, char* word) {
 	size_t word_length = strlen(word);
-	char* word_in_str = strstr(string, word);
+	char*  word_in_str = strstr(string, word);
 
 	// check if the given word is surrounded by spaces in the string
 	if (word_in_str
@@ -294,139 +292,123 @@ void 	 		cut_word_from_string(char* string, char* word) {
 		} while (word_in_str[i++ + word_length] != 0);
 	}
 }
-const GLubyte  *hacked_glGetString(GLenum name) {
-	if (name == GL_EXTENSIONS) {
-		static GLubyte* extensions = NULL;
+const GLubyte *hacked_glGetString(GLenum name) {
+	static GLubyte *extensions = NULL;
 
-		if (extensions == NULL) {
-			GLubyte* orig_extensions = (GLubyte *) glGetString(GL_EXTENSIONS);
-			size_t len_orig_extensions = strlen(orig_extensions);
-			
-			extensions = malloc(len_orig_extensions+1);
-			strcpy(extensions, orig_extensions);
+	if (name != GL_EXTENSIONS)
+		return glGetString(name);
 
-			/*
-			 * working (apparently)
-			 */
-			//cut_word_from_string(extensions, "GL_EXT_blend_minmax");
-			//cut_word_from_string(extensions, "GL_EXT_multi_draw_arrays");
-			//cut_word_from_string(extensions, "GL_EXT_texture_format_BGRA8888");
-			//cut_word_from_string(extensions, "GL_OES_compressed_ETC1_RGB8_texture");
-			//cut_word_from_string(extensions, "GL_OES_depth24");
-			//cut_word_from_string(extensions, "GL_OES_texture_npot");
-			//cut_word_from_string(extensions, "GL_OES_vertex_half_float");
-			//cut_word_from_string(extensions, "GL_OES_EGL_image");
-			//cut_word_from_string(extensions, "GL_OES_depth_texture");
-			//cut_word_from_string(extensions, "GL_AMD_performance_monitor");
-			//cut_word_from_string(extensions, "GL_OES_EGL_image_external");
-			//cut_word_from_string(extensions, "GL_EXT_occlusion_query_boolean");
-			//cut_word_from_string(extensions, "GL_KHR_texture_compression_astc_ldr");
-			//cut_word_from_string(extensions, "GL_EXT_compressed_ETC1_RGB8_sub_texture");
-			//cut_word_from_string(extensions, "GL_EXT_draw_elements_base_vertex");
-			//cut_word_from_string(extensions, "GL_EXT_texture_border_clamp");
-			//cut_word_from_string(extensions, "GL_OES_draw_elements_base_vertex");
-			//cut_word_from_string(extensions, "GL_OES_texture_border_clamp");
-			//cut_word_from_string(extensions, "GL_KHR_texture_compression_astc_sliced_3d");
-			//cut_word_from_string(extensions, "GL_MESA_tile_raster_order");
-
-			/*
-			 * should be working, but isn't
-			 */
-			cut_word_from_string(extensions, "GL_EXT_map_buffer_range");
-
-			/*
-			 * definitely broken
-			 */
-			cut_word_from_string(extensions, "GL_OES_element_index_uint");
-			cut_word_from_string(extensions, "GL_OES_fbo_render_mipmap");
-			cut_word_from_string(extensions, "GL_OES_mapbuffer");
-			cut_word_from_string(extensions, "GL_OES_rgb8_rgba8");
-			cut_word_from_string(extensions, "GL_OES_stencil8");
-			cut_word_from_string(extensions, "GL_OES_texture_3D");
-			cut_word_from_string(extensions, "GL_OES_packed_depth_stencil");
-			cut_word_from_string(extensions, "GL_OES_get_program_binary");
-			cut_word_from_string(extensions, "GL_APPLE_texture_max_level");
-			cut_word_from_string(extensions, "GL_EXT_discard_framebuffer");
-			cut_word_from_string(extensions, "GL_EXT_read_format_bgra");
-			cut_word_from_string(extensions, "GL_EXT_frag_depth");
-			cut_word_from_string(extensions, "GL_NV_fbo_color_attachments");
-			cut_word_from_string(extensions, "GL_OES_EGL_sync");
-			cut_word_from_string(extensions, "GL_OES_vertex_array_object");
-			cut_word_from_string(extensions, "GL_EXT_unpack_subimage");
-			cut_word_from_string(extensions, "GL_NV_draw_buffers");
-			cut_word_from_string(extensions, "GL_NV_read_buffer");
-			cut_word_from_string(extensions, "GL_NV_read_depth");
-			cut_word_from_string(extensions, "GL_NV_read_depth_stencil");
-			cut_word_from_string(extensions, "GL_NV_read_stencil");
-			cut_word_from_string(extensions, "GL_EXT_draw_buffers");
-			cut_word_from_string(extensions, "GL_KHR_debug");
-			cut_word_from_string(extensions, "GL_OES_required_internalformat");
-			cut_word_from_string(extensions, "GL_OES_surfaceless_context");
-			cut_word_from_string(extensions, "GL_EXT_separate_shader_objects");
-			cut_word_from_string(extensions, "GL_KHR_context_flush_control");
-			cut_word_from_string(extensions, "GL_KHR_no_error");
-			cut_word_from_string(extensions, "GL_KHR_parallel_shader_compile");
+	if (extensions == NULL) {
+		GLubyte *orig_extensions = (GLubyte *) glGetString(GL_EXTENSIONS);
+		
+		extensions = malloc(strlen(orig_extensions) + 1);
+		if (!extensions) {
+			fprintf(stderr, "Could not allocate memory for modified GL_EXTENSIONS string\n");
+			return NULL;
 		}
 
-		return extensions;
-	} else {
-		return glGetString(name);
-	}
-}
-const GLubyte  *hacked2_glGetString(GLenum name) {
-	if (name == GL_EXTENSIONS) {
-		static GLubyte* extensions = NULL;
+		strcpy(extensions, orig_extensions);
 
-		// no extensions.
-		return "";
-	} else {
-		return glGetString(name);
-	}
-}
-void           *proc_resolver(void* userdata, const char* name) {
-	if (name == NULL) return NULL;
+		/*
+			* working (apparently)
+			*/
+		//cut_word_from_string(extensions, "GL_EXT_blend_minmax");
+		//cut_word_from_string(extensions, "GL_EXT_multi_draw_arrays");
+		//cut_word_from_string(extensions, "GL_EXT_texture_format_BGRA8888");
+		//cut_word_from_string(extensions, "GL_OES_compressed_ETC1_RGB8_texture");
+		//cut_word_from_string(extensions, "GL_OES_depth24");
+		//cut_word_from_string(extensions, "GL_OES_texture_npot");
+		//cut_word_from_string(extensions, "GL_OES_vertex_half_float");
+		//cut_word_from_string(extensions, "GL_OES_EGL_image");
+		//cut_word_from_string(extensions, "GL_OES_depth_texture");
+		//cut_word_from_string(extensions, "GL_AMD_performance_monitor");
+		//cut_word_from_string(extensions, "GL_OES_EGL_image_external");
+		//cut_word_from_string(extensions, "GL_EXT_occlusion_query_boolean");
+		//cut_word_from_string(extensions, "GL_KHR_texture_compression_astc_ldr");
+		//cut_word_from_string(extensions, "GL_EXT_compressed_ETC1_RGB8_sub_texture");
+		//cut_word_from_string(extensions, "GL_EXT_draw_elements_base_vertex");
+		//cut_word_from_string(extensions, "GL_EXT_texture_border_clamp");
+		//cut_word_from_string(extensions, "GL_OES_draw_elements_base_vertex");
+		//cut_word_from_string(extensions, "GL_OES_texture_border_clamp");
+		//cut_word_from_string(extensions, "GL_KHR_texture_compression_astc_sliced_3d");
+		//cut_word_from_string(extensions, "GL_MESA_tile_raster_order");
 
-	static int is_videocore4 = -1;
-	static int is_videocore6 = -1;
+		/*
+		* should be working, but isn't
+		*/
+		cut_word_from_string(extensions, "GL_EXT_map_buffer_range");
+
+		/*
+		* definitely broken
+		*/
+		cut_word_from_string(extensions, "GL_OES_element_index_uint");
+		cut_word_from_string(extensions, "GL_OES_fbo_render_mipmap");
+		cut_word_from_string(extensions, "GL_OES_mapbuffer");
+		cut_word_from_string(extensions, "GL_OES_rgb8_rgba8");
+		cut_word_from_string(extensions, "GL_OES_stencil8");
+		cut_word_from_string(extensions, "GL_OES_texture_3D");
+		cut_word_from_string(extensions, "GL_OES_packed_depth_stencil");
+		cut_word_from_string(extensions, "GL_OES_get_program_binary");
+		cut_word_from_string(extensions, "GL_APPLE_texture_max_level");
+		cut_word_from_string(extensions, "GL_EXT_discard_framebuffer");
+		cut_word_from_string(extensions, "GL_EXT_read_format_bgra");
+		cut_word_from_string(extensions, "GL_EXT_frag_depth");
+		cut_word_from_string(extensions, "GL_NV_fbo_color_attachments");
+		cut_word_from_string(extensions, "GL_OES_EGL_sync");
+		cut_word_from_string(extensions, "GL_OES_vertex_array_object");
+		cut_word_from_string(extensions, "GL_EXT_unpack_subimage");
+		cut_word_from_string(extensions, "GL_NV_draw_buffers");
+		cut_word_from_string(extensions, "GL_NV_read_buffer");
+		cut_word_from_string(extensions, "GL_NV_read_depth");
+		cut_word_from_string(extensions, "GL_NV_read_depth_stencil");
+		cut_word_from_string(extensions, "GL_NV_read_stencil");
+		cut_word_from_string(extensions, "GL_EXT_draw_buffers");
+		cut_word_from_string(extensions, "GL_KHR_debug");
+		cut_word_from_string(extensions, "GL_OES_required_internalformat");
+		cut_word_from_string(extensions, "GL_OES_surfaceless_context");
+		cut_word_from_string(extensions, "GL_EXT_separate_shader_objects");
+		cut_word_from_string(extensions, "GL_KHR_context_flush_control");
+		cut_word_from_string(extensions, "GL_KHR_no_error");
+		cut_word_from_string(extensions, "GL_KHR_parallel_shader_compile");
+	}
+
+	return extensions;
+}
+void          *proc_resolver(void* userdata, const char* name) {
+	static int is_VC4 = -1;
+	void      *address;
 
 	/*  
 	 * The mesa V3D driver reports some OpenGL ES extensions as supported and working
 	 * even though they aren't. hacked_glGetString is a workaround for this, which will
 	 * cut out the non-working extensions from the list of supported extensions.
-	 */ 
+	 */
 
-	if (is_videocore4 == -1) {
-		is_videocore4 = strcmp(egl.renderer, "VC4 V3D 2.1") == 0;
-		if (is_videocore4) printf("detected VideoCore IV as underlying graphics chip. Reporting modified GL_EXTENSIONS string that doesn't contain non-working extensions.\n");
-	}
-	if (is_videocore6 == -1) {
-		is_videocore6 = strcmp(egl.renderer, "V3D 4.2") == 0;
-		if (is_videocore6) printf("detected VideoCore VI as underlying graphics chip. Reporting no GL Extensions.\n");
-	}
+	if (name == NULL)
+		return NULL;
 
-	if (strcmp(name, "glGetString") == 0) {
-		if (is_videocore4) {
-			return hacked_glGetString;
-		} else if (is_videocore6) {
-			return hacked2_glGetString;
-		}
-	}
+	// first detect if we're running on a VideoCore 4 / using the VC4 driver.
+	if ((is_VC4 == -1) && (is_VC4 = strcmp(egl.renderer, "VC4 V3D 2.1") == 0))
+		printf( "detected VideoCore IV as underlying graphics chip, and VC4 as the driver.\n"
+				"Reporting modified GL_EXTENSIONS string that doesn't contain non-working extensions.\n");
 
-	void* address;
-	if ((address = dlsym(RTLD_DEFAULT, name)) || (address = eglGetProcAddress(name))) {
+	// if we do, and the symbol to resolve is glGetString, we return our hacked_glGetString.
+	if (is_VC4 && (strcmp(name, "glGetString") == 0))
+		return hacked_glGetString;
+
+	if ((address = dlsym(RTLD_DEFAULT, name)) || (address = eglGetProcAddress(name)))
 		return address;
-	}
 	
-	printf("could not resolve symbol %s\n", name);
+	fprintf(stderr, "proc_resolver: could not resolve symbol \"%s\"\n", name);
 
 	return NULL;
 }
-void     		on_platform_message(const FlutterPlatformMessage* message, void* userdata) {
+void     	   on_platform_message(const FlutterPlatformMessage* message, void* userdata) {
 	int ok;
 	if ((ok = PluginRegistry_onPlatformMessage((FlutterPlatformMessage *)message)) != 0)
 		fprintf(stderr, "PluginRegistry_onPlatformMessage failed: %s\n", strerror(ok));
 }
-void	 		vsync_callback(void* userdata, intptr_t baton) {
+void	 	   vsync_callback(void* userdata, intptr_t baton) {
 	// not yet implemented
 	fprintf(stderr, "flutter vsync callback not yet implemented\n");
 }
@@ -436,10 +418,8 @@ void	 		vsync_callback(void* userdata, intptr_t baton) {
 /************************
  * PLATFORM TASK-RUNNER *
  ************************/
-void  handle_sigusr1(int _) {}
 bool  init_message_loop() {
 	platform_thread_id = pthread_self();
-
 	return true;
 }
 bool  message_loop(void) {
