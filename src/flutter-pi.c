@@ -64,7 +64,8 @@ uint32_t refresh_rate;
 double pixel_ratio = 0.0;
 
 struct {
-	char device[128];
+	char device[PATH_MAX];
+	bool has_device;
 	int fd;
 	uint32_t connector_id;
 	drmModeModeInfo *mode;
@@ -89,6 +90,7 @@ struct {
 	EGLSurface surface;
 
 	bool	   modifiers_supported;
+	char      *renderer;
 
 	EGLDisplay (*eglGetPlatformDisplayEXT)(EGLenum platform, void *native_display, const EGLint *attrib_list);
 	EGLSurface (*eglCreatePlatformWindowSurfaceEXT)(EGLDisplay dpy, EGLConfig config, void *native_window, const EGLint *attrib_list);
@@ -135,7 +137,7 @@ pthread_cond_t  task_added = PTHREAD_COND_INITIALIZER;
 /*********************
  * FLUTTER CALLBACKS *
  *********************/
-bool     		make_current(void* userdata) {
+bool     	   make_current(void* userdata) {
 	if (eglMakeCurrent(egl.display, egl.surface, egl.surface, egl.context) != EGL_TRUE) {
 		fprintf(stderr, "make_current: could not make the context current.\n");
 		return false;
@@ -143,7 +145,7 @@ bool     		make_current(void* userdata) {
 	
 	return true;
 }
-bool     		clear_current(void* userdata) {
+bool     	   clear_current(void* userdata) {
 	if (eglMakeCurrent(egl.display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT) != EGL_TRUE) {
 		fprintf(stderr, "clear_current: could not clear the current context.\n");
 		return false;
@@ -151,11 +153,11 @@ bool     		clear_current(void* userdata) {
 	
 	return true;
 }
-void	 		page_flip_handler(int fd, unsigned int frame, unsigned int sec, unsigned int usec, void *data) {
+void	 	   page_flip_handler(int fd, unsigned int frame, unsigned int sec, unsigned int usec, void *data) {
 	int *waiting_for_flip = data;
 	*waiting_for_flip = 0;
 }
-void     		drm_fb_destroy_callback(struct gbm_bo *bo, void *data) {
+void     	   drm_fb_destroy_callback(struct gbm_bo *bo, void *data) {
 	struct drm_fb *fb = data;
 
 	if (fb->fb_id)
@@ -163,7 +165,7 @@ void     		drm_fb_destroy_callback(struct gbm_bo *bo, void *data) {
 	
 	free(fb);
 }
-struct drm_fb*	drm_fb_get_from_bo(struct gbm_bo *bo) {
+struct drm_fb *drm_fb_get_from_bo(struct gbm_bo *bo) {
 	uint32_t width, height, format, strides[4] = {0}, handles[4] = {0}, offsets[4] = {0}, flags = 0;
 	int ok = -1;
 
@@ -220,7 +222,7 @@ struct drm_fb*	drm_fb_get_from_bo(struct gbm_bo *bo) {
 
 	return fb;
 }
-bool     		present(void* userdata) {
+bool     	   present(void* userdata) {
 	fd_set fds;
 	struct gbm_bo *next_bo;
 	struct drm_fb *fb;
@@ -270,12 +272,12 @@ bool     		present(void* userdata) {
 	
 	return true;
 }
-uint32_t 		fbo_callback(void* userdata) {
+uint32_t 	   fbo_callback(void* userdata) {
 	return 0;
 }
-void 	 		cut_word_from_string(char* string, char* word) {
+void 	 	   cut_word_from_string(char* string, char* word) {
 	size_t word_length = strlen(word);
-	char* word_in_str = strstr(string, word);
+	char*  word_in_str = strstr(string, word);
 
 	// check if the given word is surrounded by spaces in the string
 	if (word_in_str
@@ -290,112 +292,123 @@ void 	 		cut_word_from_string(char* string, char* word) {
 		} while (word_in_str[i++ + word_length] != 0);
 	}
 }
-const GLubyte  *hacked_glGetString(GLenum name) {
-	if (name == GL_EXTENSIONS) {
-		static GLubyte* extensions;
+const GLubyte *hacked_glGetString(GLenum name) {
+	static GLubyte *extensions = NULL;
 
-		if (extensions == NULL) {
-			GLubyte* orig_extensions = (GLubyte *) glGetString(GL_EXTENSIONS);
-			size_t len_orig_extensions = strlen(orig_extensions);
-			
-			extensions = malloc(len_orig_extensions+1);
-			strcpy(extensions, orig_extensions);
+	if (name != GL_EXTENSIONS)
+		return glGetString(name);
 
-			/*
-			 * working (apparently)
-			 */
-			//cut_word_from_string(extensions, "GL_EXT_blend_minmax");
-			//cut_word_from_string(extensions, "GL_EXT_multi_draw_arrays");
-			//cut_word_from_string(extensions, "GL_EXT_texture_format_BGRA8888");
-			//cut_word_from_string(extensions, "GL_OES_compressed_ETC1_RGB8_texture");
-			//cut_word_from_string(extensions, "GL_OES_depth24");
-			//cut_word_from_string(extensions, "GL_OES_texture_npot");
-			//cut_word_from_string(extensions, "GL_OES_vertex_half_float");
-			//cut_word_from_string(extensions, "GL_OES_EGL_image");
-			//cut_word_from_string(extensions, "GL_OES_depth_texture");
-			//cut_word_from_string(extensions, "GL_AMD_performance_monitor");
-			//cut_word_from_string(extensions, "GL_OES_EGL_image_external");
-			//cut_word_from_string(extensions, "GL_EXT_occlusion_query_boolean");
-			//cut_word_from_string(extensions, "GL_KHR_texture_compression_astc_ldr");
-			//cut_word_from_string(extensions, "GL_EXT_compressed_ETC1_RGB8_sub_texture");
-			//cut_word_from_string(extensions, "GL_EXT_draw_elements_base_vertex");
-			//cut_word_from_string(extensions, "GL_EXT_texture_border_clamp");
-			//cut_word_from_string(extensions, "GL_OES_draw_elements_base_vertex");
-			//cut_word_from_string(extensions, "GL_OES_texture_border_clamp");
-			//cut_word_from_string(extensions, "GL_KHR_texture_compression_astc_sliced_3d");
-			//cut_word_from_string(extensions, "GL_MESA_tile_raster_order");
-
-			/*
-			 * should be working, but isn't
-			 */
-			cut_word_from_string(extensions, "GL_EXT_map_buffer_range");
-
-			/*
-			 * definitely broken
-			 */
-			cut_word_from_string(extensions, "GL_OES_element_index_uint");
-			cut_word_from_string(extensions, "GL_OES_fbo_render_mipmap");
-			cut_word_from_string(extensions, "GL_OES_mapbuffer");
-			cut_word_from_string(extensions, "GL_OES_rgb8_rgba8");
-			cut_word_from_string(extensions, "GL_OES_stencil8");
-			cut_word_from_string(extensions, "GL_OES_texture_3D");
-			cut_word_from_string(extensions, "GL_OES_packed_depth_stencil");
-			cut_word_from_string(extensions, "GL_OES_get_program_binary");
-			cut_word_from_string(extensions, "GL_APPLE_texture_max_level");
-			cut_word_from_string(extensions, "GL_EXT_discard_framebuffer");
-			cut_word_from_string(extensions, "GL_EXT_read_format_bgra");
-			cut_word_from_string(extensions, "GL_EXT_frag_depth");
-			cut_word_from_string(extensions, "GL_NV_fbo_color_attachments");
-			cut_word_from_string(extensions, "GL_OES_EGL_sync");
-			cut_word_from_string(extensions, "GL_OES_vertex_array_object");
-			cut_word_from_string(extensions, "GL_EXT_unpack_subimage");
-			cut_word_from_string(extensions, "GL_NV_draw_buffers");
-			cut_word_from_string(extensions, "GL_NV_read_buffer");
-			cut_word_from_string(extensions, "GL_NV_read_depth");
-			cut_word_from_string(extensions, "GL_NV_read_depth_stencil");
-			cut_word_from_string(extensions, "GL_NV_read_stencil");
-			cut_word_from_string(extensions, "GL_EXT_draw_buffers");
-			cut_word_from_string(extensions, "GL_KHR_debug");
-			cut_word_from_string(extensions, "GL_OES_required_internalformat");
-			cut_word_from_string(extensions, "GL_OES_surfaceless_context");
-			cut_word_from_string(extensions, "GL_EXT_separate_shader_objects");
-			cut_word_from_string(extensions, "GL_KHR_context_flush_control");
-			cut_word_from_string(extensions, "GL_KHR_no_error");
-			cut_word_from_string(extensions, "GL_KHR_parallel_shader_compile");
+	if (extensions == NULL) {
+		GLubyte *orig_extensions = (GLubyte *) glGetString(GL_EXTENSIONS);
+		
+		extensions = malloc(strlen(orig_extensions) + 1);
+		if (!extensions) {
+			fprintf(stderr, "Could not allocate memory for modified GL_EXTENSIONS string\n");
+			return NULL;
 		}
 
-		return extensions;
-	} else {
-		return glGetString(name);
+		strcpy(extensions, orig_extensions);
+
+		/*
+			* working (apparently)
+			*/
+		//cut_word_from_string(extensions, "GL_EXT_blend_minmax");
+		//cut_word_from_string(extensions, "GL_EXT_multi_draw_arrays");
+		//cut_word_from_string(extensions, "GL_EXT_texture_format_BGRA8888");
+		//cut_word_from_string(extensions, "GL_OES_compressed_ETC1_RGB8_texture");
+		//cut_word_from_string(extensions, "GL_OES_depth24");
+		//cut_word_from_string(extensions, "GL_OES_texture_npot");
+		//cut_word_from_string(extensions, "GL_OES_vertex_half_float");
+		//cut_word_from_string(extensions, "GL_OES_EGL_image");
+		//cut_word_from_string(extensions, "GL_OES_depth_texture");
+		//cut_word_from_string(extensions, "GL_AMD_performance_monitor");
+		//cut_word_from_string(extensions, "GL_OES_EGL_image_external");
+		//cut_word_from_string(extensions, "GL_EXT_occlusion_query_boolean");
+		//cut_word_from_string(extensions, "GL_KHR_texture_compression_astc_ldr");
+		//cut_word_from_string(extensions, "GL_EXT_compressed_ETC1_RGB8_sub_texture");
+		//cut_word_from_string(extensions, "GL_EXT_draw_elements_base_vertex");
+		//cut_word_from_string(extensions, "GL_EXT_texture_border_clamp");
+		//cut_word_from_string(extensions, "GL_OES_draw_elements_base_vertex");
+		//cut_word_from_string(extensions, "GL_OES_texture_border_clamp");
+		//cut_word_from_string(extensions, "GL_KHR_texture_compression_astc_sliced_3d");
+		//cut_word_from_string(extensions, "GL_MESA_tile_raster_order");
+
+		/*
+		* should be working, but isn't
+		*/
+		cut_word_from_string(extensions, "GL_EXT_map_buffer_range");
+
+		/*
+		* definitely broken
+		*/
+		cut_word_from_string(extensions, "GL_OES_element_index_uint");
+		cut_word_from_string(extensions, "GL_OES_fbo_render_mipmap");
+		cut_word_from_string(extensions, "GL_OES_mapbuffer");
+		cut_word_from_string(extensions, "GL_OES_rgb8_rgba8");
+		cut_word_from_string(extensions, "GL_OES_stencil8");
+		cut_word_from_string(extensions, "GL_OES_texture_3D");
+		cut_word_from_string(extensions, "GL_OES_packed_depth_stencil");
+		cut_word_from_string(extensions, "GL_OES_get_program_binary");
+		cut_word_from_string(extensions, "GL_APPLE_texture_max_level");
+		cut_word_from_string(extensions, "GL_EXT_discard_framebuffer");
+		cut_word_from_string(extensions, "GL_EXT_read_format_bgra");
+		cut_word_from_string(extensions, "GL_EXT_frag_depth");
+		cut_word_from_string(extensions, "GL_NV_fbo_color_attachments");
+		cut_word_from_string(extensions, "GL_OES_EGL_sync");
+		cut_word_from_string(extensions, "GL_OES_vertex_array_object");
+		cut_word_from_string(extensions, "GL_EXT_unpack_subimage");
+		cut_word_from_string(extensions, "GL_NV_draw_buffers");
+		cut_word_from_string(extensions, "GL_NV_read_buffer");
+		cut_word_from_string(extensions, "GL_NV_read_depth");
+		cut_word_from_string(extensions, "GL_NV_read_depth_stencil");
+		cut_word_from_string(extensions, "GL_NV_read_stencil");
+		cut_word_from_string(extensions, "GL_EXT_draw_buffers");
+		cut_word_from_string(extensions, "GL_KHR_debug");
+		cut_word_from_string(extensions, "GL_OES_required_internalformat");
+		cut_word_from_string(extensions, "GL_OES_surfaceless_context");
+		cut_word_from_string(extensions, "GL_EXT_separate_shader_objects");
+		cut_word_from_string(extensions, "GL_KHR_context_flush_control");
+		cut_word_from_string(extensions, "GL_KHR_no_error");
+		cut_word_from_string(extensions, "GL_KHR_parallel_shader_compile");
 	}
+
+	return extensions;
 }
-void           *proc_resolver(void* userdata, const char* name) {
-	if (name == NULL) return NULL;
+void          *proc_resolver(void* userdata, const char* name) {
+	static int is_VC4 = -1;
+	void      *address;
 
 	/*  
-	 * The mesa v3d driver reports some OpenGL ES extensions as supported and working
+	 * The mesa V3D driver reports some OpenGL ES extensions as supported and working
 	 * even though they aren't. hacked_glGetString is a workaround for this, which will
 	 * cut out the non-working extensions from the list of supported extensions.
-	 */ 
-	if (strcmp(name, "glGetString") == 0) {
-		return hacked_glGetString;
-	}
+	 */
 
-	void* address;
-	if ((address = dlsym(RTLD_DEFAULT, name)) || (address = eglGetProcAddress(name))) {
+	if (name == NULL)
+		return NULL;
+
+	// first detect if we're running on a VideoCore 4 / using the VC4 driver.
+	if ((is_VC4 == -1) && (is_VC4 = strcmp(egl.renderer, "VC4 V3D 2.1") == 0))
+		printf( "detected VideoCore IV as underlying graphics chip, and VC4 as the driver.\n"
+				"Reporting modified GL_EXTENSIONS string that doesn't contain non-working extensions.\n");
+
+	// if we do, and the symbol to resolve is glGetString, we return our hacked_glGetString.
+	if (is_VC4 && (strcmp(name, "glGetString") == 0))
+		return hacked_glGetString;
+
+	if ((address = dlsym(RTLD_DEFAULT, name)) || (address = eglGetProcAddress(name)))
 		return address;
-	}
 	
-	printf("could not resolve symbol %s\n", name);
+	fprintf(stderr, "proc_resolver: could not resolve symbol \"%s\"\n", name);
 
 	return NULL;
 }
-void     		on_platform_message(const FlutterPlatformMessage* message, void* userdata) {
+void     	   on_platform_message(const FlutterPlatformMessage* message, void* userdata) {
 	int ok;
 	if ((ok = PluginRegistry_onPlatformMessage((FlutterPlatformMessage *)message)) != 0)
 		fprintf(stderr, "PluginRegistry_onPlatformMessage failed: %s\n", strerror(ok));
 }
-void	 		vsync_callback(void* userdata, intptr_t baton) {
+void	 	   vsync_callback(void* userdata, intptr_t baton) {
 	// not yet implemented
 	fprintf(stderr, "flutter vsync callback not yet implemented\n");
 }
@@ -405,10 +418,8 @@ void	 		vsync_callback(void* userdata, intptr_t baton) {
 /************************
  * PLATFORM TASK-RUNNER *
  ************************/
-void  handle_sigusr1(int _) {}
 bool  init_message_loop() {
 	platform_thread_id = pthread_self();
-
 	return true;
 }
 bool  message_loop(void) {
@@ -494,7 +505,7 @@ bool setup_paths(void) {
 		return false;
 	}
 
-	snprintf(drm.device, sizeof(drm.device), "/dev/dri/card0");
+	//snprintf(drm.device, sizeof(drm.device), "/dev/dri/card0");
 
 	return true;
 
@@ -511,22 +522,110 @@ bool init_display(void) {
 	drmModeEncoder *encoder;
 	int i, ok, area;
 	
+	if (!drm.has_device) {
+		printf("Finding a suitable DRM device, since none is given...\n");
+		drmDevicePtr devices[64] = { NULL };
+		int num_devices, fd = -1;
 
-	printf("Opening DRM device...\n");
-	drm.fd = open(drm.device, O_RDWR);
-	if (drm.fd < 0) {
-		fprintf(stderr, "Could not open DRM device\n");
-		return false;
+		num_devices = drmGetDevices2(0, devices, sizeof(devices)/sizeof(drmDevicePtr));
+		if (num_devices < 0) {
+			fprintf(stderr, "could not query drm device list: %s\n", strerror(-num_devices));
+			return false;
+		}
+		
+		printf("looking for a suitable DRM device from %d available DRM devices...\n", num_devices);
+		for (i = 0; i < num_devices; i++) {
+			drmDevicePtr device = devices[i];
+
+			printf("  devices[%d]: \n", i);
+
+			printf("    available nodes: ");
+			if (device->available_nodes & (1 << DRM_NODE_PRIMARY)) printf("DRM_NODE_PRIMARY, ");
+			if (device->available_nodes & (1 << DRM_NODE_CONTROL)) printf("DRM_NODE_CONTROL, ");
+			if (device->available_nodes & (1 << DRM_NODE_RENDER))  printf("DRM_NODE_RENDER");
+			printf("\n");
+
+			for (int j=0; j < DRM_NODE_MAX; j++) {
+				if (device->available_nodes & (1 << j)) {
+					printf("    nodes[%s] = \"%s\"\n",
+						j == DRM_NODE_PRIMARY ? "DRM_NODE_PRIMARY" :
+						j == DRM_NODE_CONTROL ? "DRM_NODE_CONTROL" :
+						j == DRM_NODE_RENDER  ? "DRM_NODE_RENDER" : "unknown",
+						device->nodes[j]
+					);
+				}
+			}
+
+			printf("    bustype: %s\n",
+						device->bustype == DRM_BUS_PCI ? "DRM_BUS_PCI" :
+						device->bustype == DRM_BUS_USB ? "DRM_BUS_USB" :
+						device->bustype == DRM_BUS_PLATFORM ? "DRM_BUS_PLATFORM" :
+						device->bustype == DRM_BUS_HOST1X ? "DRM_BUS_HOST1X" :
+						"unknown"
+				);
+
+			if (device->bustype == DRM_BUS_PLATFORM) {
+				printf("    businfo.fullname: %s\n", device->businfo.platform->fullname);
+				// seems like deviceinfo.platform->compatible is not really used.
+				//printf("    deviceinfo.compatible: %s\n", device->deviceinfo.platform->compatible);
+			}
+
+			// we want a device that's DRM_NODE_PRIMARY and that we can call a drmModeGetResources on.
+			if (drm.has_device) continue;
+			if (!(device->available_nodes & (1 << DRM_NODE_PRIMARY))) continue;
+			
+			printf("    opening DRM device candidate at \"%s\"...\n", device->nodes[DRM_NODE_PRIMARY]);
+			fd = open(device->nodes[DRM_NODE_PRIMARY], O_RDWR);
+			if (fd < 0) {
+				printf("      could not open DRM device candidate at \"%s\": %s\n", device->nodes[DRM_NODE_PRIMARY], strerror(errno));
+				continue;
+			}
+
+			printf("    getting resources of DRM device candidate at \"%s\"...\n", device->nodes[DRM_NODE_PRIMARY]);
+			resources = drmModeGetResources(fd);
+			if (resources == NULL) {
+				printf("      could not query DRM resources for DRM device candidate at \"%s\":", device->nodes[DRM_NODE_PRIMARY]);
+				if ((errno = EOPNOTSUPP) || (errno = EINVAL)) printf("doesn't look like a modeset device.\n");
+				else										  printf("%s\n", strerror(errno));
+				close(fd);
+				continue;
+			}
+
+			// we found our DRM device.
+			printf("    flutter-pi chose \"%s\" as its DRM device.\n", device->nodes[DRM_NODE_PRIMARY]);
+			drm.fd = fd;
+			drm.has_device = true;
+			snprintf(drm.device, sizeof(drm.device)-1, device->nodes[DRM_NODE_PRIMARY]);
+		}
+
+		if (!drm.has_device) {
+			fprintf(stderr, "flutter-pi couldn't find a usable DRM device.\n"
+							"Please make sure you've enabled the Fake-KMS driver in raspi-config.\n"
+							"If you're not using a Raspberry Pi, please make sure there's KMS support for your graphics chip.\n");
+			return false;
+		}
 	}
 
+	if (drm.fd <= 0) {
+		printf("Opening DRM device...\n");
+		drm.fd = open(drm.device, O_RDWR);
+		if (drm.fd < 0) {
+			fprintf(stderr, "Could not open DRM device\n");
+			return false;
+		}
+	}
 
-	printf("Getting DRM resources...\n");
-	resources = drmModeGetResources(drm.fd);
-	if (resources == NULL) {
-		if (errno == EOPNOTSUPP)	fprintf(stderr, "%s doesn't look like a modeset device\n", drm.device);
-		else						fprintf(stderr, "drmModeGetResources failed: %s\n", strerror(errno));
-		
-		return false;
+	if (!resources) {
+		printf("Getting DRM resources...\n");
+		resources = drmModeGetResources(drm.fd);
+		if (resources == NULL) {
+			if ((errno == EOPNOTSUPP) || (errno = EINVAL))
+				fprintf(stderr, "%s doesn't look like a modeset device\n", drm.device);
+			else
+				fprintf(stderr, "drmModeGetResources failed: %s\n", strerror(errno));
+			
+			return false;
+		}
 	}
 
 
@@ -577,6 +676,7 @@ bool init_display(void) {
 	}
 
 	printf("Choosing DRM mode from %d available modes...\n", connector->count_modes);
+	bool found_preferred = false;
 	for (i = 0, area = 0; i < connector->count_modes; i++) {
 		drmModeModeInfo *current_mode = &connector->modes[i];
 
@@ -585,6 +685,8 @@ bool init_display(void) {
 			   (current_mode->flags & DRM_MODE_FLAG_INTERLACE) ? "i" : "p",
 			   current_mode->vrefresh, current_mode->type, current_mode->flags
 		);
+
+		if (found_preferred) continue;
 
 		// we choose the highest resolution with the highest refresh rate, preferably non-interlaced (= progressive) here.
 		int current_area = current_mode->hdisplay * current_mode->vdisplay;
@@ -601,11 +703,12 @@ bool init_display(void) {
 
 			// if the preferred DRM mode is bogus, we're screwed.
 			if (current_mode->type & DRM_MODE_TYPE_PREFERRED) {
-				printf("the chosen DRM mode is preferred by DRM. (DRM_MODE_TYPE_PREFERRED)\n");
-				break;
+				printf("    this mode is preferred by DRM. (DRM_MODE_TYPE_PREFERRED)\n");
+				found_preferred = true;
 			}
 		}
 	}
+
 	if (!drm.mode) {
 		fprintf(stderr, "could not find a suitable DRM mode!\n");
 		return false;
@@ -659,13 +762,14 @@ bool init_display(void) {
 	gbm.device = gbm_create_device(drm.fd);
 	gbm.format = DRM_FORMAT_XRGB8888;
 	gbm.surface = NULL;
+	gbm.modifier = DRM_FORMAT_MOD_LINEAR;
 
 	if (gbm_surface_create_with_modifiers) {
 		gbm.surface = gbm_surface_create_with_modifiers(gbm.device, width, height, gbm.format, &gbm.modifier, 1);
 	}
 
 	if (!gbm.surface) {
-		if (gbm.modifier != 0) {
+		if (gbm.modifier != DRM_FORMAT_MOD_LINEAR) {
 			fprintf(stderr, "GBM Surface creation modifiers requested but not supported by GBM\n");
 			return false;
 		}
@@ -689,7 +793,12 @@ bool init_display(void) {
 
 	const EGLint config_attribs[] = {
 		EGL_SURFACE_TYPE, EGL_WINDOW_BIT,
+		EGL_RED_SIZE, 1,
+		EGL_GREEN_SIZE, 1,
+		EGL_BLUE_SIZE, 1,
+		EGL_ALPHA_SIZE, 0,
 		EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
+		EGL_SAMPLES, 0,
 		EGL_NONE
 	};
 
@@ -799,15 +908,19 @@ bool init_display(void) {
 		return false;
 	}
 
+	egl.renderer = (char*) glGetString(GL_RENDERER);
+
 	gl_exts = (char*) glGetString(GL_EXTENSIONS);
 	printf("===================================\n");
-	printf("OpenGL ES 2.x information:\n");
+	printf("OpenGL ES information:\n");
 	printf("  version: \"%s\"\n", glGetString(GL_VERSION));
 	printf("  shading language version: \"%s\"\n", glGetString(GL_SHADING_LANGUAGE_VERSION));
 	printf("  vendor: \"%s\"\n", glGetString(GL_VENDOR));
 	printf("  renderer: \"%s\"\n", glGetString(GL_RENDERER));
 	printf("  extensions: \"%s\"\n", gl_exts);
 	printf("===================================\n");
+
+	
 
 
 	drm.evctx.version = 2;
