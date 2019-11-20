@@ -73,8 +73,6 @@ of the flutter app you're trying to run.
 
 `[flutter engine arguments...]` will be passed as commandline arguments to the flutter engine. You can find a list of commandline options for the flutter engine [Here](https://github.com/flutter/engine/blob/master/shell/common/switches.h).
 
-**Note for Pi 4 users:** currently, flutter-pi will crash on the raspberry pi because it tries to open the wrong DRM device. [See Issue #13](https://github.com/ardera/flutter-pi/issues/13#issuecomment-554322089). A temporary fix is to change the path inside flutter-pi.c in the line where it says `. . . = open("/dev/dri/card0", O_RDWR);` to `/dev/dri/card1`. I'm working on an update that will enable flutter-pi to automatically select its devices.
-
 ## Dependencies
 ### flutter engine
 flutter-pi needs `libflutter_engine.so` and `flutter_embedder.h` to compile. It also needs the flutter engine's `icudtl.dat` at runtime.
