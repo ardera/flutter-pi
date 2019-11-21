@@ -18,6 +18,7 @@
 #include <float.h>
 #include <assert.h>
 #include <time.h>
+#include <glob.h>
 
 #include <xf86drm.h>
 #include <xf86drmMode.h>
@@ -36,12 +37,41 @@
 
 
 char* usage ="\
-Flutter for Raspberry Pi\n\n\
-Usage:\n\
-  flutter-pi [options] <asset_bundle_path> <flutter_flags...>\n\n\
-Options:\n\
-  -m <device_path>   Path to the mouse device file. Typically /dev/input/mouseX or /dev/input/eventX\n\
-  -t <device_path>   Path to the touchscreen device file. Typically /dev/input/touchscreenX or /dev/input/eventX\n\
+flutter-pi - run flutter apps on your Raspberry Pi.\n\
+\n\
+USAGE:\n\
+  flutter-pi [options] <asset bundle path> <flutter engine options...>\n\
+\n\
+OPTIONS:\n\
+  -i <glob pattern>   Appends all files matching this glob pattern\n\
+                      to the list of input (touchscreen, mouse, touchpad)\n\
+                      devices. Brace and tilde expansion is enabled.\n\
+                      Every file that matches this pattern, but is not\n\
+                      a valid touchscreen / -pad or mouse is silently\n\
+                      ignored.\n\
+                        If no -i options are given, all files matching\n\
+                      \"/dev/input/event*\" will be used as inputs.\n\
+                      This should be what you want in most cases.\n\
+                        Note that you need to properly escape each glob pattern\n\
+                      you use as a parameter so it isn't implicitly expanded\n\
+                      by your shell.\n\
+                      \n\
+  -h                  Show this help and exit.\n\
+\n\
+EXAMPLES:\n\
+  flutter-pi -i \"/dev/input/event{0,1}\" -i \"/dev/input/event{2,3}\" /home/pi/helloworld_flutterassets\n\
+  flutter-pi -i \"/dev/input/mouse*\" /home/pi/helloworld_flutterassets\n\
+  flutter-pi /home/pi/helloworld_flutterassets\n\
+\n\
+SEE ALSO:\n\
+  Author:  Hannes Winkler, a.k.a ardera\n\
+  Source:  https://github.com/ardera/flutter-pi\n\
+  License: MIT\n\
+\n\
+  For instructions on how to build an asset bundle, please see the linked\n\
+    git repository.\n\
+  For a list of options you can pass to the flutter engine, look here:\n\
+    https://github.com/flutter/engine/blob/master/shell/common/switches.h\n\
 ";
 
 /// width & height of the display in pixels
@@ -110,21 +140,14 @@ struct {
 	struct FlutterPiPluginRegistry *registry;
 } flutter = {0};
 
-struct {
-	char device_path[128];
-	int  fd;
-	double x, y;
-	int32_t min_x, max_x, min_y, max_y;
-	uint8_t buttons;
-	struct TouchscreenSlot  ts_slots[10];
-	struct TouchscreenSlot* ts_slot;
-	bool is_mouse;
-	bool is_touchscreen;
-} input = {0};
+glob_t					   input_devices_glob;
+size_t                     n_input_devices;
+struct input_device       *input_devices;
+struct mousepointer_mtslot mousepointer;
 
 pthread_t io_thread_id;
 pthread_t platform_thread_id;
-struct FlutterPiTask tasklist = {
+struct flutterpi_task tasklist = {
 	.next = NULL,
 	.is_vblank_event = false,
 	.target_time = 0,
@@ -133,6 +156,8 @@ struct FlutterPiTask tasklist = {
 pthread_mutex_t tasklist_lock = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t  task_added = PTHREAD_COND_INITIALIZER;
 
+FlutterEngine engine;
+_Atomic bool  engine_running = false;
 
 /*********************
  * FLUTTER CALLBACKS *
@@ -444,7 +469,7 @@ bool  message_loop(void) {
 		}
 
 		FlutterTask task = tasklist.next->task;
-		struct FlutterPiTask* new_first = tasklist.next->next;
+		struct flutterpi_task* new_first = tasklist.next->next;
 		free(tasklist.next);
 		tasklist.next = new_first;
 
@@ -459,14 +484,14 @@ bool  message_loop(void) {
 }
 void  post_platform_task(FlutterTask task, uint64_t target_time, void* userdata) {
 	// prepare the task to be inserted into the tasklist.
-	struct FlutterPiTask* to_insert = malloc(sizeof(struct FlutterPiTask));
+	struct flutterpi_task* to_insert = malloc(sizeof(struct flutterpi_task));
 	to_insert->next = NULL;
 	to_insert->task = task;
 	to_insert->target_time = target_time;
 	
 	// insert the task at a fitting position. (the tasks are ordered by target time)
 	pthread_mutex_lock(&tasklist_lock);
-		struct FlutterPiTask* this = &tasklist;
+		struct flutterpi_task* this = &tasklist;
 		while ((this->next) != NULL && (target_time > this->next->target_time))
 			this = this->next;
 
@@ -916,12 +941,20 @@ bool init_display(void) {
 	printf("  version: \"%s\"\n", glGetString(GL_VERSION));
 	printf("  shading language version: \"%s\"\n", glGetString(GL_SHADING_LANGUAGE_VERSION));
 	printf("  vendor: \"%s\"\n", glGetString(GL_VENDOR));
-	printf("  renderer: \"%s\"\n", glGetString(GL_RENDERER));
+	printf("  renderer: \"%s\"\n", egl.renderer);
 	printf("  extensions: \"%s\"\n", gl_exts);
 	printf("===================================\n");
 
-	
-
+	// it seems that after some Raspbian update, regular users are sometimes no longer allowed
+	//   to use the direct-rendering infrastructure; i.e. the open the devices inside /dev/dri/
+	//   as read-write. flutter-pi must be run as root then.
+	// sometimes it works fine without root, sometimes it doesn't.
+	if (strncmp(egl.renderer, "llvmpipe", sizeof("llvmpipe")-1) == 0)
+		printf("WARNING: Detected llvmpipe (ie. software rendering) as the OpenGL ES renderer.\n"
+			   "         Check that flutter-pi has permission to use the 3D graphics hardware,\n"
+			   "         or try running it as root.\n"
+			   "         This warning will probably result in a \"failed to set mode\" error\n"
+			   "         later on in the initialization.\n");
 
 	drm.evctx.version = 2;
 	drm.evctx.page_flip_handler = page_flip_handler;
@@ -1019,6 +1052,8 @@ bool init_application(void) {
 		printf("flutter engine successfully started up.\n");
 	}
 
+	engine_running = true;
+
 	// update window size
 	ok = FlutterEngineSendWindowMetricsEvent(
 		engine,
@@ -1032,7 +1067,6 @@ bool init_application(void) {
 	
 	return true;
 }
-
 void destroy_application(void) {
 	int ok;
 
@@ -1051,220 +1085,362 @@ void destroy_application(void) {
 /****************
  * Input-Output *
  ****************/
-bool  init_io(void) {
+void init_io(void) {
 	int ok;
+	int n_flutter_slots = 0;
 
-	input.fd = open(input.device_path, O_RDONLY);
-	if (input.fd < 0) {
-		perror("error opening the input device file");
-		return false;
+	n_input_devices = 0;
+	input_devices = NULL;
+	mousepointer = (struct mousepointer_mtslot) {
+		.id = 0,
+		.flutter_slot_id = n_flutter_slots++,
+		.x = 0, .y = 0,
+		.phase = kCancel
+	};
+
+	// go through all the given paths and add everything you can
+	for (int i=0; i < input_devices_glob.gl_pathc; i++) {
+		struct input_device dev = {0};
+		uint32_t absbits[(ABS_CNT+31) /32] = {0};
+		uint32_t relbits[(REL_CNT+31) /32] = {0};
+		uint32_t keybits[(KEY_CNT+31) /32] = {0};
+		uint32_t props[(INPUT_PROP_CNT+31) /32] = {0};
+		
+		snprintf(dev.path, sizeof(dev.path), "%s", input_devices_glob.gl_pathv[i]);
+		printf("  input device %i: path=\"%s\"\n", i, dev.path);
+		
+		// first, try to open the event device.
+		dev.fd = open(dev.path, O_RDONLY);
+		if (dev.fd < 0) {
+			perror("\n    error opening the input device");
+			continue;
+		}
+
+		// query name
+		ok = ioctl(dev.fd, EVIOCGNAME(sizeof(dev.name)), &dev.name);
+		if (ok != -1) ok = ioctl(dev.fd, EVIOCGID, &dev.input_id);
+		if (ok == -1) {
+			perror("\n    could not query input device name / id: ioctl for EVIOCGNAME or EVIOCGID failed");
+			goto close_continue;
+		}
+
+		printf("      %s, connected via %s. vendor: 0x%04X, product: 0x%04X, version: 0x%04X\n", dev.name,
+			   INPUT_BUSTYPE_FRIENDLY_NAME(dev.input_id.bustype), dev.input_id.vendor, dev.input_id.vendor);
+
+		// query supported event codes (for EV_ABS, EV_REL and EV_KEY event types)
+		ok = ioctl(dev.fd, EVIOCGBIT(EV_ABS, sizeof(absbits)), absbits);
+		if (ok != -1) ok = ioctl(dev.fd, EVIOCGBIT(EV_REL, sizeof(relbits)), relbits);
+		if (ok != -1) ok = ioctl(dev.fd, EVIOCGBIT(EV_KEY, sizeof(keybits)), keybits);
+		if (ok != -1) ok = ioctl(dev.fd, EVIOCGPROP(sizeof(props)), props);
+		if (ok == -1) {
+			perror("    could not query input device: ioctl for EVIOCGBIT(EV_ABS), EVIOCGBIT(EV_REL), EVIOCGBIT(EV_KEY) or EVIOCGPROP failed");
+			goto close_continue;
+		}
+
+		// check if this input device needs a mousepointer (true for mouse, touchpads)
+		dev.is_pointer = ISSET(props, INPUT_PROP_POINTER);
+		dev.is_direct  = ISSET(props, INPUT_PROP_DIRECT);
+		if (!dev.is_pointer && !dev.is_direct) {
+			bool touch = ISSET(absbits, ABS_MT_SLOT) || ISSET(keybits, BTN_TOUCH);
+			bool touchpad = touch && ISSET(keybits, BTN_TOOL_FINGER);
+			bool touchscreen = touch && !touchpad;
+			bool mouse = !touch && (ISSET(relbits, REL_X) || ISSET(relbits, REL_Y));
+			dev.is_pointer = touchpad || mouse;
+			dev.is_direct  = touchscreen;
+		}
+		dev.kind = dev.is_pointer ? kFlutterPointerDeviceKindMouse : kFlutterPointerDeviceKindTouch;
+
+		// check if the device emits ABS_X and ABS_Y events, and if yes
+		// query some calibration data.
+		if (ISSET(absbits, ABS_X) && ISSET(absbits, ABS_Y)) {
+			ok = ioctl(dev.fd, EVIOCGABS(ABS_X), &(dev.xinfo));
+			if (ok != -1) ok = ioctl(dev.fd, EVIOCGABS(ABS_Y), &(dev.yinfo));
+			if (ok == -1) {
+				perror("    could not query input_absinfo: ioctl for ECIOCGABS(ABS_X) or EVIOCGABS(ABS_Y) failed");
+				goto close_continue;
+			}
+		}
+
+		// check if the device is multitouch (so a multitouch touchscreen or touchpad)
+		if (ISSET(absbits, ABS_MT_SLOT)) {
+			struct input_absinfo slotinfo;
+
+			// query the ABS_MT_SLOT absinfo
+			ok = ioctl(dev.fd, EVIOCGABS(ABS_MT_SLOT), &slotinfo);
+			if (ok == -1) {
+				perror("    could not query input_absinfo: ioctl for EVIOCGABS(ABS_MT_SLOT) failed");
+				goto close_continue;
+			}
+
+			// put the info in the input_device field
+			dev.n_mtslots = slotinfo.maximum + 1;
+			dev.i_active_mtslot = slotinfo.value;
+		} else {
+			// even if the device doesn't have multitouch support,
+			// i may need some space to store coordinates, for example
+			// to convert ABS_X/Y events into relative ones (no-multitouch touchpads for example)
+			dev.n_mtslots = 1;
+			dev.i_active_mtslot = 0;
+		}
+
+		dev.mtslots = calloc(dev.n_mtslots, sizeof(struct mousepointer_mtslot));
+		for (int j=0; j < dev.n_mtslots; j++) {
+			dev.mtslots[j].id = -1;
+			dev.mtslots[j].flutter_slot_id = n_flutter_slots++;
+			dev.mtslots[j].x = -1;
+			dev.mtslots[j].y = -1;
+		}
+
+		// if everything worked we expand the input_devices array and add our dev.
+		input_devices = realloc(input_devices, ++n_input_devices * sizeof(struct input_device));
+		input_devices[n_input_devices-1] = dev;
+		continue;
+
+
+		close_continue:
+			close(dev.fd);
+			dev.fd = -1;
 	}
 
-	struct input_absinfo absinfo;
-	ok = ioctl(input.fd, EVIOCGABS(ABS_X), &absinfo);
-	if (ok == -1) {
-		perror("could not get input devices input_absinfo for ABS_X");
-		fprintf(stderr, "maybe the device given is not an input device?\n");
-		return false;
-	}
-
-	input.min_x = absinfo.minimum;
-	input.max_x = absinfo.maximum;
-	
-
-	ok = ioctl(input.fd, EVIOCGABS(ABS_Y), &absinfo);
-	if (ok == -1) {
-		perror("could not get input devices input_absinfo for ABS_Y");
-		fprintf(stderr, "maybe the device given is not an input device?\n");
-		return false;
-	}
-
-	input.min_y = absinfo.minimum;
-	input.max_y = absinfo.maximum;
-
-	return true;
+	if (n_input_devices == 0)
+		printf("Warning: No input devices configured.\n");
 }
-void* io_loop(void* userdata) {
-	FlutterPointerPhase	phase;
-	struct input_event	event[64];
-	struct input_event*	ev;
-	FlutterPointerEvent pointer_event[64];
-	int					n_pointerevents = 0;
-	bool 				ok;
 
-	
-	if (input.is_mouse) {
+void *io_loop(void *userdata) {
+	struct input_event    linuxevents[64];
+	size_t                n_linuxevents;
+	struct input_device  *device;
+	struct mousepointer_mtslot *active_mtslot;
+	FlutterPointerEvent   flutterevents[64] = {0};
+	size_t                i_flutterevent = 0;
+	fd_set read_fdset;
+	int    ok, nfds = 0, n_ready_fds = 0, i, j;
 
-		// first, tell flutter that the mouse is inside the engine window
-		printf("sending initial mouse pointer event to flutter\n");
-		ok = FlutterEngineSendPointerEvent(
-			engine,
-			& (FlutterPointerEvent) {
+	// insert all fds into the read fdset, and add all multitouch slots to the flutter engine
+	i_flutterevent = 0;
+
+	// add the mouse slot
+	flutterevents[i_flutterevent++] = (FlutterPointerEvent) {
+		.struct_size = sizeof(FlutterPointerEvent),
+		.phase = kAdd,
+		.timestamp = (size_t) (FlutterEngineGetCurrentTime()*1000),
+		.x = 0,
+		.y = 0,
+		.signal_kind = kFlutterPointerSignalKindNone,
+		.device_kind = kFlutterPointerDeviceKindMouse,
+		.device = 0,
+		.buttons = 0
+	};
+
+	// we now add all multitouch slots for every device that has device->is_pointer not set,
+	// as well as add all file-descriptors to the "read_fdset" file-descriptor set.
+
+	FD_ZERO(&read_fdset);
+	for (device = input_devices, i = 0; i < n_input_devices; device = &input_devices[++i]) {
+		FD_SET(device->fd, &read_fdset);
+		if (device->fd + 1 > nfds) nfds = device->fd + 1;
+
+		// only add the multitouch slots for touchscreens, not for mt touchpads		
+		if (device->is_pointer)
+			continue;
+
+		// go through all multitouch slots and add them to the engine
+		for (j = 0, active_mtslot = device->mtslots; j < device->n_mtslots; active_mtslot = &device->mtslots[++j]) {
+			flutterevents[i_flutterevent++] = (FlutterPointerEvent) {
 				.struct_size = sizeof(FlutterPointerEvent),
 				.phase = kAdd,
 				.timestamp = (size_t) (FlutterEngineGetCurrentTime()*1000),
-				.x = input.x,
-				.y = input.y,
+				.x = active_mtslot->x == -1 ? 0 : active_mtslot->x,
+				.y = active_mtslot->y == -1 ? 0 : active_mtslot->y,
 				.signal_kind = kFlutterPointerSignalKindNone,
-				.device_kind = kFlutterPointerDeviceKindMouse,
+				.device_kind = device->kind,
+				.device = active_mtslot->flutter_slot_id,
 				.buttons = 0
-			}, 
-			1
-		) == kSuccess;
-		if (!ok) return false;
+			};
+		}
+	}
+	const fd_set const_read_fdset = read_fdset;
+	
+	// now send all the kAdd events to flutter.
+	ok = kSuccess == FlutterEngineSendPointerEvent(engine, flutterevents, i_flutterevent);
+	if (!ok) fprintf(stderr, "error while sending initial mousepointer / multitouch slot information to flutter\n");
+	i_flutterevent = 0;
 
-		while (1) {
-			// read up to 64 input events
-			int rd = read(input.fd, &event, sizeof(struct input_event)*64);
-			if (rd < (int) sizeof(struct input_event)) {
-				fprintf(stderr, "Read %d bytes from input device, should have been %d; error msg: %s\n", rd, sizeof(struct input_event), strerror(errno));
-				return false;
+	while (engine_running && n_input_devices > 0) {
+		// wait for any device to offer new data,
+		// but only if no file descriptors have new data.
+		if (n_ready_fds == 0) {
+			read_fdset = const_read_fdset;
+			n_ready_fds = select(nfds, &read_fdset, NULL, NULL, NULL);
+			if (n_ready_fds == -1) {
+				perror("error waiting for input events");
+				return NULL;
 			}
+		}
 
-			// process the input events
-			// TODO: instead of processing an input event, and then send the single resulting Pointer Event (i.e., one at a time) to the Flutter Engine,
-			//       process all input events, and send all resulting pointer events at once.
-			for (int i = 0; i < rd / sizeof(struct input_event); i++) {
-				phase = kCancel;
-				ev = &(event[i]);
+		// find out which device got new data
+		i = 0;
+		while (!FD_ISSET(input_devices[i].fd, &read_fdset))  i++;
+		device = &input_devices[i];
+		active_mtslot = &device->mtslots[device->i_active_mtslot];
 
-				if (ev->type == EV_REL) {
-					if (ev->code == REL_X) {			// mouse moved in the x-direction
-						input.x += ev->value;
-						phase = input.buttons ? kMove : kHover;
-					} else if (ev->code == REL_Y) {	// mouse moved in the y-direction
-						input.y += ev->value;
-						phase = input.buttons ? kMove : kHover;	
-					}
-				} else if (ev->type == EV_ABS) {
-					if (ev->code == ABS_X) {
-						input.x = ev->value;
-						phase = input.buttons ? kMove : kHover;
-					} else if (ev->code == ABS_Y) {
-						input.y = ev->value;
-						phase = input.buttons ? kMove : kHover;
-					}
-				} else if ((ev->type == EV_KEY) && ((ev->code == BTN_LEFT) || (ev->code == BTN_RIGHT))) {
-					// either the left or the right mouse button was pressed
-					// the 1st bit in "buttons" is set when BTN_LEFT is down. the 2nd bit when BTN_RIGHT is down.
-					uint8_t mask = ev->code == BTN_LEFT ? kFlutterPointerButtonMousePrimary : kFlutterPointerButtonMouseSecondary;
-					if (ev->value == 1)	input.buttons |=  mask;
-					else				input.buttons &= ~mask;
+		// read the input events, convert them to flutter pointer events
+		ok = read(input_devices[i].fd, linuxevents, sizeof(linuxevents));
+		if (ok == -1) {
+			fprintf(stderr, "error reading input events from device \"%s\" with path \"%s\": %s\n",
+					input_devices[i].name, input_devices[i].path, strerror(errno));
+			return NULL;
+		} else if (ok == 0) {
+			fprintf(stderr, "reached EOF for input device \"%s\" with path \"%s\": %s\n",
+					input_devices[i].name, input_devices[i].path, strerror(errno));
+			return NULL;
+		}
+		n_ready_fds--;
+		n_linuxevents = ok / sizeof(struct input_event);
+		
+		// now go through all linux events and update the state and flutterevents array accordingly.
+		for (int i=0; i < n_linuxevents; i++) {
+			struct input_event *e = &linuxevents[i];
+		
+			if (e->type == EV_REL) {
+				// pointer moved relatively in the X or Y direction
+				// for now, without a speed multiplier
+
+				double relx = e->code == REL_X ? e->value : 0;
+				double rely = e->code == REL_Y ? e->value : 0;
+
+				mousepointer.x += relx;
+				mousepointer.y += rely;
+
+				// only change the current phase if we don't yet have one.
+				if ((mousepointer.phase == kCancel) && (relx != 0 || rely != 0))
+					mousepointer.phase = device->active_buttons ? kMove : kHover;
+
+			} else if (e->type == EV_ABS) {
+
+				if (e->code == ABS_MT_SLOT) {
+
+					// select a new active mtslot.
+					device->i_active_mtslot = e->value;
+					active_mtslot = &device->mtslots[device->i_active_mtslot];
+
+				} else if (e->code == ABS_MT_POSITION_X || e->code == ABS_X || e->code == ABS_MT_POSITION_Y || e->code == ABS_Y) {
+					double relx = 0, rely = 0;
 					
-					phase = ev->value == 1 ? kDown : kUp;
+					if (e->code == ABS_MT_POSITION_X || (e->code == ABS_X && device->n_mtslots == 1)) {
+						double newx = (e->value - device->xinfo.minimum) * width / (double) (device->xinfo.maximum - device->xinfo.minimum);
+						relx = active_mtslot->phase == kDown ? 0 : newx - active_mtslot->x;
+						active_mtslot->x = newx;
+					} else if (e->code == ABS_MT_POSITION_Y || (e->code == ABS_Y && device->n_mtslots == 1)) {
+						double newy = (e->value - device->yinfo.minimum) * height / (double) (device->yinfo.maximum - device->yinfo.minimum);
+						rely = active_mtslot->phase == kDown ? 0 : newy - active_mtslot->y;
+						active_mtslot->y = newy;
+					}
+
+					// if the device is associated with the mouse pointer (touchpad), update that pointer.
+					if (relx != 0 || rely != 0) {
+						struct mousepointer_mtslot *slot = active_mtslot;
+
+						if (device->is_pointer) {
+							mousepointer.x += relx;
+							mousepointer.y += rely;
+							slot = &mousepointer;
+						}
+
+						if (slot->phase == kCancel)
+							slot->phase = device->active_buttons ? kMove : kHover;
+					}
+				} else if ((e->code == ABS_MT_TRACKING_ID) && (active_mtslot->id == -1 || e->value == -1)) {
+
+					// id -1 means no id, or no touch. one tracking id is equivalent one continuous touch contact.
+					bool before = device->active_buttons && true;
+
+					if (active_mtslot->id == -1) {
+						active_mtslot->id = e->value;
+						// only set active_buttons if a touch equals a kMove (not kHover, as it is for multitouch touchpads)
+						device->active_buttons |= (device->is_direct ? FLUTTER_BUTTON_FROM_EVENT_CODE(BTN_TOUCH) : 0);
+					} else {
+						active_mtslot->id = -1;
+						device->active_buttons &= ~(device->is_direct ? FLUTTER_BUTTON_FROM_EVENT_CODE(BTN_TOUCH) : 0);
+					}
+
+					if (!before != !device->active_buttons)
+						active_mtslot->phase = before ? kUp : kDown;
 				}
+
+			} else if (e->type == EV_KEY) {
 				
-				if (phase != kCancel) {
-					// if something changed, send the pointer event to flutter
-					ok = FlutterEngineSendPointerEvent(
-						engine,
-						& (FlutterPointerEvent) {
-							.struct_size = sizeof(FlutterPointerEvent),
-							.phase=phase,
-							.timestamp = (size_t) (ev->time.tv_sec * 1000000ul) + ev->time.tv_usec,
-							.x=input.x,  .y=input.y,
-							.signal_kind = kFlutterPointerSignalKindNone,
-							.device_kind = kFlutterPointerDeviceKindMouse,
-							.buttons = input.buttons
-						}, 
-						1
-					) == kSuccess;
-					if (!ok) return false;
+				// remember if some buttons were pressed before this update
+				bool before = device->active_buttons && true;
+
+				// update the active_buttons bitmap
+				// only apply BTN_TOUCH to the active buttons if a touch really equals a pressed button (device->is_direct is set)
+				//   is_direct is true for touchscreens, but not for touchpads; so BTN_TOUCH doesn't result in a kMove for touchpads
+				if (e->code != BTN_TOUCH || device->is_direct) {
+					if (e->value == 1) device->active_buttons |=  FLUTTER_BUTTON_FROM_EVENT_CODE(e->code);
+					else               device->active_buttons &= ~FLUTTER_BUTTON_FROM_EVENT_CODE(e->code);
 				}
-			}
 
-			printf("mouse position: %f, %f\n", input.x, input.y);
-		}
-	} else if (input.is_touchscreen) {
-		for (int j = 0; j<10; j++) {
-			printf("Sending kAdd %d to Flutter Engine\n", j);
-			input.ts_slots[j].id = -1;
-			ok = FlutterEngineSendPointerEvent(
-				engine,
-				& (FlutterPointerEvent) {
-					.struct_size = sizeof(FlutterPointerEvent),
-					.phase = kAdd,
-					.timestamp = (size_t) (FlutterEngineGetCurrentTime()*1000),
-					.device = j,
-					.x = 0,
-					.y = 0,
-					.signal_kind = kFlutterPointerSignalKindNone,
-					.device_kind = kFlutterPointerDeviceKindTouch
-				},
-				1
-			) == kSuccess;
-			if (!ok) {
-				fprintf(stderr, "Error sending Pointer message to flutter engine\n");
-				return false;
-			}
-		}
+				// check if the button state changed
+				// if yes, change the current pointer phase
+				if (!before != !device->active_buttons)
+					(device->is_pointer ? &mousepointer : active_mtslot) ->phase = before ? kUp : kDown;
 
-		input.ts_slot = &(input.ts_slots[0]);
-		while (1) {
-			int rd = read(input.fd, &event, sizeof(struct input_event)*64);
-			if (rd < (int) sizeof(struct input_event)) {
-				perror("error reading from input device");
-				return false;
-			}
+			} else if ((e->type == EV_SYN) && (e->code == SYN_REPORT)) {
+				
+				// We can now summarise the updates we received from the evdev into a FlutterPointerEvent
+				// and put it in the flutterevents buffer.
+				
+				size_t n_slots;
+				struct mousepointer_mtslot *slots;
 
-			n_pointerevents = 0;
-			for (int i = 0; i < rd / sizeof(struct input_event); i++) {
-				ev = &(event[i]);
-
-				if (ev->type == EV_ABS) {
-					if (ev->code == ABS_MT_SLOT) {
-						input.ts_slot = &(input.ts_slots[ev->value]);
-					} else if (ev->code == ABS_MT_TRACKING_ID) {
-						if (input.ts_slot->id == -1) {
-							input.ts_slot->id = ev->value;
-							input.ts_slot->phase = kDown;
-						} else if (ev->value == -1) {
-							input.ts_slot->id = ev->value;
-							input.ts_slot->phase = kUp;
-						}
-					} else if (ev->code == ABS_MT_POSITION_X) {
-						input.ts_slot->x = (ev->value - input.min_x) * width  / (input.max_x - input.min_x);
-						if (input.ts_slot->phase == kCancel) input.ts_slot->phase = kMove;
-					} else if (ev->code == ABS_MT_POSITION_Y) {
-						input.ts_slot->y = (ev->value - input.min_y) * height / (input.max_y - input.min_y);
-						if (input.ts_slot->phase == kCancel) input.ts_slot->phase = kMove;
-					}
-				} else if ((ev->type == EV_SYN) && (ev->code == SYN_REPORT)) {
-					for (int j = 0; j < 10; j++) {
-						if (input.ts_slots[j].phase != kCancel) {
-							pointer_event[n_pointerevents++] = (FlutterPointerEvent) {
-								.struct_size = sizeof(FlutterPointerEvent),
-								.phase = input.ts_slots[j].phase,
-								.timestamp = (size_t) (ev->time.tv_sec * 1000000ul) + ev->time.tv_usec,
-								.device = j,
-								.x = input.ts_slots[j].x,
-								.y = input.ts_slots[j].y,
-								.signal_kind = kFlutterPointerSignalKindNone,
-								.device_kind = kFlutterPointerDeviceKindTouch
-							};
-							input.ts_slots[j].phase = kCancel;
-						}
-					}
+				// if this is a pointer device, we don't care about the multitouch slots & only send the updated mousepointer.
+				if (device->is_pointer) {
+					slots = &mousepointer;
+					n_slots = 1;
+				} else if (device->is_direct) {
+					slots = device->mtslots;
+					n_slots = device->n_mtslots;
 				}
-			}
-			
-			if (n_pointerevents > 0) {
-				ok = FlutterEngineSendPointerEvent(
-					engine,
-					pointer_event,
-					n_pointerevents
-				) == kSuccess;
 
-				if (!ok) {
-					fprintf(stderr, "Error sending pointer events to flutter\n");
-					return false;
+				for (j = 0; j < n_slots; j++) {
+
+					// we don't want to send an event to flutter if nothing changed.
+					if (slots[j].phase == kCancel) continue;
+
+					flutterevents[i_flutterevent++] = (FlutterPointerEvent) {
+						.struct_size = sizeof(FlutterPointerEvent),
+						.phase = slots[j].phase,
+						.timestamp = e->time.tv_sec*1000000 + e->time.tv_usec,
+						.x = slots[j].x, .y = slots[j].y,
+						.device = slots[j].flutter_slot_id,
+						.signal_kind = kFlutterPointerSignalKindNone,
+						.scroll_delta_x = 0, .scroll_delta_y = 0,
+						.device_kind = device->kind,
+						.buttons = device->active_buttons & 0xFF
+					};
+
+					slots[j].phase = kCancel;
 				}
 			}
 		}
+		
+		if (n_ready_fds > 0) continue;
+		if (i_flutterevent == 0) continue;
+
+		// now, send the data to the flutter engine
+		ok = kSuccess == FlutterEngineSendPointerEvent(engine, flutterevents, i_flutterevent);
+		if (!ok) {
+			fprintf(stderr, "could not send pointer events to flutter engine\n");
+			return NULL;
+		}
+
+		i_flutterevent = 0;
 	}
 
 	return NULL;
 }
+
 bool  run_io_thread(void) {
 	int ok = pthread_create(&io_thread_id, NULL, &io_loop, NULL);
 	if (ok != 0) {
@@ -1283,46 +1459,36 @@ bool  run_io_thread(void) {
 
 
 bool  parse_cmd_args(int argc, char **argv) {
-	int opt;
-	int index = 0;
+	bool input_specified = false;
+	int ok, opt, index = 0;
+	input_devices_glob = (glob_t) {0};
 
-	while ((opt = getopt(argc, (char *const *) argv, "+m:t:")) != -1) {
+	while ((opt = getopt(argc, (char *const *) argv, "+i:h")) != -1) {
 		index++;
 		switch(opt) {
-			case 'm':
-				printf("Using mouse input from mouse %s\n", optarg);
-				snprintf(input.device_path, sizeof(input.device_path), "%s", optarg);
-				input.is_mouse = true;
-				input.is_touchscreen = false;
-
+			case 'i':
+				input_specified = true;
+				glob(optarg, GLOB_BRACE | GLOB_TILDE | (input_specified ? GLOB_APPEND : 0), NULL, &input_devices_glob);
 				index++;
 				break;
-			case 't':
-				printf("Using touchscreen input from %s\n", optarg);
-				snprintf(input.device_path, sizeof(input.device_path), "%s", optarg);
-				input.is_mouse = false;
-				input.is_touchscreen = true;
-
-				index++;
-				break;
+			case 'h':
 			default:
-				fprintf(stderr, "Unknown Option: %c\n%s", (char) optopt, usage);
+				printf("%s", usage);
 				return false;
 		}
 	}
-
-	if (strlen(input.device_path) == 0) {
-		fprintf(stderr, "At least one of -t or -r has to be given\n%s", usage);
-		return false;
-	}
+	
+	if (!input_specified)
+		// user specified no input devices. use /dev/input/event*.
+		glob("/dev/input/event*", GLOB_BRACE | GLOB_TILDE, NULL, &input_devices_glob);
 
 	if (optind >= argc) {
-		fprintf(stderr, "Expected Asset bundle path argument after options\n%s", usage);
+		fprintf(stderr, "error: expected asset bundle path after options.\n");
+		printf("%s", usage);
 		return false;
 	}
 
 	snprintf(flutter.asset_bundle_path, sizeof(flutter.asset_bundle_path), "%s", argv[optind]);
-	printf("Asset bundle path: %s\n", flutter.asset_bundle_path);
 
 	argv[optind] = argv[0];
 	flutter.engine_argc = argc-optind;
@@ -1354,9 +1520,7 @@ int   main(int argc, char **argv) {
 	}
 	
 	printf("Initializing Input devices...\n");
-	if (!init_io()) {
-		return EXIT_FAILURE;
-	}
+	init_io();
 
 	// initialize application
 	printf("Initializing Application...\n");
