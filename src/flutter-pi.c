@@ -40,7 +40,7 @@ char* usage ="\
 flutter-pi - run flutter apps on your Raspberry Pi.\n\
 \n\
 USAGE:\n\
-  flutter-pi [options] <asset bundle path> <flutter engine options...>\n\
+  flutter-pi [options] <asset bundle path> [flutter engine options]\n\
 \n\
 OPTIONS:\n\
   -i <glob pattern>   Appends all files matching this glob pattern\n\

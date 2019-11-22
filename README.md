@@ -6,6 +6,8 @@ You can now theoretically run every flutter app you want using flutter-pi, also 
 
 _The difference between extensions and plugins is that extensions don't include any native code, they are just pure dart. Plugins (like the [connectivity plugin](https://github.com/flutter/plugins/tree/master/packages/connectivity)) include platform-specific code._
 
+**Note:** flutter-pi should also work just fine on other 32-bit platforms, if they have Kernel-Modesetting and Direct-Rendering-Infrastructure support. (64-bit support is trivial, just haven't got around to implement it yet)
+
 ## Contents
 
 1. **[Running your App on the Raspberry Pi](#running-your-app-on-the-raspberry-pi)**  
@@ -44,7 +46,9 @@ void main() {
 ```
 
 ### Building the Asset bundle
-Then to build the asset bundle, run the following commands. I'm using flutter_gallery in this example. (note that the flutter_gallery example **does not work** with flutter-pi, since it includes plugins that have no platform-side implementation for the raspberry pi yet)
+Then to build the asset bundle, run the following commands. You **need** to use a flutter SDK that's compatible to the engine version you're using.
+
+I'm using `flutter_gallery` in this example. (note that the `flutter_gallery` example **does not work** with flutter-pi, since it includes plugins that have no platform-side implementation for the raspberry pi yet)
 ```bash
 cd flutter/examples/flutter_gallery
 flutter build bundle
@@ -53,25 +57,42 @@ flutter build bundle
 After that `flutter/examples/flutter_gallery/build/flutter_assets` would be a valid path to pass as an argument to flutter-pi.
 
 ### Running your App with flutter-pi
-flutter-pi doesn't support the legacy GL driver anymore. You need to activate the anholt v3d driver in raspi-config. Go to `raspi-config -> Advanced -> GL Driver` and select fake-KMS. Full-KMS is a bit buggy and doesn't work with the Raspberry Pi 7" display (or generally, any DSI display).
+flutter-pi doesn't support the legacy broadcom-proprietary graphics stack anymore. You need to activate the V3D / VC4-V3D driver in raspi-config. Go to `raspi-config -> Advanced -> GL Driver` and select fake-KMS. Full-KMS is a bit buggy and doesn't work with the Raspberry Pi 7" display (or generally, any DSI display).
 
-For some reason performance is much better when you give the VideCore only 16MB of RAM in fake-kms. I don't know why.
+For Raspberry Pi's older than the 4B Model, it's best to give the GPU as little RAM as possible in `raspi-config` (16MB), since the V3D / VC4-V3D driver doesn't need GPU RAM anymore. The Pi 4 automatically adjusts the memory split at runtime.
 
-Also, you need to tell flutter-pi which input device to use and whether it's a touchscreen or mouse. Input devices are typically located at `/dev/input/...`. Just run `evtest` (`sudo apt install evtest`) to find out which exact path you should use. Currently only one input device is supported by flutter-pi. In the future, I will probably let flutter-pi search for an input device by itself.
+```txt
+USAGE:
+  flutter-pi [options] <asset bundle path> [flutter engine options...]
 
-Run using
-```bash
-./flutter-pi [flutter-pi options...] /path/to/assets/bundle/directory [flutter engine arguments...]
+OPTIONS:
+  -i <glob pattern>   Appends all files matching this glob pattern
+                      to the list of input (touchscreen, mouse, touchpad)
+                      devices. Brace and tilde expansion is enabled.
+                      Every file that matches this pattern, but is not
+                      a valid touchscreen / -pad or mouse is silently
+                      ignored.
+                        If no -i options are given, all files matching
+                      "/dev/input/event*" will be used as inputs.
+                      This should be what you want in most cases.
+                        Note that you need to properly escape each glob pattern
+                      you use as a parameter so it isn't implicitly expanded
+                      by your shell.
+
+  -h                  Show this help and exit.
+
+EXAMPLES:
+  flutter-pi -i "/dev/input/event{0,1}" -i "/dev/input/event{2,3}" /home/helloworld_flutterassets
+  flutter-pi -i "/dev/input/mouse*" /home/pi/helloworld_flutterassets
+  flutter-pi /home/pi/helloworld_flutterassets
 ```
 
-`[flutter-pi options...]` are:
-- `-t /path/to/device` where `/path/to/device` is a path to a touchscreen input device (typically `/dev/input/event0` or similiar)
-- `-m /path/to/device` where `/path/to/device` is a path to a mouse input device (typically `/dev/input/mouse0` or `/dev/input/event0` or similiar)
-
-`/path/to/assets/bundle/directory` is the path of the flutter asset bundle directory (i.e. the directory containing the kernel_blob.bin)
+Also, `<asset bundle path>` is the path of the flutter asset bundle directory (i.e. the directory containing `kernel_blob.bin`)
 of the flutter app you're trying to run.
 
-`[flutter engine arguments...]` will be passed as commandline arguments to the flutter engine. You can find a list of commandline options for the flutter engine [Here](https://github.com/flutter/engine/blob/master/shell/common/switches.h).
+`[flutter engine options...]` will be passed as commandline arguments to the flutter engine. You can find a list of commandline options for the flutter engine [Here](https://github.com/flutter/engine/blob/master/shell/common/switches.h).
+
+It seems that sometimes, when running on the Pi 4, you need to run flutter-pi as root. At other times, it works fine without root. Don't know why that may be. If root is needed and flutter-pi is run without root, mesa will select _llvmpipe_ as the driver, and flutter-pi will issue a warning (and probably crash right after that).
 
 ## Dependencies
 ### flutter engine
@@ -106,7 +127,5 @@ Performance is actually better than I expected. With most of the apps inside the
 ## Touchscreen Bug
 ~~If you use the official 7 inch touchscreen, performance will feel much worse while dragging something. This seems to be some bug in the touchscreen driver. The embedder / userspace only gets around 25 touch events a second, meaning that while dragging something (like in tabbed_app_bar.dart), the position of the object being dragged is only updated 25 times a second. This results in the app looking like it runs at 25fps. The touchscreen could do up to 100 touch updates a second though.~~
 
-[This has been fixed.](https://github.com/raspberrypi/linux/issues/3227) If you want to get the fix, you can run [rpi-update](https://github.com/hexxeh/rpi-update), which will update your firmware & operating system to the newest version.
-
-Still, there's some delta between you touching the touchscreen and a touch event arriving at userspace. This is because of the implementation of the touch driver in the firmware & in the linux kernel. I think on average, there's a delay of 17ms. If I have enough time in the future, I'll try to build a better touchscreen driver to lower the delay.
+[This has been fixed.](https://github.com/raspberrypi/linux/issues/3227) Still, there's some delta between you touching the touchscreen and a touch event arriving at userspace. This is because of the implementation of the touch driver in the firmware & in the linux kernel. I think on average, there's a delay of 17ms. If I have enough time in the future, I'll try to build a better touchscreen driver to lower the delay.
 
