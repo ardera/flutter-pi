@@ -11,19 +11,35 @@
 
 #define EGL_PLATFORM_GBM_KHR	0x31D7
 
+typedef enum {
+	kVBlankRequest,
+	kVBlankReply,
+	kFlutterTask
+} flutterpi_task_type;
+
 struct flutterpi_task {
     struct flutterpi_task* next;
-	bool is_vblank_event;
+	flutterpi_task_type type;
 	union {
 		FlutterTask task;
-		drmVBlankReply vbl;
+		struct {
+			uint64_t vblank_ns;
+			intptr_t baton;
+		};
 	};
     uint64_t target_time;
 };
 
+void post_platform_task(struct flutterpi_task *task);
+
 struct drm_fb {
 	struct gbm_bo *bo;
 	uint32_t fb_id;
+};
+
+struct pageflip_data {
+	struct gbm_bo *releaseable_bo;
+	intptr_t next_baton;
 };
 
 // position & pointer phase of a mouse pointer / multitouch slot
