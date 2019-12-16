@@ -12,16 +12,16 @@ _The difference between extensions and plugins is that extensions don't include 
 
 1. **[Running your App on the Raspberry Pi](#running-your-app-on-the-raspberry-pi)**  
 1.1 [Patching the App](#patching-the-app)  
-1.2 [Building the Asset bundle](building-the-asset-bundle)  
-1.3 [Enabling the V3D / VC4-V3D driver](enabling-the-v3d-vc4-v3d-driver)  
-1.4 [Running your App with flutter-pi](running-your-app-with-flutter-pi)  
+1.2 [Building the Asset bundle](#building-the-asset-bundle)  
+1.3 [Enabling the V3D / VC4-V3D driver](#enabling-the-v3d--vc4-v3d-driver)  
+1.4 [Running your App with flutter-pi](#running-your-app-with-flutter-pi)  
 2. **[Dependencies](#dependencies)**  
 2.1 [flutter engine](#flutter-engine)  
 2.2 [graphics libs](#graphics-libs)  
 2.3 [fonts](#fonts)  
 3. **[Compiling flutter-pi (on the Raspberry Pi)](#compiling-flutter-pi-on-the-raspberry-pi)**  
 4. **[Performance](#performance)**  
-5. **[Touchscreen Bug](#touchscreen-bug)**  
+5. **[Touchscreen Latency](#touchscreen-latency)**  
 
 
 ## Running your App on the Raspberry Pi
