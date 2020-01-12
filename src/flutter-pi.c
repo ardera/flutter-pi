@@ -101,7 +101,6 @@ struct {
 	drmModeModeInfo *mode;
 	uint32_t crtc_id;
 	size_t crtc_index;
-	int waiting_for_flip;
 	struct gbm_bo *previous_bo;
 	drmEventContext evctx;
 } drm = {0};
@@ -136,9 +135,16 @@ struct {
 	FlutterProjectArgs args;
 	int engine_argc;
 	const char* const *engine_argv;
-	intptr_t next_vblank_baton;
-	struct FlutterPiPluginRegistry *registry;
 } flutter = {0};
+
+// Flutter VSync handles
+// stored as a ring buffer. i_batons is the offset of the first baton (0 - 63)
+// scheduled_frames - 1 is the number of total number of stored batons.
+// (If 5 vsync events were asked for by the flutter engine, you only need to store 4 batons.
+//  The baton for the first one that was asked for would've been returned immediately.)
+intptr_t        batons[64];
+uint8_t         i_batons = 0;
+int			    scheduled_frames = 0;
 
 glob_t					   input_devices_glob;
 size_t                     n_input_devices;
@@ -149,7 +155,7 @@ pthread_t io_thread_id;
 pthread_t platform_thread_id;
 struct flutterpi_task tasklist = {
 	.next = NULL,
-	.is_vblank_event = false,
+	.type = kFlutterTask,
 	.target_time = 0,
 	.task = {.runner = NULL, .task = 0}
 };
@@ -158,6 +164,7 @@ pthread_cond_t  task_added = PTHREAD_COND_INITIALIZER;
 
 FlutterEngine engine;
 _Atomic bool  engine_running = false;
+
 
 /*********************
  * FLUTTER CALLBACKS *
@@ -178,9 +185,13 @@ bool     	   clear_current(void* userdata) {
 	
 	return true;
 }
-void	 	   page_flip_handler(int fd, unsigned int frame, unsigned int sec, unsigned int usec, void *data) {
-	int *waiting_for_flip = data;
-	*waiting_for_flip = 0;
+void		   pageflip_handler(int fd, unsigned int frame, unsigned int sec, unsigned int usec, void *userdata) {
+	FlutterEngineTraceEventInstant("pageflip");
+	post_platform_task(&(struct flutterpi_task) {
+		.type = kVBlankReply,
+		.target_time = 0,
+		.vblank_ns = sec*1000000000ull + usec*1000ull,
+	});
 }
 void     	   drm_fb_destroy_callback(struct gbm_bo *bo, void *data) {
 	struct drm_fb *fb = data;
@@ -253,47 +264,22 @@ bool     	   present(void* userdata) {
 	struct drm_fb *fb;
 	int ok;
 
+	FlutterEngineTraceEventDurationBegin("present");
+
 	eglSwapBuffers(egl.display, egl.surface);
 	next_bo = gbm_surface_lock_front_buffer(gbm.surface);
 	fb = drm_fb_get_from_bo(next_bo);
 
-	/* wait for vsync, 
-	ok = drmModePageFlip(drm.fd, drm.crtc_id, fb->fb_id, DRM_MODE_PAGE_FLIP_EVENT, &drm.waiting_for_flip);
+	ok = drmModePageFlip(drm.fd, drm.crtc_id, fb->fb_id, DRM_MODE_PAGE_FLIP_EVENT, drm.previous_bo);
 	if (ok) {
-		fprintf(stderr, "failed to queue page flip: %s\n", strerror(errno));
+		perror("failed to queue page flip");
 		return false;
 	}
 
-	uint64_t t1 = FlutterEngineGetCurrentTime();
-
-	while (drm.waiting_for_flip) {
-		FD_ZERO(&fds);
-		FD_SET(0, &fds);
-		FD_SET(drm.fd, &fds);
-
-		ok = select(drm.fd+1, &fds, NULL, NULL, NULL);
-		if (ok < 0) {
-			fprintf(stderr, "select err: %s\n", strerror(errno));
-			return false;
-		} else if (ok == 0) {
-			fprintf(stderr, "select timeout!\n");
-			return false;
-		} else if (FD_ISSET(0, &fds)) {
-			fprintf(stderr, "user interrupted!\n");
-			return false;
-		}
-
-		drmHandleEvent(drm.fd, &drm.evctx);
-	}
-
-	uint64_t t2 = FlutterEngineGetCurrentTime();
-	printf("waited %" PRIu64 " nanoseconds for page flip\n", t2-t1);
-	*/
-
 	gbm_surface_release_buffer(gbm.surface, drm.previous_bo);
-	drm.previous_bo = next_bo;
+	drm.previous_bo = (struct gbm_bo *) next_bo;
 
-	drm.waiting_for_flip = 1;
+	FlutterEngineTraceEventDurationEnd("present");
 	
 	return true;
 }
@@ -434,8 +420,11 @@ void     	   on_platform_message(const FlutterPlatformMessage* message, void* us
 		fprintf(stderr, "PluginRegistry_onPlatformMessage failed: %s\n", strerror(ok));
 }
 void	 	   vsync_callback(void* userdata, intptr_t baton) {
-	// not yet implemented
-	fprintf(stderr, "flutter vsync callback not yet implemented\n");
+	post_platform_task(&(struct flutterpi_task) {
+		.type = kVBlankRequest,
+		.target_time = 0,
+		.baton = baton
+	});
 }
 
 
@@ -450,6 +439,7 @@ bool  init_message_loop() {
 bool  message_loop(void) {
 	struct timespec abstargetspec;
 	uint64_t currenttime, abstarget;
+	intptr_t baton;
 
 	while (true) {
 		pthread_mutex_lock(&tasklist_lock);
@@ -468,37 +458,71 @@ bool  message_loop(void) {
 			pthread_cond_timedwait(&task_added, &tasklist_lock, &abstargetspec);
 		}
 
-		FlutterTask task = tasklist.next->task;
-		struct flutterpi_task* new_first = tasklist.next->next;
-		free(tasklist.next);
-		tasklist.next = new_first;
+		struct flutterpi_task *task = tasklist.next;
+		tasklist.next = tasklist.next->next;
 
 		pthread_mutex_unlock(&tasklist_lock);
-		if (FlutterEngineRunTask(engine, &task) != kSuccess) {
+		if (task->type == kVBlankRequest || task->type == kVBlankReply) {
+			intptr_t baton;
+			bool     has_baton = false;
+			uint64_t ns;
+			
+			if (task->type == kVBlankRequest) {
+				if (scheduled_frames == 0) {
+					baton = task->baton;
+					has_baton = true;
+					drmCrtcGetSequence(drm.fd, drm.crtc_id, NULL, &ns);
+				} else {
+					batons[(i_batons + (scheduled_frames-1)) & 63] = task->baton;
+				}
+				scheduled_frames++;
+			} else if (task->type == kVBlankReply) {
+				if (scheduled_frames > 1) {
+					baton = batons[i_batons];
+					has_baton = true;
+					i_batons = (i_batons+1) & 63;
+					ns = task->vblank_ns;
+				}
+				scheduled_frames--;
+			}
+
+			if (has_baton) {
+				FlutterEngineOnVsync(engine, baton, ns, ns + (1000000000ull / refresh_rate));
+			}
+		
+		} else if (FlutterEngineRunTask(engine, &task->task) != kSuccess) {
 			fprintf(stderr, "Error running platform task\n");
 			return false;
 		};
+
+		free(task);
 	}
 
 	return true;
 }
-void  post_platform_task(FlutterTask task, uint64_t target_time, void* userdata) {
-	// prepare the task to be inserted into the tasklist.
-	struct flutterpi_task* to_insert = malloc(sizeof(struct flutterpi_task));
-	to_insert->next = NULL;
-	to_insert->task = task;
-	to_insert->target_time = target_time;
+void  post_platform_task(struct flutterpi_task *task) {
+	struct flutterpi_task *to_insert;
 	
-	// insert the task at a fitting position. (the tasks are ordered by target time)
+	to_insert = malloc(sizeof(struct flutterpi_task));
+	if (!to_insert) return;
+
+	memcpy(to_insert, task, sizeof(struct flutterpi_task));
 	pthread_mutex_lock(&tasklist_lock);
 		struct flutterpi_task* this = &tasklist;
-		while ((this->next) != NULL && (target_time > this->next->target_time))
+		while ((this->next) != NULL && (to_insert->target_time > this->next->target_time))
 			this = this->next;
 
 		to_insert->next = this->next;
 		this->next = to_insert;
 	pthread_mutex_unlock(&tasklist_lock);
 	pthread_cond_signal(&task_added);
+}
+void  flutter_post_platform_task(FlutterTask task, uint64_t target_time, void* userdata) {
+	post_platform_task(&(struct flutterpi_task) {
+		.type = kFlutterTask,
+		.task = task,
+		.target_time = target_time
+	});
 }
 bool  runs_platform_tasks_on_current_thread(void* userdata) {
 	return pthread_equal(pthread_self(), platform_thread_id) != 0;
@@ -956,16 +980,19 @@ bool init_display(void) {
 			   "         This warning will probably result in a \"failed to set mode\" error\n"
 			   "         later on in the initialization.\n");
 
-	drm.evctx.version = 2;
-	drm.evctx.page_flip_handler = page_flip_handler;
-	//drm.evctx.vblank_handler = vblank_handler;
+	drm.evctx = (drmEventContext) {
+		.version = 4,
+		.vblank_handler = NULL,
+		.page_flip_handler = pageflip_handler,
+		.page_flip_handler2 = NULL,
+		.sequence_handler = NULL
+	};
 
 	printf("Swapping buffers...\n");
 	eglSwapBuffers(egl.display, egl.surface);
 
 	printf("Locking front buffer...\n");
 	drm.previous_bo = gbm_surface_lock_front_buffer(gbm.surface);
-
 
 	printf("getting new framebuffer for BO...\n");
 	struct drm_fb *fb = drm_fb_get_from_bo(drm.previous_bo);
@@ -974,15 +1001,12 @@ bool init_display(void) {
 		return false;
 	}
 
-
 	printf("Setting CRTC...\n");
 	ok = drmModeSetCrtc(drm.fd, drm.crtc_id, fb->fb_id, 0, 0, &drm.connector_id, 1, drm.mode);
 	if (ok) {
 		fprintf(stderr, "failed to set mode: %s\n", strerror(errno));
 		return false;
 	}
-
-	drm.waiting_for_flip = 1;
 
 	printf("Clearing current context...\n");
 	if (!eglMakeCurrent(egl.display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT)) {
@@ -1038,10 +1062,10 @@ bool init_application(void) {
 			.struct_size = sizeof(FlutterTaskRunnerDescription),
 			.user_data = NULL,
 			.runs_task_on_current_thread_callback = &runs_platform_tasks_on_current_thread,
-			.post_task_callback = &post_platform_task
+			.post_task_callback = &flutter_post_platform_task
 		}
 	};
-	//flutter.args.vsync_callback				= vsync_callback;
+	flutter.args.vsync_callback				= vsync_callback;
 	
 	// spin up the engine
 	FlutterEngineResult _result = FlutterEngineRun(FLUTTER_ENGINE_VERSION, &flutter.renderer_config, &flutter.args, NULL, &engine);
@@ -1085,12 +1109,16 @@ void destroy_application(void) {
 /****************
  * Input-Output *
  ****************/
-void init_io(void) {
+void  init_io(void) {
 	int ok;
 	int n_flutter_slots = 0;
+	FlutterPointerEvent   flutterevents[64] = {0};
+	size_t                i_flutterevent = 0;
 
 	n_input_devices = 0;
 	input_devices = NULL;
+
+	// add the mouse slot
 	mousepointer = (struct mousepointer_mtslot) {
 		.id = 0,
 		.flutter_slot_id = n_flutter_slots++,
@@ -1098,6 +1126,19 @@ void init_io(void) {
 		.phase = kCancel
 	};
 
+	flutterevents[i_flutterevent++] = (FlutterPointerEvent) {
+		.struct_size = sizeof(FlutterPointerEvent),
+		.phase = kAdd,
+		.timestamp = (size_t) (FlutterEngineGetCurrentTime()*1000),
+		.x = 0,
+		.y = 0,
+		.signal_kind = kFlutterPointerSignalKindNone,
+		.device_kind = kFlutterPointerDeviceKindMouse,
+		.device = 0,
+		.buttons = 0
+	};
+
+	
 	// go through all the given paths and add everything you can
 	for (int i=0; i < input_devices_glob.gl_pathc; i++) {
 		struct input_device dev = {0};
@@ -1189,13 +1230,26 @@ void init_io(void) {
 			dev.mtslots[j].flutter_slot_id = n_flutter_slots++;
 			dev.mtslots[j].x = -1;
 			dev.mtslots[j].y = -1;
+
+			if (dev.is_pointer) continue;
+
+			flutterevents[i_flutterevent++] = (FlutterPointerEvent) {
+				.struct_size = sizeof(FlutterPointerEvent),
+				.phase = kAdd,
+				.timestamp = (size_t) (FlutterEngineGetCurrentTime()*1000),
+				.x = dev.mtslots[j].x == -1 ? 0 : dev.mtslots[j].x,
+				.y = dev.mtslots[j].y == -1 ? 0 : dev.mtslots[j].y,
+				.signal_kind = kFlutterPointerSignalKindNone,
+				.device_kind = dev.kind,
+				.device = dev.mtslots[j].flutter_slot_id,
+				.buttons = 0
+			};
 		}
 
 		// if everything worked we expand the input_devices array and add our dev.
 		input_devices = realloc(input_devices, ++n_input_devices * sizeof(struct input_device));
 		input_devices[n_input_devices-1] = dev;
 		continue;
-
 
 		close_continue:
 			close(dev.fd);
@@ -1204,83 +1258,25 @@ void init_io(void) {
 
 	if (n_input_devices == 0)
 		printf("Warning: No input devices configured.\n");
+	
+	// now send all the kAdd events to flutter.
+	ok = kSuccess == FlutterEngineSendPointerEvent(engine, flutterevents, i_flutterevent);
+	if (!ok) fprintf(stderr, "error while sending initial mousepointer / multitouch slot information to flutter\n");
+	i_flutterevent = 0;
 }
-
-void *io_loop(void *userdata) {
+void  on_user_input(fd_set fds, size_t n_ready_fds) {
 	struct input_event    linuxevents[64];
 	size_t                n_linuxevents;
 	struct input_device  *device;
 	struct mousepointer_mtslot *active_mtslot;
 	FlutterPointerEvent   flutterevents[64] = {0};
 	size_t                i_flutterevent = 0;
-	fd_set read_fdset;
-	int    ok, nfds = 0, n_ready_fds = 0, i, j;
+	int    ok, i, j;
 
-	// insert all fds into the read fdset, and add all multitouch slots to the flutter engine
-	i_flutterevent = 0;
-
-	// add the mouse slot
-	flutterevents[i_flutterevent++] = (FlutterPointerEvent) {
-		.struct_size = sizeof(FlutterPointerEvent),
-		.phase = kAdd,
-		.timestamp = (size_t) (FlutterEngineGetCurrentTime()*1000),
-		.x = 0,
-		.y = 0,
-		.signal_kind = kFlutterPointerSignalKindNone,
-		.device_kind = kFlutterPointerDeviceKindMouse,
-		.device = 0,
-		.buttons = 0
-	};
-
-	// we now add all multitouch slots for every device that has device->is_pointer not set,
-	// as well as add all file-descriptors to the "read_fdset" file-descriptor set.
-
-	FD_ZERO(&read_fdset);
-	for (device = input_devices, i = 0; i < n_input_devices; device = &input_devices[++i]) {
-		FD_SET(device->fd, &read_fdset);
-		if (device->fd + 1 > nfds) nfds = device->fd + 1;
-
-		// only add the multitouch slots for touchscreens, not for mt touchpads		
-		if (device->is_pointer)
-			continue;
-
-		// go through all multitouch slots and add them to the engine
-		for (j = 0, active_mtslot = device->mtslots; j < device->n_mtslots; active_mtslot = &device->mtslots[++j]) {
-			flutterevents[i_flutterevent++] = (FlutterPointerEvent) {
-				.struct_size = sizeof(FlutterPointerEvent),
-				.phase = kAdd,
-				.timestamp = (size_t) (FlutterEngineGetCurrentTime()*1000),
-				.x = active_mtslot->x == -1 ? 0 : active_mtslot->x,
-				.y = active_mtslot->y == -1 ? 0 : active_mtslot->y,
-				.signal_kind = kFlutterPointerSignalKindNone,
-				.device_kind = device->kind,
-				.device = active_mtslot->flutter_slot_id,
-				.buttons = 0
-			};
-		}
-	}
-	const fd_set const_read_fdset = read_fdset;
-	
-	// now send all the kAdd events to flutter.
-	ok = kSuccess == FlutterEngineSendPointerEvent(engine, flutterevents, i_flutterevent);
-	if (!ok) fprintf(stderr, "error while sending initial mousepointer / multitouch slot information to flutter\n");
-	i_flutterevent = 0;
-
-	while (engine_running && n_input_devices > 0) {
-		// wait for any device to offer new data,
-		// but only if no file descriptors have new data.
-		if (n_ready_fds == 0) {
-			read_fdset = const_read_fdset;
-			n_ready_fds = select(nfds, &read_fdset, NULL, NULL, NULL);
-			if (n_ready_fds == -1) {
-				perror("error waiting for input events");
-				return NULL;
-			}
-		}
-
+	while (n_ready_fds > 0) {
 		// find out which device got new data
 		i = 0;
-		while (!FD_ISSET(input_devices[i].fd, &read_fdset))  i++;
+		while (!FD_ISSET(input_devices[i].fd, &fds))  i++;
 		device = &input_devices[i];
 		active_mtslot = &device->mtslots[device->i_active_mtslot];
 
@@ -1289,11 +1285,11 @@ void *io_loop(void *userdata) {
 		if (ok == -1) {
 			fprintf(stderr, "error reading input events from device \"%s\" with path \"%s\": %s\n",
 					input_devices[i].name, input_devices[i].path, strerror(errno));
-			return NULL;
+			return;
 		} else if (ok == 0) {
 			fprintf(stderr, "reached EOF for input device \"%s\" with path \"%s\": %s\n",
 					input_devices[i].name, input_devices[i].path, strerror(errno));
-			return NULL;
+			return;
 		}
 		n_ready_fds--;
 		n_linuxevents = ok / sizeof(struct input_event);
@@ -1424,23 +1420,66 @@ void *io_loop(void *userdata) {
 				}
 			}
 		}
-		
-		if (n_ready_fds > 0) continue;
-		if (i_flutterevent == 0) continue;
+	}
 
-		// now, send the data to the flutter engine
-		ok = kSuccess == FlutterEngineSendPointerEvent(engine, flutterevents, i_flutterevent);
-		if (!ok) {
-			fprintf(stderr, "could not send pointer events to flutter engine\n");
+	if (i_flutterevent == 0) return;
+
+	// now, send the data to the flutter engine
+	ok = kSuccess == FlutterEngineSendPointerEvent(engine, flutterevents, i_flutterevent);
+	if (!ok) {
+		fprintf(stderr, "could not send pointer events to flutter engine\n");
+	}
+
+	i_flutterevent = 0;
+}
+void *io_loop(void *userdata) {
+	int n_ready_fds;
+	fd_set fds;
+	int nfds;
+
+
+	// put all file-descriptors in the `fds` fd set
+	nfds = 0;
+	FD_ZERO(&fds);
+
+	for (int i = 0; i < n_input_devices; i++) {
+		FD_SET(input_devices[i].fd, &fds);
+		if (input_devices[i].fd +1 > nfds) nfds = input_devices[i].fd;
+	}
+
+	FD_SET(drm.fd, &fds);
+	if (drm.fd +1 > nfds) nfds = drm.fd;
+
+	const fd_set const_fds = fds;
+
+	while (engine_running) {
+		// wait for any device to offer new data,
+		// but only if no file descriptors have new data.
+		n_ready_fds = select(nfds, &fds, NULL, NULL, NULL);
+
+		if (n_ready_fds == -1) {
+			perror("error while waiting for I/O");
+			return NULL;
+		} else if (n_ready_fds == 0) {
+			perror("reached EOF while waiting for I/O");
 			return NULL;
 		}
+		
+		if (FD_ISSET(drm.fd, &fds)) {
+			drmHandleEvent(drm.fd, &drm.evctx);
+			FD_CLR(drm.fd, &fds);
+			n_ready_fds--;
+		}
 
-		i_flutterevent = 0;
+		if (n_ready_fds > 0) {
+			on_user_input(fds, n_ready_fds);
+		}
+
+		fds = const_fds;
 	}
 
 	return NULL;
 }
-
 bool  run_io_thread(void) {
 	int ok = pthread_create(&io_thread_id, NULL, &io_loop, NULL);
 	if (ok != 0) {
