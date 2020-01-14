@@ -1,6 +1,7 @@
 #include <ctype.h>
 #include <errno.h>
 
+#include <flutter-pi.h>
 #include <pluginregistry.h>
 #include "services-plugin.h"
 
@@ -62,6 +63,58 @@ int Services_onReceivePlatform(char *channel, struct ChannelObject *object, Flut
          *      portraitUp, landscapeLeft, portraitDown, landscapeRight
          *  }
          */
+        
+        value = &object->jsarg;
+        
+        if (value->type != kJSArray)
+            return PlatformChannel_respondError(responsehandle, kJSONMethodCallResponse, "illegalargument", "Expected List as argument", NULL);
+        
+        if (value->size == 0)
+            return PlatformChannel_respondError(responsehandle, kJSONMethodCallResponse, "illegalargument", "Argument List must have at least one value", NULL);
+
+
+        bool preferred_orientations[kLandscapeRight+1] = {0};
+
+        for (int i = 0; i < value->size; i++) {
+
+            if (value->array[i].type != kJSString) {
+                return PlatformChannel_respondError(
+                    responsehandle, kJSONMethodCallResponse,
+                    "illegalargument", "Argument List should only contain strings", NULL
+                );
+            }
+            
+            enum device_orientation o = ORIENTATION_FROM_STRING(value->array[i].string_value);
+
+            if (o == -1) {
+                return PlatformChannel_respondError(
+                    responsehandle, kJSONMethodCallResponse,
+                    "illegalargument",
+                    "Argument List elements should values of the DeviceOrientation enum",
+                    NULL
+                );
+            }
+
+            // if the list contains the current orientation, we just return and don't change the current orientation at all.
+            if (o == orientation) {
+                return 0;
+            }
+
+            preferred_orientations[o] = true;
+        }
+
+        // if we have to change the orientation, we go through the orientation enum in the defined order and
+        // select the first one that is preferred by flutter.
+        for (int i = kPortraitUp; i <= kLandscapeRight; i++) {
+            if (preferred_orientations[i]) {
+                post_platform_task(&(struct flutterpi_task) {
+                    .type = kUpdateOrientation,
+                    .orientation = i,
+                    .target_time = 0
+                });
+                return 0;
+            }
+        }
     } else if (strcmp(object->method, "SystemChrome.setApplicationSwitcherDescription") == 0) {
         /*
          *  SystemChrome.setApplicationSwitcherDescription(Map description)

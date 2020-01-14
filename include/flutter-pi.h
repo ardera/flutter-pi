@@ -4,6 +4,7 @@
 #include <limits.h>
 #include <linux/input.h>
 #include <stdbool.h>
+#include <math.h>
 #include <xf86drm.h>
 #include <xf86drmMode.h>
 #include <stdint.h>
@@ -11,9 +12,28 @@
 
 #define EGL_PLATFORM_GBM_KHR	0x31D7
 
+enum device_orientation {
+	kPortraitUp, kLandscapeLeft, kPortraitDown, kLandscapeRight
+};
+
+#define ANGLE_FROM_ORIENTATION(o) \
+	((o) == kPortraitUp ? 0 : \
+	 (o) == kLandscapeLeft ? 90 : \
+	 (o) == kPortraitDown ? 180 : \
+	 (o) == kLandscapeRight ? 270 : 0)
+
+#define FLUTTER_ROTATION_TRANSFORMATION(deg) ((FlutterTransformation) \
+			{.scaleX = cos(((double) (deg))/180.0*M_PI), .skewX  = -sin(((double) (deg))/180.0*M_PI), .transX = 0, \
+			 .skewY  = sin(((double) (deg))/180.0*M_PI), .scaleY = cos(((double) (deg))/180.0*M_PI),  .transY = 0, \
+			 .pers0  = 0,					.pers1  = 0,					.pers2  = 1})
+
+
+extern enum device_orientation orientation;
+
 typedef enum {
 	kVBlankRequest,
 	kVBlankReply,
+	kUpdateOrientation,
 	kFlutterTask
 } flutterpi_task_type;
 
@@ -26,6 +46,7 @@ struct flutterpi_task {
 			uint64_t vblank_ns;
 			intptr_t baton;
 		};
+		enum device_orientation orientation;
 	};
     uint64_t target_time;
 };
@@ -80,6 +101,8 @@ struct mousepointer_mtslot {
 	(phase) == kHover ? "kHover" : "???")
 
 #define ISSET(uint32bitmap, bit) (uint32bitmap[(bit)/32] & (1 << ((bit) & 0x1F)))
+
+#define STREQ(a, b) (strcmp(a, b) == 0)
 
 struct input_device {
 	char path[PATH_MAX];
