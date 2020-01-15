@@ -1519,11 +1519,11 @@ void *io_loop(void *userdata) {
 
 	for (int i = 0; i < n_input_devices; i++) {
 		FD_SET(input_devices[i].fd, &fds);
-		if (input_devices[i].fd +1 > nfds) nfds = input_devices[i].fd;
+		if (input_devices[i].fd + 1 > nfds) nfds = input_devices[i].fd + 1;
 	}
 
 	FD_SET(drm.fd, &fds);
-	if (drm.fd +1 > nfds) nfds = drm.fd;
+	if (drm.fd + 1 > nfds) nfds = drm.fd + 1;
 
 	const fd_set const_fds = fds;
 
