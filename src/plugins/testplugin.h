@@ -4,6 +4,10 @@
 #include <stdio.h>
 #include <string.h>
 
+#define TESTPLUGIN_CHANNEL_JSON "flutter-pi/testjson"
+#define TESTPLUGIN_CHANNEL_STD "flutter-pi/teststd"
+#define TESTPLUGIN_CHANNEL_PING "flutter-pi/ping"
+
 extern int TestPlugin_init(void);
 extern int TestPlugin_deinit(void);
 

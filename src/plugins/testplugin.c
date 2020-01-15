@@ -3,9 +3,8 @@
 #include <inttypes.h>
 
 #include <pluginregistry.h>
+#include "testplugin.h"
 
-#define TESTPLUGIN_CHANNEL_JSON "plugins.flutter-pi.io/testjson"
-#define TESTPLUGIN_CHANNEL_STD "plugins.flutter-pi.io/teststd"
 #define INDENT_STRING "                    "
 
 int __printJSON(struct JSONMsgCodecValue *value, int indent) {
@@ -141,6 +140,7 @@ int printStd(struct StdMsgCodecValue *value, int indent) {
 
 #undef INDENT_STRING
 
+uint64_t testplugin_time_offset;
 
 int TestPlugin_onReceiveResponseJSON(struct ChannelObject *object, void *userdata) {
     uint64_t dt = FlutterEngineGetCurrentTime() - *((uint64_t*) userdata);
@@ -295,15 +295,25 @@ int TestPlugin_onReceiveStd(char *channel, struct ChannelObject *object, Flutter
         }
     );
 }
+int TestPlugin_onReceivePing(char *channel, struct ChannelObject *object, FlutterPlatformMessageResponseHandle *responsehandle) {
+    return PlatformChannel_respond(
+        responsehandle,
+        &(struct ChannelObject) {
+            .codec = kStringCodec,
+            .string_value = "pong"
+        }
+    );
+}
 
 
 int TestPlugin_init(void) {
-    printf("Initializing Testplugin\n");
+    printf("[test-plugin] init.\n");
     PluginRegistry_setReceiver(TESTPLUGIN_CHANNEL_JSON, kJSONMethodCall, TestPlugin_onReceiveJSON);
     PluginRegistry_setReceiver(TESTPLUGIN_CHANNEL_STD, kStandardMethodCall, TestPlugin_onReceiveStd);
+    PluginRegistry_setReceiver(TESTPLUGIN_CHANNEL_PING, kStringCodec, TestPlugin_onReceivePing);
     return 0;
 }
 int TestPlugin_deinit(void) {
-    printf("Deinitializing Testplugin\n");
+    printf("[test-plugin] deinit.\n");
     return 0;
 }
