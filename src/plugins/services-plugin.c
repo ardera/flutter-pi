@@ -180,36 +180,103 @@ int Services_onReceiveAccessibility(char *channel, struct ChannelObject *object,
 }
 
 
+int Services_onReceiveTextInput(char *channel, struct ChannelObject *object, FlutterPlatformMessageResponseHandle *responsehandle) {
+
+    if STREQ(object->method, "TextInput.setClient") {
+        /*
+         *  TextInput.setClient(List)
+         *      Establishes a new transaction. The argument is
+         *      a [List] whose first value is an integer representing a previously
+         *      unused transaction identifier, and the second is a [String] with a
+         *      JSON-encoded object with five keys, as obtained from
+         *      [TextInputConfiguration.toJSON]. This method must be invoked before any
+         *      others (except `TextInput.hide`). See [TextInput.attach].
+         */
+
+    } else if STREQ(object->method, "TextInput.show") {
+        /*
+         *  TextInput.show()
+         *      Show the keyboard. See [TextInputConnection.show].
+         * 
+         */
+    } else if STREQ(object->method, "TextInput.setEditingState") {
+        /*
+         *  TextInput.setEditingState(String textEditingValue)
+         *      Update the value in the text editing control. The argument is a
+         *      [String] with a JSON-encoded object with seven keys, as
+         *      obtained from [TextEditingValue.toJSON].
+         *      See [TextInputConnection.setEditingState].
+         * 
+         */
+    } else if STREQ(object->method, "TextInput.clearClient") {
+        /* 
+         *  TextInput.clearClient()
+         *      End the current transaction. The next method called must be
+         *      `TextInput.setClient` (or `TextInput.hide`).
+         *      See [TextInputConnection.close].
+         * 
+         */
+    } else if STREQ(object->method, "TextInput.hide") {
+        /*
+         *  TextInput.hide()
+         *      Hide the keyboard. Unlike the other methods, this can be called
+         *      at any time. See [TextInputConnection.close].
+         * 
+         */
+    }
+
+    return PlatformChannel_respondNotImplemented(responsehandle);
+}
+
+
+int Services_TextInput_updateEditingState(struct text_editing_value newState) {
+}
+
+int Services_TextInput_performAction(enum text_input_action action) {
+
+}
+
+int Services_TextInput_onConnectionClosed() {
+
+}
+
+
 int Services_init(void) {
     int ok;
 
+    printf("[services-plugin] init.\n");
+
     ok = PluginRegistry_setReceiver("flutter/navigation", kJSONMethodCall, Services_onReceiveNavigation);
     if (ok != 0) {
-        printf("Could not set flutter/navigation ChannelObject receiver: %s\n", strerror(ok));
+        fprintf(stderr, "[services-plugin] could not set \"flutter/navigation\" ChannelObject receiver: %s\n", strerror(ok));
         return ok;
     }
 
     ok = PluginRegistry_setReceiver("flutter/isolate", kBinaryCodec, Services_onReceiveIsolate);
     if (ok != 0) {
-        printf("Could not set flutter/isolate  ChannelObject receiver: %s\n", strerror(ok));
+        fprintf(stderr, "[services-plugin] could not set \"flutter/isolate\" ChannelObject receiver: %s\n", strerror(ok));
         return ok;
     }
 
     ok = PluginRegistry_setReceiver("flutter/platform", kJSONMethodCall, Services_onReceivePlatform);
     if (ok != 0) {
-        printf("Could not set flutter/platform ChannelObject receiver: %s\n", strerror(ok));
+        fprintf(stderr, "[services-plugin] could not set \"flutter/platform\" ChannelObject receiver: %s\n", strerror(ok));
         return ok;
     }
 
     ok = PluginRegistry_setReceiver("flutter/accessibility", kBinaryCodec, Services_onReceiveAccessibility);
     if (ok != 0) {
-        printf("Could not set flutter/accessibility  ChannelObject receiver: %s\n", strerror(ok));
+        fprintf(stderr, "[services-plugin] could not set \"flutter/accessibility\" ChannelObject receiver: %s\n", strerror(ok));
         return ok;
     }
 
-    printf("Initialized Services plugin.\n");
+    ok = PluginRegistry_setReceiver("flutter/textinput", kJSONMethodCall, Services_onReceiveTextInput);
+    if (ok != 0) {
+        fprintf(stderr, "[services-plugin] could not set \"flutter/textinput\" ChannelObject receiver: %s\n", strerror(ok));
+        return ok;
+    }
 }
 
 int Services_deinit(void) {
-    printf("Deinitialized Services plugin.\n");
+    printf("[services-plugin] deinit.\n");
 }

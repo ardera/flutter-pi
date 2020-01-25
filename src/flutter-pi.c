@@ -34,6 +34,7 @@
 #include <flutter-pi.h>
 #include <platformchannel.h>
 #include <pluginregistry.h>
+#include "plugins/services-plugin.h"
 
 
 char* usage ="\
@@ -484,7 +485,7 @@ bool  message_loop(void) {
 		pthread_mutex_lock(&tasklist_lock);
 
 		// wait for a task to be inserted into the list
-		while ((tasklist.next == NULL))
+		while (tasklist.next == NULL)
 			pthread_cond_wait(&task_added, &tasklist_lock);
 		
 		// wait for a task to be ready to be run
@@ -537,7 +538,7 @@ bool  message_loop(void) {
 			orientation = task->orientation;
 
 			// send updated window metrics to flutter
-			FlutterEngineResult result = FlutterEngineSendWindowMetricsEvent(engine, &(const FlutterWindowMetricsEvent) {
+			FlutterEngineSendWindowMetricsEvent(engine, &(const FlutterWindowMetricsEvent) {
 				.struct_size = sizeof(FlutterWindowMetricsEvent),
 
 				// we send swapped width/height if the screen is rotated 90 or 270 degrees.
@@ -622,9 +623,9 @@ bool init_display(void) {
 	 * DRM INITIALIZATION *
 	 **********************/
 
-	drmModeRes *resources;
+	drmModeRes *resources = NULL;
 	drmModeConnector *connector;
-	drmModeEncoder *encoder;
+	drmModeEncoder *encoder = NULL;
 	int i, ok, area;
 	
 	if (!drm.has_device) {
@@ -700,7 +701,7 @@ bool init_display(void) {
 			printf("    flutter-pi chose \"%s\" as its DRM device.\n", device->nodes[DRM_NODE_PRIMARY]);
 			drm.fd = fd;
 			drm.has_device = true;
-			snprintf(drm.device, sizeof(drm.device)-1, device->nodes[DRM_NODE_PRIMARY]);
+			snprintf(drm.device, sizeof(drm.device)-1, "%s", device->nodes[DRM_NODE_PRIMARY]);
 		}
 
 		if (!drm.has_device) {
@@ -870,9 +871,7 @@ bool init_display(void) {
 	gbm.surface = NULL;
 	gbm.modifier = DRM_FORMAT_MOD_LINEAR;
 
-	if (gbm_surface_create_with_modifiers) {
-		gbm.surface = gbm_surface_create_with_modifiers(gbm.device, width, height, gbm.format, &gbm.modifier, 1);
-	}
+	gbm.surface = gbm_surface_create_with_modifiers(gbm.device, width, height, gbm.format, &gbm.modifier, 1);
 
 	if (!gbm.surface) {
 		if (gbm.modifier != DRM_FORMAT_MOD_LINEAR) {
@@ -935,7 +934,7 @@ bool init_display(void) {
 	egl.modifiers_supported = strstr(egl_exts_dpy, "EGL_EXT_image_dma_buf_import_modifiers") != NULL;
 
 
-	printf("Using display %d with EGL version %d.%d\n", egl.display, major, minor);
+	printf("Using display %p with EGL version %d.%d\n", egl.display, major, minor);
 	printf("===================================\n");
 	printf("EGL information:\n");
 	printf("  version: %s\n", eglQueryString(egl.display, EGL_VERSION));
@@ -1224,7 +1223,7 @@ void  init_io(void) {
 		}
 
 		printf("      %s, connected via %s. vendor: 0x%04X, product: 0x%04X, version: 0x%04X\n", dev.name,
-			   INPUT_BUSTYPE_FRIENDLY_NAME(dev.input_id.bustype), dev.input_id.vendor, dev.input_id.vendor);
+			   INPUT_BUSTYPE_FRIENDLY_NAME(dev.input_id.bustype), dev.input_id.vendor, dev.input_id.product, dev.input_id.version);
 
 		// query supported event codes (for EV_ABS, EV_REL and EV_KEY event types)
 		ok = ioctl(dev.fd, EVIOCGBIT(EV_ABS, sizeof(absbits)), absbits);
@@ -1320,7 +1319,6 @@ void  init_io(void) {
 	// now send all the kAdd events to flutter.
 	ok = kSuccess == FlutterEngineSendPointerEvent(engine, flutterevents, i_flutterevent);
 	if (!ok) fprintf(stderr, "error while sending initial mousepointer / multitouch slot information to flutter\n");
-	i_flutterevent = 0;
 }
 void  on_user_input(fd_set fds, size_t n_ready_fds) {
 	struct input_event    linuxevents[64];
@@ -1433,6 +1431,8 @@ void  on_user_input(fd_set fds, size_t n_ready_fds) {
 				if (e->code != BTN_TOUCH || device->is_direct) {
 					if (e->value == 1) device->active_buttons |=  FLUTTER_BUTTON_FROM_EVENT_CODE(e->code);
 					else               device->active_buttons &= ~FLUTTER_BUTTON_FROM_EVENT_CODE(e->code);
+				} else {
+					Services_sendKeyEvent()
 				}
 
 				// check if the button state changed
@@ -1445,7 +1445,7 @@ void  on_user_input(fd_set fds, size_t n_ready_fds) {
 				// We can now summarise the updates we received from the evdev into a FlutterPointerEvent
 				// and put it in the flutterevents buffer.
 				
-				size_t n_slots;
+				size_t n_slots = 0;
 				struct mousepointer_mtslot *slots;
 
 				// if this is a pointer device, we don't care about the multitouch slots & only send the updated mousepointer.
@@ -1504,8 +1504,6 @@ void  on_user_input(fd_set fds, size_t n_ready_fds) {
 	if (!ok) {
 		fprintf(stderr, "could not send pointer events to flutter engine\n");
 	}
-
-	i_flutterevent = 0;
 }
 void *io_loop(void *userdata) {
 	int n_ready_fds;

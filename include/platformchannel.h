@@ -248,7 +248,7 @@ int PlatformChannel_free(struct ChannelObject *object);
 
 /// returns true if values a and b are equal.
 /// for JS arrays, the order of the values is relevant
-/// (so two arrays are only equal if the same values in appear in exactly same order)
+/// (so two arrays are only equal if the same values appear in exactly same order)
 /// for objects, the order of the entries is irrelevant.
 bool jsvalue_equals(struct JSONMsgCodecValue *a, struct JSONMsgCodecValue *b);
 
