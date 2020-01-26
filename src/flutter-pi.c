@@ -1445,7 +1445,7 @@ void  on_user_input(fd_set fds, size_t n_ready_fds) {
 				// We can now summarise the updates we received from the evdev into a FlutterPointerEvent
 				// and put it in the flutterevents buffer.
 				
-				size_t n_slots;
+				size_t n_slots = 0;
 				struct mousepointer_mtslot *slots;
 
 				// if this is a pointer device, we don't care about the multitouch slots & only send the updated mousepointer.
