@@ -8,6 +8,7 @@
 #include "plugins/services-plugin.h"
 #include "plugins/testplugin.h"
 #include "plugins/elm327plugin.h"
+#include "plugins/gpio-plugin.h"
 
 
 struct ChannelObjectReceiverData {
@@ -27,11 +28,15 @@ struct FlutterPiPlugin hardcoded_plugins[] = {
 	{.name = "services",     .init = Services_init, .deinit = Services_deinit},
 
 #ifdef BUILD_TESTPLUGIN	
-	{.name = "testplugin",   .init = TestPlugin_init, .deinit = TestPlugin_deinit}
+	{.name = "testplugin",   .init = TestPlugin_init, .deinit = TestPlugin_deinit},
 #endif
 
 #ifdef BUILD_ELM327PLUGIN
-	{.name = "elm327plugin", .init = ELM327Plugin_init, .deinit = ELM327Plugin_deinit}
+	{.name = "elm327plugin", .init = ELM327Plugin_init, .deinit = ELM327Plugin_deinit},
+#endif
+
+#ifdef BUILD_GPIO_PLUGIN
+	{.name = "gpio-plugin",  .init = GpioPlugin_init, .deinit = GpioPlugin_deinit},
 #endif
 };
 //size_t hardcoded_plugins_count;

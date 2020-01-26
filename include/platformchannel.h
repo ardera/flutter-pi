@@ -96,6 +96,25 @@ struct StdMsgCodecValue {
     };
 };
 
+#define STDVALUE_IS_NULL(value) ((value).type == kNull)
+#define STDVALUE_IS_BOOL(value) (((value).type == kTrue) || ((value).type == kFalse))
+#define STDVALUE_AS_BOOL(value) ((value).type == kTrue)
+
+#define STDVALUE_IS_INT(value) (((value).type == kInt32) || ((value).type == kInt64))
+#define STDVALUE_AS_INT(value) ((value).type == kInt32 ? (int64_t) (value).int32_value : (value).int64_value)
+#define STDVALUE_IS_FLOAT(value) ((value).type == kFloat64)
+#define STDVALUE_AS_FLOAT(value) ((value).float64_value)
+#define STDVALUE_IS_NUM(value) (STDVALUE_IS_INT(value) || STDVALUE_IS_FLOAT(value))
+#define STDVALUE_AS_NUM(value) (STDVALUE_IS_INT(value) ? STDVALUE_AS_INT(value) : STDVALUE_AS_FLOAT(value))
+
+#define STDVALUE_IS_LIST(value) ((value).type == kList)
+#define STDVALUE_IS_SIZE(value, _size) ((value).size == (_size))
+#define STDVALUE_IS_SIZED_LIST(value, _size) (STDVALUE_IS_LIST(value) && STDVALUE_IS_SIZE(value, _size))
+
+#define STDVALUE_IS_INT_ARRAY(value) (((value).type == kInt32Array) || ((value).type == kInt64Array) || ((value).type == kUInt8Array))
+#define STDVALUE_IS_FLOAT_ARRAY(value) ((value).type == kFloat64Array)
+#define STDVALUE_IS_NUM_ARRAY(value) (STDVALUE_IS_INT_ARRAY(value) || STDVALUE_IS_FLOAT_ARRAY(value))
+
 /// codec of an abstract channel object
 /// These tell this API how it should encode ChannelObjects -> platform messages
 /// and how to decode platform messages -> ChannelObjects.

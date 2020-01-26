@@ -102,8 +102,6 @@ struct mousepointer_mtslot {
 
 #define ISSET(uint32bitmap, bit) (uint32bitmap[(bit)/32] & (1 << ((bit) & 0x1F)))
 
-#define STREQ(a, b) (strcmp(a, b) == 0)
-
 struct input_device {
 	char path[PATH_MAX];
 	char name[256];

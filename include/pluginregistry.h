@@ -5,7 +5,9 @@
 #include <stdlib.h>
 #include <flutter_embedder.h>
 
-#include "platformchannel.h"
+#include <platformchannel.h>
+
+#define STREQ(a, b) (strcmp(a, b) == 0)
 
 /// Callback for Initialization or Deinitialization.
 /// Return value is 0 for success, or anything else for an error
