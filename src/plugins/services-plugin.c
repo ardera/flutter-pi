@@ -9,7 +9,7 @@ struct {
     char label[256];
     uint32_t primaryColor;  // ARGB8888 (blue is the lowest byte)
     char isolateId[32];
-} ServicesPlugin = {0};
+} services = {0};
 
 
 int Services_onReceiveNavigation(char *channel, struct ChannelObject *object, FlutterPlatformMessageResponseHandle *responsehandle) {
@@ -17,8 +17,8 @@ int Services_onReceiveNavigation(char *channel, struct ChannelObject *object, Fl
 }
 
 int Services_onReceiveIsolate(char *channel, struct ChannelObject *object, FlutterPlatformMessageResponseHandle *responsehandle) {
-    memset(&(ServicesPlugin.isolateId), sizeof(ServicesPlugin.isolateId), 0);
-    memcpy(ServicesPlugin.isolateId, object->binarydata, object->binarydata_size);
+    memset(&(services.isolateId), sizeof(services.isolateId), 0);
+    memcpy(services.isolateId, object->binarydata, object->binarydata_size);
     
     return PlatformChannel_respondNotImplemented(responsehandle);
 }
@@ -129,7 +129,7 @@ int Services_onReceivePlatform(char *channel, struct ChannelObject *object, Flut
         
         value = jsobject_get(arg, "label");
         if (value && (value->type == kJSString))
-            snprintf(ServicesPlugin.label, sizeof(ServicesPlugin.label), "%s", value->string_value);
+            snprintf(services.label, sizeof(services.label), "%s", value->string_value);
         
         return PlatformChannel_respond(responsehandle, &(struct ChannelObject) {
             .codec = kJSONMethodCallResponse,
@@ -179,66 +179,6 @@ int Services_onReceiveAccessibility(char *channel, struct ChannelObject *object,
     return PlatformChannel_respondNotImplemented(responsehandle);
 }
 
-
-int Services_onReceiveTextInput(char *channel, struct ChannelObject *object, FlutterPlatformMessageResponseHandle *responsehandle) {
-
-    if STREQ(object->method, "TextInput.setClient") {
-        /*
-         *  TextInput.setClient(List)
-         *      Establishes a new transaction. The argument is
-         *      a [List] whose first value is an integer representing a previously
-         *      unused transaction identifier, and the second is a [String] with a
-         *      JSON-encoded object with five keys, as obtained from
-         *      [TextInputConfiguration.toJSON]. This method must be invoked before any
-         *      others (except `TextInput.hide`). See [TextInput.attach].
-         */
-
-    } else if STREQ(object->method, "TextInput.show") {
-        /*
-         *  TextInput.show()
-         *      Show the keyboard. See [TextInputConnection.show].
-         * 
-         */
-    } else if STREQ(object->method, "TextInput.setEditingState") {
-        /*
-         *  TextInput.setEditingState(String textEditingValue)
-         *      Update the value in the text editing control. The argument is a
-         *      [String] with a JSON-encoded object with seven keys, as
-         *      obtained from [TextEditingValue.toJSON].
-         *      See [TextInputConnection.setEditingState].
-         * 
-         */
-    } else if STREQ(object->method, "TextInput.clearClient") {
-        /* 
-         *  TextInput.clearClient()
-         *      End the current transaction. The next method called must be
-         *      `TextInput.setClient` (or `TextInput.hide`).
-         *      See [TextInputConnection.close].
-         * 
-         */
-    } else if STREQ(object->method, "TextInput.hide") {
-        /*
-         *  TextInput.hide()
-         *      Hide the keyboard. Unlike the other methods, this can be called
-         *      at any time. See [TextInputConnection.close].
-         * 
-         */
-    }
-
-    return PlatformChannel_respondNotImplemented(responsehandle);
-}
-
-
-int Services_TextInput_updateEditingState(struct text_editing_value newState) {
-}
-
-int Services_TextInput_performAction(enum text_input_action action) {
-
-}
-
-int Services_TextInput_onConnectionClosed() {
-
-}
 
 
 int Services_init(void) {

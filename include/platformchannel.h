@@ -193,6 +193,9 @@ typedef int (*PlatformMessageResponseCallback)(struct ChannelObject *object, voi
 /// you'd have to manually deep-copy it.
 int PlatformChannel_decode(uint8_t *buffer, size_t size, enum ChannelCodec codec, struct ChannelObject *object_out);
 
+/// decodes a JSON String into a JSONMsgCodecValue
+int PlatformChannel_decodeJSON(char *string, struct JSONMsgCodecValue *out)
+
 /// Encodes a generic ChannelObject into a buffer (that is, too, allocated by PlatformChannel_encode)
 /// A pointer to the buffer is put into buffer_out and the size of that buffer into size_out.
 /// The lifetime of the buffer is independent of the ChannelObject, so contents of the ChannelObject
@@ -245,6 +248,8 @@ int PlatformChannel_respondError(FlutterPlatformMessageResponseHandle *handle, e
 /// frees a ChannelObject that was decoded using PlatformChannel_decode.
 /// not freeing ChannelObjects may result in a memory leak.
 int PlatformChannel_free(struct ChannelObject *object);
+
+int PlatformChannel_freeJSONMsgCodecValue(struct JSONMsgCodecValue *value, bool shallow);
 
 /// returns true if values a and b are equal.
 /// for JS arrays, the order of the values is relevant

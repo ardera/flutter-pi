@@ -292,7 +292,27 @@ size_t PlatformChannel_calculateJSONMsgCodecValueSize(struct JSONMsgCodecValue *
 			char numBuffer[32];
 			return sprintf(numBuffer, "%lf", value->number_value);
 		case kJSString:
-			return strlen(value->string_value) +2;
+			size = 2;
+
+			// we need to count how many characters we need to escape.
+			for (char *s = value->string_value; *s; s++) {
+				switch (*s) {
+					case '\b':
+					case '\f':
+					case '\n':
+					case '\r':
+					case '\t':
+					case '\"':
+					case '\\':
+						size += 2;
+						break;
+					default:
+						size++;
+						break;
+				}
+			}
+
+			return size;
 		case kJSArray:
 			size += 2;
 			for (int i=0; i < value->size; i++) {
@@ -328,7 +348,46 @@ int PlatformChannel_writeJSONMsgCodecValueToBuffer(struct JSONMsgCodecValue* val
 			*pbuffer += sprintf((char*) *pbuffer, "%lf", value->number_value);
 			break;
 		case kJSString:
-			*pbuffer += sprintf((char*) *pbuffer, "\"%s\"", value->string_value);
+			*(pbuffer++) = '\"';
+
+			for (char *s = value->string_value; *s; s++) {
+				switch (*s) {
+					case '\b':
+						*(pbuffer++) = '\\';
+						*(pbuffer++) = 'b';
+						break;
+					case '\f':
+						*(pbuffer++) = '\\';
+						*(pbuffer++) = 'f';
+						break;
+					case '\n':
+						*(pbuffer++) = '\\';
+						*(pbuffer++) = 'n';
+						break;
+					case '\r':
+						*(pbuffer++) = '\\';
+						*(pbuffer++) = 'r';
+						break;
+					case '\t':
+						*(pbuffer++) = '\\';
+						*(pbuffer++) = 't';
+						break;
+					case '\"':
+						*(pbuffer++) = '\\';
+						*(pbuffer++) = 't';
+						break;
+					case '\\':
+						*(pbuffer++) = '\\';
+						*(pbuffer++) = '\\';
+						break;
+					default:
+						*(pbuffer++) = *s;
+						break;
+				}
+			}
+
+			*(pbuffer++) = '\"';
+
 			break;
 		case kJSArray:
 			*pbuffer += sprintf((char*) *pbuffer, "[");
@@ -583,6 +642,10 @@ int PlatformChannel_decodeJSONMsgCodecValue(char *message, size_t size, jsmntok_
 	}
 
 	return 0;
+}
+
+int PlatformChannel_decodeJSON(char *string, struct JSONMsgCodecValue *out) {
+	return PlatformChannel_decodeJSONMsgCodecValue(string, strlen(string), NULL, NULL, out);
 }
 
 int PlatformChannel_decode(uint8_t *buffer, size_t size, enum ChannelCodec codec, struct ChannelObject *object_out) {
