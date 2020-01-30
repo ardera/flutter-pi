@@ -1,9 +1,22 @@
 #ifndef _TEXT_INPUT_H
 #define _TEXT_INPUT_H
 
+#include <console_keyboard.h>
+
 #define TEXT_INPUT_CHANNEL "flutter/textinput"
 
 #define TEXT_INPUT_MAX_CHARS 8192
+
+enum text_input_type {
+    kInputTypeText,
+    kInputTypeMultiline,
+    kInputTypeNumber,
+    kInputTypePhone,
+    kInputTypeDatetime,
+    kInputTypeEmailAddress,
+    kInputTypeUrl,
+    kInputTypeVisiblePassword,
+};
 
 enum text_input_action {
     kTextInputActionNone,
@@ -43,6 +56,7 @@ bool TextInput_moveCursorBack(void);
 
 // parses the input string as linux terminal input and calls the TextInput model functions
 // accordingly.
-int TextInput_onTerminalInput(char *input);
+int TextInput_onChar(char c);
+int TextInput_onKey(glfw_key key);
 
 #endif

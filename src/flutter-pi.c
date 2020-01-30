@@ -32,9 +32,11 @@
 #include <flutter_embedder.h>
 
 #include <flutter-pi.h>
+#include <console_keyboard.h>
 #include <platformchannel.h>
 #include <pluginregistry.h>
 #include "plugins/services-plugin.h"
+#include "plugins/text_input.h"
 
 
 char* usage ="\
@@ -1194,7 +1196,6 @@ void  init_io(void) {
 		.device = 0,
 		.buttons = 0
 	};
-
 	
 	// go through all the given paths and add everything you can
 	for (int i=0; i < input_devices_glob.gl_pathc; i++) {
@@ -1314,13 +1315,21 @@ void  init_io(void) {
 	}
 
 	if (n_input_devices == 0)
-		printf("Warning: No input devices configured.\n");
+		printf("Warning: No evdev input devices configured.\n");
 	
+	// configure the console
+	ok = console_make_raw();
+	if (ok != 0) {
+		printf("[flutter-pi] warning: could not make stdin raw\n");
+	}
+
+	console_flush_stdin();
+
 	// now send all the kAdd events to flutter.
 	ok = kSuccess == FlutterEngineSendPointerEvent(engine, flutterevents, i_flutterevent);
 	if (!ok) fprintf(stderr, "error while sending initial mousepointer / multitouch slot information to flutter\n");
 }
-void  on_user_input(fd_set fds, size_t n_ready_fds) {
+void  on_evdev_input(fd_set fds, size_t n_ready_fds) {
 	struct input_event    linuxevents[64];
 	size_t                n_linuxevents;
 	struct input_device  *device;
@@ -1505,6 +1514,37 @@ void  on_user_input(fd_set fds, size_t n_ready_fds) {
 		fprintf(stderr, "could not send pointer events to flutter engine\n");
 	}
 }
+void  on_console_input(void) {
+	static char buffer[4096];
+	glfw_key key;
+	char *cursor;
+	char c;
+	int ok;
+
+	ok = read(STDIN_FILENO, buffer, sizeof(buffer));
+	if (ok == -1) {
+		perror("could not read from stdin");
+		return;
+	} else if (ok == 0) {
+		fprintf(stderr, "warning: reached EOF for stdin\n");
+		return;
+	}
+
+	buffer[ok] = '\0';
+
+	cursor = buffer;
+	while (*cursor) {
+		if (key = console_try_get_key(cursor, cursor), key != GLFW_KEY_UNKNOWN) {
+			TextInput_onKey(key);
+		} else if (c = console_try_get_char(cursor, &cursor), c != '\0') {
+			TextInput_onChar(c);
+		} else {
+			// neither a char nor a (function) key. we don't know when
+			// we can start parsing the buffer again, so just stop here
+			break;
+		} 
+	}
+}
 void *io_loop(void *userdata) {
 	int n_ready_fds;
 	fd_set fds;
@@ -1522,6 +1562,8 @@ void *io_loop(void *userdata) {
 
 	FD_SET(drm.fd, &fds);
 	if (drm.fd + 1 > nfds) nfds = drm.fd + 1;
+	
+	FD_SET(STDIN_FILENO, &fds);
 
 	const fd_set const_fds = fds;
 
@@ -1543,9 +1585,15 @@ void *io_loop(void *userdata) {
 			FD_CLR(drm.fd, &fds);
 			n_ready_fds--;
 		}
+		
+		if (FD_ISSET(STDIN_FILENO, &fds)) {
+			on_console_input();
+			FD_CLR(STDIN_FILENO, &fds);
+			n_ready_fds--;
+		}
 
 		if (n_ready_fds > 0) {
-			on_user_input(fds, n_ready_fds);
+			on_evdev_input(fds, n_ready_fds);
 		}
 
 		fds = const_fds;

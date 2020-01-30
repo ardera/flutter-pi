@@ -10,16 +10,21 @@
 
 struct {
     int32_t transaction_id;
-    struct text_input_configuration config;
+    enum text_input_type input_type;
+    bool autocorrect;
+    enum text_input_action input_action;
     char text[TEXT_INPUT_MAX_CHARS];
     int  selection_base, selection_extent;
     bool selection_affinity_is_downstream;
     bool selection_is_directional;
     int  composing_base, composing_extent;
-} text_input;
+    bool warned_about_autocorrect;
+} text_input = {
+    .transaction_id = -1
+};
 
 int TextInput_onReceive(char *channel, struct ChannelObject *object, FlutterPlatformMessageResponseHandle *responsehandle) {
-    struct JSONMsgCodecValue jsvalue, *temp, *autocorrect, *input_action;
+    struct JSONMsgCodecValue jsvalue, *temp, *temp2;
     struct text_input_configuration config;
     int ok;
 
@@ -77,57 +82,98 @@ int TextInput_onReceive(char *channel, struct ChannelObject *object, FlutterPlat
             );
         }
 
-        // finally parse the text input config
-        autocorrect = jsobject_get(&jsvalue, "autocorrect");
-        input_action = jsobject_get(&jsvalue, "inputAction");
+        enum text_input_type input_type;
+        bool autocorrect;
+        enum text_input_action input_action;
 
-        // check that the autocorrect property is valid
-        if (!(autocorrect && ((autocorrect->type == kJSTrue) || (autocorrect->type == kJSFalse))))
+        // AUTOCORRECT
+        temp = jsobject_get(&jsvalue, "autocorrect");
+        if (!(temp && ((temp->type == kJSTrue) || (temp->type == kJSFalse))))
             goto invalid_config;
 
-        config.autocorrect = autocorrect->type == kJSTrue;
+        autocorrect = temp->type == kJSTrue;
         
-        // check & parse the input action
-        if (!(input_action && (input_action->type == kJSString)))
+        // INPUT ACTION
+        temp = jsobject_get(&jsvalue, "inputAction");
+        if (!(temp && (temp->type == kJSString)))
             goto invalid_config;
         
-        if STREQ("TextInputAction.none", input_action->string_value)
-            config.input_action = kTextInputActionNone;
-        else if STREQ("TextInputAction.unspecified", input_action->string_value)
-            config.input_action = kTextInputActionUnspecified;
-        else if STREQ("TextInputAction.done", input_action->string_value)
-            config.input_action = kTextInputActionDone;
-        else if STREQ("TextInputAction.go", input_action->string_value)
-            config.input_action = kTextInputActionGo;
-        else if STREQ("TextInputAction.search", input_action->string_value)
-            config.input_action = kTextInputActionSearch;
-        else if STREQ("TextInputAction.send", input_action->string_value)
-            config.input_action = kTextInputActionSend;
-        else if STREQ("TextInputAction.next", input_action->string_value)
-            config.input_action = kTextInputActionNext;
-        else if STREQ("TextInputAction.previous", input_action->string_value)
-            config.input_action = kTextInputActionPrevious;
-        else if STREQ("TextInputAction.continueAction", input_action->string_value)
-            config.input_action = kTextInputActionContinueAction;
-        else if STREQ("TextInputAction.join", input_action->string_value)
-            config.input_action = kTextInputActionJoin;
-        else if STREQ("TextInputAction.route", input_action->string_value)
-            config.input_action = kTextInputActionRoute;
-        else if STREQ("TextInputAction.emergencyCall", input_action->string_value)
-            config.input_action = kTextInputActionEmergencyCall;
-        else if STREQ("TextInputAction.newline", input_action->string_value)
-            config.input_action = kTextInputActionNewline;
+        if STREQ("TextInputAction.none", temp->string_value)
+            input_action = kTextInputActionNone;
+        else if STREQ("TextInputAction.unspecified", temp->string_value)
+            input_action = kTextInputActionUnspecified;
+        else if STREQ("TextInputAction.done", temp->string_value)
+            input_action = kTextInputActionDone;
+        else if STREQ("TextInputAction.go", temp->string_value)
+            input_action = kTextInputActionGo;
+        else if STREQ("TextInputAction.search", temp->string_value)
+            input_action = kTextInputActionSearch;
+        else if STREQ("TextInputAction.send", temp->string_value)
+            input_action = kTextInputActionSend;
+        else if STREQ("TextInputAction.next", temp->string_value)
+            input_action = kTextInputActionNext;
+        else if STREQ("TextInputAction.previous", temp->string_value)
+            input_action = kTextInputActionPrevious;
+        else if STREQ("TextInputAction.continueAction", temp->string_value)
+            input_action = kTextInputActionContinueAction;
+        else if STREQ("TextInputAction.join", temp->string_value)
+            input_action = kTextInputActionJoin;
+        else if STREQ("TextInputAction.route", temp->string_value)
+            input_action = kTextInputActionRoute;
+        else if STREQ("TextInputAction.emergencyCall", temp->string_value)
+            input_action = kTextInputActionEmergencyCall;
+        else if STREQ("TextInputAction.newline", temp->string_value)
+            input_action = kTextInputActionNewline;
         else
             goto invalid_config;
 
+
+        // INPUT TYPE
+        temp = jsobject_get(&jsvalue, "inputType");
+
+        if (!temp || temp->type != kJSObject)
+            goto invalid_config;
+
+
+        temp2 = jsobject_get(temp, "name");
+
+        if (!temp2 || temp2->type != kJSString)
+            goto invalid_config;
+
+        if STREQ("TextInputType.text", temp2->string_value) {
+            input_type = kInputTypeText;
+        } else if STREQ("TextINputType.multiline", temp2->string_value) {
+            input_type = kInputTypeMultiline;
+        } else if STREQ("TextInputType.number", temp2->string_value) {
+            input_type = kInputTypeNumber;
+        } else if STREQ("TextInputType.phone", temp2->string_value) {
+            input_type = kInputTypePhone;
+        } else if STREQ("TextInputType.datetime", temp2->string_value) {
+            input_type = kInputTypeDatetime;
+        } else if STREQ("TextInputType.emailAddress", temp2->string_value) {
+            input_type = kInputTypeEmailAddress;
+        } else if STREQ("TextInputType.url", temp2->string_value) {
+            input_type = kInputTypeUrl;
+        } else if STREQ("TextInputType.visiblePassword", temp2->string_value) {
+            input_type = kInputTypeVisiblePassword;
+        } else {
+            goto invalid_config;
+        }
+
+        // TRANSACTION ID
         int32_t new_id = (int32_t) object->jsarg.values[0].number_value;
 
+        // everything okay, apply the new text editing config
         text_input.transaction_id = (int32_t) object->jsarg.values[0].number_value;
-        text_input.config = config;
+        text_input.autocorrect = autocorrect;
+        text_input.input_action = input_action;
+        text_input.input_type = input_type;
 
-        if (config.autocorrect)
+        if (autocorrect && (!text_input.warned_about_autocorrect)) {
             printf("[text_input] warning: flutter requested native autocorrect, which",
                    "is not supported by flutter-pi.\n");
+            text_input.warned_about_autocorrect = true;
+        }
 
         // success
         PlatformChannel_freeJSONMsgCodecValue(&jsvalue, false);
@@ -458,8 +504,8 @@ int TextInput_onConnectionClosed(void) {
 }
 
 
-/// start and end index are both inclusive.
-int TextInput_erase(unsigned int start, unsigned int end) {
+// start and end index are both inclusive.
+int  TextInput_erase(unsigned int start, unsigned int end) {
     // 0 <= start <= end < len
 
     size_t len = strlen(text_input.text);
@@ -565,70 +611,73 @@ bool TextInput_moveCursorBack(void) {
     return false;
 }
 
-// parses the input string as linux terminal input and calls the TextInput model functions
-// accordingly. Also automatically syncs state with flutter side.
-// only parses a single console code / character
-int TextInput_onTerminalInput(char *input) {
-    char *control_sequence = NULL;
 
-    // do nothing if there's no model to edit.
-    if (text_input.transaction_id == -1) return 0;
-
-    // first check control characters
-    // linux console control characters: BEL 0x07, BS 0x08, HT 0x09, LF 0x0A, VT, FF, CR 0x0D,
-    //                                   SO 0x0E, SI 0x0F, CAN 0x18, SUB 0x1A, ESC 0x1B,
-    //                                   DEL 0x7F, CSI 0x9B
-
-    // handled here: backspace, enter
-    switch (*input) {
-        case 0x07:  // BEL, beep, not implemented
-        case 0x08:  // BS, backspace, but seems to be unused
-        case 0x09:  // HT, tab, not implemented
-        case 0x0A:  // LF, line-feed, not implemented
-        case 0x0E:  // SO, activates G1 charset, not implemented
-        case 0x0F:  // SI, activates G0 charset, not implemented
-        case 0x18:  // CAN and
-        case 0x1A:  // SUB, interrupt escape sequences
-            break;
-
-        case 0x0D:  // CR, carriage-return (enter key was pressed)
-            // if the text-input type is multiline, should add a new line.
-            return TextInput_performAction(text_input.config.input_action);
-
-        case 0x7F:  // DEL, backspace
-            if (TextInput_backspace())
-                return TextInput_syncEditingState();
-
-        case 0x1B:  // ESC
-            if (input[1] == '[') {
-                // we found a control sequence introducer.
-                control_sequence = &input[2];
-            }
-            break;
-
-        case 0x9B:
-            control_sequence = &input[1];
-            break;
-
-        default:
-            if (isprint(*input))
-                TextInput_addChar(*input);
-            break;
-    }
-
-    if (!control_sequence) {
+// these two functions automatically sync the editing state with flutter if
+// a change ocurred, so you don't explicitly need to call TextInput_syncEditingState().
+int TextInput_onChar(char c) {
+    if (text_input.transaction_id == -1)
         return 0;
+
+    if (TextInput_addChar(c))
+        return TextInput_syncEditingState();
+
+    return 0;
+}
+
+int TextInput_onKey(glfw_key key) {
+    bool needs_sync = false;
+    bool perform_action = false;
+    int ok;
+
+    if (text_input.transaction_id == -1)
+        return 0;
+
+    switch (key) {
+        case GLFW_KEY_LEFT:
+            needs_sync = TextInput_moveCursorBack();
+            break;
+        case GLFW_KEY_RIGHT:
+            needs_sync = TextInput_moveCursorForward();
+            break;
+        case GLFW_KEY_END:
+            needs_sync = TextInput_moveCursorToEnd();
+            break;
+        case GLFW_KEY_HOME:
+            needs_sync = TextInput_moveCursorToBeginning();
+            break;
+        case GLFW_KEY_BACKSPACE:
+            needs_sync = TextInput_backspace();
+            break;
+        case GLFW_KEY_DELETE:
+            needs_sync = TextInput_delete();
+            break;
+        case GLFW_KEY_ENTER:
+            if (text_input.input_type == kInputTypeMultiline)
+                needs_sync = TextInput_addChar('\n');
+            
+            perform_action = true;
+            break;
+        default:
+            break;
     }
 
-    // control sequence introducer found.
-    // handled here: left, right, end, home, delete
+    if (needs_sync) {
+        ok = TextInput_syncEditingState();
+        if (ok != 0) return ok;
+    }
 
-    char *action;
+    if (perform_action) {
+        ok = TextInput_performAction(text_input.input_action);
+        if (ok != 0) return ok;
+    }
+
+    return 0;
 }
 
 
 int TextInput_init(void) {
-    text_input.transaction_id = -1;
+    text_input.text[0] = '\0';
+    text_input.warned_about_autocorrect = false;
 
     PluginRegistry_setReceiver(TEXT_INPUT_CHANNEL, kJSONMethodCall, TextInput_onReceive);
 
