@@ -9,7 +9,7 @@ struct {
     char label[256];
     uint32_t primaryColor;  // ARGB8888 (blue is the lowest byte)
     char isolateId[32];
-} ServicesPlugin = {0};
+} services = {0};
 
 
 int Services_onReceiveNavigation(char *channel, struct ChannelObject *object, FlutterPlatformMessageResponseHandle *responsehandle) {
@@ -17,8 +17,8 @@ int Services_onReceiveNavigation(char *channel, struct ChannelObject *object, Fl
 }
 
 int Services_onReceiveIsolate(char *channel, struct ChannelObject *object, FlutterPlatformMessageResponseHandle *responsehandle) {
-    memset(&(ServicesPlugin.isolateId), sizeof(ServicesPlugin.isolateId), 0);
-    memcpy(ServicesPlugin.isolateId, object->binarydata, object->binarydata_size);
+    memset(&(services.isolateId), sizeof(services.isolateId), 0);
+    memcpy(services.isolateId, object->binarydata, object->binarydata_size);
     
     return PlatformChannel_respondNotImplemented(responsehandle);
 }
@@ -129,7 +129,7 @@ int Services_onReceivePlatform(char *channel, struct ChannelObject *object, Flut
         
         value = jsobject_get(arg, "label");
         if (value && (value->type == kJSString))
-            snprintf(ServicesPlugin.label, sizeof(ServicesPlugin.label), "%s", value->string_value);
+            snprintf(services.label, sizeof(services.label), "%s", value->string_value);
         
         return PlatformChannel_respond(responsehandle, &(struct ChannelObject) {
             .codec = kJSONMethodCallResponse,
@@ -180,36 +180,37 @@ int Services_onReceiveAccessibility(char *channel, struct ChannelObject *object,
 }
 
 
+
 int Services_init(void) {
     int ok;
 
+    printf("[services-plugin] init.\n");
+
     ok = PluginRegistry_setReceiver("flutter/navigation", kJSONMethodCall, Services_onReceiveNavigation);
     if (ok != 0) {
-        printf("Could not set flutter/navigation ChannelObject receiver: %s\n", strerror(ok));
+        fprintf(stderr, "[services-plugin] could not set \"flutter/navigation\" ChannelObject receiver: %s\n", strerror(ok));
         return ok;
     }
 
     ok = PluginRegistry_setReceiver("flutter/isolate", kBinaryCodec, Services_onReceiveIsolate);
     if (ok != 0) {
-        printf("Could not set flutter/isolate  ChannelObject receiver: %s\n", strerror(ok));
+        fprintf(stderr, "[services-plugin] could not set \"flutter/isolate\" ChannelObject receiver: %s\n", strerror(ok));
         return ok;
     }
 
     ok = PluginRegistry_setReceiver("flutter/platform", kJSONMethodCall, Services_onReceivePlatform);
     if (ok != 0) {
-        printf("Could not set flutter/platform ChannelObject receiver: %s\n", strerror(ok));
+        fprintf(stderr, "[services-plugin] could not set \"flutter/platform\" ChannelObject receiver: %s\n", strerror(ok));
         return ok;
     }
 
     ok = PluginRegistry_setReceiver("flutter/accessibility", kBinaryCodec, Services_onReceiveAccessibility);
     if (ok != 0) {
-        printf("Could not set flutter/accessibility  ChannelObject receiver: %s\n", strerror(ok));
+        fprintf(stderr, "[services-plugin] could not set \"flutter/accessibility\" ChannelObject receiver: %s\n", strerror(ok));
         return ok;
     }
-
-    printf("Initialized Services plugin.\n");
 }
 
 int Services_deinit(void) {
-    printf("Deinitialized Services plugin.\n");
+    printf("[services-plugin] deinit.\n");
 }
