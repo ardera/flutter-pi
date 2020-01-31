@@ -46,7 +46,7 @@ int TextInput_onConnectionClosed(void);
 
 // TextInput model functions (updating the text editing state)
 bool TextInput_deleteSelected(void);
-bool TextInput_addChar(char c);
+bool TextInput_addUtf8Char(char *c);
 bool TextInput_backspace(void);
 bool TextInput_delete(void);
 bool TextInput_moveCursorToBeginning(void);
@@ -56,7 +56,10 @@ bool TextInput_moveCursorBack(void);
 
 // parses the input string as linux terminal input and calls the TextInput model functions
 // accordingly.
-int TextInput_onChar(char c);
+int TextInput_onUtf8Char(char *c);
 int TextInput_onKey(glfw_key key);
+
+int TextInput_init(void);
+int TextInput_deinit(void);
 
 #endif

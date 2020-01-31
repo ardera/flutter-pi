@@ -290,7 +290,7 @@ size_t PlatformChannel_calculateJSONMsgCodecValueSize(struct JSONMsgCodecValue *
 			return 5;
 		case kJSNumber: ;
 			char numBuffer[32];
-			return sprintf(numBuffer, "%lf", value->number_value);
+			return sprintf(numBuffer, "%g", value->number_value);
 		case kJSString:
 			size = 2;
 
@@ -345,48 +345,48 @@ int PlatformChannel_writeJSONMsgCodecValueToBuffer(struct JSONMsgCodecValue* val
 			*pbuffer += sprintf((char*) *pbuffer, "false");
 			break;
 		case kJSNumber:
-			*pbuffer += sprintf((char*) *pbuffer, "%lf", value->number_value);
+			*pbuffer += sprintf((char*) *pbuffer, "%g", value->number_value);
 			break;
 		case kJSString:
-			*(pbuffer++) = '\"';
+			*((*pbuffer)++) = '\"';
 
 			for (char *s = value->string_value; *s; s++) {
 				switch (*s) {
 					case '\b':
-						*(pbuffer++) = '\\';
-						*(pbuffer++) = 'b';
+						*((*pbuffer)++) = '\\';
+						*((*pbuffer)++) = 'b';
 						break;
 					case '\f':
-						*(pbuffer++) = '\\';
-						*(pbuffer++) = 'f';
+						*((*pbuffer)++) = '\\';
+						*((*pbuffer)++) = 'f';
 						break;
 					case '\n':
-						*(pbuffer++) = '\\';
-						*(pbuffer++) = 'n';
+						*((*pbuffer)++) = '\\';
+						*((*pbuffer)++) = 'n';
 						break;
 					case '\r':
-						*(pbuffer++) = '\\';
-						*(pbuffer++) = 'r';
+						*((*pbuffer)++) = '\\';
+						*((*pbuffer)++) = 'r';
 						break;
 					case '\t':
-						*(pbuffer++) = '\\';
-						*(pbuffer++) = 't';
+						*((*pbuffer)++) = '\\';
+						*((*pbuffer)++) = 't';
 						break;
 					case '\"':
-						*(pbuffer++) = '\\';
-						*(pbuffer++) = 't';
+						*((*pbuffer)++) = '\\';
+						*((*pbuffer)++) = 't';
 						break;
 					case '\\':
-						*(pbuffer++) = '\\';
-						*(pbuffer++) = '\\';
+						*((*pbuffer)++) = '\\';
+						*((*pbuffer)++) = '\\';
 						break;
 					default:
-						*(pbuffer++) = *s;
+						*((*pbuffer)++) = *s;
 						break;
 				}
 			}
 
-			*(pbuffer++) = '\"';
+			*((*pbuffer)++) = '\"';
 
 			break;
 		case kJSArray:

@@ -209,12 +209,6 @@ int Services_init(void) {
         fprintf(stderr, "[services-plugin] could not set \"flutter/accessibility\" ChannelObject receiver: %s\n", strerror(ok));
         return ok;
     }
-
-    ok = PluginRegistry_setReceiver("flutter/textinput", kJSONMethodCall, Services_onReceiveTextInput);
-    if (ok != 0) {
-        fprintf(stderr, "[services-plugin] could not set \"flutter/textinput\" ChannelObject receiver: %s\n", strerror(ok));
-        return ok;
-    }
 }
 
 int Services_deinit(void) {

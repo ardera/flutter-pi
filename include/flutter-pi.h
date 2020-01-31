@@ -90,7 +90,7 @@ struct mousepointer_mtslot {
 	(code) == BTN_MIDDLE ? kFlutterPointerButtonMouseMiddle : \
 	(code) == BTN_FORWARD ? kFlutterPointerButtonMouseForward : \
 	(code) == BTN_BACK ? kFlutterPointerButtonMouseBack : \
-	(code) == BTN_TOUCH ? (1 << 8) : 0))
+	(code) == BTN_TOUCH ? (1 << 8) : 0)
 
 #define MODIFIER_KEY_FROM_EVENT_CODE(code) ((uint16_t) \
 	((code) == KEY_LEFTCTRL) || ((code) == KEY_RIGHTCTRL) ? kControlModifier : \

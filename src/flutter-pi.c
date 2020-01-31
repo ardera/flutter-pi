@@ -1,5 +1,6 @@
 #define  _GNU_SOURCE
 
+#include <ctype.h>
 #include <features.h>
 #include <dlfcn.h>
 #include <fcntl.h>
@@ -1440,8 +1441,6 @@ void  on_evdev_input(fd_set fds, size_t n_ready_fds) {
 				if (e->code != BTN_TOUCH || device->is_direct) {
 					if (e->value == 1) device->active_buttons |=  FLUTTER_BUTTON_FROM_EVENT_CODE(e->code);
 					else               device->active_buttons &= ~FLUTTER_BUTTON_FROM_EVENT_CODE(e->code);
-				} else {
-					Services_sendKeyEvent()
 				}
 
 				// check if the button state changed
@@ -1518,7 +1517,7 @@ void  on_console_input(void) {
 	static char buffer[4096];
 	glfw_key key;
 	char *cursor;
-	char c;
+	char *c;
 	int ok;
 
 	ok = read(STDIN_FILENO, buffer, sizeof(buffer));
@@ -1534,10 +1533,11 @@ void  on_console_input(void) {
 
 	cursor = buffer;
 	while (*cursor) {
-		if (key = console_try_get_key(cursor, cursor), key != GLFW_KEY_UNKNOWN) {
+		if (key = console_try_get_key(cursor, &cursor), key != GLFW_KEY_UNKNOWN) {
 			TextInput_onKey(key);
-		} else if (c = console_try_get_char(cursor, &cursor), c != '\0') {
-			TextInput_onChar(c);
+			printf("got key: %i\n", key);
+		} else if (c = console_try_get_utf8char(cursor, &cursor), c != NULL) {
+			TextInput_onUtf8Char(c);
 		} else {
 			// neither a char nor a (function) key. we don't know when
 			// we can start parsing the buffer again, so just stop here

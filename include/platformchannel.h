@@ -194,7 +194,7 @@ typedef int (*PlatformMessageResponseCallback)(struct ChannelObject *object, voi
 int PlatformChannel_decode(uint8_t *buffer, size_t size, enum ChannelCodec codec, struct ChannelObject *object_out);
 
 /// decodes a JSON String into a JSONMsgCodecValue
-int PlatformChannel_decodeJSON(char *string, struct JSONMsgCodecValue *out)
+int PlatformChannel_decodeJSON(char *string, struct JSONMsgCodecValue *out);
 
 /// Encodes a generic ChannelObject into a buffer (that is, too, allocated by PlatformChannel_encode)
 /// A pointer to the buffer is put into buffer_out and the size of that buffer into size_out.

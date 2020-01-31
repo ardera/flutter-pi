@@ -1,10 +1,35 @@
 #include <string.h>
 #include <stdbool.h>
+#include <stdio.h>
+#include <stdint.h>
 #include <ctype.h>
 #include <termios.h>
 #include <unistd.h>
 #include <errno.h>
+
 #include <console_keyboard.h>
+
+char *glfw_key_control_sequence[GLFW_KEY_LAST+1] = {
+    NULL,
+    [GLFW_KEY_ENTER] = "\n",
+    [GLFW_KEY_TAB] = "\t",
+    [GLFW_KEY_BACKSPACE] = "\x7f",
+    NULL,
+    [GLFW_KEY_DELETE] = "\e[3~",
+    [GLFW_KEY_RIGHT] = "\e[C",
+    [GLFW_KEY_LEFT] = "\e[D",
+    NULL,
+    [GLFW_KEY_PAGE_UP] = "\e[5~",
+    [GLFW_KEY_PAGE_DOWN] = "\e[6~",
+    [GLFW_KEY_HOME] = "\e[1~",
+    [GLFW_KEY_END] = "\e[4~",
+    NULL,
+
+    // function keys
+    [GLFW_KEY_F1] = "\eOP", "\eOQ", "\eOR", "\eOS",
+    "\e[15~", "\e[17~", "\e[18~", "\e[19~",
+    "\e[20~", "\e[21~", "\e[23~", "\e[24~"
+};
 
 int console_flush_stdin(void) {
     int ok;
@@ -35,11 +60,13 @@ int console_make_raw(void) {
 
     original_config = config;
 
-    config.c_iflag &= ~(IGNBRK | BRKINT | PARMRK | ISTRIP | INLCR | IGNCR | ICRNL | IXON);
-    config.c_oflag &= ~OPOST;
-    config.c_lflag &= ~(ECHO | ECHONL | ICANON | ISIG | IEXTEN);
-    config.c_cflag &= ~(CSIZE | PARENB);
-    config.c_cflag |= CS8;
+    config.c_lflag &= ~(ECHO | ICANON);
+
+    //config.c_iflag &= ~(IGNBRK | BRKINT | PARMRK | ISTRIP | INLCR | IGNCR | ICRNL | IXON);
+    //config.c_oflag &= ~OPOST;
+    //config.c_lflag &= ~(ECHO | ECHONL | ICANON | ISIG | IEXTEN);
+    //config.c_cflag &= ~(CSIZE | PARENB);
+    //config.c_cflag |= CS8;
 
     ok = tcsetattr(STDIN_FILENO, TCSANOW, &config);
     if (ok == -1) {
@@ -64,6 +91,29 @@ int console_restore(void) {
     is_raw = false;
 }
 
+size_t   utf8_symbol_length(char *c) {
+    uint8_t first = ((uint8_t*) c)[0];
+    uint8_t second = ((uint8_t*) c)[1];
+    uint8_t third = ((uint8_t*) c)[2];
+    uint8_t fourth = ((uint8_t*) c)[3];
+
+    if (first <= 0b01111111) {
+        // ASCII
+        return 1;
+    } else if (((first >> 5) == 0b110) && ((second >> 6) == 0b10)) {
+        // 2-byte UTF8
+        return 2;
+    } else if (((first >> 4) == 0b1110) && ((second >> 6) == 0b10) && ((third >> 6) == 0b10)) {
+        // 3-byte UTF8
+        return 3;
+    } else if (((first >> 3) == 0b11110) && ((second >> 6) == 0b10) && ((third >> 6) == 0b10) && ((fourth >> 6) == 0b10)) {
+        // 4-byte UTF8
+        return 4;
+    }
+
+    return 0;
+}
+
 glfw_key console_try_get_key(char *input, char **input_out) {
     if (input_out)
         *input_out = input;
@@ -83,16 +133,19 @@ glfw_key console_try_get_key(char *input, char **input_out) {
     return GLFW_KEY_UNKNOWN;
 }
 
-char     console_try_get_char(char *input, char **input_out) {
+char    *console_try_get_utf8char(char *input, char **input_out) {
     if (input_out)
         *input_out = input;
+    
+    size_t length = utf8_symbol_length(input);
 
-    if (isprint(*input)) {
-        if (input_out)
-            (*input_out)++;
-        
-        return *input;
-    }
+    if ((length == 1) && !isprint(*input))
+        return NULL;
+    
+    if (length == 0)
+        return NULL;
 
-    return '\0';
+    *input_out += length;
+
+    return input;
 }
