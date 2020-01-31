@@ -38,6 +38,7 @@
 #include <pluginregistry.h>
 #include "plugins/services-plugin.h"
 #include "plugins/text_input.h"
+#include "plugins/raw_keyboard.h"
 
 
 char* usage ="\
@@ -1438,7 +1439,19 @@ void  on_evdev_input(fd_set fds, size_t n_ready_fds) {
 				// update the active_buttons bitmap
 				// only apply BTN_TOUCH to the active buttons if a touch really equals a pressed button (device->is_direct is set)
 				//   is_direct is true for touchscreens, but not for touchpads; so BTN_TOUCH doesn't result in a kMove for touchpads
-				if (e->code != BTN_TOUCH || device->is_direct) {
+
+				glfw_key glfw_key = EVDEV_KEY_TO_GLFW_KEY(e->code);
+				if ((glfw_key != GLFW_KEY_UNKNOWN) && (glfw_key != 0)) {
+					glfw_key_action action;
+					switch (e->value) {
+						case 0: action = GLFW_RELEASE; break;
+						case 1: action = GLFW_PRESS; break;
+						case 2: action = GLFW_REPEAT; break;
+						default: action = -1; break;
+					}
+
+					RawKeyboard_onKeyEvent(EVDEV_KEY_TO_GLFW_KEY(e->code), 0, action);
+				} else if (e->code != BTN_TOUCH || device->is_direct) {
 					if (e->value == 1) device->active_buttons |=  FLUTTER_BUTTON_FROM_EVENT_CODE(e->code);
 					else               device->active_buttons &= ~FLUTTER_BUTTON_FROM_EVENT_CODE(e->code);
 				}
@@ -1535,7 +1548,6 @@ void  on_console_input(void) {
 	while (*cursor) {
 		if (key = console_try_get_key(cursor, &cursor), key != GLFW_KEY_UNKNOWN) {
 			TextInput_onKey(key);
-			printf("got key: %i\n", key);
 		} else if (c = console_try_get_utf8char(cursor, &cursor), c != NULL) {
 			TextInput_onUtf8Char(c);
 		} else {
