@@ -5,9 +5,19 @@
 #include <pluginregistry.h>
 
 #include "plugins/services-plugin.h"
+#include "plugins/text_input.h"
+#include "plugins/raw_keyboard.h"
+
+#ifdef BUILD_TEST_PLUGIN
 #include "plugins/testplugin.h"
+#endif
+#ifdef BUILD_ELM327_PLUGIN
 #include "plugins/elm327plugin.h"
+#endif
+#ifdef BUILD_SPI_PLUGIN
 #include "plugins/spi_plugin.h"
+#endif
+
 
 struct ChannelObjectReceiverData {
 	char *channel;
@@ -24,13 +34,15 @@ struct {
 /// array of plugins that are statically included in flutter-pi.
 struct FlutterPiPlugin hardcoded_plugins[] = {
 	{.name = "services",     .init = Services_init, .deinit = Services_deinit},
+	{.name = "text_input",   .init = TextInput_init, .deinit = TextInput_deinit},
+	{.name = "raw_keyboard", .init = RawKeyboard_init, .deinit = RawKeyboard_deinit},
 
-#ifdef BUILD_TESTPLUGIN	
-	{.name = "testplugin",   .init = TestPlugin_init, .deinit = TestPlugin_deinit}
+#ifdef BUILD_TEST_PLUGIN
+	{.name = "testplugin",   .init = TestPlugin_init, .deinit = TestPlugin_deinit},
 #endif
 
-#ifdef BUILD_ELM327PLUGIN
-	{.name = "elm327plugin", .init = ELM327Plugin_init, .deinit = ELM327Plugin_deinit}
+#ifdef BUILD_ELM327_PLUGIN
+	{.name = "elm327plugin", .init = ELM327Plugin_init, .deinit = ELM327Plugin_deinit},
 #endif
 
 #ifdef BUILD_SPI_PLUGIN

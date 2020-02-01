@@ -21,7 +21,8 @@ _The difference between extensions and plugins is that extensions don't include 
 2.3 [fonts](#fonts)  
 3. **[Compiling flutter-pi (on the Raspberry Pi)](#compiling-flutter-pi-on-the-raspberry-pi)**  
 4. **[Performance](#performance)**  
-5. **[Touchscreen Latency](#touchscreen-latency)**  
+5. **[Keyboard Input](#keyboard-input)**
+6. **[Touchscreen Latency](#touchscreen-latency)**  
 
 
 ## Running your App on the Raspberry Pi
@@ -133,6 +134,13 @@ The _flutter-pi_ executable will then be located at this path: `/path/to/the/clo
 
 ## Performance
 Performance is actually better than I expected. With most of the apps inside the `flutter SDK -> examples -> catalog` directory I get smooth 50-60fps.
+
+## Keyboard Input
+Keyboard input is supported. **There is one important limitation though**. Text input (i.e. writing any kind of text/symbols to flutter input fields) only works when typing on the keyboard, which is attached to the terminal flutter-pi is running on. So, if you ssh into your Raspberry Pi to run flutter-pi, you have to enter text into your ssh terminal.
+
+Raw Keyboard input (i.e. using tab to iterate through focus nodes) works with any keyboard attached to your Raspberry Pi.
+
+converting raw key-codes to text symbols is not that easy (because of all the different keyboard layouts), so for text input flutter-pi basically uses `stdin`.
 
 ## Touchscreen Latency
 Due to the way the touchscreen driver works in raspbian, there's some delta between an actual touch of the touchscreen and a touch event arriving at userspace. The touchscreen driver in the raspbian kernel actually just repeatedly polls some buffer shared with the firmware running on the VideoCore, and the videocore repeatedly polls the touchscreen. (both at 60Hz) So on average, there's a delay of 17ms (minimum 0ms, maximum 34ms). If I have enough time in the future, I'll try to build a better touchscreen driver to lower the delay.

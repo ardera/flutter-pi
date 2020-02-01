@@ -74,6 +74,7 @@ struct mousepointer_mtslot {
 	FlutterPointerPhase phase;
 };
 
+
 #define INPUT_BUSTYPE_FRIENDLY_NAME(bustype) ( \
 	(bustype) == BUS_PCI ? "PCI/e" : \
 	(bustype) == BUS_USB ? "USB" : \
@@ -90,6 +91,14 @@ struct mousepointer_mtslot {
 	(code) == BTN_FORWARD ? kFlutterPointerButtonMouseForward : \
 	(code) == BTN_BACK ? kFlutterPointerButtonMouseBack : \
 	(code) == BTN_TOUCH ? (1 << 8) : 0)
+
+#define MODIFIER_KEY_FROM_EVENT_CODE(code) ((uint16_t) \
+	((code) == KEY_LEFTCTRL) || ((code) == KEY_RIGHTCTRL) ? kControlModifier : \
+	((code) == KEY_LEFTSHIFT) || ((code) == KEY_RIGHTSHIFT) ? kShiftModifier : \
+	((code) == KEY_LEFTALT) || ((code) == KEY_RIGHTALT) ? kAltModifier : \
+	((code) == KEY_LEFTMETA) || ((code) == KEY_RIGHTMETA) ? kMetaModifier : \
+	((code) == KEY_CAPSLOCK) ? kCapsLockModifier : \
+	((code) == KEY_NUMLOCK) ? kNumLockModifier : 0)
 
 #define POINTER_PHASE_AS_STRING(phase) ( \
 	(phase) == kCancel ? "kCancel" : \
@@ -126,7 +135,6 @@ struct input_device {
 	size_t n_mtslots;
 	size_t i_active_mtslot;
 	struct mousepointer_mtslot *mtslots;
-	//struct mousepointer_mtslot *active_mtslot;
 
 	// currently pressed buttons (for mouse, touchpad, stylus)
 	// (active_buttons & 0xFF) will be the value of the "buttons" field
