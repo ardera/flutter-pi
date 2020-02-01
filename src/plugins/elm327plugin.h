@@ -1,7 +1,6 @@
-#ifndef ELM327PLUGIN_H
-#define ELM327PLUGIN_H
+#ifndef _ELM327_PLUGIN_H
+#define _ELM327_PLUGIN_H
 
-#include <assert.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <ctype.h>

@@ -1,5 +1,6 @@
 #define  _GNU_SOURCE
 
+#include <ctype.h>
 #include <features.h>
 #include <dlfcn.h>
 #include <fcntl.h>
@@ -32,8 +33,12 @@
 #include <flutter_embedder.h>
 
 #include <flutter-pi.h>
+#include <console_keyboard.h>
 #include <platformchannel.h>
 #include <pluginregistry.h>
+#include "plugins/services-plugin.h"
+#include "plugins/text_input.h"
+#include "plugins/raw_keyboard.h"
 
 
 char* usage ="\
@@ -484,7 +489,7 @@ bool  message_loop(void) {
 		pthread_mutex_lock(&tasklist_lock);
 
 		// wait for a task to be inserted into the list
-		while ((tasklist.next == NULL))
+		while (tasklist.next == NULL)
 			pthread_cond_wait(&task_added, &tasklist_lock);
 		
 		// wait for a task to be ready to be run
@@ -537,7 +542,7 @@ bool  message_loop(void) {
 			orientation = task->orientation;
 
 			// send updated window metrics to flutter
-			FlutterEngineResult result = FlutterEngineSendWindowMetricsEvent(engine, &(const FlutterWindowMetricsEvent) {
+			FlutterEngineSendWindowMetricsEvent(engine, &(const FlutterWindowMetricsEvent) {
 				.struct_size = sizeof(FlutterWindowMetricsEvent),
 
 				// we send swapped width/height if the screen is rotated 90 or 270 degrees.
@@ -622,9 +627,9 @@ bool init_display(void) {
 	 * DRM INITIALIZATION *
 	 **********************/
 
-	drmModeRes *resources;
+	drmModeRes *resources = NULL;
 	drmModeConnector *connector;
-	drmModeEncoder *encoder;
+	drmModeEncoder *encoder = NULL;
 	int i, ok, area;
 	
 	if (!drm.has_device) {
@@ -700,7 +705,7 @@ bool init_display(void) {
 			printf("    flutter-pi chose \"%s\" as its DRM device.\n", device->nodes[DRM_NODE_PRIMARY]);
 			drm.fd = fd;
 			drm.has_device = true;
-			snprintf(drm.device, sizeof(drm.device)-1, device->nodes[DRM_NODE_PRIMARY]);
+			snprintf(drm.device, sizeof(drm.device)-1, "%s", device->nodes[DRM_NODE_PRIMARY]);
 		}
 
 		if (!drm.has_device) {
@@ -870,9 +875,7 @@ bool init_display(void) {
 	gbm.surface = NULL;
 	gbm.modifier = DRM_FORMAT_MOD_LINEAR;
 
-	if (gbm_surface_create_with_modifiers) {
-		gbm.surface = gbm_surface_create_with_modifiers(gbm.device, width, height, gbm.format, &gbm.modifier, 1);
-	}
+	gbm.surface = gbm_surface_create_with_modifiers(gbm.device, width, height, gbm.format, &gbm.modifier, 1);
 
 	if (!gbm.surface) {
 		if (gbm.modifier != DRM_FORMAT_MOD_LINEAR) {
@@ -935,7 +938,7 @@ bool init_display(void) {
 	egl.modifiers_supported = strstr(egl_exts_dpy, "EGL_EXT_image_dma_buf_import_modifiers") != NULL;
 
 
-	printf("Using display %d with EGL version %d.%d\n", egl.display, major, minor);
+	printf("Using display %p with EGL version %d.%d\n", egl.display, major, minor);
 	printf("===================================\n");
 	printf("EGL information:\n");
 	printf("  version: %s\n", eglQueryString(egl.display, EGL_VERSION));
@@ -1195,7 +1198,6 @@ void  init_io(void) {
 		.device = 0,
 		.buttons = 0
 	};
-
 	
 	// go through all the given paths and add everything you can
 	for (int i=0; i < input_devices_glob.gl_pathc; i++) {
@@ -1224,7 +1226,7 @@ void  init_io(void) {
 		}
 
 		printf("      %s, connected via %s. vendor: 0x%04X, product: 0x%04X, version: 0x%04X\n", dev.name,
-			   INPUT_BUSTYPE_FRIENDLY_NAME(dev.input_id.bustype), dev.input_id.vendor, dev.input_id.vendor);
+			   INPUT_BUSTYPE_FRIENDLY_NAME(dev.input_id.bustype), dev.input_id.vendor, dev.input_id.product, dev.input_id.version);
 
 		// query supported event codes (for EV_ABS, EV_REL and EV_KEY event types)
 		ok = ioctl(dev.fd, EVIOCGBIT(EV_ABS, sizeof(absbits)), absbits);
@@ -1315,14 +1317,21 @@ void  init_io(void) {
 	}
 
 	if (n_input_devices == 0)
-		printf("Warning: No input devices configured.\n");
+		printf("Warning: No evdev input devices configured.\n");
 	
+	// configure the console
+	ok = console_make_raw();
+	if (ok != 0) {
+		printf("[flutter-pi] warning: could not make stdin raw\n");
+	}
+
+	console_flush_stdin();
+
 	// now send all the kAdd events to flutter.
 	ok = kSuccess == FlutterEngineSendPointerEvent(engine, flutterevents, i_flutterevent);
 	if (!ok) fprintf(stderr, "error while sending initial mousepointer / multitouch slot information to flutter\n");
-	i_flutterevent = 0;
 }
-void  on_user_input(fd_set fds, size_t n_ready_fds) {
+void  on_evdev_input(fd_set fds, size_t n_ready_fds) {
 	struct input_event    linuxevents[64];
 	size_t                n_linuxevents;
 	struct input_device  *device;
@@ -1430,7 +1439,19 @@ void  on_user_input(fd_set fds, size_t n_ready_fds) {
 				// update the active_buttons bitmap
 				// only apply BTN_TOUCH to the active buttons if a touch really equals a pressed button (device->is_direct is set)
 				//   is_direct is true for touchscreens, but not for touchpads; so BTN_TOUCH doesn't result in a kMove for touchpads
-				if (e->code != BTN_TOUCH || device->is_direct) {
+
+				glfw_key glfw_key = EVDEV_KEY_TO_GLFW_KEY(e->code);
+				if ((glfw_key != GLFW_KEY_UNKNOWN) && (glfw_key != 0)) {
+					glfw_key_action action;
+					switch (e->value) {
+						case 0: action = GLFW_RELEASE; break;
+						case 1: action = GLFW_PRESS; break;
+						case 2: action = GLFW_REPEAT; break;
+						default: action = -1; break;
+					}
+
+					RawKeyboard_onKeyEvent(EVDEV_KEY_TO_GLFW_KEY(e->code), 0, action);
+				} else if (e->code != BTN_TOUCH || device->is_direct) {
 					if (e->value == 1) device->active_buttons |=  FLUTTER_BUTTON_FROM_EVENT_CODE(e->code);
 					else               device->active_buttons &= ~FLUTTER_BUTTON_FROM_EVENT_CODE(e->code);
 				}
@@ -1445,7 +1466,7 @@ void  on_user_input(fd_set fds, size_t n_ready_fds) {
 				// We can now summarise the updates we received from the evdev into a FlutterPointerEvent
 				// and put it in the flutterevents buffer.
 				
-				size_t n_slots;
+				size_t n_slots = 0;
 				struct mousepointer_mtslot *slots;
 
 				// if this is a pointer device, we don't care about the multitouch slots & only send the updated mousepointer.
@@ -1504,8 +1525,37 @@ void  on_user_input(fd_set fds, size_t n_ready_fds) {
 	if (!ok) {
 		fprintf(stderr, "could not send pointer events to flutter engine\n");
 	}
+}
+void  on_console_input(void) {
+	static char buffer[4096];
+	glfw_key key;
+	char *cursor;
+	char *c;
+	int ok;
 
-	i_flutterevent = 0;
+	ok = read(STDIN_FILENO, buffer, sizeof(buffer));
+	if (ok == -1) {
+		perror("could not read from stdin");
+		return;
+	} else if (ok == 0) {
+		fprintf(stderr, "warning: reached EOF for stdin\n");
+		return;
+	}
+
+	buffer[ok] = '\0';
+
+	cursor = buffer;
+	while (*cursor) {
+		if (key = console_try_get_key(cursor, &cursor), key != GLFW_KEY_UNKNOWN) {
+			TextInput_onKey(key);
+		} else if (c = console_try_get_utf8char(cursor, &cursor), c != NULL) {
+			TextInput_onUtf8Char(c);
+		} else {
+			// neither a char nor a (function) key. we don't know when
+			// we can start parsing the buffer again, so just stop here
+			break;
+		} 
+	}
 }
 void *io_loop(void *userdata) {
 	int n_ready_fds;
@@ -1524,6 +1574,8 @@ void *io_loop(void *userdata) {
 
 	FD_SET(drm.fd, &fds);
 	if (drm.fd + 1 > nfds) nfds = drm.fd + 1;
+	
+	FD_SET(STDIN_FILENO, &fds);
 
 	const fd_set const_fds = fds;
 
@@ -1545,9 +1597,15 @@ void *io_loop(void *userdata) {
 			FD_CLR(drm.fd, &fds);
 			n_ready_fds--;
 		}
+		
+		if (FD_ISSET(STDIN_FILENO, &fds)) {
+			on_console_input();
+			FD_CLR(STDIN_FILENO, &fds);
+			n_ready_fds--;
+		}
 
 		if (n_ready_fds > 0) {
-			on_user_input(fds, n_ready_fds);
+			on_evdev_input(fds, n_ready_fds);
 		}
 
 		fds = const_fds;
