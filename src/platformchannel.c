@@ -1176,3 +1176,6 @@ struct StdMsgCodecValue *stdmap_get(struct StdMsgCodecValue *map, struct StdMsgC
 
 	return NULL;
 }
+struct StdMsgCodecValue *stdmap_get_str(struct StdMsgCodecValue *map, char *key) {
+	return stdmap_get(map, &(struct StdMsgCodecValue) {.type = kString, .string_value = key});
+}

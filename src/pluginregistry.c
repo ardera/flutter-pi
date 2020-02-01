@@ -4,11 +4,10 @@
 #include <platformchannel.h>
 #include <pluginregistry.h>
 
-// hardcoded plugin headers
 #include "plugins/services-plugin.h"
 #include "plugins/testplugin.h"
 #include "plugins/elm327plugin.h"
-
+#include "plugins/spi_plugin.h"
 
 struct ChannelObjectReceiverData {
 	char *channel;
@@ -32,6 +31,10 @@ struct FlutterPiPlugin hardcoded_plugins[] = {
 
 #ifdef BUILD_ELM327PLUGIN
 	{.name = "elm327plugin", .init = ELM327Plugin_init, .deinit = ELM327Plugin_deinit}
+#endif
+
+#ifdef BUILD_SPI_PLUGIN
+	{.name = "spi_plugin", .init = SPIPlugin_init, .deinit = SPIPlugin_deinit}
 #endif
 };
 //size_t hardcoded_plugins_count;

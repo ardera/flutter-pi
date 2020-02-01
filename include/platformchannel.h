@@ -266,6 +266,8 @@ bool stdvalue_equals(struct StdMsgCodecValue *a, struct StdMsgCodecValue *b);
 /// any arbitrary StdMsgCodecValue (and must not be a string as for jsobject_get)
 struct StdMsgCodecValue *stdmap_get(struct StdMsgCodecValue *map, struct StdMsgCodecValue *key);
 
+struct StdMsgCodecValue *stdmap_get_str(struct StdMsgCodecValue *map, char *key);
+
 /// Andrew: Definitions
 static inline int __alignmentDiff(uint32_t value, int alignment) {
 	alignment--;
