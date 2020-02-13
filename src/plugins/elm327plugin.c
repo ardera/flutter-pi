@@ -630,6 +630,8 @@ int ELM327Plugin_init(void) {
 	PluginRegistry_setReceiver(ELM327PLUGIN_COOLANTTEMP_CHANNEL, kStandardMethodCall, ELM327Plugin_onReceive);
 	PluginRegistry_setReceiver(ELM327PLUGIN_SPEED_CHANNEL, kStandardMethodCall, ELM327Plugin_onReceive);
 	PluginRegistry_setReceiver(ELM327PLUGIN_THROTTLE_CHANNEL, kStandardMethodCall, ELM327Plugin_onReceive);
+	
+	return 0;
 }
 int ELM327Plugin_deinit(void) {
     pidqq_processor_shouldrun = false;
@@ -638,4 +640,6 @@ int ELM327Plugin_deinit(void) {
 	elm_destroy();
 
     free(pidqq);
+	
+	return 0;
 }
