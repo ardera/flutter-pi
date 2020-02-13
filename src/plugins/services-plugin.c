@@ -209,8 +209,12 @@ int Services_init(void) {
         fprintf(stderr, "[services-plugin] could not set \"flutter/accessibility\" ChannelObject receiver: %s\n", strerror(ok));
         return ok;
     }
+    
+    return 0;
 }
 
 int Services_deinit(void) {
     printf("[services-plugin] deinit.\n");
+    
+    return 0;
 }
