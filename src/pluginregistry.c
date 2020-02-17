@@ -1,47 +1,50 @@
-#include <sys/errno.h>
+#include <unistd.h>
 #include <string.h>
+#include <sys/select.h>
 
 #include <platformchannel.h>
 #include <pluginregistry.h>
 
-#include "plugins/services-plugin.h"
-#include "plugins/text_input.h"
-#include "plugins/raw_keyboard.h"
+#include <plugins/services.h>
+#include <plugins/text_input.h>
+#include <plugins/raw_keyboard.h>
 
 #ifdef BUILD_TEST_PLUGIN
-#	include "plugins/testplugin.h"
+#	include <plugins/testplugin.h>
 #endif
 #ifdef BUILD_ELM327_PLUGIN
-#	include "plugins/elm327plugin.h"
+#	include <plugins/elm327plugin.h>
 #endif
 #ifdef BUILD_GPIO_PLUGIN
-#	include "plugins/gpio-plugin.h"
+#	include <plugins/gpiod.h>
 #endif
 #ifdef BUILD_SPI_PLUGIN
-#	include "plugins/spi_plugin.h"
+#	include <plugins/spidev.h>
 #endif
 
-
-struct ChannelObjectReceiverData {
+struct platch_obj_recv_data {
 	char *channel;
-	enum ChannelCodec codec;
-	ChannelObjectReceiveCallback callback;
+	enum platch_codec codec;
+	platch_obj_recv_callback callback;
 };
 struct {
-	struct FlutterPiPlugin *plugins;
+	struct flutterpi_plugin *plugins;
 	size_t plugin_count;
-	struct ChannelObjectReceiverData *callbacks;
-	size_t callbacks_size;
+
+	// platch_obj callbacks
+	struct platch_obj_recv_data *platch_obj_cbs;
+	size_t platch_obj_cbs_size;
+
 } pluginregistry;
 
 /// array of plugins that are statically included in flutter-pi.
-struct FlutterPiPlugin hardcoded_plugins[] = {
-	{.name = "services",     .init = Services_init, .deinit = Services_deinit},
-	{.name = "text_input",   .init = TextInput_init, .deinit = TextInput_deinit},
-	{.name = "raw_keyboard", .init = RawKeyboard_init, .deinit = RawKeyboard_deinit},
+struct flutterpi_plugin hardcoded_plugins[] = {
+	{.name = "services",     .init = services_init, .deinit = services_deinit},
+	{.name = "text_input",   .init = textin_init, .deinit = textin_deinit},
+	{.name = "raw_keyboard", .init = rawkb_init, .deinit = rawkb_deinit},
 
 #ifdef BUILD_TEST_PLUGIN
-	{.name = "testplugin",   .init = TestPlugin_init, .deinit = TestPlugin_deinit},
+	{.name = "testplugin",   .init = testp_init, .deinit = testp_deinit},
 #endif
 
 #ifdef BUILD_ELM327_PLUGIN
@@ -49,26 +52,30 @@ struct FlutterPiPlugin hardcoded_plugins[] = {
 #endif
 
 #ifdef BUILD_GPIO_PLUGIN
-	{.name = "gpio-plugin",  .init = GpioPlugin_init, .deinit = GpioPlugin_deinit},
+	{.name = "flutter_gpiod",  .init = gpiodp_init, .deinit = gpiodp_deinit},
 #endif
 
 #ifdef BUILD_SPI_PLUGIN
-	{.name = "spi_plugin", .init = SPIPlugin_init, .deinit = SPIPlugin_deinit}
+	{.name = "flutter_spidev", .init = spidevp_init, .deinit = spidevp_deinit}
 #endif
 };
-//size_t hardcoded_plugins_count;
 
 
-int PluginRegistry_init() {
+int plugin_registry_init() {
 	int ok;
 
 	memset(&pluginregistry, 0, sizeof(pluginregistry));
 
-	pluginregistry.callbacks_size = 20;
-	pluginregistry.callbacks = calloc(pluginregistry.callbacks_size, sizeof(struct ChannelObjectReceiverData));
+	pluginregistry.platch_obj_cbs_size = 20;
+	pluginregistry.platch_obj_cbs = calloc(pluginregistry.platch_obj_cbs_size, sizeof(struct platch_obj_recv_data));
+
+	if (!pluginregistry.platch_obj_cbs) {
+		fprintf(stderr, "[plugin-registry] Could not allocate memory for platform channel message callbacks.\n");
+		return ENOMEM;
+	}
 	
 	pluginregistry.plugins = hardcoded_plugins;
-	pluginregistry.plugin_count = sizeof(hardcoded_plugins) / sizeof(struct FlutterPiPlugin);
+	pluginregistry.plugin_count = sizeof(hardcoded_plugins) / sizeof(struct flutterpi_plugin);
 
 	// insert code for dynamically loading plugins here
 
@@ -82,18 +89,18 @@ int PluginRegistry_init() {
 
 	return 0;
 }
-int PluginRegistry_onPlatformMessage(FlutterPlatformMessage *message) {
-	struct ChannelObject object;
+int plugin_registry_on_platform_message(FlutterPlatformMessage *message) {
+	struct platch_obj object;
 	int ok;
 
-	for (int i = 0; i < pluginregistry.callbacks_size; i++) {
-		if ((pluginregistry.callbacks[i].callback) && (strcmp(pluginregistry.callbacks[i].channel, message->channel) == 0)) {
-			ok = PlatformChannel_decode((uint8_t*) message->message, message->message_size, pluginregistry.callbacks[i].codec, &object);
+	for (int i = 0; i < pluginregistry.platch_obj_cbs_size; i++) {
+		if ((pluginregistry.platch_obj_cbs[i].callback) && (strcmp(pluginregistry.platch_obj_cbs[i].channel, message->channel) == 0)) {
+			ok = platch_decode((uint8_t*) message->message, message->message_size, pluginregistry.platch_obj_cbs[i].codec, &object);
 			if (ok != 0) return ok;
 
-			pluginregistry.callbacks[i].callback((char*) message->channel, &object, (FlutterPlatformMessageResponseHandle*) message->response_handle);
+			pluginregistry.platch_obj_cbs[i].callback((char*) message->channel, &object, (FlutterPlatformMessageResponseHandle*) message->response_handle);
 
-			PlatformChannel_free(&object);
+			platch_free_obj(&object);
 			return 0;
 		}
 	}
@@ -102,19 +109,19 @@ int PluginRegistry_onPlatformMessage(FlutterPlatformMessage *message) {
 	// just respond with a null buffer to tell the VM-side
 	// that the feature is not implemented.
 
-	return PlatformChannel_respondNotImplemented((FlutterPlatformMessageResponseHandle *) message->response_handle);
+	return platch_respond_not_implemented((FlutterPlatformMessageResponseHandle *) message->response_handle);
 }
-int PluginRegistry_setReceiver(char *channel, enum ChannelCodec codec, ChannelObjectReceiveCallback callback) {
-	/// the index in 'callback' of the ChannelObjectReceiverData that will be added / updated.
+int plugin_registry_set_receiver(char *channel, enum platch_codec codec, platch_obj_recv_callback callback) {
+	/// the index in 'callback' of the platch_obj_recv_data that will be added / updated.
 	int index = -1;
 
 	/// find the index with channel name 'channel', or else, the first unoccupied index.
-	for (int i = 0; i < pluginregistry.callbacks_size; i++) {
-		if (pluginregistry.callbacks[i].channel == NULL) {
+	for (int i = 0; i < pluginregistry.platch_obj_cbs_size; i++) {
+		if (pluginregistry.platch_obj_cbs[i].channel == NULL) {
 			if (index == -1) {
 				index = i;
 			}
-		} else if (strcmp(channel, pluginregistry.callbacks[i].channel) == 0) {
+		} else if (strcmp(channel, pluginregistry.platch_obj_cbs[i].channel) == 0) {
 			index = i;
 			break;
 		}
@@ -125,13 +132,13 @@ int PluginRegistry_setReceiver(char *channel, enum ChannelCodec codec, ChannelOb
 		if (!callback) return 0;
 		
 		/// expand array
-		size_t currentsize = pluginregistry.callbacks_size * sizeof(struct ChannelObjectReceiverData);
+		size_t currentsize = pluginregistry.platch_obj_cbs_size * sizeof(struct platch_obj_recv_data);
 		
-		pluginregistry.callbacks = realloc(pluginregistry.callbacks, 2 * currentsize);
-		memset(&pluginregistry.callbacks[pluginregistry.callbacks_size], currentsize, 0);
+		pluginregistry.platch_obj_cbs = realloc(pluginregistry.platch_obj_cbs, 2 * currentsize);
+		memset(&pluginregistry.platch_obj_cbs[pluginregistry.platch_obj_cbs_size], currentsize, 0);
 
-		index = pluginregistry.callbacks_size;
-		pluginregistry.callbacks_size = 2*pluginregistry.callbacks_size;
+		index = pluginregistry.platch_obj_cbs_size;
+		pluginregistry.platch_obj_cbs_size = 2*pluginregistry.platch_obj_cbs_size;
 	}
 
 	if (callback) {
@@ -139,19 +146,19 @@ int PluginRegistry_setReceiver(char *channel, enum ChannelCodec codec, ChannelOb
 		if (!channelCopy) return ENOMEM;
 		strcpy(channelCopy, channel);
 
-		pluginregistry.callbacks[index].channel = channelCopy;
-		pluginregistry.callbacks[index].codec = codec;
-		pluginregistry.callbacks[index].callback = callback;
-	} else if (pluginregistry.callbacks[index].callback) {
-		free(pluginregistry.callbacks[index].channel);
-		pluginregistry.callbacks[index].channel = NULL;
-		pluginregistry.callbacks[index].callback = NULL;
+		pluginregistry.platch_obj_cbs[index].channel = channelCopy;
+		pluginregistry.platch_obj_cbs[index].codec = codec;
+		pluginregistry.platch_obj_cbs[index].callback = callback;
+	} else if (pluginregistry.platch_obj_cbs[index].callback) {
+		free(pluginregistry.platch_obj_cbs[index].channel);
+		pluginregistry.platch_obj_cbs[index].channel = NULL;
+		pluginregistry.platch_obj_cbs[index].callback = NULL;
 	}
 
 	return 0;
 	
 }
-int PluginRegistry_deinit() {
+int plugin_registry_deinit() {
 	int i, ok;
 	
 	/// call each plugins 'deinit'
@@ -163,11 +170,11 @@ int PluginRegistry_deinit() {
 	}
 
 	/// free all the channel names from the callback list.
-	for (int i=0; i < pluginregistry.callbacks_size; i++) {
-		if (pluginregistry.callbacks[i].channel)
-			free(pluginregistry.callbacks[i].channel);
+	for (int i=0; i < pluginregistry.platch_obj_cbs_size; i++) {
+		if (pluginregistry.platch_obj_cbs[i].channel)
+			free(pluginregistry.platch_obj_cbs[i].channel);
 	}
 
 	/// free the rest
-	free(pluginregistry.callbacks);
+	free(pluginregistry.platch_obj_cbs);
 }

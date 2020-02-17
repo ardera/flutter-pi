@@ -6,7 +6,7 @@
 
 #include <flutter-pi.h>
 #include <pluginregistry.h>
-#include "text_input.h"
+#include <plugins/text_input.h>
 
 struct {
     int32_t transaction_id;
@@ -23,11 +23,9 @@ struct {
     .transaction_id = -1
 };
 
-int TextInput_onReceive(char *channel, struct ChannelObject *object, FlutterPlatformMessageResponseHandle *responsehandle) {
-    struct JSONMsgCodecValue jsvalue, *temp, *temp2, *state, *config;
+int textin_on_receive(char *channel, struct platch_obj *object, FlutterPlatformMessageResponseHandle *responsehandle) {
+    struct json_value jsvalue, *temp, *temp2, *state, *config;
     int ok;
-
-    printf("[text_input] got method call: %s\n", object->method);
 
     if STREQ("TextInput.setClient", object->method) {
         /*
@@ -40,45 +38,33 @@ int TextInput_onReceive(char *channel, struct ChannelObject *object, FlutterPlat
          *      others (except `TextInput.hide`). See [TextInput.attach].
          */
         
-        if ((object->jsarg.type != kJSArray) || (object->jsarg.size != 2)) {
-            return PlatformChannel_respondError(
+        if ((object->json_arg.type != kJsonArray) || (object->json_arg.size != 2)) {
+            return platch_respond_illegal_arg_json(
                 responsehandle,
-                kJSONMethodCallResponse,
-                "illegalargument",
-                "Expected JSON Array with length 2 as the argument.",
-                NULL
+                "Expected `arg` to be an array with length 2."
             );
         }
 
-        if (object->jsarg.array[0].type != kJSNumber) {
-            return PlatformChannel_respondError(
+        if (object->json_arg.array[0].type != kJsonNumber) {
+            return platch_respond_illegal_arg_json(
                 responsehandle,
-                kJSONMethodCallResponse,
-                "illegalargument",
-                "Expected transaction id to be a number.",
-                NULL
+                "Expected transaction id to be a number."
             );
         }
 
-        if (object->jsarg.array[1].type != kJSObject) {
-            return PlatformChannel_respondError(
+        if (object->json_arg.array[1].type != kJsonObject) {
+            return platch_respond_illegal_arg_json(
                 responsehandle,
-                kJSONMethodCallResponse,
-                "illegalargument",
-                "Expected text input configuration to be a String",
-                NULL
+                "Expected text input configuration to be a String"
             );
         }
 
-        struct JSONMsgCodecValue *config = &object->jsarg.array[1];
+        struct json_value *config = &object->json_arg.array[1];
 
-        if (config->type != kJSObject) {
-            return PlatformChannel_respondError(
+        if (config->type != kJsonObject) {
+            return platch_respond_illegal_arg_json(
                 responsehandle,
-                kJSONMethodCallResponse,
-                "illegalargument",
-                "Expected decoded text input configuration to be an Object",
-                NULL
+                "Expected decoded text input configuration to be an Object"
             );
         }
 
@@ -88,14 +74,14 @@ int TextInput_onReceive(char *channel, struct ChannelObject *object, FlutterPlat
 
         // AUTOCORRECT
         temp = jsobject_get(config, "autocorrect");
-        if (!(temp && ((temp->type == kJSTrue) || (temp->type == kJSFalse))))
+        if (!(temp && ((temp->type == kJsonTrue) || (temp->type == kJsonFalse))))
             goto invalid_config;
 
-        autocorrect = temp->type == kJSTrue;
+        autocorrect = temp->type == kJsonTrue;
         
         // INPUT ACTION
         temp = jsobject_get(config, "inputAction");
-        if (!(temp && (temp->type == kJSString)))
+        if (!(temp && (temp->type == kJsonString)))
             goto invalid_config;
         
         if STREQ("TextInputAction.none", temp->string_value)
@@ -131,13 +117,13 @@ int TextInput_onReceive(char *channel, struct ChannelObject *object, FlutterPlat
         // INPUT TYPE
         temp = jsobject_get(config, "inputType");
 
-        if (!temp || temp->type != kJSObject)
+        if (!temp || temp->type != kJsonObject)
             goto invalid_config;
 
 
         temp2 = jsobject_get(temp, "name");
 
-        if (!temp2 || temp2->type != kJSString)
+        if (!temp2 || temp2->type != kJsonString)
             goto invalid_config;
 
         if STREQ("TextInputType.text", temp2->string_value) {
@@ -161,7 +147,7 @@ int TextInput_onReceive(char *channel, struct ChannelObject *object, FlutterPlat
         }
 
         // TRANSACTION ID
-        int32_t new_id = (int32_t) object->jsarg.array[0].number_value;
+        int32_t new_id = (int32_t) object->json_arg.array[0].number_value;
 
         // everything okay, apply the new text editing config
         text_input.transaction_id = new_id;
@@ -175,24 +161,21 @@ int TextInput_onReceive(char *channel, struct ChannelObject *object, FlutterPlat
             text_input.warned_about_autocorrect = true;
         }
 
-        return PlatformChannel_respond(
+        return platch_respond(
             responsehandle,
-            &(struct ChannelObject) {
+            &(struct platch_obj) {
                 .codec = kJSONMethodCallResponse,
                 .success = true,
-                .jsresult = {.type = kJSNull}
+                .json_result = {.type = kJsonNull}
             }
         );
 
         // invalid config given to setClient
         invalid_config:
-            return PlatformChannel_respondError(
+            return platch_respond_illegal_arg_json(
                 responsehandle,
-                kJSONMethodCallResponse,
-                "illegalargument",
                 "Expected decoded text input configuration to at least contain values for \"autocorrect\""
-                " and \"inputAction\"",
-                NULL
+                " and \"inputAction\""
             );
 
     } else if STREQ("TextInput.show", object->method) {
@@ -203,12 +186,12 @@ int TextInput_onReceive(char *channel, struct ChannelObject *object, FlutterPlat
          */
 
         // do nothing since we use a physical keyboard.
-        return PlatformChannel_respond(
+        return platch_respond(
             responsehandle,
-            &(struct ChannelObject) {
+            &(struct platch_obj) {
                 .codec = kJSONMethodCallResponse,
                 .success = true,
-                .jsresult = {.type = kJSNull}
+                .json_result = {.type = kJsonNull}
             }
         );
     } else if STREQ("TextInput.setEditingState", object->method) {
@@ -221,15 +204,12 @@ int TextInput_onReceive(char *channel, struct ChannelObject *object, FlutterPlat
          * 
          */
 
-        state = &object->jsarg;
+        state = &object->json_arg;
 
-        if (state->type != kJSObject) {
-            return PlatformChannel_respondError(
+        if (state->type != kJsonObject) {
+            return platch_respond_illegal_arg_json(
                 responsehandle,
-                kJSONMethodCallResponse,
-                "illegalargument",
-                "Expected decoded text editing value to be an Object",
-                NULL
+                "Expected decoded text editing value to be an Object"
             );
         }
 
@@ -238,19 +218,19 @@ int TextInput_onReceive(char *channel, struct ChannelObject *object, FlutterPlat
         bool selection_affinity_is_downstream, selection_is_directional;
 
         temp = jsobject_get(state, "text");
-        if (temp && (temp->type == kJSString))  text = temp->string_value;
+        if (temp && (temp->type == kJsonString))  text = temp->string_value;
         else                                    goto invalid_editing_value;
 
         temp = jsobject_get(state, "selectionBase");
-        if (temp && (temp->type == kJSNumber))  selection_base = (int) temp->number_value;
+        if (temp && (temp->type == kJsonNumber))  selection_base = (int) temp->number_value;
         else                                    goto invalid_editing_value;
 
         temp = jsobject_get(state, "selectionExtent");
-        if (temp && (temp->type == kJSNumber))  selection_extent = (int) temp->number_value;
+        if (temp && (temp->type == kJsonNumber))  selection_extent = (int) temp->number_value;
         else                                    goto invalid_editing_value;
 
         temp = jsobject_get(state, "selectionAffinity");
-        if (temp && (temp->type == kJSString)) {
+        if (temp && (temp->type == kJsonString)) {
             if STREQ("TextAffinity.downstream", temp->string_value) {
                 selection_affinity_is_downstream = true;
             } else if STREQ("TextAffinity.upstream", temp->string_value) {
@@ -263,31 +243,20 @@ int TextInput_onReceive(char *channel, struct ChannelObject *object, FlutterPlat
         }
 
         temp = jsobject_get(state, "selectionIsDirectional");
-        if (temp && (temp->type == kJSTrue || temp->type == kJSFalse)) {
-            selection_is_directional = temp->type == kJSTrue;
+        if (temp && (temp->type == kJsonTrue || temp->type == kJsonFalse)) {
+            selection_is_directional = temp->type == kJsonTrue;
         } else {
             goto invalid_editing_value;
         }
 
         temp = jsobject_get(state, "composingBase");
-        if (temp && (temp->type == kJSNumber))  composing_base = (int) temp->number_value;
+        if (temp && (temp->type == kJsonNumber))  composing_base = (int) temp->number_value;
         else                                    goto invalid_editing_value;
 
         temp = jsobject_get(state, "composingExtent");
-        if (temp && (temp->type == kJSNumber))  composing_extent = (int) temp->number_value;
+        if (temp && (temp->type == kJsonNumber))  composing_extent = (int) temp->number_value;
         else                                    goto invalid_editing_value;
 
-
-        // text editing value seems to be valid.
-        // apply it.
-        printf("[text_input] TextInput.setEditingState\n"
-            "  text = \"%s\",\n"
-            "  selectionBase = %i, selectionExtent = %i, selectionAffinity = %s\n"
-            "  selectionIsDirectional = %s, composingBase = %i, composingExtent = %i\n",
-            text, selection_base, selection_extent,
-            selection_affinity_is_downstream? "downstream" : "upstream",
-            selection_is_directional? "true" : "false", composing_base, composing_extent
-        );
 
         snprintf(text_input.text, sizeof(text_input.text), "%s", text);
         text_input.selection_base = selection_base;
@@ -297,23 +266,20 @@ int TextInput_onReceive(char *channel, struct ChannelObject *object, FlutterPlat
         text_input.composing_base = composing_base;
         text_input.composing_extent = composing_extent;
 
-        return PlatformChannel_respond(
+        return platch_respond(
             responsehandle,
-            &(struct ChannelObject) {
+            &(struct platch_obj) {
                 .codec = kJSONMethodCallResponse,
                 .success = true,
-                .jsresult = {.type = kJSNull}
+                .json_result = {.type = kJsonNull}
             }
         );
 
         invalid_editing_value:
-            return PlatformChannel_respondError(
+            return platch_respond_illegal_arg_json(
                 responsehandle,
-                kJSONMethodCallResponse,
-                "illegalargument",
                 "Expected decoded text editing value to be a valid"
-                " JSON representation of a text editing value",
-                NULL
+                " JSON representation of a text editing value"
             );
 
     } else if STREQ("TextInput.clearClient", object->method) {
@@ -327,12 +293,12 @@ int TextInput_onReceive(char *channel, struct ChannelObject *object, FlutterPlat
 
         text_input.transaction_id = -1;
 
-        return PlatformChannel_respond(
+        return platch_respond(
             responsehandle,
-            &(struct ChannelObject) {
+            &(struct platch_obj) {
                 .codec = kJSONMethodCallResponse,
                 .success = true,
-                .jsresult = {.type = kJSNull}
+                .json_result = {.type = kJsonNull}
             }
         );
     } else if STREQ("TextInput.hide", object->method) {
@@ -344,57 +310,48 @@ int TextInput_onReceive(char *channel, struct ChannelObject *object, FlutterPlat
          */
 
         // do nothing since we use a physical keyboard.
-        return PlatformChannel_respond(
+        return platch_respond(
             responsehandle,
-            &(struct ChannelObject) {
+            &(struct platch_obj) {
                 .codec = kJSONMethodCallResponse,
                 .success = true,
-                .jsresult = {.type = kJSNull}
+                .json_result = {.type = kJsonNull}
             }
         );
     }
 
-    return PlatformChannel_respondNotImplemented(responsehandle);
+    return platch_respond_not_implemented(responsehandle);
 }
 
 
-int TextInput_syncEditingState() {
-    printf("[text_input] TextInputClient.updateEditingState\n"
-            "  text = \"%s\",\n"
-            "  selectionBase = %i, selectionExtent = %i, selectionAffinity = %s\n"
-            "  selectionIsDirectional = %s, composingBase = %i, composingExtent = %i\n",
-            text_input.text, text_input.selection_base, text_input.selection_extent,
-            text_input.selection_affinity_is_downstream? "downstream" : "upstream",
-            text_input.selection_is_directional? "true" : "false", text_input.composing_base, text_input.composing_extent
-    );
-    
-    return PlatformChannel_send(
+int textin_sync_editing_state() {
+    return platch_send(
         TEXT_INPUT_CHANNEL,
-        &(struct ChannelObject) {
+        &(struct platch_obj) {
             .codec = kJSONMethodCall,
             .method = "TextInputClient.updateEditingState",
-            .jsarg = {
-                .type = kJSArray,
+            .json_arg = {
+                .type = kJsonArray,
                 .size = 2,
-                .array = (struct JSONMsgCodecValue[2]) {
-                    {.type = kJSNumber, .number_value = text_input.transaction_id},
-                    {.type = kJSObject, .size = 7,
+                .array = (struct json_value[2]) {
+                    {.type = kJsonNumber, .number_value = text_input.transaction_id},
+                    {.type = kJsonObject, .size = 7,
                         .keys = (char*[7]) {
                             "text", "selectionBase", "selectionExtent", "selectionAffinity",
                             "selectionIsDirectional", "composingBase", "composingExtent"
                         },
-                        .values = (struct JSONMsgCodecValue[7]) {
-                            {.type = kJSString, .string_value = text_input.text},
-                            {.type = kJSNumber, .number_value = text_input.selection_base},
-                            {.type = kJSNumber, .number_value = text_input.selection_extent},
+                        .values = (struct json_value[7]) {
+                            {.type = kJsonString, .string_value = text_input.text},
+                            {.type = kJsonNumber, .number_value = text_input.selection_base},
+                            {.type = kJsonNumber, .number_value = text_input.selection_extent},
                             {
-                                .type = kJSString,
+                                .type = kJsonString,
                                 .string_value = text_input.selection_affinity_is_downstream ?
                                     "TextAffinity.downstream" : "TextAffinity.upstream"
                             },
-                            {.type = text_input.selection_is_directional? kJSTrue : kJSFalse},
-                            {.type = kJSNumber, .number_value = text_input.composing_base},
-                            {.type = kJSNumber, .number_value = text_input.composing_extent}
+                            {.type = text_input.selection_is_directional? kJsonTrue : kJsonFalse},
+                            {.type = kJsonNumber, .number_value = text_input.composing_base},
+                            {.type = kJsonNumber, .number_value = text_input.composing_extent}
                         }
                     }
                 }
@@ -406,7 +363,7 @@ int TextInput_syncEditingState() {
     );
 }
 
-int TextInput_performAction(enum text_input_action action) {
+int textin_perform_action(enum text_input_action action) {
 
     char *action_str =
         (action == kTextInputActionNone) ?          "TextInputAction.none" :
@@ -423,17 +380,17 @@ int TextInput_performAction(enum text_input_action action) {
         (action == kTextInputActionEmergencyCall) ? "TextInputAction.emergencyCall" :
         "TextInputAction.newline";
 
-    return PlatformChannel_send(
+    return platch_send(
         TEXT_INPUT_CHANNEL,
-        &(struct ChannelObject) {
+        &(struct platch_obj) {
             .codec = kJSONMethodCall,
             .method = "TextInputClient.performAction",
-            .jsarg = {
-                .type = kJSArray,
+            .json_arg = {
+                .type = kJsonArray,
                 .size = 2,
-                .array = (struct JSONMsgCodecValue[2]) {
-                    {.type = kJSNumber, .number_value = text_input.transaction_id},
-                    {.type = kJSString, .string_value = action_str}
+                .array = (struct json_value[2]) {
+                    {.type = kJsonNumber, .number_value = text_input.transaction_id},
+                    {.type = kJsonString, .string_value = action_str}
                 }
             }
         },
@@ -441,15 +398,15 @@ int TextInput_performAction(enum text_input_action action) {
     );
 }
 
-int TextInput_onConnectionClosed(void) {
+int textin_on_connection_closed(void) {
     text_input.transaction_id = -1;
 
-    return PlatformChannel_send(
+    return platch_send(
         TEXT_INPUT_CHANNEL,
-        &(struct ChannelObject) {
+        &(struct platch_obj) {
             .codec = kJSONMethodCall,
             .method = "TextInputClient.onConnectionClosed",
-            .jsarg = {.type = kJSNull}
+            .json_arg = {.type = kJsonNull}
         },
         kBinaryCodec, NULL, NULL
     );
@@ -468,7 +425,7 @@ inline int to_byte_index(unsigned int symbol_index) {
 }
 
 // start and end index are both inclusive.
-int  TextInput_erase(unsigned int start, unsigned int end) {
+int  textin_erase(unsigned int start, unsigned int end) {
     // 0 <= start <= end < len
 
     char *start_str     = utf8_symbol_at(text_input.text, start);
@@ -479,18 +436,18 @@ int  TextInput_erase(unsigned int start, unsigned int end) {
 
     return start;
 }
-bool TextInput_deleteSelected(void) {
+bool textin_delete_selected(void) {
     // erase selected text
-    text_input.selection_base = TextInput_erase(text_input.selection_base, text_input.selection_extent-1);
+    text_input.selection_base = textin_erase(text_input.selection_base, text_input.selection_extent-1);
     text_input.selection_extent = text_input.selection_base;
     return true;
 }
-bool TextInput_addUtf8Char(char *c) {
+bool textin_add_utf8_char(char *c) {
     size_t symbol_length;
     char  *to_move;
 
     if (text_input.selection_base != text_input.selection_extent)
-        TextInput_deleteSelected();
+        textin_delete_selected();
 
     // find out where in our string we need to insert the utf8 symbol
 
@@ -516,32 +473,32 @@ bool TextInput_addUtf8Char(char *c) {
 
     return true;
 }
-bool TextInput_backspace(void) {
+bool textin_backspace(void) {
     if (text_input.selection_base != text_input.selection_extent)
-        return TextInput_deleteSelected();
+        return textin_delete_selected();
     
     if (text_input.selection_base != 0) {
         int base = text_input.selection_base - 1;
-        text_input.selection_base = TextInput_erase(base, base);
+        text_input.selection_base = textin_erase(base, base);
         text_input.selection_extent = text_input.selection_base;
         return true;
     }
 
     return false;
 }
-bool TextInput_delete(void) {
+bool textin_delete(void) {
     if (text_input.selection_base != text_input.selection_extent)
-        return TextInput_deleteSelected();
+        return textin_delete_selected();
     
     if (text_input.selection_base < strlen(text_input.text)) {
-        text_input.selection_base = TextInput_erase(text_input.selection_base, text_input.selection_base);
+        text_input.selection_base = textin_erase(text_input.selection_base, text_input.selection_base);
         text_input.selection_extent = text_input.selection_base;
         return true;
     }
 
     return false;
 }
-bool TextInput_moveCursorToBeginning(void) {
+bool textin_move_cursor_to_beginning(void) {
     if ((text_input.selection_base != 0) || (text_input.selection_extent != 0)) {
         text_input.selection_base = 0;
         text_input.selection_extent = 0;
@@ -550,7 +507,7 @@ bool TextInput_moveCursorToBeginning(void) {
 
     return false;
 }
-bool TextInput_moveCursorToEnd(void) {
+bool textin_move_cursor_to_end(void) {
     int end = strlen(text_input.text);
 
     if (text_input.selection_base != end) {
@@ -561,7 +518,7 @@ bool TextInput_moveCursorToEnd(void) {
 
     return false;
 }
-bool TextInput_moveCursorForward(void) {
+bool textin_move_cursor_forward(void) {
     if (text_input.selection_base != text_input.selection_extent) {
         text_input.selection_base = text_input.selection_extent;
         return true;
@@ -575,7 +532,7 @@ bool TextInput_moveCursorForward(void) {
 
     return false;
 }
-bool TextInput_moveCursorBack(void) {
+bool textin_move_cursor_back(void) {
     if (text_input.selection_base != text_input.selection_extent) {
         text_input.selection_extent = text_input.selection_base;
         return true; 
@@ -592,20 +549,20 @@ bool TextInput_moveCursorBack(void) {
 
 
 // these two functions automatically sync the editing state with flutter if
-// a change ocurred, so you don't explicitly need to call TextInput_syncEditingState().
+// a change ocurred, so you don't explicitly need to call textin_sync_editing_state().
 // `c` doesn't need to be NULL-terminated, the length of the char will be calculated
 // using the start byte.
-int TextInput_onUtf8Char(char *c) {
+int textin_on_utf8_char(char *c) {
     if (text_input.transaction_id == -1)
         return 0;
 
-    if (TextInput_addUtf8Char(c))
-        return TextInput_syncEditingState();
+    if (textin_add_utf8_char(c))
+        return textin_sync_editing_state();
 
     return 0;
 }
 
-int TextInput_onKey(glfw_key key) {
+int textin_on_key(glfw_key key) {
     bool needs_sync = false;
     bool perform_action = false;
     int ok;
@@ -615,26 +572,26 @@ int TextInput_onKey(glfw_key key) {
 
     switch (key) {
         case GLFW_KEY_LEFT:
-            needs_sync = TextInput_moveCursorBack();
+            needs_sync = textin_move_cursor_back();
             break;
         case GLFW_KEY_RIGHT:
-            needs_sync = TextInput_moveCursorForward();
+            needs_sync = textin_move_cursor_forward();
             break;
         case GLFW_KEY_END:
-            needs_sync = TextInput_moveCursorToEnd();
+            needs_sync = textin_move_cursor_to_end();
             break;
         case GLFW_KEY_HOME:
-            needs_sync = TextInput_moveCursorToBeginning();
+            needs_sync = textin_move_cursor_to_beginning();
             break;
         case GLFW_KEY_BACKSPACE:
-            needs_sync = TextInput_backspace();
+            needs_sync = textin_backspace();
             break;
         case GLFW_KEY_DELETE:
-            needs_sync = TextInput_delete();
+            needs_sync = textin_delete();
             break;
         case GLFW_KEY_ENTER:
             if (text_input.input_type == kInputTypeMultiline)
-                needs_sync = TextInput_addUtf8Char("\n");
+                needs_sync = textin_add_utf8_char("\n");
             
             perform_action = true;
             break;
@@ -643,12 +600,12 @@ int TextInput_onKey(glfw_key key) {
     }
 
     if (needs_sync) {
-        ok = TextInput_syncEditingState();
+        ok = textin_sync_editing_state();
         if (ok != 0) return ok;
     }
 
     if (perform_action) {
-        ok = TextInput_performAction(text_input.input_action);
+        ok = textin_perform_action(text_input.input_action);
         if (ok != 0) return ok;
     }
 
@@ -656,18 +613,23 @@ int TextInput_onKey(glfw_key key) {
 }
 
 
-int TextInput_init(void) {
+int textin_init(void) {
+    int ok;
+
+    printf("[test_input] Initializing...\n");
+
     text_input.text[0] = '\0';
     text_input.warned_about_autocorrect = false;
 
-    PluginRegistry_setReceiver(TEXT_INPUT_CHANNEL, kJSONMethodCall, TextInput_onReceive);
+    ok = plugin_registry_set_receiver(TEXT_INPUT_CHANNEL, kJSONMethodCall, textin_on_receive);
+    if (ok != 0) return ok;
 
-    printf("[text_input] init.\n");
+    printf("[text_input] Done.\n");
 
     return 0;
 }
 
-int TextInput_deinit(void) {
+int textin_deinit(void) {
     printf("[text_input] deinit.\n");
 
     return 0;

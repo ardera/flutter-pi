@@ -40,26 +40,26 @@ struct text_input_configuration {
     enum text_input_action input_action;
 };
 
-int TextInput_syncEditingState(void);
-int TextInput_performAction(enum text_input_action action);
-int TextInput_onConnectionClosed(void);
+int textin_sync_editing_state(void);
+int textin_perform_action(enum text_input_action action);
+int textin_on_connection_closed(void);
 
 // TextInput model functions (updating the text editing state)
-bool TextInput_deleteSelected(void);
-bool TextInput_addUtf8Char(char *c);
-bool TextInput_backspace(void);
-bool TextInput_delete(void);
-bool TextInput_moveCursorToBeginning(void);
-bool TextInput_moveCursorToEnd(void);
-bool TextInput_moveCursorForward(void);
-bool TextInput_moveCursorBack(void);
+bool textin_delete_selected(void);
+bool textin_add_utf8_char(char *c);
+bool textin_backspace(void);
+bool textin_delete(void);
+bool textin_move_cursor_to_beginning(void);
+bool textin_move_cursor_to_end(void);
+bool textin_move_cursor_forward(void);
+bool textin_move_cursor_back(void);
 
 // parses the input string as linux terminal input and calls the TextInput model functions
 // accordingly.
-int TextInput_onUtf8Char(char *c);
-int TextInput_onKey(glfw_key key);
+int textin_on_utf8_char(char *c);
+int textin_on_key(glfw_key key);
 
-int TextInput_init(void);
-int TextInput_deinit(void);
+int textin_init(void);
+int textin_deinit(void);
 
 #endif

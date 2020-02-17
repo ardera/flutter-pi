@@ -17,7 +17,7 @@
 #include <unistd.h>
 
 #include <pluginregistry.h>
-#include "elm327plugin.h"
+#include <plugins/elm327plugin.h>
 
 
 struct elm327         elm;
@@ -484,11 +484,11 @@ void *run_pidqq_processor(void* arg) {
  *****************/
 void ELM327Plugin_onPidQueryCompletion(struct pidqq_element query, uint32_t result, enum elm327plugin_errno elm_errno) {
 	// channel object that will be returned to flutter.
-	struct ChannelObject obj = {
+	struct platch_obj obj = {
 		.codec = kStandardMethodCallResponse,
 		.success = true,
-		.stdresult = {
-			.type = kFloat64,
+		.std_result = {
+			.type = kStdFloat64,
 			.float64_value = 0.0
 		}
 	};
@@ -498,40 +498,40 @@ void ELM327Plugin_onPidQueryCompletion(struct pidqq_element query, uint32_t resu
 
 		switch (pid) {
 			case OBDII_PID_ENGINE_RPM:
-				obj.stdresult.float64_value = (double) result / (double) 4.0;
+				obj.std_result.float64_value = (double) result / (double) 4.0;
 				break;
 			case OBDII_PID_ENGINE_LOAD:
 			case OBDII_PID_THROTTLE_POSITION:
-				obj.stdresult.float64_value = result * 100.0 / 255.0;
+				obj.std_result.float64_value = result * 100.0 / 255.0;
 				break;
 			case OBDII_PID_ENGINE_COOLANT_TEMP:
 			case OBDII_PID_INTAKE_AIR_TEMP:
-				obj.stdresult.type = kInt32;
-				obj.stdresult.int32_value = (int32_t) result - 40;
+				obj.std_result.type = kStdInt32;
+				obj.std_result.int32_value = (int32_t) result - 40;
 				break;
 			case OBDII_PID_VEHICLE_SPEED:
-				obj.stdresult.type = kInt32;
-				obj.stdresult.int32_value = (int32_t) result;
+				obj.std_result.type = kStdInt32;
+				obj.std_result.int32_value = (int32_t) result;
 				break;
 			default: 
 				break;
 		}
 	} else {
 		obj.success = false;
-		obj.errorcode = "queryfailed";
-		obj.errormessage = "ELM327 PID query failed. Reason could be a timeout on the connection between Pi and ELM or between ELM and ECU, or something else.";
-		obj.stderrordetails.type = kNull;
+		obj.error_code = "queryfailed";
+		obj.error_msg = "ELM327 PID query failed. Reason could be a timeout on the connection between Pi and ELM or between ELM and ECU, or something else.";
+		obj.std_error_details.type = kStdNull;
 	}
 
-	PlatformChannel_send(query.channel, &obj, kBinaryCodec, NULL, NULL);
+	platch_send(query.channel, &obj, kBinaryCodec, NULL, NULL);
 }
 int ELM327Plugin_onEventChannelListen(char *channel, uint8_t pid, FlutterPlatformMessageResponseHandle *handle) {
 	printf("[elm327plugin] listener registered on event channel %s with pid 0x%02X\n", channel, pid);
 	
 	// check if pid is supported, if not, respond with an error envelope
 	if (!elm_pid_supported(pid)) {
-        return PlatformChannel_respondError(
-            handle, kStandardMethodCallResponse,
+        return platch_respond_error_std(
+            handle,
             "notsupported",
             "The vehicle doesn't support the PID used for this channel.",
             NULL
@@ -559,10 +559,10 @@ int ELM327Plugin_onEventChannelListen(char *channel, uint8_t pid, FlutterPlatfor
 	pthread_cond_signal(&pidqq_added);
 
 	// respond with null
-	return PlatformChannel_respond(handle, &(struct ChannelObject) {
+	return platch_respond(handle, &(struct platch_obj) {
 		.codec = kStandardMethodCallResponse,
 		.success = true,
-		.stdresult = {.type = kNull}
+		.std_result = {.type = kStdNull}
 	});
 }
 int ELM327Plugin_onEventChannelCancel(char *channel, uint8_t pid, FlutterPlatformMessageResponseHandle *handle) {
@@ -574,13 +574,13 @@ int ELM327Plugin_onEventChannelCancel(char *channel, uint8_t pid, FlutterPlatfor
     pthread_mutex_unlock(&pidqq_lock);
 
 	// respond with null.
-    return PlatformChannel_respond(handle, &(struct ChannelObject) {
+    return platch_respond(handle, &(struct platch_obj) {
         .codec = kStandardMethodCallResponse,
         .success = true,
-        .stdresult = {.type = kNull}
+        .std_result = {.type = kStdNull}
     });
 }
-int ELM327Plugin_onReceive(char *channel, struct ChannelObject *object, FlutterPlatformMessageResponseHandle *handle) {
+int ELM327Plugin_onReceive(char *channel, struct platch_obj *object, FlutterPlatformMessageResponseHandle *handle) {
     bool isListen = false;
 	if ((object->codec == kStandardMethodCall) && ((isListen = (strcmp(object->method, "listen") == 0)) || (strcmp(object->method, "cancel") == 0))) {
         uint8_t pid = (strcmp(channel, ELM327PLUGIN_RPM_CHANNEL) == 0)         ? OBDII_PID_ENGINE_RPM :
@@ -597,13 +597,15 @@ int ELM327Plugin_onReceive(char *channel, struct ChannelObject *object, FlutterP
 			if (isListen)   ELM327Plugin_onEventChannelListen(channel, pid, handle);
 			else 			ELM327Plugin_onEventChannelCancel(channel, pid, handle);
 		} else {
-			return PlatformChannel_respondError(
-				handle, kStandardMethodCallResponse,
-				"noelm", "elm.is_online == false. No communication to ELM327 possible, or initialization failed.", NULL
+			return platch_respond_error_std(
+				handle,
+				"noelm",
+				"elm.is_online == false. No communication to ELM327 possible, or initialization failed.",
+				NULL
 			);
 		}
     } else {
-		return PlatformChannel_respondNotImplemented(handle);
+		return platch_respond_not_implemented(handle);
 	}
 }
 
@@ -624,12 +626,14 @@ int ELM327Plugin_init(void) {
 	pidqq_processor_shouldrun = true;
     pthread_create(&pidqq_processor_thread, NULL, run_pidqq_processor, NULL);
 
-    PluginRegistry_setReceiver(ELM327PLUGIN_CHANNEL, kStandardMethodCall, ELM327Plugin_onReceive);
-	PluginRegistry_setReceiver(ELM327PLUGIN_RPM_CHANNEL, kStandardMethodCall, ELM327Plugin_onReceive);
-	PluginRegistry_setReceiver(ELM327PLUGIN_ENGINELOAD_CHANNEL, kStandardMethodCall, ELM327Plugin_onReceive);
-	PluginRegistry_setReceiver(ELM327PLUGIN_COOLANTTEMP_CHANNEL, kStandardMethodCall, ELM327Plugin_onReceive);
-	PluginRegistry_setReceiver(ELM327PLUGIN_SPEED_CHANNEL, kStandardMethodCall, ELM327Plugin_onReceive);
-	PluginRegistry_setReceiver(ELM327PLUGIN_THROTTLE_CHANNEL, kStandardMethodCall, ELM327Plugin_onReceive);
+    plugin_registry_set_receiver(ELM327PLUGIN_CHANNEL, kStandardMethodCall, ELM327Plugin_onReceive);
+	plugin_registry_set_receiver(ELM327PLUGIN_RPM_CHANNEL, kStandardMethodCall, ELM327Plugin_onReceive);
+	plugin_registry_set_receiver(ELM327PLUGIN_ENGINELOAD_CHANNEL, kStandardMethodCall, ELM327Plugin_onReceive);
+	plugin_registry_set_receiver(ELM327PLUGIN_COOLANTTEMP_CHANNEL, kStandardMethodCall, ELM327Plugin_onReceive);
+	plugin_registry_set_receiver(ELM327PLUGIN_SPEED_CHANNEL, kStandardMethodCall, ELM327Plugin_onReceive);
+	plugin_registry_set_receiver(ELM327PLUGIN_THROTTLE_CHANNEL, kStandardMethodCall, ELM327Plugin_onReceive);
+
+	return 0;
 }
 int ELM327Plugin_deinit(void) {
     pidqq_processor_shouldrun = false;
@@ -638,4 +642,6 @@ int ELM327Plugin_deinit(void) {
 	elm_destroy();
 
     free(pidqq);
+
+	return 0;
 }

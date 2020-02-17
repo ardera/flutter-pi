@@ -7,7 +7,7 @@
 #include <flutter-pi.h>
 #include <pluginregistry.h>
 #include <console_keyboard.h>
-#include "raw_keyboard.h"
+#include <plugins/raw_keyboard.h>
 
 struct {
     // same as mods, just that it differentiates between left and right-sided modifiers.
@@ -16,26 +16,26 @@ struct {
     bool initialized;
 } raw_keyboard = {.initialized = false};
 
-int RawKeyboard_sendGlfwKeyEvent(uint32_t code_point, glfw_key key_code, uint32_t scan_code, glfw_keymod_map mods, bool is_down) {
-    return PlatformChannel_send(
+int rawkb_send_glfw_keyevent(uint32_t code_point, glfw_key key_code, uint32_t scan_code, glfw_keymod_map mods, bool is_down) {
+    return platch_send(
         KEY_EVENT_CHANNEL,
-        &(struct ChannelObject) {
+        &(struct platch_obj) {
             .codec = kJSONMessageCodec,
-            .jsonmsgcodec_value = {
-                .type = kJSObject,
+            .json_value = {
+                .type = kJsonObject,
                 .size = 7,
                 .keys = (char*[7]) {
                     "keymap", "toolkit", "unicodeScalarValues", "keyCode", "scanCode",
                     "modifiers", "type"
                 },
-                .values = (struct JSONMsgCodecValue[7]) {
-                    {.type = kJSString, .string_value = "linux"},
-                    {.type = kJSString, .string_value = "glfw"},
-                    {.type = kJSNumber, .number_value = code_point},
-                    {.type = kJSNumber, .number_value = key_code},
-                    {.type = kJSNumber, .number_value = scan_code},
-                    {.type = kJSNumber, .number_value = mods},
-                    {.type = kJSString, .string_value = is_down? "keydown" : "keyup"}
+                .values = (struct json_value[7]) {
+                    {.type = kJsonString, .string_value = "linux"},
+                    {.type = kJsonString, .string_value = "glfw"},
+                    {.type = kJsonNumber, .number_value = code_point},
+                    {.type = kJsonNumber, .number_value = key_code},
+                    {.type = kJsonNumber, .number_value = scan_code},
+                    {.type = kJsonNumber, .number_value = mods},
+                    {.type = kJsonString, .string_value = is_down? "keydown" : "keyup"}
                 }
             }
         },
@@ -45,7 +45,7 @@ int RawKeyboard_sendGlfwKeyEvent(uint32_t code_point, glfw_key key_code, uint32_
     );
 }
 
-int RawKeyboard_onKeyEvent(glfw_key key, uint32_t scan_code, glfw_key_action action) {
+int rawkb_on_keyevent(glfw_key key, uint32_t scan_code, glfw_key_action action) {
     glfw_keymod_map mods_after = raw_keyboard.mods;
     uint16_t        lrmods_after = raw_keyboard.leftright_mods;
     glfw_keymod     mod;
@@ -108,23 +108,25 @@ int RawKeyboard_onKeyEvent(glfw_key key, uint32_t scan_code, glfw_key_action act
     }
 
     if (send) {
-        RawKeyboard_sendGlfwKeyEvent(0, key, scan_code, raw_keyboard.mods, action != GLFW_RELEASE);
+        rawkb_send_glfw_keyevent(0, key, scan_code, raw_keyboard.mods, action != GLFW_RELEASE);
     }
 
     raw_keyboard.leftright_mods = lrmods_after;
     raw_keyboard.mods = mods_after;
 }
 
-int RawKeyboard_init(void) {
+int rawkb_init(void) {
+    printf("[raw_keyboard] Initializing...\n");
+
     raw_keyboard.leftright_mods = 0;
     raw_keyboard.mods = 0;
     raw_keyboard.initialized = true;
     
-    printf("[raw_keyboard] init.\n");
+    printf("[raw_keyboard] Done.\n");
     return 0;
 }
 
-int RawKeyboard_deinit(void) {
+int rawkb_deinit(void) {
     raw_keyboard.initialized = false;
 
     printf("[raw_keyboard] deinit.\n");

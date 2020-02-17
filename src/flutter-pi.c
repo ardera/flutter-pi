@@ -36,9 +36,9 @@
 #include <console_keyboard.h>
 #include <platformchannel.h>
 #include <pluginregistry.h>
-#include "plugins/services-plugin.h"
-#include "plugins/text_input.h"
-#include "plugins/raw_keyboard.h"
+//#include <plugins/services.h>
+#include <plugins/text_input.h>
+#include <plugins/raw_keyboard.h>
 
 
 char* usage ="\
@@ -430,8 +430,8 @@ void          *proc_resolver(void* userdata, const char* name) {
 }
 void     	   on_platform_message(const FlutterPlatformMessage* message, void* userdata) {
 	int ok;
-	if ((ok = PluginRegistry_onPlatformMessage((FlutterPlatformMessage *)message)) != 0)
-		fprintf(stderr, "PluginRegistry_onPlatformMessage failed: %s\n", strerror(ok));
+	if ((ok = plugin_registry_on_platform_message((FlutterPlatformMessage *)message)) != 0)
+		fprintf(stderr, "plugin_registry_on_platform_message failed: %s\n", strerror(ok));
 }
 void	 	   vsync_callback(void* userdata, intptr_t baton) {
 	post_platform_task(&(struct flutterpi_task) {
@@ -1086,7 +1086,7 @@ bool init_application(void) {
 	int ok;
 
 	printf("Initializing Plugin Registry...\n");
-	ok = PluginRegistry_init();
+	ok = plugin_registry_init();
 	if (ok != 0) {
 		fprintf(stderr, "Could not initialize plugin registry: %s\n", strerror(ok));
 		return false;
@@ -1162,7 +1162,7 @@ void destroy_application(void) {
 		engine = NULL;
 	}
 
-	if ((ok = PluginRegistry_deinit()) != 0) {
+	if ((ok = plugin_registry_deinit()) != 0) {
 		fprintf(stderr, "Could not deinitialize plugin registry: %s\n", strerror(ok));
 	}
 }
@@ -1450,7 +1450,7 @@ void  on_evdev_input(fd_set fds, size_t n_ready_fds) {
 						default: action = -1; break;
 					}
 
-					RawKeyboard_onKeyEvent(EVDEV_KEY_TO_GLFW_KEY(e->code), 0, action);
+					rawkb_on_keyevent(EVDEV_KEY_TO_GLFW_KEY(e->code), 0, action);
 				} else if (e->code != BTN_TOUCH || device->is_direct) {
 					if (e->value == 1) device->active_buttons |=  FLUTTER_BUTTON_FROM_EVENT_CODE(e->code);
 					else               device->active_buttons &= ~FLUTTER_BUTTON_FROM_EVENT_CODE(e->code);
@@ -1547,9 +1547,9 @@ void  on_console_input(void) {
 	cursor = buffer;
 	while (*cursor) {
 		if (key = console_try_get_key(cursor, &cursor), key != GLFW_KEY_UNKNOWN) {
-			TextInput_onKey(key);
+			textin_on_key(key);
 		} else if (c = console_try_get_utf8char(cursor, &cursor), c != NULL) {
-			TextInput_onUtf8Char(c);
+			textin_on_utf8_char(c);
 		} else {
 			// neither a char nor a (function) key. we don't know when
 			// we can start parsing the buffer again, so just stop here

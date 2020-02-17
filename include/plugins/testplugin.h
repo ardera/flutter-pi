@@ -8,7 +8,7 @@
 #define TESTPLUGIN_CHANNEL_STD "flutter-pi/teststd"
 #define TESTPLUGIN_CHANNEL_PING "flutter-pi/ping"
 
-extern int TestPlugin_init(void);
-extern int TestPlugin_deinit(void);
+extern int testp_init(void);
+extern int testp_deinit(void);
 
 #endif
