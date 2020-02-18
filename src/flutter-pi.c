@@ -1149,7 +1149,7 @@ bool init_application(void) {
 		drm.disable_vsync = true;
 		if (ok != 0) {
 			fprintf(stderr,
-					"WARNING: Could not get last vblank timestamp. %s", strerror(_errno));
+					"WARNING: Could not get last vblank timestamp. %s\n", strerror(_errno));
 		} else {
 			fprintf(stderr,
 					"WARNING: Kernel didn't return a valid vblank timestamp. (timestamp == 0)\n");
