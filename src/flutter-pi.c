@@ -117,6 +117,7 @@ struct {
 	size_t crtc_index;
 	struct gbm_bo *previous_bo;
 	drmEventContext evctx;
+	bool disable_vsync;
 } drm = {0};
 
 struct {
@@ -284,10 +285,19 @@ bool     	   present(void* userdata) {
 	next_bo = gbm_surface_lock_front_buffer(gbm.surface);
 	fb = drm_fb_get_from_bo(next_bo);
 
-	ok = drmModePageFlip(drm.fd, drm.crtc_id, fb->fb_id, DRM_MODE_PAGE_FLIP_EVENT, drm.previous_bo);
-	if (ok) {
-		perror("failed to queue page flip");
-		return false;
+	// workaround for #38
+	if (!drm.disable_vsync) {
+		ok = drmModePageFlip(drm.fd, drm.crtc_id, fb->fb_id, DRM_MODE_PAGE_FLIP_EVENT, drm.previous_bo);
+		if (ok) {
+			perror("failed to queue page flip");
+			return false;
+		}
+	} else {
+		ok = drmModeSetCrtc(drm.fd, drm.crtc_id, fb->fb_id, 0, 0, &drm.connector_id, 1, drm.mode);
+		if (ok == -1) {
+			perror("failed swap buffers\n");
+			return false;
+		}
 	}
 
 	gbm_surface_release_buffer(gbm.surface, drm.previous_bo);
@@ -1083,7 +1093,7 @@ void destroy_display(void) {
 }
 
 bool init_application(void) {
-	int ok;
+	int ok, _errno;
 
 	printf("Initializing Plugin Registry...\n");
 	ok = PluginRegistry_init();
@@ -1130,16 +1140,21 @@ bool init_application(void) {
 	// only enable vsync if the kernel supplies valid vblank timestamps
 	uint64_t ns = 0;
 	ok = drmCrtcGetSequence(drm.fd, drm.crtc_id, NULL, &ns);
-	if (ok != 0) {
-		perror("Could not get last VBlank timestamp. drmCrtcGetSequence");
-		return false;
-	}
+	if (ok != 0) _errno = errno;
 
-	if (ns != 0) {
+	if ((ok == 0) && (ns != 0)) {
+		drm.disable_vsync = false;
 		flutter.args.vsync_callback	= vsync_callback;
 	} else {
+		drm.disable_vsync = true;
+		if (ok != 0) {
+			fprintf(stderr,
+					"WARNING: Could not get last vblank timestamp. %s", strerror(_errno));
+		} else {
+			fprintf(stderr,
+					"WARNING: Kernel didn't return a valid vblank timestamp. (timestamp == 0)\n");
+		}
 		fprintf(stderr,
-				"WARNING: Kernel didn't return a valid vblank timestamp.\n"
 				"         VSync will be disabled.\n"
 				"         See https://github.com/ardera/flutter-pi/issues/38 for more info.\n");
 	}
