@@ -9,6 +9,8 @@
 #include <xf86drmMode.h>
 #include <stdint.h>
 #include <flutter_embedder.h>
+#include <stdlib.h>
+#include <string.h>
 
 #define EGL_PLATFORM_GBM_KHR	0x31D7
 

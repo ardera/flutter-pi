@@ -105,82 +105,100 @@ int platch_free_obj(struct platch_obj *object) {
 	return 0;
 }
 
-int platch_calc_value_size_std(struct std_value* value, size_t* psize) {
+int platch_calc_value_size_std(struct std_value* value, size_t* size_out) {
 	enum std_value_type type = value->type;
-	size_t size;
+	uintptr_t size = (uintptr_t) *size_out;
+	size_t element_size, sizet_size = 0;
 	int ok;
 
 	// Type Byte
-	advance(psize, 1);
+	_advance(&size, 1, NULL);
 	switch (type) {
 		case kStdNull:
 		case kStdTrue:
 		case kStdFalse:
 			break;
 		case kStdInt32:
-			advance(psize, 4);
+			_advance(&size, 4, NULL);
 			break;
 		case kStdInt64:
-			advance(psize, 8);
+			_advance(&size, 8, NULL);
 			break;
 		case kStdFloat64:
-			align8 (psize);
-			advance(psize, 8);
+			_align  (&size, 8, NULL);
+			_advance(&size, 8, NULL);
 			break;
 		case kStdString:
 		case kStdLargeInt:
-			size = strlen(value->string_value);
-			advance(psize, size + nSizeBytes(size));
+			element_size = strlen(value->string_value);
+			_advance_size_bytes(&size, element_size, NULL);
+			_advance(&size, element_size, NULL);
 			break;
 		case kStdUInt8Array:
-			size = value->size;
-			advance(psize, size + nSizeBytes(size));
+			element_size = value->size;
+			_advance_size_bytes(&size, element_size, NULL);
+			_advance(&size, element_size, NULL);
 			break;
 		case kStdInt32Array:
-			size = value->size;
+			element_size = value->size;
 
-			advance(psize, nSizeBytes(size));
-			align4 (psize);
-			advance(psize, size*4);
+			_advance_size_bytes(&size, element_size, NULL);
+			_align  (&size, 4, NULL);
+			_advance(&size, element_size*4, NULL);
 
 			break;
 		case kStdInt64Array:
-			size = value->size;
+			element_size = value->size;
 			
-			advance(psize, nSizeBytes(size));
-			align8 (psize);
-			advance(psize, size*8);
+			_advance_size_bytes(&size, element_size, NULL);
+			_align  (&size, 8, NULL);
+			_advance(&size, element_size*8, NULL);
 
 			break;
 		case kStdFloat64Array:
-			size = value->size;
+			element_size = value->size;
 			
-			advance(psize, nSizeBytes(size));
-			align8 (psize);
-			advance(psize, size*8);
+			_advance_size_bytes(&size, element_size, NULL);
+			_align  (&size, 8, NULL);
+			_advance(&size, element_size*8, NULL);
 
 			break;
 		case kStdList:
-			size = value->size;
+			element_size = value->size;
 
-			advance(psize, nSizeBytes(size));
-			for (int i = 0; i<size; i++)
-				if ((ok = platch_calc_value_size_std(&(value->list[i]), psize))   != 0)    return ok;
-			
+			_advance_size_bytes(&size, element_size, NULL);
+			for (int i = 0; i<element_size; i++) {
+				sizet_size = (size_t) size;
+
+				ok = platch_calc_value_size_std(&(value->list[i]), &sizet_size);
+				if (ok != 0) return ok;
+
+				size = (uintptr_t) sizet_size;
+			}
+
 			break;
 		case kStdMap:
-			size = value->size;
+			element_size = value->size;
 
-			advance(psize, nSizeBytes(size));
-			for (int i = 0; i<size; i++) {
-				if ((ok = platch_calc_value_size_std(&(value->keys[i]), psize))   != 0) return ok;
-				if ((ok = platch_calc_value_size_std(&(value->values[i]), psize)) != 0) return ok;
+			_advance_size_bytes(&size, element_size, NULL);
+			for (int i = 0; i<element_size; i++) {
+				sizet_size = (size_t) size;
+
+				ok = platch_calc_value_size_std(&(value->keys[i]), &sizet_size);
+				if (ok != 0) return ok;
+
+				ok = platch_calc_value_size_std(&(value->values[i]), &sizet_size);
+				if (ok != 0) return ok;
+
+				size = (uintptr_t) sizet_size;
 			}
 
 			break;
 		default:
 			return EINVAL;
 	}
+
+	*size_out = (size_t) size;
 
 	return 0;
 }
@@ -189,8 +207,7 @@ int platch_write_value_to_buffer_std(struct std_value* value, uint8_t **pbuffer)
 	size_t size;
 	int ok;
 
-	write8(pbuffer, value->type);
-	advance(pbuffer, 1);
+	_write8(pbuffer, value->type, NULL);
 
 	switch (value->type) {
 		case kStdNull:
@@ -198,17 +215,14 @@ int platch_write_value_to_buffer_std(struct std_value* value, uint8_t **pbuffer)
 		case kStdFalse:
 			break;
 		case kStdInt32:
-			write32(pbuffer, value->int32_value);
-			advance(pbuffer, 4);
+			_write32(pbuffer, value->int32_value, NULL);
 			break;
 		case kStdInt64:
-			write64(pbuffer, value->int64_value);
-			advance(pbuffer, 8);
+			_write64(pbuffer, value->int64_value, NULL);
 			break;
 		case kStdFloat64:
-			align8(pbuffer);
-			write64(pbuffer, *((uint64_t*) &(value->float64_value)));
-			advance(pbuffer, 8);
+			_align  ((uintptr_t*) pbuffer, 8, NULL);
+			_write64(pbuffer, *((uint64_t*) &(value->float64_value)), NULL);
 			break;
 		case kStdLargeInt:
 		case kStdString:
@@ -221,59 +235,61 @@ int platch_write_value_to_buffer_std(struct std_value* value, uint8_t **pbuffer)
 				byteArray = value->uint8array;
 			}
 
-			writeSize(pbuffer, size);
+			_writeSize(pbuffer, size, NULL);
 			for (int i=0; i<size; i++) {
-				write8(pbuffer, byteArray[i]);
-				advance(pbuffer, 1);
+				_write8(pbuffer, byteArray[i], NULL);
 			}
 			break;
 		case kStdInt32Array:
 			size = value->size;
 
-			writeSize(pbuffer, size);
-			align4(pbuffer);
+			_writeSize(pbuffer, size, NULL);
+			_align   ((uintptr_t*) pbuffer, 4, NULL);
 			
 			for (int i=0; i<size; i++) {
-				write32(pbuffer, value->int32array[i]);
-				advance(pbuffer, 4);
+				_write32(pbuffer, value->int32array[i], NULL);
 			}
 			break;
 		case kStdInt64Array:
 			size = value->size;
 
-			writeSize(pbuffer, size);
-			align8(pbuffer);
+			_writeSize(pbuffer, size, NULL);
+			_align((uintptr_t*) pbuffer, 8, NULL);
 			for (int i=0; i<size; i++) {
-				write64(pbuffer, value->int64array[i]);
-				advance(pbuffer, 8);
+				_write64(pbuffer, value->int64array[i], NULL);
 			}
 			break;
 		case kStdFloat64Array:
 			size = value->size;
 
-			writeSize(pbuffer, size);
-			align8(pbuffer);
+			_writeSize(pbuffer, size, NULL);
+			_align((uintptr_t*) pbuffer, 8, NULL);
 
 			for (int i=0; i<size; i++) {
-				write64(pbuffer, value->float64array[i]);
-				advance(pbuffer, 8);
+				_write64(pbuffer, value->float64array[i], NULL);
+				_advance((uintptr_t*) pbuffer, 8, NULL);
 			}
 			break;
 		case kStdList:
 			size = value->size;
 
-			writeSize(pbuffer, size);
-			for (int i=0; i<size; i++)
-				if ((ok = platch_write_value_to_buffer_std(&(value->list[i]), pbuffer))   != 0) return ok;
-			
+			_writeSize(pbuffer, size, NULL);
+			for (int i=0; i < size; i++) {
+				ok = platch_write_value_to_buffer_std(&value->list[i], pbuffer);
+				if (ok != 0) return ok;
+			}
+
 			break;
 		case kStdMap:
 			size = value->size;
 
-			writeSize(pbuffer, size);
+			_writeSize(pbuffer, size, NULL);
 			for (int i=0; i<size; i++) {
-				if ((ok = platch_write_value_to_buffer_std(&(value->keys[i]), pbuffer))   != 0) return ok;
-				if ((ok = platch_write_value_to_buffer_std(&(value->values[i]), pbuffer)) != 0) return ok;
+				ok = platch_write_value_to_buffer_std(&value->keys[i], pbuffer);
+				if (ok != 0) return ok;
+
+				ok = platch_write_value_to_buffer_std(&value->values[i], pbuffer);
+				if (ok != 0) return ok;
 			}
 			break;
 		default:
@@ -416,16 +432,18 @@ int platch_write_value_to_buffer_json(struct json_value* value, uint8_t **pbuffe
 	return 0;
 }
 int platch_decode_value_std(uint8_t **pbuffer, size_t *premaining, struct std_value *value_out) {
+	enum std_value_type type = 0;
 	int64_t *longArray = 0;
 	int32_t *intArray = 0;
-	uint8_t *byteArray = 0;
+	uint8_t *byteArray = 0, type_byte = 0;
 	char *c_string = 0; 
 	size_t size = 0;
 	int ok;
 	
-	enum std_value_type type = read8(pbuffer);
-	advance(pbuffer, 1, premaining);
+	ok = _read8(pbuffer, &type_byte, premaining);
+	if (ok != 0) return ok;
 
+	type = type_byte;
 	value_out->type = type;
 	switch (type) {
 		case kStdNull:
@@ -433,97 +451,119 @@ int platch_decode_value_std(uint8_t **pbuffer, size_t *premaining, struct std_va
 		case kStdFalse:
 			break;
 		case kStdInt32:
-			if (*premaining < 4) return EBADMSG;
-
-			value_out->int32_value = (int32_t) read32(pbuffer);
-			advance(pbuffer, 4, premaining);
+			ok = _read32(pbuffer, &value_out->int32_value, premaining);
+			if (ok != 0) return ok;
 
 			break;
 		case kStdInt64:
-			if (*premaining < 8) return EBADMSG;
-
-			value_out->int64_value = (int64_t) read64(pbuffer);
-			advance(pbuffer, 8, premaining);
+			ok = _read64(pbuffer, &value_out->int64_value, premaining);
+			if (ok != 0) return ok;
 
 			break;
 		case kStdFloat64:
-			if (*premaining < (8 + alignmentDiff(*pbuffer, 8))) return EBADMSG;
+			ok = _align((uintptr_t*) pbuffer, 8, premaining);
+			if (ok != 0) return ok;
 
-			align8(pbuffer, premaining);
-			uint64_t temp = read64(pbuffer);
-			value_out->float64_value = *((double*) (&temp));
-			advance(pbuffer, 8, premaining);
+			ok = _read64(pbuffer, (uint64_t*) &value_out->float64_value, premaining);
+			if (ok != 0) return ok;
 
 			break;
 		case kStdLargeInt:
 		case kStdString:
-			if ((ok = readSize(pbuffer, premaining, &size)) != 0) return ok;
+			ok = _readSize(pbuffer, &size, premaining);
+			if (ok != 0) return ok;
 			if (*premaining < size) return EBADMSG;
 
 			value_out->string_value = calloc(size+1, sizeof(char));
 			if (!value_out->string_value) return ENOMEM;
+
 			memcpy(value_out->string_value, *pbuffer, size);
-			advance(pbuffer, size, premaining);
+			_advance((uintptr_t*) pbuffer, size, premaining);
 
 			break;
 		case kStdUInt8Array:
-			if ((ok = readSize(pbuffer, premaining, &size)) != 0) return ok;
+			ok = _readSize(pbuffer, &size, premaining);
+			if (ok != 0) return ok;
 			if (*premaining < size) return EBADMSG;
 
 			value_out->size = size;
 			value_out->uint8array = *pbuffer;
-			advance(pbuffer, size, premaining);
+
+			ok = _advance((uintptr_t*) pbuffer, size, premaining);
+			if (ok != 0) return ok;
 
 			break;
 		case kStdInt32Array:
-			if ((ok = readSize(pbuffer, premaining, &size)) != 0) return ok;
-			if (*premaining < (size*4 + alignmentDiff(*pbuffer, 4))) return EBADMSG;
+			ok = _readSize(pbuffer, &size, premaining);
+			if (ok != 0) return ok;
+			
+			ok = _align((uintptr_t*) pbuffer, 4, premaining);
+			if (ok != 0) return ok;
 
-			align4(pbuffer, premaining);
+			if (*premaining < size*4) return EBADMSG;
+
 			value_out->size = size;
 			value_out->int32array = (int32_t*) *pbuffer;
-			advance(pbuffer, size*4, premaining);
+
+			ok = _advance((uintptr_t*) pbuffer, size*4, premaining);
+			if (ok != 0) return ok;
 
 			break;
 		case kStdInt64Array:
-			if ((ok = readSize(pbuffer, premaining, &size)) != 0) return ok;
-			if (*premaining < (size*8 + alignmentDiff(*pbuffer, 8))) return EBADMSG;
+			ok = _readSize(pbuffer, &size, premaining);
+			if (ok != 0) return ok;
 
-			align8(pbuffer, premaining);
+			ok = _align((uintptr_t*) pbuffer, 8, premaining);
+			if (ok != 0) return ok;
+
+			if (*premaining < size*8) return EBADMSG;
+
 			value_out->size = size;
 			value_out->int64array = (int64_t*) *pbuffer;
-			advance(pbuffer, size*8, premaining);
+
+			ok = _advance((uintptr_t*) pbuffer, size*8, premaining);
+			if (ok != 0) return ok;
 
 			break;
 		case kStdFloat64Array:
-			if ((ok = readSize(pbuffer, premaining, &size)) != 0) return ok;
-			if (*premaining < (size*8 + alignmentDiff(*pbuffer, 8))) return EBADMSG;
+			ok = _readSize(pbuffer, &size, premaining);
+			if (ok != 0) return ok;
 
-			align8(pbuffer, premaining);
+			ok = _align((uintptr_t*) pbuffer, 8, premaining);
+			if (ok != 0) return ok;
+
+			if (*premaining < size*8) return EBADMSG;
+
 			value_out->size = size;
 			value_out->float64array = (double*) *pbuffer;
-			advance(pbuffer, size*8, premaining);
 
+			ok = _advance((uintptr_t*) pbuffer, size*8, premaining);
+			if (ok != 0) return ok;
+			
 			break;
 		case kStdList:
-			if ((ok = readSize(pbuffer, premaining, &size)) != 0) return ok;
+			ok = _readSize(pbuffer, &size, premaining);
+			if (ok != 0) return ok;
 
 			value_out->size = size;
 			value_out->list = calloc(size, sizeof(struct std_value));
 
 			for (int i = 0; i < size; i++) {
-				ok = platch_decode_value_std(pbuffer, premaining, &(value_out->list[i]));
+				ok = platch_decode_value_std(pbuffer, premaining, &value_out->list[i]);
 				if (ok != 0) return ok;
 			}
 
 			break;
 		case kStdMap:
-			if ((ok = readSize(pbuffer, premaining, &size)) != 0) return ok;
+			ok = _readSize(pbuffer, &size, premaining);
+			if (ok != 0) return ok;
 
 			value_out->size = size;
+
 			value_out->keys = calloc(size*2, sizeof(struct std_value));
 			if (!value_out->keys) return ENOMEM;
-			value_out->values = &(value_out->keys[size]);
+
+			value_out->values = &value_out->keys[size];
 
 			for (int i = 0; i < size; i++) {
 				ok = platch_decode_value_std(pbuffer, premaining, &(value_out->keys[i]));
@@ -726,7 +766,7 @@ int platch_decode(uint8_t *buffer, size_t size, enum platch_codec codec, struct 
 
 			break;
 		case kStandardMessageCodec:
-			ok = platch_decode_value_std(&buffer_cursor, &remaining, &(object_out->std_value));
+			ok = platch_decode_value_std(&buffer_cursor, &remaining, &object_out->std_value);
 			if (ok != 0) return ok;
 			break;
 		case kStandardMethodCall: ;
@@ -736,17 +776,16 @@ int platch_decode(uint8_t *buffer, size_t size, enum platch_codec codec, struct 
 			if (ok != 0) return ok;
 			if (methodname.type != kStdString) {
 				platch_free_value_std(&methodname);
-				return EPROTO;
+				return EBADMSG;
 			}
 			object_out->method = methodname.string_value;
 
-			ok = platch_decode_value_std(&buffer_cursor, &remaining, &(object_out->std_arg));
+			ok = platch_decode_value_std(&buffer_cursor, &remaining, &object_out->std_arg);
 			if (ok != 0) return ok;
 
 			break;
 		case kStandardMethodCallResponse: ;
-			object_out->success = read8(&buffer_cursor) == 0;
-			advance(&buffer_cursor, 1, &remaining);
+			ok = _read8(&buffer_cursor, (uint8_t*) &object_out->success, &remaining);
 
 			if (object_out->success) {
 				struct std_value result;
@@ -901,15 +940,13 @@ int platch_encode(struct platch_obj *object, uint8_t **buffer_out, size_t *size_
 			break;
 		case kStandardMethodCallResponse:
 			if (object->success) {
-				write8(&buffer_cursor, 0x00);
-				advance(&buffer_cursor, 1);
+				_write8(&buffer_cursor, 0x00, NULL);
 
 				ok = platch_write_value_to_buffer_std(&(object->std_result), &buffer_cursor);
 				if (ok != 0) goto free_buffer_and_return_ok;
 			} else {
-				write8(&buffer_cursor, 0x01);
-				advance(&buffer_cursor, 1);
-				
+				_write8(&buffer_cursor, 0x01, NULL);
+
 				ok = platch_write_value_to_buffer_std(&stderrcode, &buffer_cursor);
 				if (ok != 0) goto free_buffer_and_return_ok;
 				ok = platch_write_value_to_buffer_std(&stderrmessage, &buffer_cursor);
