@@ -34,6 +34,8 @@ typedef enum {
 	kVBlankRequest,
 	kVBlankReply,
 	kUpdateOrientation,
+	kSendPlatformMessage,
+	kRespondToPlatformMessage,
 	kFlutterTask
 } flutterpi_task_type;
 
@@ -47,11 +49,26 @@ struct flutterpi_task {
 			intptr_t baton;
 		};
 		enum device_orientation orientation;
+		struct {
+			char *channel;
+			const FlutterPlatformMessageResponseHandle *responsehandle;
+			size_t message_size;
+			uint8_t *message;
+		};
 	};
     uint64_t target_time;
 };
 
-void post_platform_task(struct flutterpi_task *task);
+static inline void *memdup(const void *restrict src, const size_t n) {
+	void *__restrict__ dest;
+
+	if ((src == NULL) || (n == 0)) return NULL;
+
+	dest = malloc(n);
+	if (dest == NULL) return NULL;
+
+	return memcpy(dest, src, n);
+}
 
 struct drm_fb {
 	struct gbm_bo *bo;
@@ -144,5 +161,16 @@ struct input_device {
 extern struct mousepointer_mtslot mousepointer;
 
 extern FlutterEngine engine;
+
+void post_platform_task(struct flutterpi_task *task);
+
+int flutterpi_send_platform_message(const char *channel,
+									const uint8_t *restrict message,
+									size_t message_size,
+									FlutterPlatformMessageResponseHandle *responsehandle);
+
+int flutterpi_respond_to_platform_message(FlutterPlatformMessageResponseHandle *handle,
+										  const uint8_t *restrict message,
+										  size_t message_size);
 
 #endif

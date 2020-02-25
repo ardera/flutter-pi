@@ -561,6 +561,30 @@ bool  message_loop(void) {
 				.pixel_ratio = pixel_ratio
 			});
 
+		} else if (task->type == kSendPlatformMessage || task->type == kRespondToPlatformMessage) {
+			if (task->type == kSendPlatformMessage) {
+				FlutterEngineSendPlatformMessage(
+					engine,
+					&(const FlutterPlatformMessage) {
+						.struct_size = sizeof(FlutterPlatformMessage),
+						.channel = task->channel,
+						.message = task->message,
+						.message_size = task->message_size,
+						.response_handle = task->responsehandle
+					}
+				);
+
+				free(task->channel);
+			} else if (task->type == kRespondToPlatformMessage) {
+				FlutterEngineSendPlatformMessageResponse(
+					engine,
+					task->responsehandle,
+					task->message,
+					task->message_size
+				);
+			}
+
+			free(task->message);
 		} else if (FlutterEngineRunTask(engine, &task->task) != kSuccess) {
 			fprintf(stderr, "Error running platform task\n");
 			return false;
@@ -597,6 +621,88 @@ void  flutter_post_platform_task(FlutterTask task, uint64_t target_time, void* u
 }
 bool  runs_platform_tasks_on_current_thread(void* userdata) {
 	return pthread_equal(pthread_self(), platform_thread_id) != 0;
+}
+int   flutterpi_send_platform_message(const char *channel,
+									  const uint8_t *restrict message,
+									  size_t message_size,
+									  FlutterPlatformMessageResponseHandle *responsehandle) {
+	struct flutterpi_task *task;
+	int ok;
+	
+	if (runs_platform_tasks_on_current_thread(NULL)) {
+		ok = kSuccess == FlutterEngineSendPlatformMessage(
+			engine,
+			&(const FlutterPlatformMessage) {
+				.struct_size = sizeof(FlutterPlatformMessage),
+				.channel = channel,
+				.message = message,
+				.message_size = message_size,
+				.response_handle = responsehandle
+			}
+		);
+
+		return ok? 0 : 1;
+	} else {
+		task = malloc(sizeof(struct flutterpi_task));
+		if (task == NULL) return ENOMEM;
+
+		task->type = kSendPlatformMessage;
+		task->channel = strdup(channel);
+		task->responsehandle = responsehandle;
+
+		if (message && message_size) {
+			task->message_size = message_size;
+			task->message = memdup(message, message_size);
+			if (!task->message) {
+				free(task->channel);
+				return ENOMEM;
+			}
+		} else {
+			task->message_size = 0;
+			task->message = 0;
+		}
+
+		post_platform_task(task);
+	}
+
+	return 0;
+}
+int   flutterpi_respond_to_platform_message(FlutterPlatformMessageResponseHandle *handle,
+											const uint8_t *restrict message,
+											size_t message_size) {
+	struct flutterpi_task *task;
+	int ok;
+	
+	if (runs_platform_tasks_on_current_thread(NULL)) {
+		ok = kSuccess == FlutterEngineSendPlatformMessageResponse(
+			engine,
+			handle,
+			message,
+			message_size
+		);
+
+		return ok? 0 : 1;
+	} else {
+		task = malloc(sizeof(struct flutterpi_task));
+		if (task == NULL) return ENOMEM;
+
+		task->type = kRespondToPlatformMessage;
+		task->channel = NULL;
+		task->responsehandle = handle;
+
+		if (message && message_size) {
+			task->message_size = message_size;
+			task->message = memdup(message, message_size);
+			if (!task->message) return ENOMEM;
+		} else {
+			task->message_size = 0;
+			task->message = 0;
+		}
+
+		post_platform_task(task);
+	}
+
+	return 0;
 }
 
 
@@ -1606,7 +1712,7 @@ void *io_loop(void *userdata) {
 	FD_SET(drm.fd, &fds);
 	if (drm.fd + 1 > nfds) nfds = drm.fd + 1;
 	
-	FD_SET(STDIN_FILENO, &fds);
+	//FD_SET(STDIN_FILENO, &fds);
 
 	const fd_set const_fds = fds;
 

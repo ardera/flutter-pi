@@ -198,6 +198,7 @@ static int gpiodp_ensure_gpiod_initialized(void) {
         return errno;
     }
 
+    gpio_plugin.epollfd = fd;
     gpio_plugin.listening_lines = (struct gpiod_line_bulk) GPIOD_LINE_BULK_INITIALIZER;
     gpio_plugin.listening_lines_mutex = (pthread_mutex_t) PTHREAD_MUTEX_INITIALIZER;
     gpio_plugin.line_event_listener_should_run = true;
@@ -452,6 +453,7 @@ static void *gpiodp_io_loop(void *userdata) {
     while (gpio_plugin.line_event_listener_should_run) {
         // epoll luckily is concurrent. Other threads can add and remove fd's from this
         // epollfd while we're waiting on it.
+
         ok = epoll_wait(gpio_plugin.epollfd, fdevents, 10, -1);
         if ((ok == -1) && (errno != EINTR)) {
             perror("[flutter_gpiod] error while waiting for line events, epoll"); 
@@ -466,14 +468,15 @@ static void *gpiodp_io_loop(void *userdata) {
         // check for each line whether an event ocurred on the line's fd.
         // If that's the case, read the events and send them to flutter.
         gpiod_line_bulk_foreach_line(&gpio_plugin.listening_lines, line, cursor) {    
-            for (int i = 0, is_ready = false; i < n_fdevents; i++) {
+            is_ready = false;
+            for (int i = 0; i < n_fdevents; i++) {
                 if (fdevents[i].data.fd == libgpiod.line_event_get_fd(line)) {
                     is_ready = true;
                     break;
                 }
             }
             if (!is_ready) continue;
-
+            
             // read the line events
             ok = libgpiod.line_event_read(line, &event);
             if (ok == -1) {
@@ -771,7 +774,7 @@ static int gpiodp_request_line(struct platch_obj *object,
     struct std_value *temp;
     bool is_event_line = false;
     char *consumer;
-    int ok;
+    int ok, fd;
     
     // check that the arg is a map
     if (object->std_arg.type != kStdMap) {
@@ -862,7 +865,7 @@ static int gpiodp_request_line(struct platch_obj *object,
             "(no null values in the list), null when direction is output."
         );
     }
-
+    
     // finally request the line
     ok = libgpiod.line_request(
         config.line,
@@ -880,10 +883,11 @@ static int gpiodp_request_line(struct platch_obj *object,
     if (is_event_line) {
         pthread_mutex_lock(&gpio_plugin.listening_lines_mutex);
 
+        fd = libgpiod.line_event_get_fd(config.line);
         ok = epoll_ctl(gpio_plugin.epollfd,
                        EPOLL_CTL_ADD,
-                       libgpiod.line_event_get_fd(config.line),
-                       &(struct epoll_event) {.events = EPOLLPRI | EPOLLIN}
+                       fd,
+                       &(struct epoll_event) {.events = EPOLLPRI | EPOLLIN, .data.fd = fd}
         );
         if (ok == -1) {
             perror("[flutter_gpiod] Could not add GPIO line to epollfd. epoll_ctl");

@@ -41,149 +41,174 @@ struct spidevp_thread {
     int fd;
     bool has_task;
     struct spidevp_task task;
-    pthread_mutex_t mutex;
+    pthread_t thread;
+    pthread_mutex_t task_mutex;
     pthread_cond_t  task_added;
 };
 
 #define SPI_THREAD_INITIALIZER \
     ((struct spidevp_thread) { \
         .fd = -1, .has_task = false, \
-        .mutex = PTHREAD_MUTEX_INITIALIZER, .task_added = PTHREAD_COND_INITIALIZER \
+        .task_mutex = PTHREAD_MUTEX_INITIALIZER, .task_added = PTHREAD_COND_INITIALIZER \
     })
 
 struct {
-    struct spidevp_thread *threads;
-    pthread_mutex_t threadlist_mutex;
+    struct spidevp_thread **threads;
+    pthread_mutex_t threads_mutex;
     size_t size_threads;
     size_t num_threads;
 } spi_plugin = {
     .threads = NULL,
-    .threadlist_mutex = PTHREAD_MUTEX_INITIALIZER,
-    .size_threads = 0,
-    .num_threads = 0
+    .threads_mutex = PTHREAD_MUTEX_INITIALIZER,
+    .size_threads = 0
 };
 
-void *spidevp_run_spi_thread(void *_thread) {
+static void *spidevp_run_spi_thread(void *_thread) {
+    FlutterPlatformMessageResponseHandle *responsehandle;
     struct spidevp_thread *thread = (struct spidevp_thread*) _thread;
     int32_t result;
     bool running = true;
-    int  fd = thread->fd;
-    int  err = 0;
-    int  ok;
+    int  ok, err = 0, fd = thread->fd;
 
     while (running) {
-        pthread_mutex_lock(&thread->mutex);
-        while (!thread->has_task)
-            pthread_cond_wait(&thread->task_added, &thread->mutex);
-        
+        pthread_mutex_lock(&thread->task_mutex);
+        while (!thread->has_task) {
+            pthread_cond_wait(&thread->task_added, &thread->task_mutex);
+        }
+
+        responsehandle = thread->task.responsehandle;
         switch (thread->task.type) {
             case kSpiTaskClose:
                 ok = close(fd);
                 if (ok == -1) {
                     err = errno;
-                    pthread_mutex_unlock(&thread->mutex);
+                    thread->has_task = false;
+                    pthread_mutex_unlock(&thread->task_mutex);
                     break;
                 }
 
                 running = false;
+                thread->has_task = false;
                 thread->fd = -1;
-
-                pthread_mutex_unlock(&thread->mutex);
-                platch_respond_success_std(thread->task.responsehandle, NULL);
+                pthread_mutex_unlock(&thread->task_mutex);
+                platch_respond_success_std(responsehandle, NULL);
                 break;
 
             case kSpiTaskRdMode:
                 ok = ioctl(fd, SPI_IOC_RD_MODE, &thread->task.mode);
                 if (ok == -1) {
                     err = errno;
-                    pthread_mutex_unlock(&thread->mutex);
+                    thread->has_task = false;
+                    pthread_mutex_unlock(&thread->task_mutex);
                     break;
                 }
 
                 result = thread->task.mode;
                 
-                pthread_mutex_unlock(&thread->mutex);
-                platch_respond_success_std(thread->task.responsehandle, NULL);
+                thread->has_task = false;
+                pthread_mutex_unlock(&thread->task_mutex);
+                ok = platch_respond_success_std(responsehandle, &STDINT32(result));
+                
                 break;
 
             case kSpiTaskWrMode:
                 ok = ioctl(fd, SPI_IOC_WR_MODE, &thread->task.mode);
                 if (ok == -1) {
                     err = errno;
-                    pthread_mutex_unlock(&thread->mutex);
+                    thread->has_task = false;
+                    pthread_mutex_unlock(&thread->task_mutex);
                     break;
                 }
 
-                pthread_mutex_unlock(&thread->mutex);
-                platch_respond_success_std(thread->task.responsehandle, NULL);
+                thread->has_task = false;
+                pthread_mutex_unlock(&thread->task_mutex);
+                platch_respond_success_std(responsehandle, NULL);
                 break;
 
             case kSpiTaskWrBitsPerWord:
                 ok = ioctl(fd, SPI_IOC_WR_BITS_PER_WORD, &thread->task.bits);
                 if (ok == -1) {
                     err = errno;
-                    pthread_mutex_unlock(&thread->mutex);
+                    thread->has_task = false;
+                    pthread_mutex_unlock(&thread->task_mutex);
                     break;
                 }
 
-                pthread_mutex_unlock(&thread->mutex);
-                platch_respond_success_std(thread->task.responsehandle, NULL);
+                thread->has_task = false;
+                pthread_mutex_unlock(&thread->task_mutex);
+                platch_respond_success_std(responsehandle, NULL);
                 break;
 
             case kSpiTaskRdBitsPerWord:
                 ok = ioctl(fd, SPI_IOC_RD_BITS_PER_WORD, &thread->task.bits);
                 if (ok == -1) {
                     err = errno;
-                    pthread_mutex_unlock(&thread->mutex);
+                    thread->has_task = false;
+                    pthread_mutex_unlock(&thread->task_mutex);
                     break;
                 }
 
                 result = thread->task.bits;
 
-                pthread_mutex_unlock(&thread->mutex);
-                platch_respond_success_std(thread->task.responsehandle, NULL);
+                thread->has_task = false;
+                pthread_mutex_unlock(&thread->task_mutex);
+                platch_respond_success_std(responsehandle, &STDINT32(result));
                 break;
 
             case kSpiTaskWrMaxSpeedHz:
                 ok = ioctl(fd, SPI_IOC_WR_MAX_SPEED_HZ, &thread->task.speed);
                 if (ok == -1) {
                     err = errno;
-                    pthread_mutex_unlock(&thread->mutex);
+                    thread->has_task = false;
+                    pthread_mutex_unlock(&thread->task_mutex);
                     break;
                 }
 
-                pthread_mutex_unlock(&thread->mutex);
-                platch_respond_success_std(thread->task.responsehandle, NULL);
+                thread->has_task = false;
+                pthread_mutex_unlock(&thread->task_mutex);
+                platch_respond_success_std(responsehandle, NULL);
                 break;
 
             case kSpiTaskRdMaxSpeedHz:
                 ok = ioctl(fd, SPI_IOC_RD_MAX_SPEED_HZ, &thread->task.speed);
                 if (ok == -1) {
                     err = errno;
-                    pthread_mutex_unlock(&thread->mutex);
+                    thread->has_task = false;
+                    pthread_mutex_unlock(&thread->task_mutex);
                     break;
                 }
 
                 result = thread->task.speed;
 
-                pthread_mutex_unlock(&thread->mutex);
-                platch_respond_success_std(thread->task.responsehandle, NULL);
+                thread->has_task = false;
+                pthread_mutex_unlock(&thread->task_mutex);
+                platch_respond_success_std(responsehandle, &STDINT64(result));
                 break;
 
             case kSpiTaskTransmit: ;
                 size_t   len = thread->task.transfer.len;
                 uint8_t *buf = (void*) ((uintptr_t) thread->task.transfer.rx_buf);
 
-                ok = ioctl(fd, SPI_IOC_MESSAGE(1), thread->task.transfer);
+                ok = ioctl(fd, SPI_IOC_MESSAGE(1), &thread->task.transfer);
                 if (ok == -1) {
                     err = errno;
                     free(buf);
-                    pthread_mutex_unlock(&thread->mutex);
+
+                    thread->has_task = false;
+                    pthread_mutex_unlock(&thread->task_mutex);
                     break;
                 }
 
-                pthread_mutex_unlock(&thread->mutex);
-                platch_respond_success_std(thread->task.responsehandle, NULL);
+                thread->has_task = false;
+                pthread_mutex_unlock(&thread->task_mutex);
+                platch_respond_success_std(
+                    responsehandle,
+                    &(struct std_value) {
+                        .type = kStdUInt8Array,
+                        .size = len,
+                        .uint8array = buf
+                    }
+                );
 
                 free(buf);
 
@@ -193,38 +218,64 @@ void *spidevp_run_spi_thread(void *_thread) {
                 break;
         }
         
-        thread->has_task = false;
         if (err != 0) {
-            platch_respond_native_error_std(thread->task.responsehandle, err);
+            platch_respond_native_error_std(responsehandle, err);
             err = 0;
         }
     }
-}
 
-struct spidevp_thread *spidevp_get_thread(const int fd) {
-    pthread_mutex_lock(&spi_plugin.threadlist_mutex);
-
-    for (int i = 0; i < spi_plugin.num_threads; i++) {
-        if (spi_plugin.threads[i].fd == fd)
-            return &spi_plugin.threads[i];
-    }
-
-    pthread_mutex_unlock(&spi_plugin.threadlist_mutex);
     return NULL;
 }
 
-int spidevp_new_thread(const int fd, struct spidevp_thread **thread_out) {
+static struct spidevp_thread *spidevp_get_thread(const int fd) {
+    pthread_mutex_lock(&spi_plugin.threads_mutex);
+
+    for (int i = 0; i < spi_plugin.size_threads; i++) {
+        if (spi_plugin.threads[i]->fd == fd) {
+            struct spidevp_thread *result = spi_plugin.threads[i];
+            pthread_mutex_unlock(&spi_plugin.threads_mutex);
+            return result;
+        }
+    }
+
+    pthread_mutex_unlock(&spi_plugin.threads_mutex);
+    return NULL;
+}
+
+static int spidevp_new_thread(const int fd, struct spidevp_thread **thread_out) {
     struct spidevp_thread *thread;
     int ok;
 
-    pthread_mutex_lock(&spi_plugin.threadlist_mutex);
+    pthread_mutex_lock(&spi_plugin.threads_mutex);
+    
+    thread = NULL;
+    for (int i=0; i < spi_plugin.size_threads; i++) {
+        if (spi_plugin.threads[i]->fd == -1) {
+            thread = spi_plugin.threads[i];
+            break;
+        }
+    }
+    
+    if (thread == NULL) {
+        size_t old = spi_plugin.size_threads;
+        size_t new = old*2;
+        
+        spi_plugin.threads = realloc(spi_plugin.threads, new * sizeof(struct spidevp_thread));
+        spi_plugin.size_threads = new;
 
-    thread = &spi_plugin.threads[spi_plugin.num_threads++];
+        for (int i=old; i < spi_plugin.size_threads; i++) {
+            spi_plugin.threads[i] = malloc(sizeof(struct spidevp_thread)); 
+            *(spi_plugin.threads[i]) = SPI_THREAD_INITIALIZER;
+        }
+
+        thread = spi_plugin.threads[old];
+    }
+
     thread->fd = fd;
 
-    pthread_mutex_unlock(&spi_plugin.threadlist_mutex);
+    pthread_mutex_unlock(&spi_plugin.threads_mutex);
 
-    ok = pthread_create(NULL, NULL, spidevp_run_spi_thread, thread);
+    ok = pthread_create(&thread->thread, NULL, spidevp_run_spi_thread, thread);
     if (ok == -1) return errno;
 
     *thread_out = thread;
@@ -232,7 +283,7 @@ int spidevp_new_thread(const int fd, struct spidevp_thread **thread_out) {
     return 0;
 }
 
-int spidevp_assign_task(const int fd, const struct spidevp_task *const task) {
+static int spidevp_assign_task(const int fd, const struct spidevp_task *const task) {
     struct spidevp_thread *thread;
     int ok;
 
@@ -241,19 +292,24 @@ int spidevp_assign_task(const int fd, const struct spidevp_task *const task) {
         return EBADF;
     }
     
-    ok = pthread_mutex_trylock(&thread->mutex);
+    ok = pthread_mutex_trylock(&thread->task_mutex);
     if (ok == -1) {
         return errno;
     } else if (ok == 0) {
-        thread->task = *task;
-        thread->has_task = true;
-        pthread_mutex_unlock(&thread->mutex);
-        pthread_cond_signal(&thread->task_added);
-        return 0;
+        if (thread->fd == -1) {
+            return EBADF;
+        } else {
+            thread->task = *task;
+            thread->has_task = true;
+            pthread_mutex_unlock(&thread->task_mutex);
+            pthread_cond_signal(&thread->task_added);
+        }
     }
+
+    return 0;
 }
 
-int spidevp_open(struct platch_obj *object, FlutterPlatformMessageResponseHandle *responsehandle) {
+static int spidevp_open(struct platch_obj *object, FlutterPlatformMessageResponseHandle *responsehandle) {
     struct spidevp_thread *thread;
     char *path;
     int fd, ok;
@@ -277,13 +333,13 @@ int spidevp_open(struct platch_obj *object, FlutterPlatformMessageResponseHandle
         return platch_respond_native_error_std(responsehandle, ok);
     }
 
-    return platch_respond_success_std(responsehandle, NULL);
+    return platch_respond_success_std(responsehandle, &STDINT32(fd));
 }
 
-int spidevp_onReceive(char *channel, struct platch_obj *object, FlutterPlatformMessageResponseHandle *responsehandle) {
+static int spidevp_on_receive(char *channel, struct platch_obj *object, FlutterPlatformMessageResponseHandle *responsehandle) {
     struct std_value *temp;
     struct spidevp_thread *thread;
-    struct spidevp_task task;
+    struct spidevp_task task = {0};
     bool has_task = false;
     int ok, fd;
     
@@ -300,7 +356,7 @@ int spidevp_onReceive(char *channel, struct platch_obj *object, FlutterPlatformM
                 "Expected `arg` to be a List<int> with size 2."
             );
         }
-
+        
         task.type = kSpiTaskWrMode;
         has_task = true;
     } else if STREQ("getMode", object->method) {
@@ -440,39 +496,52 @@ int spidevp_onReceive(char *channel, struct platch_obj *object, FlutterPlatformM
         task.type = kSpiTaskTransmit;
         has_task = true;
     } else if STREQ("close", object->method) {
+        if (STDVALUE_IS_INT(object->std_arg)) {
+            fd = STDVALUE_AS_INT(object->std_arg);
+        } else  {
+            return platch_respond_illegal_arg_std(
+                responsehandle,
+                "Expected `arg` to be an integer."
+            );
+        }
+
         task.type = kSpiTaskClose;
         has_task = true;
     }
 
     if (has_task) {
+        task.responsehandle = responsehandle;
+
         ok = spidevp_assign_task(fd, &task);
-        if (ok == 0) {
-            return 0;
-        } else if (ok == EBUSY) {
+        if (ok == EBUSY) {
             return platch_respond_error_std(
                 responsehandle,
                 "busy",
                 "a different task is running on the fd already",
                 NULL
             );
-        } else {
+        } else if (ok != 0) {
             return platch_respond_native_error_std(responsehandle, ok);
         }
+    } else {
+        return platch_respond_not_implemented(responsehandle);
     }
 
-    return platch_respond_not_implemented(responsehandle);
+    return 0;
 }
 
 int spidevp_init(void) {
     printf("[flutter_spidev] Initializing...\n");
 
     spi_plugin.size_threads = 1;
-    spi_plugin.threads = calloc(spi_plugin.size_threads, sizeof(struct spidevp_thread));
+    spi_plugin.threads = malloc(spi_plugin.size_threads * sizeof(struct spidevp_thread *));
 
-    for (int i = 0; i < spi_plugin.size_threads; i++)
-        spi_plugin.threads[i] = SPI_THREAD_INITIALIZER;
+    for (int i = 0; i < spi_plugin.size_threads; i++) {
+        spi_plugin.threads[i] = malloc(sizeof(struct spidevp_thread));
+        *(spi_plugin.threads[i]) = SPI_THREAD_INITIALIZER;
+    }
 
-    plugin_registry_set_receiver(SPI_PLUGIN_METHOD_CHANNEL, kStandardMethodCall, spidevp_onReceive);
+    plugin_registry_set_receiver(SPI_PLUGIN_METHOD_CHANNEL, kStandardMethodCall, spidevp_on_receive);
     
     printf("[flutter_spidev] Done.\n");
     return 0;

@@ -6,9 +6,12 @@
 #include <pluginregistry.h>
 
 #include <plugins/services.h>
-#include <plugins/text_input.h>
+
 #include <plugins/raw_keyboard.h>
 
+#ifdef BUILD_TEXT_INPUT_PLUGIN
+#	include <plugins/text_input.h>
+#endif
 #ifdef BUILD_TEST_PLUGIN
 #	include <plugins/testplugin.h>
 #endif
@@ -40,8 +43,11 @@ struct {
 /// array of plugins that are statically included in flutter-pi.
 struct flutterpi_plugin hardcoded_plugins[] = {
 	{.name = "services",     .init = services_init, .deinit = services_deinit},
-	{.name = "text_input",   .init = textin_init, .deinit = textin_deinit},
 	{.name = "raw_keyboard", .init = rawkb_init, .deinit = rawkb_deinit},
+
+#ifdef BUILD_TEXT_INPUT_PLUGIN
+	{.name = "text_input",   .init = textin_init, .deinit = textin_deinit},
+#endif
 
 #ifdef BUILD_TEST_PLUGIN
 	{.name = "testplugin",   .init = testp_init, .deinit = testp_deinit},

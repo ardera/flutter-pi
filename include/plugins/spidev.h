@@ -4,7 +4,7 @@
 #include <platformchannel.h>
 #include <pluginregistry.h>
 
-#define SPI_PLUGIN_METHOD_CHANNEL "plugins.flutter.io/spidev"
+#define SPI_PLUGIN_METHOD_CHANNEL "plugins.flutter.io/flutter_spidev"
 
 int spidevp_init(void);
 int spidevp_deinit(void);
