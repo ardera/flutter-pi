@@ -18,10 +18,10 @@
 #ifdef BUILD_ELM327_PLUGIN
 #	include <plugins/elm327plugin.h>
 #endif
-#ifdef BUILD_GPIO_PLUGIN
+#ifdef BUILD_GPIOD_PLUGIN
 #	include <plugins/gpiod.h>
 #endif
-#ifdef BUILD_SPI_PLUGIN
+#ifdef BUILD_SPIDEV_PLUGIN
 #	include <plugins/spidev.h>
 #endif
 
@@ -57,11 +57,11 @@ struct flutterpi_plugin hardcoded_plugins[] = {
 	{.name = "elm327plugin", .init = ELM327Plugin_init, .deinit = ELM327Plugin_deinit},
 #endif
 
-#ifdef BUILD_GPIO_PLUGIN
+#ifdef BUILD_GPIOD_PLUGIN
 	{.name = "flutter_gpiod",  .init = gpiodp_init, .deinit = gpiodp_deinit},
 #endif
 
-#ifdef BUILD_SPI_PLUGIN
+#ifdef BUILD_SPIDEV_PLUGIN
 	{.name = "flutter_spidev", .init = spidevp_init, .deinit = spidevp_deinit}
 #endif
 };
