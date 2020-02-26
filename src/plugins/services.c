@@ -3,29 +3,29 @@
 
 #include <flutter-pi.h>
 #include <pluginregistry.h>
-#include "services-plugin.h"
+#include <plugins/services.h>
 
 struct {
     char label[256];
-    uint32_t primaryColor;  // ARGB8888 (blue is the lowest byte)
-    char isolateId[32];
+    uint32_t primary_color;  // ARGB8888 (blue is the lowest byte)
+    char isolate_id[32];
 } services = {0};
 
 
-int Services_onReceiveNavigation(char *channel, struct ChannelObject *object, FlutterPlatformMessageResponseHandle *responsehandle) {
-    return PlatformChannel_respondNotImplemented(responsehandle);
+int services_on_receive_navigation(char *channel, struct platch_obj *object, FlutterPlatformMessageResponseHandle *responsehandle) {
+    return platch_respond_not_implemented(responsehandle);
 }
 
-int Services_onReceiveIsolate(char *channel, struct ChannelObject *object, FlutterPlatformMessageResponseHandle *responsehandle) {
-    memset(&(services.isolateId), sizeof(services.isolateId), 0);
-    memcpy(services.isolateId, object->binarydata, object->binarydata_size);
+int services_on_receive_isolate(char *channel, struct platch_obj *object, FlutterPlatformMessageResponseHandle *responsehandle) {
+    memset(&(services.isolate_id), sizeof(services.isolate_id), 0);
+    memcpy(services.isolate_id, object->binarydata, object->binarydata_size);
     
-    return PlatformChannel_respondNotImplemented(responsehandle);
+    return platch_respond_not_implemented(responsehandle);
 }
 
-int Services_onReceivePlatform(char *channel, struct ChannelObject *object, FlutterPlatformMessageResponseHandle *responsehandle) {
-    struct JSONMsgCodecValue *value;
-    struct JSONMsgCodecValue *arg = &(object->jsarg);
+int services_on_receive_platform(char *channel, struct platch_obj *object, FlutterPlatformMessageResponseHandle *responsehandle) {
+    struct json_value *value;
+    struct json_value *arg = &(object->json_arg);
     int ok;
     
     if (strcmp(object->method, "Clipboard.setData") == 0) {
@@ -64,34 +64,33 @@ int Services_onReceivePlatform(char *channel, struct ChannelObject *object, Flut
          *  }
          */
         
-        value = &object->jsarg;
+        value = &object->json_arg;
         
-        if (value->type != kJSArray)
-            return PlatformChannel_respondError(responsehandle, kJSONMethodCallResponse, "illegalargument", "Expected List as argument", NULL);
-        
-        if (value->size == 0)
-            return PlatformChannel_respondError(responsehandle, kJSONMethodCallResponse, "illegalargument", "Argument List must have at least one value", NULL);
-
+        if ((value->type != kJsonArray) || (value->size == 0)) {
+            return platch_respond_illegal_arg_json(
+                responsehandle,
+                "Expected `arg` to be an array with minimum size 1."
+            );
+        }
 
         bool preferred_orientations[kLandscapeRight+1] = {0};
 
         for (int i = 0; i < value->size; i++) {
 
-            if (value->array[i].type != kJSString) {
-                return PlatformChannel_respondError(
-                    responsehandle, kJSONMethodCallResponse,
-                    "illegalargument", "Argument List should only contain strings", NULL
+            if (value->array[i].type != kJsonString) {
+                return platch_respond_illegal_arg_json(
+                    responsehandle,
+                    "Expected `arg` to to only contain strings."
                 );
             }
             
             enum device_orientation o = ORIENTATION_FROM_STRING(value->array[i].string_value);
 
             if (o == -1) {
-                return PlatformChannel_respondError(
-                    responsehandle, kJSONMethodCallResponse,
-                    "illegalargument",
-                    "Argument List elements should values of the DeviceOrientation enum",
-                    NULL
+                return platch_respond_illegal_arg_json(
+                    responsehandle,
+                    "Expected `arg` to only contain stringifications of the "
+                    "`DeviceOrientation` enum."
                 );
             }
 
@@ -128,16 +127,10 @@ int Services_onReceivePlatform(char *channel, struct ChannelObject *object, Flut
          */
         
         value = jsobject_get(arg, "label");
-        if (value && (value->type == kJSString))
+        if (value && (value->type == kJsonString))
             snprintf(services.label, sizeof(services.label), "%s", value->string_value);
         
-        return PlatformChannel_respond(responsehandle, &(struct ChannelObject) {
-            .codec = kJSONMethodCallResponse,
-            .success = true,
-            .jsresult = {
-                .type = kNull
-            }
-        });
+        return platch_respond_success_json(responsehandle, NULL);
     } else if (strcmp(object->method, "SystemChrome.setEnabledSystemUIOverlays") == 0) {
         /*
          *  SystemChrome.setEnabledSystemUIOverlays(List overlays)
@@ -172,49 +165,50 @@ int Services_onReceivePlatform(char *channel, struct ChannelObject *object, Flut
         printf("flutter requested application exit\n");
     }
 
-    return PlatformChannel_respondNotImplemented(responsehandle);
+    return platch_respond_not_implemented(responsehandle);
 }
 
-int Services_onReceiveAccessibility(char *channel, struct ChannelObject *object, FlutterPlatformMessageResponseHandle *responsehandle) {
-    return PlatformChannel_respondNotImplemented(responsehandle);
+int services_on_receive_accessibility(char *channel, struct platch_obj *object, FlutterPlatformMessageResponseHandle *responsehandle) {
+    return platch_respond_not_implemented(responsehandle);
 }
 
 
 
-int Services_init(void) {
+int services_init(void) {
     int ok;
 
-    printf("[services-plugin] init.\n");
+    printf("[services] Initializing...\n");
 
-    ok = PluginRegistry_setReceiver("flutter/navigation", kJSONMethodCall, Services_onReceiveNavigation);
+    ok = plugin_registry_set_receiver("flutter/navigation", kJSONMethodCall, services_on_receive_navigation);
     if (ok != 0) {
         fprintf(stderr, "[services-plugin] could not set \"flutter/navigation\" ChannelObject receiver: %s\n", strerror(ok));
         return ok;
     }
 
-    ok = PluginRegistry_setReceiver("flutter/isolate", kBinaryCodec, Services_onReceiveIsolate);
+    ok = plugin_registry_set_receiver("flutter/isolate", kBinaryCodec, services_on_receive_isolate);
     if (ok != 0) {
         fprintf(stderr, "[services-plugin] could not set \"flutter/isolate\" ChannelObject receiver: %s\n", strerror(ok));
         return ok;
     }
 
-    ok = PluginRegistry_setReceiver("flutter/platform", kJSONMethodCall, Services_onReceivePlatform);
+    ok = plugin_registry_set_receiver("flutter/platform", kJSONMethodCall, services_on_receive_platform);
     if (ok != 0) {
         fprintf(stderr, "[services-plugin] could not set \"flutter/platform\" ChannelObject receiver: %s\n", strerror(ok));
         return ok;
     }
 
-    ok = PluginRegistry_setReceiver("flutter/accessibility", kBinaryCodec, Services_onReceiveAccessibility);
+    ok = plugin_registry_set_receiver("flutter/accessibility", kBinaryCodec, services_on_receive_accessibility);
     if (ok != 0) {
         fprintf(stderr, "[services-plugin] could not set \"flutter/accessibility\" ChannelObject receiver: %s\n", strerror(ok));
         return ok;
     }
-    
+
+    printf("[services] Done.\n");
+
     return 0;
 }
 
-int Services_deinit(void) {
-    printf("[services-plugin] deinit.\n");
-    
+int services_deinit(void) {
+    printf("[services] deinit.\n");
     return 0;
 }

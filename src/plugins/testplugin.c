@@ -1,30 +1,31 @@
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
 #include <inttypes.h>
 
 #include <pluginregistry.h>
-#include "testplugin.h"
+#include <plugins/testplugin.h>
 
 #define INDENT_STRING "                    "
 
-int __printJSON(struct JSONMsgCodecValue *value, int indent) {
+int __printJSON(struct json_value *value, int indent) {
     switch (value->type) {
-        case kJSNull:
+        case kJsonNull:
             printf("null");
             break;
-        case kJSTrue:
+        case kJsonTrue:
             printf("true");
             break;
-        case kJSFalse:
+        case kJsonFalse:
             printf("false");
             break;
-        case kJSNumber:
+        case kJsonNumber:
             printf("%f", value->number_value);
             break;
-        case kJSString:
+        case kJsonString:
             printf("\"%s\"", value->string_value);
             break;
-        case kJSArray:
+        case kJsonArray:
             printf("[\n");
             for (int i = 0; i < value->size; i++) {
                 printf("%.*s", indent + 2, INDENT_STRING);
@@ -33,7 +34,7 @@ int __printJSON(struct JSONMsgCodecValue *value, int indent) {
             }
             printf("\n%.*s]", indent, INDENT_STRING);
             break;
-        case kJSObject:
+        case kJsonObject:
             printf("{\n");
             for (int i = 0; i < value->size; i++) {
                 printf("%.*s\"%s\": ", indent + 2, INDENT_STRING, value->keys[i]);
@@ -47,36 +48,36 @@ int __printJSON(struct JSONMsgCodecValue *value, int indent) {
 
     return 0;
 }
-int printJSON(struct JSONMsgCodecValue *value, int indent) {
+int printJSON(struct json_value *value, int indent) {
     printf("%.*s", indent, INDENT_STRING);
     __printJSON(value, indent);
     printf("\n");
 }
-int __printStd(struct StdMsgCodecValue *value, int indent) {
+int __printStd(struct std_value *value, int indent) {
     switch (value->type) {
-        case kNull:
+        case kStdNull:
             printf("null");
             break;
-        case kTrue:
+        case kStdTrue:
             printf("true");
             break;
-        case kFalse:
+        case kStdFalse:
             printf("false");
             break;
-        case kInt32:
+        case kStdInt32:
             printf("%" PRIi32, value->int32_value);
             break;
-        case kInt64:
+        case kStdInt64:
             printf("%" PRIi64, value->int64_value);
             break;
-        case kFloat64:
+        case kStdFloat64:
             printf("%lf", value->float64_value);
             break;
-        case kString:
-        case kLargeInt:
+        case kStdString:
+        case kStdLargeInt:
             printf("\"%s\"", value->string_value);
             break;
-        case kUInt8Array:
+        case kStdUInt8Array:
             printf("(uint8_t) [");
             for (int i = 0; i < value->size; i++) {
                 printf("0x%02X", value->uint8array[i]);
@@ -84,7 +85,7 @@ int __printStd(struct StdMsgCodecValue *value, int indent) {
             }
             printf("]");
             break;
-        case kInt32Array:
+        case kStdInt32Array:
             printf("(int32_t) [");
             for (int i = 0; i < value->size; i++) {
                 printf("%" PRIi32, value->int32array[i]);
@@ -92,7 +93,7 @@ int __printStd(struct StdMsgCodecValue *value, int indent) {
             }
             printf("]");
             break;
-        case kInt64Array:
+        case kStdInt64Array:
             printf("(int64_t) [");
             for (int i = 0; i < value->size; i++) {
                 printf("%" PRIi64, value->int64array[i]);
@@ -100,7 +101,7 @@ int __printStd(struct StdMsgCodecValue *value, int indent) {
             }
             printf("]");
             break;
-        case kFloat64Array:
+        case kStdFloat64Array:
             printf("(double) [");
             for (int i = 0; i < value->size; i++) {
                 printf("%ld", value->float64array[i]);
@@ -108,7 +109,7 @@ int __printStd(struct StdMsgCodecValue *value, int indent) {
             }
             printf("]");
             break;
-        case kList:
+        case kStdList:
             printf("[\n");
             for (int i = 0; i < value->size; i++) {
                 printf("%.*s", indent + 2, INDENT_STRING);
@@ -117,7 +118,7 @@ int __printStd(struct StdMsgCodecValue *value, int indent) {
             }
             printf("\n%.*s]", indent, INDENT_STRING);
             break;
-        case kMap:
+        case kStdMap:
             printf("{\n");
             for (int i = 0; i < value->size; i++) {
                 printf("%.*s", indent + 2, INDENT_STRING);
@@ -132,7 +133,7 @@ int __printStd(struct StdMsgCodecValue *value, int indent) {
             break;
     }
 }
-int printStd(struct StdMsgCodecValue *value, int indent) {
+int printStd(struct std_value *value, int indent) {
     printf("%.*s", indent, INDENT_STRING);
     __printStd(value, indent);
     printf("\n");
@@ -142,7 +143,7 @@ int printStd(struct StdMsgCodecValue *value, int indent) {
 
 uint64_t testplugin_time_offset;
 
-int TestPlugin_onReceiveResponseJSON(struct ChannelObject *object, void *userdata) {
+int testp_on_response_json(struct platch_obj *object, void *userdata) {
     uint64_t dt = FlutterEngineGetCurrentTime() - *((uint64_t*) userdata);
     free(userdata);
     
@@ -152,28 +153,28 @@ int TestPlugin_onReceiveResponseJSON(struct ChannelObject *object, void *userdat
     }
 
     if (object->success) {
-        printf("TestPlugin_onReceiveResponseJSON(dt: %lluns)\n"
+        printf("testp_on_response_json(dt: %lluns)\n"
                "  success\n"
                "  result:\n", dt);
-        printJSON(&object->jsresult, 4);
+        printJSON(&object->json_result, 4);
     } else {
-        printf("TestPlugin_onReceiveResponseJSON(dt: %lluns)\n", dt);
+        printf("testp_on_response_json(dt: %lluns)\n", dt);
         printf("  failure\n"
                "  error code: %s\n"
                "  error message: %s\n"
-               "  error details:\n", object->errorcode, (object->errormessage != NULL) ? object->errormessage : "null");
-        printJSON(&object->jsresult, 4);
+               "  error details:\n", object->error_code, (object->error_msg != NULL) ? object->error_msg : "null");
+        printJSON(&object->json_result, 4);
     }
 
     return 0;
 }
-int TestPlugin_sendJSON() {
+int testp_send_json() {
     uint64_t* time = malloc(sizeof(uint64_t));
     *time = FlutterEngineGetCurrentTime();
 
     char *method = "test";
-    struct JSONMsgCodecValue argument = {
-        .type = kJSObject,
+    struct json_value argument = {
+        .type = kJsonObject,
         .size = 5,
         .keys = (char*[]) {
             "key1",
@@ -182,24 +183,24 @@ int TestPlugin_sendJSON() {
             "key4",
             "array"
         },
-        .values = (struct JSONMsgCodecValue[]) {
-            {.type = kJSString, .string_value = "value1"},
-            {.type = kJSTrue},
-            {.type = kJSNumber, .number_value = -1000},
-            {.type = kJSNumber, .number_value = -5.0005},
-            {.type = kJSArray, .size = 2, .array = (struct JSONMsgCodecValue[]) {
-                {.type = kJSString, .string_value = "array1"},
-                {.type = kJSNumber, .number_value = 2}
+        .values = (struct json_value[]) {
+            {.type = kJsonString, .string_value = "value1"},
+            {.type = kJsonTrue},
+            {.type = kJsonNumber, .number_value = -1000},
+            {.type = kJsonNumber, .number_value = -5.0005},
+            {.type = kJsonArray, .size = 2, .array = (struct json_value[]) {
+                {.type = kJsonString, .string_value = "array1"},
+                {.type = kJsonNumber, .number_value = 2}
             }}
         },
     };
 
-    int ok = PlatformChannel_jsoncall(TESTPLUGIN_CHANNEL_JSON, method, &argument, TestPlugin_onReceiveResponseJSON, time);
+    int ok = platch_call_json(TESTPLUGIN_CHANNEL_JSON, method, &argument, testp_on_response_json, time);
     if (ok != 0) {
         printf("Could not MethodCall JSON: %s\n", strerror(ok));
     }
 }
-int TestPlugin_onReceiveResponseStd(struct ChannelObject *object, void *userdata) {
+int testp_on_response_std(struct platch_obj *object, void *userdata) {
     uint64_t dt = FlutterEngineGetCurrentTime() - *((uint64_t*) userdata);
     free(userdata);
 
@@ -209,96 +210,96 @@ int TestPlugin_onReceiveResponseStd(struct ChannelObject *object, void *userdata
     }
 
     if (object->success) {
-        printf("TestPlugin_onReceiveResponseStd(dt: %lluns)\n"
+        printf("testp_on_response_std(dt: %lluns)\n"
                "  success\n"
                "  result:\n", dt);
-        printStd(&object->stdresult, 4);
+        printStd(&object->std_result, 4);
     } else {
-        printf("TestPlugin_onReceiveResponseStd(dt: %lluns)\n", dt);
+        printf("testp_on_response_std(dt: %lluns)\n", dt);
         printf("  failure\n"
                "  error code: %s\n"
                "  error message: %s\n"
-               "  error details:\n", object->errorcode, (object->errormessage != NULL) ? object->errormessage : "null");
-        printStd(&object->stdresult, 4);
+               "  error details:\n", object->error_code, (object->error_msg != NULL) ? object->error_msg : "null");
+        printStd(&object->std_error_details, 4);
     }
 
     return 0;
 }
-int TestPlugin_sendStd() {
+int testp_send_std() {
     uint64_t *time = malloc(sizeof(uint64_t));
     *time = FlutterEngineGetCurrentTime();
 
     char *method = "test";
-    struct StdMsgCodecValue argument = {
-        .type = kMap,
+    struct std_value argument = {
+        .type = kStdMap,
         .size = 7,
-        .keys = (struct StdMsgCodecValue[]) {
-            {.type = kString, .string_value = "key1"},
-            {.type = kString, .string_value = "key2"},
-            {.type = kString, .string_value = "key3"},
-            {.type = kString, .string_value = "key4"},
-            {.type = kInt32, .int32_value = 5},
-            {.type = kString, .string_value = "timestamp"},
-            {.type = kString, .string_value = "array"}
+        .keys = (struct std_value[]) {
+            {.type = kStdString, .string_value = "key1"},
+            {.type = kStdString, .string_value = "key2"},
+            {.type = kStdString, .string_value = "key3"},
+            {.type = kStdString, .string_value = "key4"},
+            {.type = kStdInt32, .int32_value = 5},
+            {.type = kStdString, .string_value = "timestamp"},
+            {.type = kStdString, .string_value = "array"}
         },
-        .values = (struct StdMsgCodecValue[]) {
-            {.type = kString, .string_value = "value1"},
-            {.type = kTrue},
-            {.type = kInt32, .int32_value = -1000},
-            {.type = kFloat64, .float64_value = -5.0005},
-            {.type = kUInt8Array, .uint8array = (uint8_t[]) {0x00, 0x01, 0x02, 0x03, 0xFF}, .size = 5},
-            {.type = kInt64, .int64_value = *time & 0x7FFFFFFFFFFFFFFF},
-            {.type = kList, .size = 2, .list = (struct StdMsgCodecValue[]) {
-                {.type = kString, .string_value = "array1"},
-                {.type = kInt32, .int32_value = 2}
+        .values = (struct std_value[]) {
+            {.type = kStdString, .string_value = "value1"},
+            {.type = kStdTrue},
+            {.type = kStdInt32, .int32_value = -1000},
+            {.type = kStdFloat64, .float64_value = -5.0005},
+            {.type = kStdUInt8Array, .uint8array = (uint8_t[]) {0x00, 0x01, 0x02, 0x03, 0xFF}, .size = 5},
+            {.type = kStdInt64, .int64_value = *time & 0x7FFFFFFFFFFFFFFF},
+            {.type = kStdList, .size = 2, .list = (struct std_value[]) {
+                {.type = kStdString, .string_value = "array1"},
+                {.type = kStdInt32, .int32_value = 2}
             }}
         },
     };
 
-    PlatformChannel_stdcall(TESTPLUGIN_CHANNEL_STD, method, &argument, TestPlugin_onReceiveResponseStd, time);
+    platch_call_std(TESTPLUGIN_CHANNEL_STD, method, &argument, testp_on_response_std, time);
 }
 
 
-int TestPlugin_onReceiveJSON(char *channel, struct ChannelObject *object, FlutterPlatformMessageResponseHandle *responsehandle) {
-    printf("TestPlugin_onReceiveJSON(channel: %s)\n"
+int testp_on_receive_json(char *channel, struct platch_obj *object, FlutterPlatformMessageResponseHandle *responsehandle) {
+    printf("testp_on_receive_json(channel: %s)\n"
            "  method: %s\n"
            "  args: \n", channel, object->method);
-    printJSON(&(object->jsarg), 4);
+    printJSON(&(object->json_arg), 4);
     
-    TestPlugin_sendJSON();
+    testp_send_json();
 
-    return PlatformChannel_respond(responsehandle, &(struct ChannelObject) {
+    return platch_respond(responsehandle, &(struct platch_obj) {
         .codec = kJSONMethodCallResponse,
         .success = true,
-        .jsresult = {
-            .type = kJSTrue
+        .json_result = {
+            .type = kJsonTrue
         }
     });
 }
-int TestPlugin_onReceiveStd(char *channel, struct ChannelObject *object, FlutterPlatformMessageResponseHandle *responsehandle) {
+int testp_on_receive_std(char *channel, struct platch_obj *object, FlutterPlatformMessageResponseHandle *responsehandle) {
     printf("TestPlugin_onReceiveStd(channel: %s)\n"
            "  method: %s\n"
            "  args: \n", channel, object->method);
 
-    printStd(&(object->stdarg), 4);
+    printStd(&(object->std_arg), 4);
 
-    TestPlugin_sendStd();
+    testp_send_std();
     
-    return PlatformChannel_respond(
+    return platch_respond(
         responsehandle,
-        &(struct ChannelObject) {
+        &(struct platch_obj) {
             .codec = kStandardMethodCallResponse,
             .success = true,
-            .stdresult = {
-                .type = kTrue
+            .std_result = {
+                .type = kStdTrue
             }
         }
     );
 }
-int TestPlugin_onReceivePing(char *channel, struct ChannelObject *object, FlutterPlatformMessageResponseHandle *responsehandle) {
-    return PlatformChannel_respond(
+int testp_on_receive_ping(char *channel, struct platch_obj *object, FlutterPlatformMessageResponseHandle *responsehandle) {
+    return platch_respond(
         responsehandle,
-        &(struct ChannelObject) {
+        &(struct platch_obj) {
             .codec = kStringCodec,
             .string_value = "pong"
         }
@@ -306,14 +307,24 @@ int TestPlugin_onReceivePing(char *channel, struct ChannelObject *object, Flutte
 }
 
 
-int TestPlugin_init(void) {
-    printf("[test-plugin] init.\n");
-    PluginRegistry_setReceiver(TESTPLUGIN_CHANNEL_JSON, kJSONMethodCall, TestPlugin_onReceiveJSON);
-    PluginRegistry_setReceiver(TESTPLUGIN_CHANNEL_STD, kStandardMethodCall, TestPlugin_onReceiveStd);
-    PluginRegistry_setReceiver(TESTPLUGIN_CHANNEL_PING, kStringCodec, TestPlugin_onReceivePing);
+int testp_init(void) {
+    int ok;
+
+    printf("[test_plugin] Initializing...\n");
+
+    ok = plugin_registry_set_receiver(TESTPLUGIN_CHANNEL_JSON, kJSONMethodCall, testp_on_receive_json);
+    if (ok != 0) return ok;
+
+    ok = plugin_registry_set_receiver(TESTPLUGIN_CHANNEL_STD, kStandardMethodCall, testp_on_receive_std);
+    if (ok != 0) return ok;
+    
+    ok = plugin_registry_set_receiver(TESTPLUGIN_CHANNEL_PING, kStringCodec, testp_on_receive_ping);
+    if (ok != 0) return ok;
+
+    printf("[test_plugin] Done.\n");
     return 0;
 }
-int TestPlugin_deinit(void) {
-    printf("[test-plugin] deinit.\n");
+int testp_deinit(void) {
+    printf("[test_plugin] deinit.\n");
     return 0;
 }

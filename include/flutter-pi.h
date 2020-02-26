@@ -9,6 +9,8 @@
 #include <xf86drmMode.h>
 #include <stdint.h>
 #include <flutter_embedder.h>
+#include <stdlib.h>
+#include <string.h>
 
 #define EGL_PLATFORM_GBM_KHR	0x31D7
 
@@ -34,6 +36,8 @@ typedef enum {
 	kVBlankRequest,
 	kVBlankReply,
 	kUpdateOrientation,
+	kSendPlatformMessage,
+	kRespondToPlatformMessage,
 	kFlutterTask
 } flutterpi_task_type;
 
@@ -47,11 +51,26 @@ struct flutterpi_task {
 			intptr_t baton;
 		};
 		enum device_orientation orientation;
+		struct {
+			char *channel;
+			const FlutterPlatformMessageResponseHandle *responsehandle;
+			size_t message_size;
+			uint8_t *message;
+		};
 	};
     uint64_t target_time;
 };
 
-void post_platform_task(struct flutterpi_task *task);
+static inline void *memdup(const void *restrict src, const size_t n) {
+	void *__restrict__ dest;
+
+	if ((src == NULL) || (n == 0)) return NULL;
+
+	dest = malloc(n);
+	if (dest == NULL) return NULL;
+
+	return memcpy(dest, src, n);
+}
 
 struct drm_fb {
 	struct gbm_bo *bo;
@@ -111,8 +130,6 @@ struct mousepointer_mtslot {
 
 #define ISSET(uint32bitmap, bit) (uint32bitmap[(bit)/32] & (1 << ((bit) & 0x1F)))
 
-#define STREQ(a, b) (strcmp(a, b) == 0)
-
 struct input_device {
 	char path[PATH_MAX];
 	char name[256];
@@ -146,5 +163,16 @@ struct input_device {
 extern struct mousepointer_mtslot mousepointer;
 
 extern FlutterEngine engine;
+
+void post_platform_task(struct flutterpi_task *task);
+
+int flutterpi_send_platform_message(const char *channel,
+									const uint8_t *restrict message,
+									size_t message_size,
+									FlutterPlatformMessageResponseHandle *responsehandle);
+
+int flutterpi_respond_to_platform_message(FlutterPlatformMessageResponseHandle *handle,
+										  const uint8_t *restrict message,
+										  size_t message_size);
 
 #endif
