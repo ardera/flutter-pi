@@ -6,7 +6,7 @@ You can now theoretically run every flutter app you want using flutter-pi, also 
 
 _The difference between extensions and plugins is that extensions don't include any native code, they are just pure dart. Plugins (like the [connectivity plugin](https://github.com/flutter/plugins/tree/master/packages/connectivity)) include platform-specific code._
 
-**Note:** flutter-pi should also work just fine on other 32-bit platforms, if they have Kernel-Modesetting and Direct-Rendering-Infrastructure support. (64-bit support is trivial, just haven't got around to implement it yet)
+**Note:** flutter-pi should also work just fine on other platforms, if they have Kernel-Modesetting and Direct-Rendering-Infrastructure support. 64-bit platforms will (probably) work too now, but I haven't tested that.
 
 ## Contents
 
