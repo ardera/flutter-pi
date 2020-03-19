@@ -123,7 +123,10 @@ The flutter engine, by default, uses the _Arial_ font. Since that doesn't come i
 sudo apt install ttf-mscorefonts-installer fontconfig
 sudo fc-cache
 ```
-
+### other
+```bash
+sudo apt-get install gpiod libgpiod-dev
+```
 ## Compiling flutter-pi (on the Raspberry Pi)
 fetch all the dependencies, clone this repo and run
 ```bash
