@@ -123,7 +123,7 @@ The flutter engine, by default, uses the _Arial_ font. Since that doesn't come i
 sudo apt install ttf-mscorefonts-installer fontconfig
 sudo fc-cache
 ```
-### other
+### libgpiod (for the included GPIO plugin)
 ```bash
 sudo apt-get install gpiod libgpiod-dev
 ```
