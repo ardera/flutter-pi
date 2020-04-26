@@ -11,9 +11,9 @@ _The difference between extensions and plugins is that extensions don't include 
 ## Contents
 
 1. **[Running your App on the Raspberry Pi](#running-your-app-on-the-raspberry-pi)**  
-1.1 [Patching the App](#patching-the-app)  
-1.2 [Building the Asset bundle](#building-the-asset-bundle)  
-1.3 [Enabling the V3D / VC4-V3D driver](#enabling-the-v3d--vc4-v3d-driver)  
+1.1 [Configuring your Raspberry Pi](#configuring-your-raspberry-pi)  
+1.2 [Patching the App](#patching-the-app)  
+1.3 [Building the Asset bundle](#building-the-asset-bundle)    
 1.4 [Running your App with flutter-pi](#running-your-app-with-flutter-pi)  
 2. **[Dependencies](#dependencies)**  
 2.1 [flutter engine](#flutter-engine)  
@@ -26,6 +26,28 @@ _The difference between extensions and plugins is that extensions don't include 
 
 
 ## Running your App on the Raspberry Pi
+### Configuring your Raspberry Pi
+#### Switching to Console mode
+flutter-pi only works when Raspbian is in console mode (no X11 or Wayland server running). To switch the Pi into console mode,
+go to `raspi-config -> Boot Options -> Desktop / CLI` and select `Console` or `Console (Autologin)`.
+
+#### Enabling the V3D driver
+flutter-pi doesn't support the legacy broadcom-proprietary graphics stack anymore. You need to make sure the V3D driver in raspi-config.
+Go to `raspi-config -> Advanced Options -> GL Driver` and select `GL (Fake-KMS)`.
+
+With this driver, it's best to give the GPU as little RAM as possible in `raspi-config -> Advanced Options -> Memory Split`, which is `16MB`. This is because the V3D driver doesn't need GPU RAM anymore.
+
+#### Fixing the GPU permissions
+It seems like with newer versions of Raspbian, the `pi` user doesn't have sufficient permissions to directly access the GPU anymore. IIRC, this is because of some privilege escalation / arbitrary code execution problems of the GPU interface.
+
+You can fix this by adding the `pi` user to the `render` group, but keep in mind that may be a security hazard:
+```bash
+usermod -a -G render pi
+```
+Then, restart your terminal session so the changes take effect. (reconnect if you're using ssh or else just reboot the Pi)
+
+Otherwise, you'll need to run `flutter-pi` with `sudo`.
+
 ### Patching the App
 First, you need to override the default target platform in your flutter app, i.e. add the following line to your _main_ method, before the _runApp_ call:
 ```dart
@@ -57,21 +79,6 @@ flutter build bundle
 ```
 
 After that `flutter/examples/flutter_gallery/build/flutter_assets` would be a valid path to pass as an argument to flutter-pi.
-
-### Enabling the V3D / VC4-V3D driver
-flutter-pi doesn't support the legacy broadcom-proprietary graphics stack anymore. You need to activate the V3D / VC4-V3D driver in raspi-config.
-
-Go to `raspi-config -> Advanced -> GL Driver` and select `fake-KMS`. `full-KMS` is a bit buggy and doesn't work with the Raspberry Pi 7" display (or generally, any DSI display).
-
-For Raspberry Pi's older than the 4B Model, it's best to give the GPU as little RAM as possible in `raspi-config` (16MB), since the V3D / VC4-V3D driver doesn't need GPU RAM anymore. The Pi 4 automatically adjusts the memory split at runtime.
-
-#### Fixing the GPU permissions (Pi 4 only)
-With newer versions of Raspbian, flutter-pi will crash if you don't run it as root. This is because it doesn't have access to the `/dev/dri/renderD128` file. To fix this, add the `pi` user to the `render` group like this:
-```bash
-usermod -a -G render pi
-```
-
-Then, restart your terminal session so the changes take effect. (reconnect if you're using ssh or else just reboot the Pi)
 
 ### Running your App with flutter-pi
 ```txt
