@@ -2,11 +2,19 @@
 A light-weight Flutter Engine Embedder for Raspberry Pi. Inspired by https://github.com/chinmaygarde/flutter_from_scratch.
 Flutter-pi also runs without X11, so you don't need to boot into Raspbian Desktop & have X11 and LXDE load up; just boot into the command-line.
 
-You can now theoretically run every flutter app you want using flutter-pi, also including extensions & plugins, just that you'd have to build the platform side of the plugins you'd like to use yourself.
+You can now **theoretically** run every flutter app you want using flutter-pi, including apps using extensions & plugins, just that you'd have to build the platform side of the plugins you'd like to use yourself.
 
 _The difference between extensions and plugins is that extensions don't include any native code, they are just pure dart. Plugins (like the [connectivity plugin](https://github.com/flutter/plugins/tree/master/packages/connectivity)) include platform-specific code._
 
-**Note:** flutter-pi should also work just fine on other platforms, if they have Kernel-Modesetting and Direct-Rendering-Infrastructure support. 64-bit platforms will (probably) work too now, but I haven't tested that.
+## Supported Platforms
+Although flutter-pi is only tested on a Rasberry Pi 4 2GB, it should work fine on other linux platforms, with the following conditions:
+
+- support for hardware 3D acceleration. more precisely support for kernel-modesetting (KMS) and the direct rendering infrastructure (DRI) 
+- CPU architecture is one of ARMv7, ARM64, x86 or x86 64bit.
+
+This means flutter-pi won't work on a Pi Zero, Pi 1, or Pi 2. A Pi 3 works fine, even the 512MB A+ model.
+
+If you encounter issues running flutter-pi on any of the supported platforms listed above, please report them to me and I'll fix them.
 
 ## Contents
 
