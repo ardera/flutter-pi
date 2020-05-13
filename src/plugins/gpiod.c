@@ -5,10 +5,8 @@
 #include <pthread.h>
 #include <sys/epoll.h>
 
-#include <gpiod.h>
-
 #include <pluginregistry.h>
-#include <plugins/gpiod.h>
+#include <plugins/gpiod_plugin.h>
 
 
 
