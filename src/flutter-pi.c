@@ -233,24 +233,22 @@ struct drm_fb *drm_fb_get_from_bo(struct gbm_bo *bo) {
 	height = gbm_bo_get_height(bo);
 	format = gbm_bo_get_format(bo);
 
-	if (gbm_bo_get_modifier && gbm_bo_get_plane_count && gbm_bo_get_stride_for_plane && gbm_bo_get_offset) {
-		uint64_t modifiers[4] = {0};
-		modifiers[0] = gbm_bo_get_modifier(bo);
-		const int num_planes = gbm_bo_get_plane_count(bo);
+	uint64_t modifiers[4] = {0};
+	modifiers[0] = gbm_bo_get_modifier(bo);
+	const int num_planes = gbm_bo_get_plane_count(bo);
 
-		for (int i = 0; i < num_planes; i++) {
-			strides[i] = gbm_bo_get_stride_for_plane(bo, i);
-			handles[i] = gbm_bo_get_handle(bo).u32;
-			offsets[i] = gbm_bo_get_offset(bo, i);
-			modifiers[i] = modifiers[0];
-		}
-
-		if (modifiers[0]) {
-			flags = DRM_MODE_FB_MODIFIERS;
-		}
-
-		ok = drmModeAddFB2WithModifiers(drm.fd, width, height, format, handles, strides, offsets, modifiers, &fb->fb_id, flags);
+	for (int i = 0; i < num_planes; i++) {
+		strides[i] = gbm_bo_get_stride_for_plane(bo, i);
+		handles[i] = gbm_bo_get_handle(bo).u32;
+		offsets[i] = gbm_bo_get_offset(bo, i);
+		modifiers[i] = modifiers[0];
 	}
+
+	if (modifiers[0]) {
+		flags = DRM_MODE_FB_MODIFIERS;
+	}
+
+	ok = drmModeAddFB2WithModifiers(drm.fd, width, height, format, handles, strides, offsets, modifiers, &fb->fb_id, flags);
 
 	if (ok) {
 		if (flags)
@@ -336,13 +334,13 @@ const GLubyte *hacked_glGetString(GLenum name) {
 	if (extensions == NULL) {
 		GLubyte *orig_extensions = (GLubyte *) glGetString(GL_EXTENSIONS);
 		
-		extensions = malloc(strlen(orig_extensions) + 1);
+		extensions = malloc(strlen((const char*)orig_extensions) + 1);
 		if (!extensions) {
 			fprintf(stderr, "Could not allocate memory for modified GL_EXTENSIONS string\n");
 			return NULL;
 		}
 
-		strcpy(extensions, orig_extensions);
+		strcpy((char*)extensions, (const char*)orig_extensions);
 
 		/*
 			* working (apparently)
@@ -371,40 +369,40 @@ const GLubyte *hacked_glGetString(GLenum name) {
 		/*
 		* should be working, but isn't
 		*/
-		cut_word_from_string(extensions, "GL_EXT_map_buffer_range");
+		cut_word_from_string((char*)extensions, "GL_EXT_map_buffer_range");
 
 		/*
 		* definitely broken
 		*/
-		cut_word_from_string(extensions, "GL_OES_element_index_uint");
-		cut_word_from_string(extensions, "GL_OES_fbo_render_mipmap");
-		cut_word_from_string(extensions, "GL_OES_mapbuffer");
-		cut_word_from_string(extensions, "GL_OES_rgb8_rgba8");
-		cut_word_from_string(extensions, "GL_OES_stencil8");
-		cut_word_from_string(extensions, "GL_OES_texture_3D");
-		cut_word_from_string(extensions, "GL_OES_packed_depth_stencil");
-		cut_word_from_string(extensions, "GL_OES_get_program_binary");
-		cut_word_from_string(extensions, "GL_APPLE_texture_max_level");
-		cut_word_from_string(extensions, "GL_EXT_discard_framebuffer");
-		cut_word_from_string(extensions, "GL_EXT_read_format_bgra");
-		cut_word_from_string(extensions, "GL_EXT_frag_depth");
-		cut_word_from_string(extensions, "GL_NV_fbo_color_attachments");
-		cut_word_from_string(extensions, "GL_OES_EGL_sync");
-		cut_word_from_string(extensions, "GL_OES_vertex_array_object");
-		cut_word_from_string(extensions, "GL_EXT_unpack_subimage");
-		cut_word_from_string(extensions, "GL_NV_draw_buffers");
-		cut_word_from_string(extensions, "GL_NV_read_buffer");
-		cut_word_from_string(extensions, "GL_NV_read_depth");
-		cut_word_from_string(extensions, "GL_NV_read_depth_stencil");
-		cut_word_from_string(extensions, "GL_NV_read_stencil");
-		cut_word_from_string(extensions, "GL_EXT_draw_buffers");
-		cut_word_from_string(extensions, "GL_KHR_debug");
-		cut_word_from_string(extensions, "GL_OES_required_internalformat");
-		cut_word_from_string(extensions, "GL_OES_surfaceless_context");
-		cut_word_from_string(extensions, "GL_EXT_separate_shader_objects");
-		cut_word_from_string(extensions, "GL_KHR_context_flush_control");
-		cut_word_from_string(extensions, "GL_KHR_no_error");
-		cut_word_from_string(extensions, "GL_KHR_parallel_shader_compile");
+		cut_word_from_string((char*)extensions, "GL_OES_element_index_uint");
+		cut_word_from_string((char*)extensions, "GL_OES_fbo_render_mipmap");
+		cut_word_from_string((char*)extensions, "GL_OES_mapbuffer");
+		cut_word_from_string((char*)extensions, "GL_OES_rgb8_rgba8");
+		cut_word_from_string((char*)extensions, "GL_OES_stencil8");
+		cut_word_from_string((char*)extensions, "GL_OES_texture_3D");
+		cut_word_from_string((char*)extensions, "GL_OES_packed_depth_stencil");
+		cut_word_from_string((char*)extensions, "GL_OES_get_program_binary");
+		cut_word_from_string((char*)extensions, "GL_APPLE_texture_max_level");
+		cut_word_from_string((char*)extensions, "GL_EXT_discard_framebuffer");
+		cut_word_from_string((char*)extensions, "GL_EXT_read_format_bgra");
+		cut_word_from_string((char*)extensions, "GL_EXT_frag_depth");
+		cut_word_from_string((char*)extensions, "GL_NV_fbo_color_attachments");
+		cut_word_from_string((char*)extensions, "GL_OES_EGL_sync");
+		cut_word_from_string((char*)extensions, "GL_OES_vertex_array_object");
+		cut_word_from_string((char*)extensions, "GL_EXT_unpack_subimage");
+		cut_word_from_string((char*)extensions, "GL_NV_draw_buffers");
+		cut_word_from_string((char*)extensions, "GL_NV_read_buffer");
+		cut_word_from_string((char*)extensions, "GL_NV_read_depth");
+		cut_word_from_string((char*)extensions, "GL_NV_read_depth_stencil");
+		cut_word_from_string((char*)extensions, "GL_NV_read_stencil");
+		cut_word_from_string((char*)extensions, "GL_EXT_draw_buffers");
+		cut_word_from_string((char*)extensions, "GL_KHR_debug");
+		cut_word_from_string((char*)extensions, "GL_OES_required_internalformat");
+		cut_word_from_string((char*)extensions, "GL_OES_surfaceless_context");
+		cut_word_from_string((char*)extensions, "GL_EXT_separate_shader_objects");
+		cut_word_from_string((char*)extensions, "GL_KHR_context_flush_control");
+		cut_word_from_string((char*)extensions, "GL_KHR_no_error");
+		cut_word_from_string((char*)extensions, "GL_KHR_parallel_shader_compile");
 	}
 
 	return extensions;
