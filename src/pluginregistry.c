@@ -183,4 +183,6 @@ int plugin_registry_deinit() {
 
 	/// free the rest
 	free(pluginregistry.platch_obj_cbs);
+
+	return 0;
 }

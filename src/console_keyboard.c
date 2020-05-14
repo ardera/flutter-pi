@@ -215,6 +215,8 @@ int console_restore(void) {
     }
 
     is_raw = false;
+	
+	return 0;
 }
 
 size_t   utf8_symbol_length(char *c) {

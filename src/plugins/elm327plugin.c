@@ -348,7 +348,7 @@ int  elm_open(char *serial_path, int baudrate) {
 
 	ok = elm_command(ELM327_LINEFEEDS_OFF, NULL, 0);
 	if (ok != 0) {
-		fprintf(stderr, "[elm327plugin] elm_open: error setting ELM327 linefeeds off using AT L0\n", ok);
+		fprintf(stderr, "[elm327plugin] elm_open: error setting ELM327 linefeeds off using AT L0\n");
 		goto error;
 	}
 
@@ -607,6 +607,7 @@ int ELM327Plugin_onReceive(char *channel, struct platch_obj *object, FlutterPlat
     } else {
 		return platch_respond_not_implemented(handle);
 	}
+	return 0;
 }
 
 int ELM327Plugin_init(void) {

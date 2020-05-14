@@ -142,7 +142,7 @@ struct {
 } egl = {0};
 
 struct {
-	char asset_bundle_path[256];
+	char asset_bundle_path[240];
 	char kernel_blob_path[256];
 	char executable_path[256];
 	char icu_data_path[256];

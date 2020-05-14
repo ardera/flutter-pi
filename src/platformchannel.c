@@ -437,7 +437,7 @@ int platch_decode_value_std(uint8_t **pbuffer, size_t *premaining, struct std_va
 	int32_t *intArray = 0;
 	uint8_t *byteArray = 0, type_byte = 0;
 	char *c_string = 0; 
-	size_t size = 0;
+	uint32_t size = 0;
 	int ok;
 	
 	ok = _read8(pbuffer, &type_byte, premaining);
@@ -451,12 +451,12 @@ int platch_decode_value_std(uint8_t **pbuffer, size_t *premaining, struct std_va
 		case kStdFalse:
 			break;
 		case kStdInt32:
-			ok = _read32(pbuffer, &value_out->int32_value, premaining);
+			ok = _read32(pbuffer, (uint32_t*)&value_out->int32_value, premaining);
 			if (ok != 0) return ok;
 
 			break;
 		case kStdInt64:
-			ok = _read64(pbuffer, &value_out->int64_value, premaining);
+			ok = _read64(pbuffer, (uint64_t*)&value_out->int64_value, premaining);
 			if (ok != 0) return ok;
 
 			break;
@@ -1360,7 +1360,7 @@ bool stdvalue_equals(struct std_value *a, struct std_value *b) {
 			if (a->list == b->list) return true;
 
 			for (int i = 0; i < a->size; i++)
-				if (!stdvalue_equals(&(a->list[i]), &(b->list[i])));
+				if (!stdvalue_equals(&(a->list[i]), &(b->list[i])))
 					return false;
 			
 			return true;

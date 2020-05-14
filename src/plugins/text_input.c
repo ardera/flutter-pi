@@ -156,7 +156,7 @@ int textin_on_receive(char *channel, struct platch_obj *object, FlutterPlatformM
         text_input.input_type = input_type;
 
         if (autocorrect && (!text_input.warned_about_autocorrect)) {
-            printf("[text_input] warning: flutter requested native autocorrect, which",
+            printf("[text_input] warning: flutter requested native autocorrect, which"
                    "is not supported by flutter-pi.\n");
             text_input.warned_about_autocorrect = true;
         }

@@ -114,6 +114,8 @@ int rawkb_on_keyevent(glfw_key key, uint32_t scan_code, glfw_key_action action) 
 
     raw_keyboard.leftright_mods = lrmods_after;
     raw_keyboard.mods = mods_after;
+
+    return 0;
 }
 
 int rawkb_init(void) {
