@@ -98,6 +98,8 @@ set(FLUTTER_PI_SRC
 if(GPIOD_FOUND)
   list(APPEND FLUTTER_PI_SRC src/plugins/gpiod.c)
   add_compile_options(-DBUILD_GPIOD_PLUGIN)
+else()
+  message(STATUS "Could not find gpiod library and development headers. flutter-pi will be built without gpiod support. To install, execute 'sudo apt install libgpiod-dev'")
 endif()
 
 add_executable(flutter-pi ${FLUTTER_PI_SRC})
