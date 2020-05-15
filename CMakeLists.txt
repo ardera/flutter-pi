@@ -35,15 +35,43 @@ message(STATUS "Generator .............. ${CMAKE_GENERATOR}")
 message(STATUS "Build Type ............. ${CMAKE_BUILD_TYPE}")
 
 if(NOT FLUTTER_ENGINE_LIBRARY)
+
+  include(FetchContent)
+
   if(NOT FLUTTER_ENGINE_SHA)
-    set(FLUTTER_ENGINE_SHA af51afceb8886cc11e25047523c4e0c7e1f5d408)
+
+    if(NOT CHANNEL)
+        set(CHANNEL "stable" CACHE STRING "Choose the channel, options are: master, dev, beta, stable" FORCE)
+        message(STATUS "Flutter Channel not set, defaulting to stable")
+    endif()
+
+    message(STATUS "Flutter Channel ........ ${CHANNEL}")
+
+    FetchContent_Declare(engine-version
+      URL https://raw.githubusercontent.com/flutter/flutter/${CHANNEL}/bin/internal/engine.version
+      DOWNLOAD_NAME engine.version
+      DOWNLOAD_NO_EXTRACT TRUE
+      DOWNLOAD_DIR ${CMAKE_BINARY_DIR}
+    )
+
+    FetchContent_GetProperties(engine-version)
+    if(NOT engine-version_POPULATED)
+        FetchContent_Populate(engine-version)
+        file(READ ${CMAKE_BINARY_DIR}/engine.version FLUTTER_ENGINE_SHA)
+        string(REPLACE "\n" "" FLUTTER_ENGINE_SHA ${FLUTTER_ENGINE_SHA})
+    else()
+        MESSAGE(FATAL "Unable to determine engine-version, please override FLUTTER_ENGINE_SHA")
+    endif()
+
   endif()
 
-  set(FLUTTER_EMBEDDER_ARTIFACTS_ZIP ${CMAKE_BINARY_DIR}/flutter_embedder_${FLUTTER_ENGINE_SHA}.zip)
-  set(FLUTTER_ARTIFACTS_ZIP          ${CMAKE_BINARY_DIR}/flutter_artifact_${FLUTTER_ENGINE_SHA}.zip)
-  set(FLUTTER_BUCKET_BASE "https://storage.googleapis.com/flutter_infra/flutter")
+  message(STATUS "Engine SHA1 ............ ${FLUTTER_ENGINE_SHA}")
 
   # Download and setup the Flutter Engine.
+
+  set(FLUTTER_EMBEDDER_ARTIFACTS_ZIP ${CMAKE_BINARY_DIR}/flutter_embedder_${FLUTTER_ENGINE_SHA}.zip)
+  set(FLUTTER_BUCKET_BASE "https://storage.googleapis.com/flutter_infra/flutter")
+
   if(NOT EXISTS ${FLUTTER_EMBEDDER_ARTIFACTS_ZIP})
     file(DOWNLOAD
       ${FLUTTER_BUCKET_BASE}/${FLUTTER_ENGINE_SHA}/linux-x64/linux-x64-embedder
@@ -56,17 +84,6 @@ if(NOT FLUTTER_ENGINE_LIBRARY)
     )
   endif()
 
-  if(NOT EXISTS ${FLUTTER_ARTIFACTS_ZIP})
-    file(DOWNLOAD
-      ${FLUTTER_BUCKET_BASE}/${FLUTTER_ENGINE_SHA}/linux-x64/artifacts.zip
-      ${FLUTTER_ARTIFACTS_ZIP}
-      SHOW_PROGRESS
-    )
-    execute_process(
-      COMMAND ${CMAKE_COMMAND} -E tar xzf ${FLUTTER_ARTIFACTS_ZIP}
-      WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
-    )
-  endif()
   set(FLUTTER_ENGINE_LIBRARY ${CMAKE_BINARY_DIR}/libflutter_engine.so)
 else()
   message(STATUS "Engine ................. ${FLUTTER_ENGINE_LIBRARY}")
