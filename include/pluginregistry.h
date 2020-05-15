@@ -35,7 +35,7 @@ typedef int (*platch_obj_recv_callback)(char *channel, struct platch_obj *object
 ///   will probably cause the application to crash.
 /// deinit is also called AFTER the engine is shut down.
 struct flutterpi_plugin {
-    const char const* name;
+    const char* name;
 	init_deinit_cb init;
 	init_deinit_cb deinit;
 };

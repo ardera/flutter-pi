@@ -19,7 +19,7 @@
 #	include <plugins/elm327plugin.h>
 #endif
 #ifdef BUILD_GPIOD_PLUGIN
-#	include <plugins/gpiod.h>
+#	include <plugins/gpiod_plugin.h>
 #endif
 #ifdef BUILD_SPIDEV_PLUGIN
 #	include <plugins/spidev.h>
@@ -183,4 +183,6 @@ int plugin_registry_deinit() {
 
 	/// free the rest
 	free(pluginregistry.platch_obj_cbs);
+
+	return 0;
 }

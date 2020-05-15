@@ -30,7 +30,7 @@ int __printJSON(struct json_value *value, int indent) {
             for (int i = 0; i < value->size; i++) {
                 printf("%.*s", indent + 2, INDENT_STRING);
                 __printJSON(&(value->array[i]), indent + 2);
-                if (i+1 != value->size) printf(",\n", indent + 2, INDENT_STRING);
+                if (i+1 != value->size) printf(",\n");
             }
             printf("\n%.*s]", indent, INDENT_STRING);
             break;
@@ -39,7 +39,7 @@ int __printJSON(struct json_value *value, int indent) {
             for (int i = 0; i < value->size; i++) {
                 printf("%.*s\"%s\": ", indent + 2, INDENT_STRING, value->keys[i]);
                 __printJSON(&(value->values[i]), indent + 2);
-                if (i+1 != value->size) printf(",\n", indent +2, INDENT_STRING);
+                if (i+1 != value->size) printf(",\n");
             }
             printf("\n%.*s}", indent, INDENT_STRING);
             break;
@@ -52,6 +52,7 @@ int printJSON(struct json_value *value, int indent) {
     printf("%.*s", indent, INDENT_STRING);
     __printJSON(value, indent);
     printf("\n");
+    return 0;
 }
 int __printStd(struct std_value *value, int indent) {
     switch (value->type) {
@@ -104,7 +105,7 @@ int __printStd(struct std_value *value, int indent) {
         case kStdFloat64Array:
             printf("(double) [");
             for (int i = 0; i < value->size; i++) {
-                printf("%ld", value->float64array[i]);
+                printf("%f", value->float64array[i]);
                 if (i + 1 != value->size) printf(", ");
             }
             printf("]");
@@ -132,11 +133,13 @@ int __printStd(struct std_value *value, int indent) {
         default:
             break;
     }
+    return 0;
 }
 int printStd(struct std_value *value, int indent) {
     printf("%.*s", indent, INDENT_STRING);
     __printStd(value, indent);
     printf("\n");
+    return 0;
 }
 
 #undef INDENT_STRING
@@ -153,12 +156,12 @@ int testp_on_response_json(struct platch_obj *object, void *userdata) {
     }
 
     if (object->success) {
-        printf("testp_on_response_json(dt: %lluns)\n"
+        printf("testp_on_response_json(dt: %lu)\n"
                "  success\n"
                "  result:\n", dt);
         printJSON(&object->json_result, 4);
     } else {
-        printf("testp_on_response_json(dt: %lluns)\n", dt);
+        printf("testp_on_response_json(dt: %lu)\n", dt);
         printf("  failure\n"
                "  error code: %s\n"
                "  error message: %s\n"
@@ -199,6 +202,7 @@ int testp_send_json() {
     if (ok != 0) {
         printf("Could not MethodCall JSON: %s\n", strerror(ok));
     }
+    return 0;
 }
 int testp_on_response_std(struct platch_obj *object, void *userdata) {
     uint64_t dt = FlutterEngineGetCurrentTime() - *((uint64_t*) userdata);
@@ -210,12 +214,12 @@ int testp_on_response_std(struct platch_obj *object, void *userdata) {
     }
 
     if (object->success) {
-        printf("testp_on_response_std(dt: %lluns)\n"
+        printf("testp_on_response_std(dt: %lu)\n"
                "  success\n"
                "  result:\n", dt);
         printStd(&object->std_result, 4);
     } else {
-        printf("testp_on_response_std(dt: %lluns)\n", dt);
+        printf("testp_on_response_std(dt: %lu)\n", dt);
         printf("  failure\n"
                "  error code: %s\n"
                "  error message: %s\n"
@@ -257,6 +261,7 @@ int testp_send_std() {
     };
 
     platch_call_std(TESTPLUGIN_CHANNEL_STD, method, &argument, testp_on_response_std, time);
+    return 0;
 }
 
 

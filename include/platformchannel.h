@@ -484,6 +484,8 @@ static inline int _writeSize(uint8_t **pbuffer, int size, size_t *remaining) {
 		ok = _write32(pbuffer, (uint32_t) size, remaining);
         if (ok != 0) return ok;
     }
+
+    return ok;
 }
 static inline int  _readSize(uint8_t **pbuffer, uint32_t *psize, size_t *remaining) {
 	int ok;
