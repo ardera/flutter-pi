@@ -35,7 +35,9 @@ message(STATUS "Generator .............. ${CMAKE_GENERATOR}")
 message(STATUS "Build Type ............. ${CMAKE_BUILD_TYPE}")
 
 if(NOT FLUTTER_ENGINE_LIBRARY)
-  set(FLUTTER_ENGINE_SHA af51afceb8886cc11e25047523c4e0c7e1f5d408)
+  if(NOT FLUTTER_ENGINE_SHA)
+    set(FLUTTER_ENGINE_SHA af51afceb8886cc11e25047523c4e0c7e1f5d408)
+  endif()
 
   set(FLUTTER_EMBEDDER_ARTIFACTS_ZIP ${CMAKE_BINARY_DIR}/flutter_embedder_${FLUTTER_ENGINE_SHA}.zip)
   set(FLUTTER_ARTIFACTS_ZIP          ${CMAKE_BINARY_DIR}/flutter_artifact_${FLUTTER_ENGINE_SHA}.zip)
