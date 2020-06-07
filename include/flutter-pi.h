@@ -5,14 +5,21 @@
 #include <linux/input.h>
 #include <stdbool.h>
 #include <math.h>
-#include <xf86drm.h>
-#include <xf86drmMode.h>
 #include <stdint.h>
-#include <flutter_embedder.h>
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h> 
+#include <stdio.h> 
 
-#define EGL_PLATFORM_GBM_KHR	0x31D7
+#include <xf86drm.h>
+#include <xf86drmMode.h>
+#include <EGL/egl.h>
+#define  EGL_EGLEXT_PROTOTYPES
+#include <EGL/eglext.h>
+#include <GLES2/gl2.h>
+#define  GL_GLEXT_PROTOTYPES
+#include <GLES2/gl2ext.h>
+#include <flutter_embedder.h>
 
 enum device_orientation {
 	kPortraitUp, kLandscapeLeft, kPortraitDown, kLandscapeRight
@@ -38,7 +45,11 @@ typedef enum {
 	kUpdateOrientation,
 	kSendPlatformMessage,
 	kRespondToPlatformMessage,
-	kFlutterTask
+	kFlutterTask,
+	kRegisterExternalTexture,
+	kUnregisterExternalTexture,
+	kMarkExternalTextureFrameAvailable,
+	kGeneric
 } flutterpi_task_type;
 
 struct flutterpi_task {
@@ -56,6 +67,11 @@ struct flutterpi_task {
 			const FlutterPlatformMessageResponseHandle *responsehandle;
 			size_t message_size;
 			uint8_t *message;
+		};
+		int64_t texture_id;
+		struct {
+			void (*callback)(void *userdata);
+			void *userdata;
 		};
 	};
     uint64_t target_time;
@@ -93,6 +109,74 @@ struct mousepointer_mtslot {
 	FlutterPointerPhase phase;
 };
 
+extern struct drm {
+	char device[PATH_MAX];
+	bool has_device;
+	int fd;
+	uint32_t connector_id;
+	drmModeModeInfo *mode;
+	uint32_t crtc_id;
+	size_t crtc_index;
+	struct gbm_bo *current_bo;
+	drmEventContext evctx;
+	bool disable_vsync;
+} drm;
+
+extern struct gbm {
+	struct gbm_device  *device;
+	struct gbm_surface *surface;
+	uint32_t 			format;
+	uint64_t			modifier;
+} gbm;
+
+extern struct egl {
+	EGLDisplay display;
+	EGLConfig  config;
+	EGLContext root_context;
+	EGLContext flutter_render_context;
+	EGLContext flutter_resource_uploading_context;
+	EGLContext vidpp_context;
+	EGLContext compositor_context;
+	EGLSurface surface;
+
+	bool	   modifiers_supported;
+	char      *renderer;
+
+	PFNEGLGETPLATFORMDISPLAYEXTPROC getPlatformDisplay;
+	PFNEGLCREATEPLATFORMWINDOWSURFACEEXTPROC createPlatformWindowSurface;
+	PFNEGLCREATEPLATFORMPIXMAPSURFACEEXTPROC createPlatformPixmapSurface;
+	PFNEGLCREATEDRMIMAGEMESAPROC createDRMImageMESA;
+	PFNEGLEXPORTDRMIMAGEMESAPROC exportDRMImageMESA;
+} egl;
+
+extern struct gl {
+	PFNGLEGLIMAGETARGETTEXTURE2DOESPROC EGLImageTargetTexture2DOES;
+	PFNGLEGLIMAGETARGETRENDERBUFFERSTORAGEOESPROC EGLImageTargetRenderbufferStorageOES;
+} gl;
+
+#define LOAD_EGL_PROC(name) \
+    do { \
+		char proc[256]; \
+		snprintf(proc, 256, "%s", "egl" #name); \
+		proc[3] = toupper(proc[3]); \
+        egl.name = (void*) eglGetProcAddress(proc); \
+        if (!egl.name) { \
+            fprintf(stderr, "could not resolve EGL procedure " #name "\n"); \
+            return EINVAL; \
+        } \
+    } while (false)
+
+#define LOAD_GL_PROC(name) \
+	do { \
+		char proc_name[256]; \
+		snprintf(proc_name, 256, "gl" #name); \
+		proc_name[2] = toupper(proc_name[2]); \
+		gl.name = (void*) eglGetProcAddress(proc_name); \
+		if (!gl.name) { \
+			fprintf(stderr, "could not resolve GL procedure " #name "\n"); \
+			return EINVAL; \
+		} \
+	} while (false)
 
 #define INPUT_BUSTYPE_FRIENDLY_NAME(bustype) ( \
 	(bustype) == BUS_PCI ? "PCI/e" : \
@@ -163,6 +247,10 @@ struct input_device {
 extern struct mousepointer_mtslot mousepointer;
 
 extern FlutterEngine engine;
+
+struct drm_fb *drm_fb_get_from_bo(struct gbm_bo *bo);
+
+void *proc_resolver(void* userdata, const char* name);
 
 void post_platform_task(struct flutterpi_task *task);
 

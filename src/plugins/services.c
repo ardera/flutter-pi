@@ -172,6 +172,19 @@ int services_on_receive_accessibility(char *channel, struct platch_obj *object, 
     return platch_respond_not_implemented(responsehandle);
 }
 
+int services_on_receive_platform_views(char *channel, struct platch_obj *object, FlutterPlatformMessageResponseHandle *responsehandle) {
+    struct json_value *value;
+    struct json_value *arg = &(object->json_arg);
+    int ok;
+    
+    if STREQ("create", object->method) {
+        return platch_respond_not_implemented(responsehandle);
+    } else if STREQ("dispose", object->method) {
+        return platch_respond_not_implemented(responsehandle);
+    }
+
+    return platch_respond_not_implemented(responsehandle);
+}
 
 
 int services_init(void) {
@@ -200,6 +213,12 @@ int services_init(void) {
     ok = plugin_registry_set_receiver("flutter/accessibility", kBinaryCodec, services_on_receive_accessibility);
     if (ok != 0) {
         fprintf(stderr, "[services-plugin] could not set \"flutter/accessibility\" ChannelObject receiver: %s\n", strerror(ok));
+        return ok;
+    }
+
+    ok = plugin_registry_set_receiver("flutter/platform_views", kStandardMethodCall, services_on_receive_platform_views);
+    if (ok != 0) {
+        fprintf(stderr, "[services-plugin] could not set \"flutter/platform_views\" ChannelObject receiver: %s\n", strerror(ok));
         return ok;
     }
 

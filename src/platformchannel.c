@@ -1095,6 +1095,9 @@ int platch_respond_not_implemented(FlutterPlatformMessageResponseHandle *handle)
 		});
 }
 
+/****************************
+ * STANDARD METHOD CHANNELS *
+ ****************************/
 
 int platch_respond_success_std(FlutterPlatformMessageResponseHandle *handle,
 							   struct std_value *return_value) {
@@ -1141,6 +1144,10 @@ int platch_respond_native_error_std(FlutterPlatformMessageResponseHandle *handle
 }
 
 
+/************************
+ * JSON METHOD CHANNELS *
+ ************************/
+
 int platch_respond_success_json(FlutterPlatformMessageResponseHandle *handle,
 								struct json_value *return_value) {
 	return platch_respond(
@@ -1184,7 +1191,97 @@ int platch_respond_native_error_json(FlutterPlatformMessageResponseHandle *handl
 	);
 }
 
+/**************************
+ * PIGEON METHOD CHANNELS *
+ **************************/
+int platch_respond_success_pigeon(
+	FlutterPlatformMessageResponseHandle *handle,
+	struct std_value *return_value
+) {
+	return platch_respond(
+		handle,
+		&(struct platch_obj) {
+			.codec = kStandardMessageCodec,
+			.std_value = {
+				.type = kStdMap,
+				.size = 1,
+				.keys = (struct std_value[1]) {
+					STDSTRING("result")
+				},
+				.values = return_value != NULL ?
+					return_value :
+					(struct std_value[1]) {STDNULL}
+			}
+		}
+	);
+}
 
+int platch_respond_error_pigeon(
+	FlutterPlatformMessageResponseHandle *handle,
+	char *error_code,
+	char *error_msg,
+	struct std_value *error_details
+) {
+	return platch_respond(
+		handle,
+		&(struct platch_obj) {
+			.codec = kStandardMessageCodec,
+			.std_value = {
+				.type = kStdMap,
+				.size = 1,
+				.keys = (struct std_value[1]) {
+					STDSTRING("error")
+				},
+				.values = (struct std_value[1]) {
+					{
+						.type = kStdMap,
+						.size = 3,
+						.keys = (struct std_value[3]) {
+							STDSTRING("code"),
+							STDSTRING("message"),
+							STDSTRING("details")
+						},
+						.values = (struct std_value[3]) {
+							STDSTRING(error_code),
+							STDSTRING(error_msg),
+							error_details != NULL ?
+								*error_details :
+								STDNULL
+						}
+					}
+				}
+			}
+		}
+	);
+}
+
+int platch_respond_illegal_arg_pigeon(
+	FlutterPlatformMessageResponseHandle *handle,
+	char *error_msg
+) {
+	return platch_respond_error_pigeon(
+		handle,
+		"illegalargument",
+		error_msg,
+		NULL
+	);
+}
+
+int platch_respond_native_error_pigeon(
+	FlutterPlatformMessageResponseHandle *handle,
+	int _errno
+) {
+	return platch_respond_error_pigeon(
+		handle,
+		"nativeerror",
+		strerror(_errno),
+		&STDINT32(_errno)
+	);
+}
+
+/***************************
+ * STANDARD EVENT CHANNELS *
+ ***************************/
 int platch_send_success_event_std(char *channel, struct std_value *event_value) {
 	return platch_send(
 		channel,
@@ -1214,7 +1311,9 @@ int platch_send_error_event_std(char *channel,
 	);
 }
 
-
+/***********************
+ * JSON EVENT CHANNELS *
+ ***********************/
 int platch_send_success_event_json(char *channel, struct json_value *event_value) {
 	return platch_send(channel,
 		&(struct platch_obj) {

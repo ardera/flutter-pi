@@ -26,16 +26,20 @@
 #include <drm_fourcc.h>
 #include <gbm.h>
 #include <EGL/egl.h>
+#define  EGL_EGLEXT_PROTOTYPES
 #include <EGL/eglext.h>
 #include <GLES2/gl2.h>
+#define  GL_GLEXT_PROTOTYPES
 #include <GLES2/gl2ext.h>
-
+#include <systemd/sd-event.h>
 #include <flutter_embedder.h>
 
 #include <flutter-pi.h>
+#include <compositor.h>
 #include <console_keyboard.h>
 #include <platformchannel.h>
 #include <pluginregistry.h>
+#include <texture_registry.h>
 //#include <plugins/services.h>
 #include <plugins/text_input.h>
 #include <plugins/raw_keyboard.h>
@@ -107,39 +111,10 @@ enum device_orientation orientation;
 /// is used to determine if width/height should be swapped when sending a WindowMetrics event to flutter)
 int rotation = 0;
 
-struct {
-	char device[PATH_MAX];
-	bool has_device;
-	int fd;
-	uint32_t connector_id;
-	drmModeModeInfo *mode;
-	uint32_t crtc_id;
-	size_t crtc_index;
-	struct gbm_bo *previous_bo;
-	drmEventContext evctx;
-	bool disable_vsync;
-} drm = {0};
-
-struct {
-	struct gbm_device  *device;
-	struct gbm_surface *surface;
-	uint32_t 			format;
-	uint64_t			modifier;
-} gbm = {0};
-
-struct {
-	EGLDisplay display;
-	EGLConfig  config;
-	EGLContext context;
-	EGLSurface surface;
-
-	bool	   modifiers_supported;
-	char      *renderer;
-
-	EGLDisplay (*eglGetPlatformDisplayEXT)(EGLenum platform, void *native_display, const EGLint *attrib_list);
-	EGLSurface (*eglCreatePlatformWindowSurfaceEXT)(EGLDisplay dpy, EGLConfig config, void *native_window, const EGLint *attrib_list);
-	EGLSurface (*eglCreatePlatformPixmapSurfaceEXT)(EGLDisplay dpy, EGLConfig config, void *native_pixmap, const EGLint *attrib_list);
-} egl = {0};
+struct drm drm = {0};
+struct gbm gbm = {0};
+struct egl egl = {0};
+struct gl gl = {0};
 
 struct {
 	char asset_bundle_path[240];
@@ -180,13 +155,12 @@ pthread_cond_t  task_added = PTHREAD_COND_INITIALIZER;
 FlutterEngine engine;
 _Atomic bool  engine_running = false;
 
-
 /*********************
  * FLUTTER CALLBACKS *
  *********************/
 bool     	   make_current(void* userdata) {
-	if (eglMakeCurrent(egl.display, egl.surface, egl.surface, egl.context) != EGL_TRUE) {
-		fprintf(stderr, "make_current: could not make the context current.\n");
+	if (eglMakeCurrent(egl.display, egl.surface, egl.surface, egl.flutter_render_context) != EGL_TRUE) {
+		fprintf(stderr, "make_current: could not make the context current. eglMakeCurrent: %d\n", eglGetError());
 		return false;
 	}
 	
@@ -208,105 +182,20 @@ void		   pageflip_handler(int fd, unsigned int frame, unsigned int sec, unsigned
 		.vblank_ns = sec*1000000000ull + usec*1000ull,
 	});
 }
-void     	   drm_fb_destroy_callback(struct gbm_bo *bo, void *data) {
-	struct drm_fb *fb = data;
-
-	if (fb->fb_id)
-		drmModeRmFB(drm.fd, fb->fb_id);
-	
-	free(fb);
-}
-struct drm_fb *drm_fb_get_from_bo(struct gbm_bo *bo) {
-	uint32_t width, height, format, strides[4] = {0}, handles[4] = {0}, offsets[4] = {0}, flags = 0;
-	int ok = -1;
-
-	// if the buffer object already has some userdata associated with it,
-	//   it's the framebuffer we allocated.
-	struct drm_fb *fb = gbm_bo_get_user_data(bo);
-	if (fb) return fb;
-
-	// if there's no framebuffer for the bo, we need to create one.
-	fb = calloc(1, sizeof(struct drm_fb));
-	fb->bo = bo;
-
-	width = gbm_bo_get_width(bo);
-	height = gbm_bo_get_height(bo);
-	format = gbm_bo_get_format(bo);
-
-	uint64_t modifiers[4] = {0};
-	modifiers[0] = gbm_bo_get_modifier(bo);
-	const int num_planes = gbm_bo_get_plane_count(bo);
-
-	for (int i = 0; i < num_planes; i++) {
-		strides[i] = gbm_bo_get_stride_for_plane(bo, i);
-		handles[i] = gbm_bo_get_handle(bo).u32;
-		offsets[i] = gbm_bo_get_offset(bo, i);
-		modifiers[i] = modifiers[0];
-	}
-
-	if (modifiers[0]) {
-		flags = DRM_MODE_FB_MODIFIERS;
-	}
-
-	ok = drmModeAddFB2WithModifiers(drm.fd, width, height, format, handles, strides, offsets, modifiers, &fb->fb_id, flags);
-
-	if (ok) {
-		if (flags)
-			fprintf(stderr, "drm_fb_get_from_bo: modifiers failed!\n");
-		
-		memcpy(handles, (uint32_t [4]){gbm_bo_get_handle(bo).u32,0,0,0}, 16);
-		memcpy(strides, (uint32_t [4]){gbm_bo_get_stride(bo),0,0,0}, 16);
-		memset(offsets, 0, 16);
-
-		ok = drmModeAddFB2(drm.fd, width, height, format, handles, strides, offsets, &fb->fb_id, 0);
-	}
-
-	if (ok) {
-		fprintf(stderr, "drm_fb_get_from_bo: failed to create fb: %s\n", strerror(errno));
-		free(fb);
-		return NULL;
-	}
-
-	gbm_bo_set_user_data(bo, fb, drm_fb_destroy_callback);
-
-	return fb;
-}
 bool     	   present(void* userdata) {
-	fd_set fds;
-	struct gbm_bo *next_bo;
-	struct drm_fb *fb;
-	int ok;
-
-	FlutterEngineTraceEventDurationBegin("present");
-
-	eglSwapBuffers(egl.display, egl.surface);
-	next_bo = gbm_surface_lock_front_buffer(gbm.surface);
-	fb = drm_fb_get_from_bo(next_bo);
-
-	// workaround for #38
-	if (!drm.disable_vsync) {
-		ok = drmModePageFlip(drm.fd, drm.crtc_id, fb->fb_id, DRM_MODE_PAGE_FLIP_EVENT, drm.previous_bo);
-		if (ok) {
-			perror("failed to queue page flip");
-			return false;
-		}
-	} else {
-		ok = drmModeSetCrtc(drm.fd, drm.crtc_id, fb->fb_id, 0, 0, &drm.connector_id, 1, drm.mode);
-		if (ok == -1) {
-			perror("failed swap buffers\n");
-			return false;
-		}
-	}
-
-	gbm_surface_release_buffer(gbm.surface, drm.previous_bo);
-	drm.previous_bo = (struct gbm_bo *) next_bo;
-
-	FlutterEngineTraceEventDurationEnd("present");
-	
+	// NOP
 	return true;
 }
 uint32_t 	   fbo_callback(void* userdata) {
 	return 0;
+}
+bool		   make_resource_current(void *userdata) {
+	if (eglMakeCurrent(egl.display, EGL_NO_SURFACE, EGL_NO_SURFACE, egl.flutter_resource_uploading_context) != EGL_TRUE) {
+		fprintf(stderr, "make_resource_current: could not make the resource context current. eglMakeCurrent: %d\n", eglGetError());
+		return false;
+	}
+
+	return true;
 }
 void 	 	   cut_word_from_string(char* string, char* word) {
 	size_t word_length = strlen(word);
@@ -583,10 +472,20 @@ bool  message_loop(void) {
 			}
 
 			free(task->message);
-		} else if (FlutterEngineRunTask(engine, &task->task) != kSuccess) {
-			fprintf(stderr, "Error running platform task\n");
-			return false;
-		};
+		} else if (task->type == kRegisterExternalTexture) {
+			FlutterEngineRegisterExternalTexture(engine, task->texture_id);
+		} else if (task->type == kUnregisterExternalTexture) {
+			FlutterEngineUnregisterExternalTexture(engine, task->texture_id);
+		} else if (task->type == kMarkExternalTextureFrameAvailable) {
+			FlutterEngineMarkExternalTextureFrameAvailable(engine, task->texture_id);
+		} else if (task->type == kFlutterTask) {
+			if (FlutterEngineRunTask(engine, &task->task) != kSuccess) {
+				fprintf(stderr, "Error running platform task\n");
+				return false;
+			}
+		} else if (task->type == kGeneric) {
+			task->callback(task->userdata);
+		}
 
 		free(task);
 	}
@@ -596,10 +495,13 @@ bool  message_loop(void) {
 void  post_platform_task(struct flutterpi_task *task) {
 	struct flutterpi_task *to_insert;
 	
-	to_insert = malloc(sizeof(struct flutterpi_task));
-	if (!to_insert) return;
+	to_insert = malloc(sizeof(*task));
+	if (to_insert == NULL) {
+		return;
+	}
 
-	memcpy(to_insert, task, sizeof(struct flutterpi_task));
+	memcpy(to_insert, task, sizeof(*task));
+
 	pthread_mutex_lock(&tasklist_lock);
 		struct flutterpi_task* this = &tasklist;
 		while ((this->next) != NULL && (to_insert->target_time > this->next->target_time))
@@ -734,6 +636,19 @@ bool setup_paths(void) {
 	return true;
 
 	#undef PATH_EXISTS
+}
+
+int  load_gl_procs(void) {
+	LOAD_EGL_PROC(getPlatformDisplay);
+	LOAD_EGL_PROC(createPlatformWindowSurface);
+	LOAD_EGL_PROC(createPlatformPixmapSurface);
+	LOAD_EGL_PROC(createDRMImageMESA);
+	LOAD_EGL_PROC(exportDRMImageMESA);
+
+	LOAD_GL_PROC(EGLImageTargetTexture2DOES);
+	LOAD_GL_PROC(EGLImageTargetRenderbufferStorageOES);
+
+	return 0;
 }
 
 bool init_display(void) {
@@ -967,12 +882,64 @@ bool init_display(void) {
 		return false;
 	}
 
+	drmSetClientCap(drm.fd, DRM_CLIENT_CAP_UNIVERSAL_PLANES, 1);
+
+	printf("drm_crtcs = {\n");
+	drm.crtc_index = 0;
 	for (i = 0; i < resources->count_crtcs; i++) {
-		if (resources->crtcs[i] == drm.crtc_id) {
+		if ((resources->crtcs[i] == drm.crtc_id) && (!drm.crtc_index)) {
 			drm.crtc_index = i;
-			break;
 		}
+		
+		drmModeCrtc *crtc = drmModeGetCrtc(drm.fd, resources->crtcs[i]);
+		drmModeObjectProperties *props = drmModeObjectGetProperties(drm.fd, crtc->crtc_id, DRM_MODE_OBJECT_ANY);
+
+		printf("  [%d] = {,\n", i);
+		printf("    crtc_id: %lu\n", crtc->crtc_id);
+		printf("    properties: {\n");
+		for (int j = 0; j < props->count_props; j++) {
+			printf("      [0x%08lX] = 0x%016llX,\n", props->props[j], props->prop_values[j]);
+		}
+		printf("    },\n");
+		printf("  },\n");
+
+		drmModeFreeObjectProperties(props);
+		drmModeFreeCrtc(crtc);
 	}
+	printf("}\n");
+
+	drmModePlaneResPtr plane_res = drmModeGetPlaneResources(drm.fd);
+	
+	printf("drm_planes = {\n");
+	for (i = 0; i < plane_res->count_planes; i++) {
+		drmModePlane *plane = drmModeGetPlane(drm.fd, plane_res->planes[i]);
+		drmModeObjectProperties *props = drmModeObjectGetProperties(drm.fd, plane_res->planes[i], DRM_MODE_OBJECT_ANY);
+
+		printf("  [%d] = {,\n", i);
+		printf("    plane_id: %lu\n", plane->plane_id);
+		printf("    x: %lu, y: %lu,\n", plane->x, plane->y);
+		printf("    crtc_x: %lu,\n    crtc_y: %lu,\n", plane->crtc_x, plane->crtc_y);
+		printf("    crtc_id: %lu,\n", plane->crtc_id);
+		printf("    fb_id: %lu,\n", plane->fb_id);
+		printf("    gamma_size: %lu,\n", plane->gamma_size);
+		printf("    possible_crtcs: %lu,\n", plane->possible_crtcs);
+		printf("    properties: {\n");
+		for (int j = 0; j < props->count_props; j++) {
+			drmModePropertyPtr prop = drmModeGetProperty(drm.fd, props->props[j]);
+
+			printf("      %s: 0x%016llX,\n", prop->name, props->prop_values[j]);
+
+			drmModeFreeProperty(prop);
+		}
+		printf("    },\n");
+		printf("  },\n");
+
+		drmModeFreeObjectProperties(props);
+		drmModeFreePlane(plane);
+	}
+	printf("}\n");
+
+	drmModeFreePlaneResources(plane_res);
 
 	drmModeFreeResources(resources);
 
@@ -985,7 +952,7 @@ bool init_display(void) {
 	 **********************/
 	printf("Creating GBM device\n");
 	gbm.device = gbm_create_device(drm.fd);
-	gbm.format = DRM_FORMAT_XRGB8888;
+	gbm.format = DRM_FORMAT_ARGB8888;
 	gbm.surface = NULL;
 	gbm.modifier = DRM_FORMAT_MOD_LINEAR;
 
@@ -1016,10 +983,6 @@ bool init_display(void) {
 
 	const EGLint config_attribs[] = {
 		EGL_SURFACE_TYPE, EGL_WINDOW_BIT,
-		EGL_RED_SIZE, 1,
-		EGL_GREEN_SIZE, 1,
-		EGL_BLUE_SIZE, 1,
-		EGL_ALPHA_SIZE, 0,
 		EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
 		EGL_SAMPLES, 0,
 		EGL_NONE
@@ -1030,16 +993,27 @@ bool init_display(void) {
 	printf("Querying EGL client extensions...\n");
 	egl_exts_client = eglQueryString(EGL_NO_DISPLAY, EGL_EXTENSIONS);
 
-	egl.eglGetPlatformDisplayEXT = (void*) eglGetProcAddress("eglGetPlatformDisplayEXT");
+	printf("Loading EGL / GL ES procedure addresses...\n");
+	ok = load_gl_procs();
+	if (ok != 0) {
+		fprintf(stderr, "Could not load EGL / GL ES procedure addresses! error: %s\n", strerror(ok));
+		return false;
+	}
+
 	printf("Getting EGL display for GBM device...\n");
-	if (egl.eglGetPlatformDisplayEXT) egl.display = egl.eglGetPlatformDisplayEXT(EGL_PLATFORM_GBM_KHR, gbm.device, NULL);
-	else 							  egl.display = eglGetDisplay((void*) gbm.device);
-	
+#ifdef EGL_KHR_platform_gbm
+	if (egl.getPlatformDisplay) {
+		egl.display = egl.getPlatformDisplay(EGL_PLATFORM_GBM_KHR, gbm.device, NULL);
+	} else
+#endif
+	{
+		egl.display = eglGetDisplay((void*) gbm.device);
+	}
+
 	if (!egl.display) {
 		fprintf(stderr, "Couldn't get EGL display\n");
 		return false;
 	}
-	
 
 	printf("Initializing EGL...\n");
 	if (!eglInitialize(egl.display, &major, &minor)) {
@@ -1049,7 +1023,7 @@ bool init_display(void) {
 
 	printf("Querying EGL display extensions...\n");
 	egl_exts_dpy = eglQueryString(egl.display, EGL_EXTENSIONS);
-	egl.modifiers_supported = strstr(egl_exts_dpy, "EGL_EXT_image_dma_buf_import_modifiers") != NULL;
+	//egl.modifiers_supported = strstr(egl_exts_dpy, "EGL_EXT_image_dma_buf_import_modifiers") != NULL;
 
 
 	printf("Using display %p with EGL version %d.%d\n", egl.display, major, minor);
@@ -1081,6 +1055,99 @@ bool init_display(void) {
 
 	configs = malloc(count * sizeof(EGLConfig));
 	if (!configs) return false;
+	
+	/*
+	eglGetConfigs(egl.display, configs, count * sizeof(EGLConfig), &count);
+	for (int i = 0; i < count; i++) {
+		EGLint value;
+
+#		define GET_ATTRIB(attrib) eglGetConfigAttrib(egl.display, configs[i], attrib, &value)
+#		define PRINT_ATTRIB_STR(attrib, string) printf("  " #attrib ": %s,\n", string)
+#		define PRINT_ATTRIB(attrib, format, ...) printf("  " #attrib ": " format ",\n", __VA_ARGS__)
+#		define LOG_ATTRIB(attrib) \
+			do { \
+				eglGetConfigAttrib(egl.display, configs[i], attrib, &value); \
+				printf("  " #attrib ": %d,\n", value); \
+			} while (false)
+		printf("fb_config[%i] = {\n", i);
+
+		GET_ATTRIB(EGL_COLOR_BUFFER_TYPE);
+		PRINT_ATTRIB_STR(
+			EGL_COLOR_BUFFER_TYPE,
+			value == EGL_RGB_BUFFER ? "EGL_RGB_BUFFER" : "EGL_LUMINANCE_BUFFER"
+		);
+
+		LOG_ATTRIB(EGL_RED_SIZE);
+		LOG_ATTRIB(EGL_GREEN_SIZE);
+		LOG_ATTRIB(EGL_BLUE_SIZE);
+		LOG_ATTRIB(EGL_ALPHA_SIZE);
+		LOG_ATTRIB(EGL_DEPTH_SIZE);
+		LOG_ATTRIB(EGL_STENCIL_SIZE);
+		LOG_ATTRIB(EGL_ALPHA_MASK_SIZE);
+		LOG_ATTRIB(EGL_LUMINANCE_SIZE);
+
+		LOG_ATTRIB(EGL_BUFFER_SIZE);
+
+		GET_ATTRIB(EGL_NATIVE_RENDERABLE);
+		PRINT_ATTRIB_STR(
+			EGL_NATIVE_RENDERABLE,
+			value ? "true" : "false"
+		);
+
+		LOG_ATTRIB(EGL_NATIVE_VISUAL_TYPE);
+
+		GET_ATTRIB(EGL_NATIVE_VISUAL_ID);
+		PRINT_ATTRIB(
+			EGL_NATIVE_VISUAL_ID,
+			"%4s",
+			&value
+		);
+
+		LOG_ATTRIB(EGL_BIND_TO_TEXTURE_RGB);
+		LOG_ATTRIB(EGL_BIND_TO_TEXTURE_RGBA);
+
+		GET_ATTRIB(EGL_CONFIG_CAVEAT);
+		PRINT_ATTRIB_STR(
+			EGL_CONFIG_CAVEAT,
+			value == EGL_NONE ? "EGL_NONE" :
+			value == EGL_SLOW_CONFIG ? "EGL_SLOW_CONFIG" :
+			value == EGL_NON_CONFORMANT_CONFIG ? "EGL_NON_CONFORMANT_CONFIG" :
+			"(?)"
+		);
+
+		LOG_ATTRIB(EGL_CONFIG_ID);
+		LOG_ATTRIB(EGL_CONFORMANT);
+		
+		LOG_ATTRIB(EGL_LEVEL);
+		
+		LOG_ATTRIB(EGL_MAX_PBUFFER_WIDTH);
+		LOG_ATTRIB(EGL_MAX_PBUFFER_HEIGHT);
+		LOG_ATTRIB(EGL_MAX_PBUFFER_PIXELS);
+		LOG_ATTRIB(EGL_MAX_SWAP_INTERVAL);
+		LOG_ATTRIB(EGL_MIN_SWAP_INTERVAL);
+		
+		LOG_ATTRIB(EGL_RENDERABLE_TYPE);
+		LOG_ATTRIB(EGL_SAMPLE_BUFFERS);
+		LOG_ATTRIB(EGL_SAMPLES);
+		
+		LOG_ATTRIB(EGL_SURFACE_TYPE);
+
+		GET_ATTRIB(EGL_TRANSPARENT_TYPE);
+		PRINT_ATTRIB_STR(
+			EGL_TRANSPARENT_TYPE,
+			value == EGL_NONE ? "EGL_NONE" :
+			"EGL_TRANSPARENT_RGB"
+		);
+
+		LOG_ATTRIB(EGL_TRANSPARENT_RED_VALUE);
+		LOG_ATTRIB(EGL_TRANSPARENT_GREEN_VALUE);
+		LOG_ATTRIB(EGL_TRANSPARENT_BLUE_VALUE);
+
+		printf("}\n");
+			
+#		undef LOG_ATTRIB
+	}
+	*/
 
 	printf("Finding EGL configs with appropriate attributes...\n");
 	if (!eglChooseConfig(egl.display, config_attribs, configs, count, &matched) || !matched) {
@@ -1111,13 +1178,38 @@ bool init_display(void) {
 	}
 
 
-	printf("Creating EGL context...\n");
-	egl.context = eglCreateContext(egl.display, egl.config, EGL_NO_CONTEXT, context_attribs);
-	if (egl.context == NULL) {
-		fprintf(stderr, "failed to create EGL context\n");
+	printf("Creating EGL contexts...\n");
+	egl.root_context = eglCreateContext(egl.display, egl.config, EGL_NO_CONTEXT, context_attribs);
+	if (egl.root_context == NULL) {
+		fprintf(stderr, "failed to create OpenGL ES root context\n");
 		return false;
 	}
 
+	egl.flutter_render_context = eglCreateContext(egl.display, egl.config, egl.root_context, context_attribs);
+	if (egl.flutter_render_context == NULL) {
+		fprintf(stderr, "failed to create OpenGL ES context for flutter rendering\n");
+		return false;
+	}
+
+	egl.flutter_resource_uploading_context = eglCreateContext(egl.display, egl.config, egl.root_context, context_attribs);
+	if (egl.flutter_resource_uploading_context == NULL) {
+		fprintf(stderr, "failed to create OpenGL ES context for flutter resource uploads\n");
+		return false;
+	}
+
+	egl.compositor_context = eglCreateContext(egl.display, egl.config, egl.root_context, context_attribs);
+	if (egl.compositor_context == NULL) {
+		fprintf(stderr, "failed to create OpenGL ES context for compositor\n");
+		return false;
+	}
+
+#ifdef BUILD_VIDEO_PLAYER_PLUGIN
+	egl.vidpp_context = eglCreateContext(egl.display, egl.config, egl.root_context, context_attribs);
+	if (egl.vidpp_context == NULL) {
+		fprintf(stderr, "failed to OpenGL ES context for video player plugin texture uploads\n");
+		return false;
+	}
+#endif
 
 	printf("Creating EGL window surface...\n");
 	egl.surface = eglCreateWindowSurface(egl.display, egl.config, (EGLNativeWindowType) gbm.surface, NULL);
@@ -1126,8 +1218,8 @@ bool init_display(void) {
 		return false;
 	}
 
-	if (!eglMakeCurrent(egl.display, egl.surface, egl.surface, egl.context)) {
-		fprintf(stderr, "Could not make EGL context current to get OpenGL information\n");
+	if (!eglMakeCurrent(egl.display, egl.surface, egl.surface, egl.root_context)) {
+		fprintf(stderr, "Could not make OpenGL ES root context current to get OpenGL information\n");
 		return false;
 	}
 
@@ -1165,18 +1257,19 @@ bool init_display(void) {
 	printf("Swapping buffers...\n");
 	eglSwapBuffers(egl.display, egl.surface);
 
+	
 	printf("Locking front buffer...\n");
-	drm.previous_bo = gbm_surface_lock_front_buffer(gbm.surface);
+	drm.current_bo = gbm_surface_lock_front_buffer(gbm.surface);
 
 	printf("getting new framebuffer for BO...\n");
-	struct drm_fb *fb = drm_fb_get_from_bo(drm.previous_bo);
-	if (!fb) {
+	uint32_t current_fb_id = gbm_bo_get_drm_fb_id(drm.current_bo);
+	if (!current_fb_id) {
 		fprintf(stderr, "failed to get a new framebuffer BO\n");
 		return false;
 	}
 
 	printf("Setting CRTC...\n");
-	ok = drmModeSetCrtc(drm.fd, drm.crtc_id, fb->fb_id, 0, 0, &drm.connector_id, 1, drm.mode);
+	ok = drmModeSetCrtc(drm.fd, drm.crtc_id, current_fb_id, 0, 0, &drm.connector_id, 1, drm.mode);
 	if (ok) {
 		fprintf(stderr, "failed to set mode: %s\n", strerror(errno));
 		return false;
@@ -1213,8 +1306,12 @@ bool init_application(void) {
 	flutter.renderer_config.open_gl.clear_current	= clear_current;
 	flutter.renderer_config.open_gl.present			= present;
 	flutter.renderer_config.open_gl.fbo_callback	= fbo_callback;
+	flutter.renderer_config.open_gl.make_resource_current = make_resource_current;
 	flutter.renderer_config.open_gl.gl_proc_resolver= proc_resolver;
-	flutter.renderer_config.open_gl.surface_transformation = transformation_callback;
+	flutter.renderer_config.open_gl.surface_transformation
+		= transformation_callback;
+	flutter.renderer_config.open_gl.gl_external_texture_frame_callback
+		= texreg_gl_external_texture_frame_callback;
 
 	// configure flutter
 	flutter.args.struct_size				= sizeof(FlutterProjectArgs);
@@ -1240,7 +1337,8 @@ bool init_application(void) {
 			.post_task_callback = &flutter_post_platform_task
 		}
 	};
-	
+	flutter.args.compositor 				= &flutter_compositor;
+
 	// only enable vsync if the kernel supplies valid vblank timestamps
 	uint64_t ns = 0;
 	ok = drmCrtcGetSequence(drm.fd, drm.crtc_id, NULL, &ns);
@@ -1656,6 +1754,7 @@ void  on_evdev_input(fd_set fds, size_t n_ready_fds) {
 	if (i_flutterevent == 0) return;
 
 	// now, send the data to the flutter engine
+	// TODO: do this on the main thread
 	ok = kSuccess == FlutterEngineSendPointerEvent(engine, flutterevents, i_flutterevent);
 	if (!ok) {
 		fprintf(stderr, "could not send pointer events to flutter engine\n");
@@ -1693,57 +1792,63 @@ void  on_console_input(void) {
 	}
 }
 void *io_loop(void *userdata) {
+	fd_set read_fds;
+	fd_set write_fds;
+	fd_set except_fds;
 	int n_ready_fds;
-	fd_set fds;
 	int nfds;
-
 
 	// put all file-descriptors in the `fds` fd set
 	nfds = 0;
-	FD_ZERO(&fds);
+	FD_ZERO(&read_fds);
+	FD_ZERO(&write_fds);
+	FD_ZERO(&except_fds);
 
 	for (int i = 0; i < n_input_devices; i++) {
-		FD_SET(input_devices[i].fd, &fds);
+		FD_SET(input_devices[i].fd, &read_fds);
 		if (input_devices[i].fd + 1 > nfds) nfds = input_devices[i].fd + 1;
 	}
 
-	FD_SET(drm.fd, &fds);
+	FD_SET(drm.fd, &read_fds);
 	if (drm.fd + 1 > nfds) nfds = drm.fd + 1;
 	
-	//FD_SET(STDIN_FILENO, &fds);
+	FD_SET(STDIN_FILENO, &read_fds);
 
-	const fd_set const_fds = fds;
+	fd_set const_read_fds = read_fds;
+	fd_set const_write_fds = write_fds;
+	fd_set const_except_fds = except_fds;
 
 	while (engine_running) {
 		// wait for any device to offer new data,
 		// but only if no file descriptors have new data.
-		n_ready_fds = select(nfds, &fds, NULL, NULL, NULL);
-
+		n_ready_fds = select(nfds, &read_fds, &write_fds, &except_fds, NULL);
+		
 		if (n_ready_fds == -1) {
 			perror("error while waiting for I/O");
 			return NULL;
 		} else if (n_ready_fds == 0) {
-			perror("reached EOF while waiting for I/O");
-			return NULL;
+			continue;
 		}
 		
-		if (FD_ISSET(drm.fd, &fds)) {
+		if (FD_ISSET(drm.fd, &read_fds)) {
 			drmHandleEvent(drm.fd, &drm.evctx);
-			FD_CLR(drm.fd, &fds);
+			FD_CLR(drm.fd, &read_fds);
 			n_ready_fds--;
 		}
 		
-		if (FD_ISSET(STDIN_FILENO, &fds)) {
+		if (FD_ISSET(STDIN_FILENO, &read_fds)) {
 			on_console_input();
-			FD_CLR(STDIN_FILENO, &fds);
+			FD_CLR(STDIN_FILENO, &read_fds);
 			n_ready_fds--;
 		}
 
 		if (n_ready_fds > 0) {
-			on_evdev_input(fds, n_ready_fds);
+			on_evdev_input(read_fds, n_ready_fds);
 		}
 
-		fds = const_fds;
+		read_fds = const_read_fds;
+		write_fds = const_write_fds;
+		except_fds = const_except_fds;
 	}
 
 	return NULL;

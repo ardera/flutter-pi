@@ -112,6 +112,7 @@ set(FLUTTER_PI_SRC
   src/plugins/text_input.c
   src/plugins/raw_keyboard.c
   src/plugins/spidev.c
+  src/plugins/video_player.c
 )
 
 if(GPIOD_FOUND)
@@ -145,6 +146,7 @@ target_compile_options(flutter-pi PRIVATE
   -DBUILD_ELM327_PLUGIN 
   -DBUILD_SPIDEV_PLUGIN 
   -DBUILD_TEST_PLUGIN 
+  -DBUILD_VIDEO_PLAYER_PLUGIN 
 )
 
 install(TARGETS flutter-pi RUNTIME DESTINATION bin)

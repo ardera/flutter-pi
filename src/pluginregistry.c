@@ -24,6 +24,10 @@
 #ifdef BUILD_SPIDEV_PLUGIN
 #	include <plugins/spidev.h>
 #endif
+#ifdef BUILD_OMXPLAYER_VIDEO_PLAYER_PLUGIN
+#	include <plugins/video_player.h>
+#endif
+
 
 struct platch_obj_recv_data {
 	char *channel;
@@ -62,7 +66,11 @@ struct flutterpi_plugin hardcoded_plugins[] = {
 #endif
 
 #ifdef BUILD_SPIDEV_PLUGIN
-	{.name = "flutter_spidev", .init = spidevp_init, .deinit = spidevp_deinit}
+	{.name = "flutter_spidev", .init = spidevp_init, .deinit = spidevp_deinit},
+#endif
+
+#ifdef BUILD_OMXPLAYER_VIDEO_PLAYER_PLUGIN
+	{.name = "omxplayer_video_player", .init = omxpvidpp_init, .deinit = omxpvidpp_deinit},
 #endif
 };
 
