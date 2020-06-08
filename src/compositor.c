@@ -280,6 +280,143 @@ static int  create_window_surface_backing_store(
     return 0;
 }
 
+static int create_drm_rbo(
+    size_t width,
+    size_t height,
+    struct drm_rbo *out
+) {
+    struct drm_rbo fbo;
+    EGLint egl_error;
+    GLenum gl_error;
+    int ok;
+
+    eglGetError();
+    glGetError();
+
+    fbo.egl_image = egl.createDRMImageMESA(egl.display, (const EGLint[]) {
+        EGL_WIDTH, width,
+        EGL_HEIGHT, height,
+        EGL_DRM_BUFFER_FORMAT_MESA, EGL_DRM_BUFFER_FORMAT_ARGB32_MESA,
+        EGL_DRM_BUFFER_USE_MESA, EGL_DRM_BUFFER_USE_SCANOUT_MESA,
+        EGL_NONE
+    });
+    if ((egl_error = eglGetError()) != EGL_SUCCESS) {
+        fprintf(stderr, "[compositor] error creating DRM EGL Image for flutter backing store, eglCreateDRMImageMESA: %ld\n", egl_error);
+        return EINVAL;
+    }
+
+    egl.exportDRMImageMESA(egl.display, fbo.egl_image, NULL, &fbo.gem_handle, &fbo.gem_stride);
+    if ((egl_error = eglGetError()) != EGL_SUCCESS) {
+        fprintf(stderr, "[compositor] error getting handle & stride for DRM EGL Image, eglExportDRMImageMESA: %d\n", egl_error);
+        return EINVAL;
+    }
+
+    glGenRenderbuffers(1, &fbo.gl_rbo_id);
+    if (gl_error = glGetError()) {
+        fprintf(stderr, "[compositor] error generating renderbuffers for flutter backing store, glGenRenderbuffers: %ld\n", gl_error);
+        return EINVAL;
+    }
+
+    glBindRenderbuffer(GL_RENDERBUFFER, fbo.gl_rbo_id);
+    if (gl_error = glGetError()) {
+        fprintf(stderr, "[compositor] error binding renderbuffer, glBindRenderbuffer: %d\n", gl_error);
+        return EINVAL;
+    }
+
+    gl.EGLImageTargetRenderbufferStorageOES(GL_RENDERBUFFER, fbo.egl_image);
+    if (gl_error = glGetError()) {
+        fprintf(stderr, "[compositor] error binding DRM EGL Image to renderbuffer, glEGLImageTargetRenderbufferStorageOES: %ld\n", gl_error);
+        return EINVAL;
+    }
+
+    /*
+    glGenFramebuffers(1, &fbo.gl_fbo_id);
+    if (gl_error = glGetError()) {
+        fprintf(stderr, "[compositor] error generating FBOs for flutter backing store, glGenFramebuffers: %d\n", gl_error);
+        return EINVAL;
+    }
+
+    glBindFramebuffer(GL_FRAMEBUFFER, fbo.gl_fbo_id);
+    if (gl_error = glGetError()) {
+        fprintf(stderr, "[compositor] error binding FBO for attaching the renderbuffer, glBindFramebuffer: %d\n", gl_error);
+        return EINVAL;
+    }
+
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, fbo.gl_rbo_id);
+    if (gl_error = glGetError()) {
+        fprintf(stderr, "[compositor] error attaching renderbuffer to FBO, glFramebufferRenderbuffer: %d\n", gl_error);
+        return EINVAL;
+    }
+
+    GLenum fb_status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+
+    */
+
+    glBindRenderbuffer(GL_RENDERBUFFER, 0);
+    
+    // glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+    ok = drmModeAddFB2(
+        drm.fd,
+        width,
+        height,
+        DRM_FORMAT_ARGB8888,
+        (const uint32_t*) &(uint32_t[4]) {
+            fbo.gem_handle,
+            0,
+            0,
+            0
+        },
+        (const uint32_t*) &(uint32_t[4]) {
+            fbo.gem_stride, 0, 0, 0
+        },
+        (const uint32_t*) &(uint32_t[4]) {
+            0, 0, 0, 0
+        },
+        &fbo.drm_fb_id,
+        0
+    );
+    if (ok == -1) {
+        perror("[compositor] Could not make DRM fb from EGL Image, drmModeAddFB2");
+        return errno;
+    }
+
+    *out = fbo;
+
+    return 0;
+}
+
+static int attach_drm_rbo_to_fbo(
+    GLuint fbo_id,
+    struct drm_rbo *rbo
+) {
+    EGLint egl_error;
+    GLenum gl_error;
+
+    eglGetError();
+    glGetError();
+
+    glBindFramebuffer(GL_FRAMEBUFFER, fbo_id);
+    if (gl_error = glGetError()) {
+        fprintf(stderr, "[compositor] error binding FBO for attaching the renderbuffer, glBindFramebuffer: %d\n", gl_error);
+        return EINVAL;
+    }
+
+    glBindRenderbuffer(GL_RENDERBUFFER, rbo->gl_rbo_id);
+    if (gl_error = glGetError()) {
+        fprintf(stderr, "[compositor] error binding renderbuffer, glBindRenderbuffer: %d\n", gl_error);
+        return EINVAL;
+    }
+
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, rbo->gl_rbo_id);
+    if (gl_error = glGetError()) {
+        fprintf(stderr, "[compositor] error attaching renderbuffer to FBO, glFramebufferRenderbuffer: %d\n", gl_error);
+        return EINVAL;
+    }
+
+    return 0;
+}
+
 /// Create a flutter backing store that 
 static int  create_drm_fb_backing_store(
     const FlutterBackingStoreConfig *config,
@@ -314,96 +451,35 @@ static int  create_drm_fb_backing_store(
     eglGetError();
     glGetError();
 
-    inner->egl_image = egl.createDRMImageMESA(egl.display, (const EGLint[]) {
-        EGL_WIDTH, (int) config->size.width,
-        EGL_HEIGHT, (int) config->size.height,
-        EGL_DRM_BUFFER_FORMAT_MESA, EGL_DRM_BUFFER_FORMAT_ARGB32_MESA,
-        EGL_DRM_BUFFER_USE_MESA, EGL_DRM_BUFFER_USE_SCANOUT_MESA,
-        EGL_NONE
-    });
-    if ((egl_error = eglGetError()) != EGL_SUCCESS) {
-        fprintf(stderr, "[compositor] error creating DRM EGL Image for flutter backing store, eglCreateDRMImageMESA: %ld\n", egl_error);
-        return false;
-    }
-
-    egl.exportDRMImageMESA(egl.display, inner->egl_image, NULL, &inner->gem_handle, &inner->gem_stride);
-    if ((egl_error = eglGetError()) != EGL_SUCCESS) {
-        fprintf(stderr, "[compositor] error getting handle & stride for DRM EGL Image, eglExportDRMImageMESA: %d\n", egl_error);
-        return false;
-    }
-
-    glGenRenderbuffers(1, &inner->gl_rbo_id);
-    if (gl_error = glGetError()) {
-        fprintf(stderr, "[compositor] error generating renderbuffers for flutter backing store, glGenRenderbuffers: %ld\n", gl_error);
-        return false;
-    }
-
-    glBindRenderbuffer(GL_RENDERBUFFER, inner->gl_rbo_id);
-    if (gl_error = glGetError()) {
-        fprintf(stderr, "[compositor] error binding renderbuffer, glBindRenderbuffer: %d\n", gl_error);
-        return false;
-    }
-
-    gl.EGLImageTargetRenderbufferStorageOES(GL_RENDERBUFFER, inner->egl_image);
-    if (gl_error = glGetError()) {
-        fprintf(stderr, "[compositor] error binding DRM EGL Image to renderbuffer, glEGLImageTargetRenderbufferStorageOES: %ld\n", gl_error);
-        return false;
-    }
-
     glGenFramebuffers(1, &inner->gl_fbo_id);
     if (gl_error = glGetError()) {
         fprintf(stderr, "[compositor] error generating FBOs for flutter backing store, glGenFramebuffers: %d\n", gl_error);
-        return false;
+        return EINVAL;
     }
 
-    glBindFramebuffer(GL_FRAMEBUFFER, inner->gl_fbo_id);
-    if (gl_error = glGetError()) {
-        fprintf(stderr, "[compositor] error binding FBO for attaching the renderbuffer, glBindFramebuffer: %d\n", gl_error);
-        return false;
-    }
-
-    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, inner->gl_rbo_id);
-    if (gl_error = glGetError()) {
-        fprintf(stderr, "[compositor] error attaching renderbuffer to FBO, glFramebufferRenderbuffer: %d\n", gl_error);
-        return false;
-    }
-
-    GLenum fb_status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
-
-    glBindRenderbuffer(GL_RENDERBUFFER, 0);
-    glBindFramebuffer(GL_FRAMEBUFFER, 0);
-
-    ok = drmModeAddFB2(
-        drm.fd,
-        (uint32_t) config->size.width,
-        (uint32_t) config->size.height,
-        DRM_FORMAT_ARGB8888,
-        (const uint32_t*) &(uint32_t[4]) {
-            inner->gem_handle,
-            0,
-            0,
-            0
-        },
-        (const uint32_t*) &(uint32_t[4]) {
-            inner->gem_stride, 0, 0, 0
-        },
-        (const uint32_t*) &(uint32_t[4]) {
-            0, 0, 0, 0
-        },
-        &inner->drm_fb_id,
-        0
+    ok = create_drm_rbo(
+        config->size.width,
+        config->size.height,
+        inner->rbos + 0
     );
-    if (ok == -1) {
-        perror("[compositor] Could not make DRM fb from EGL Image, drmModeAddFB2");
-        return false;
-    }
+    if (ok != 0) return ok;
+
+    ok = create_drm_rbo(
+        config->size.width,
+        config->size.height,
+        inner->rbos + 1
+    );
+    if (ok != 0) return ok;
+
+    ok = attach_drm_rbo_to_fbo(inner->gl_fbo_id, inner->rbos + inner->current_front_rbo);
+    if (ok != 0) return ok;
 
     ok = get_plane_property_value(inner->drm_plane_id, "zpos", &inner->current_zpos);
     if (ok != 0) {
         return false;
     }
 
-    // TODO: Only reflect Y when running on Raspberry Pi.
+    // Reflect Y because GL draws to its buffers that upside-down.
     ok = set_plane_property_value(inner->drm_plane_id, "rotation", DRM_MODE_ROTATE_0 | DRM_MODE_REFLECT_Y);
     if (ok == -1) {
         perror("[compositor] Could not set rotation & reflection of hardware plane. drmModeObjectSetProperty");
@@ -417,7 +493,7 @@ static int  create_drm_fb_backing_store(
         drm.fd,
         inner->drm_plane_id,
         drm.crtc_id,
-        inner->drm_fb_id,
+        inner->rbos[1 ^ inner->current_front_rbo].drm_fb_id,
         0,
         0, 0, 0, 0,
         0, 0, ((uint32_t) config->size.width) << 16, ((uint32_t) config->size.height) << 16
@@ -580,6 +656,8 @@ static int present_drm_fb_backing_store(
     int zpos
 ) {
     int ok;
+
+    printf("Presenting drm fb backing store\n");
     
     if (zpos != backing_store->current_zpos) {
         ok = set_plane_property_value(backing_store->drm_plane_id, "zpos", zpos);
@@ -589,11 +667,18 @@ static int present_drm_fb_backing_store(
         }
     }
 
+    backing_store->current_front_rbo ^= 1;
+    printf("Attaching rbo with id %u\n", backing_store->rbos[backing_store->current_front_rbo].gl_rbo_id);
+    ok = attach_drm_rbo_to_fbo(backing_store->gl_fbo_id, backing_store->rbos + backing_store->current_front_rbo);
+    if (ok != 0) return ok;
+
+    // present the back buffer
+    printf("Presenting rbo with id %u\n", backing_store->rbos[backing_store->current_front_rbo ^ 1].gl_rbo_id);
     ok = drmModeSetPlane(
         drm.fd,
         backing_store->drm_plane_id,
         drm.crtc_id,
-        backing_store->drm_fb_id,
+        backing_store->rbos[backing_store->current_front_rbo ^ 1].drm_fb_id,
         0,
         offset_x, offset_y, width, height,
         0, 0, ((uint16_t) width) << 16, ((uint16_t) height) << 16
@@ -754,7 +839,6 @@ static bool present_layers_callback(
 
     eglMakeCurrent(egl.display, egl.surface, egl.surface, egl.root_context);
     eglSwapBuffers(egl.display, egl.surface);
-    eglMakeCurrent(egl.display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
 
     /// find the index of the window surface.
     /// the window surface's zpos can't change, so we need to
@@ -788,7 +872,6 @@ static bool present_layers_callback(
                     (int) layer->size.height
                 );
             } else if (meta->type == kDrmFb) {
-                continue;
                 ok = present_drm_fb_backing_store(
                     &meta->drm_fb,
                     (int) layer->offset.x,
@@ -813,6 +896,8 @@ static bool present_layers_callback(
             fprintf(stderr, "[compositor] Unsupported flutter layer type: %d\n", layer->type);
         }
     }
+
+    eglMakeCurrent(egl.display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
 
     FlutterEngineTraceEventDurationEnd("present");
 

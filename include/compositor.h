@@ -23,13 +23,30 @@ struct window_surface_backing_store {
     struct gbm_bo *current_front_bo;
 };
 
-struct drm_fb_backing_store {
+struct drm_rbo {
     EGLImage egl_image;
-    GLuint gl_fbo_id;
     GLuint gl_rbo_id;
     uint32_t gem_handle;
     uint32_t gem_stride;
     uint32_t drm_fb_id;
+};
+
+struct drm_fb_backing_store {
+    /*EGLImage egl_image;
+    GLuint gl_fbo_id;
+    GLuint gl_rbo_id;
+    uint32_t gem_handle;
+    uint32_t gem_stride;
+    uint32_t drm_fb_id;*/
+    
+    // Our two
+    GLuint gl_fbo_id;
+    struct drm_rbo rbos[2];
+    
+    // The front FB is the one GL is rendering to right now, similiar
+    // to libgbm.
+    int current_front_rbo;
+    
     uint32_t drm_plane_id;
     int64_t current_zpos;
 };
