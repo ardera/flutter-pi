@@ -19,7 +19,7 @@
 
 struct view_cb_data {
     int64_t view_id;
-    platform_view_present_cb present_cb;
+    platform_view_present_cb present;
     void *userdata;
 };
 
@@ -236,15 +236,59 @@ static int get_plane_property_value(
 static void destroy_window_surface_backing_store_fb(void *userdata) {
     struct backing_store_metadata *meta = (struct backing_store_metadata*) userdata;
 
+    printf("destroying window surface backing store FBO\n");
+}
 
+static void destroy_drm_rbo(
+    struct drm_rbo *rbo
+) {
+    EGLint egl_error;
+    GLenum gl_error;
+    int ok;
+
+    eglGetError();
+    glGetError();
+
+    glDeleteRenderbuffers(1, &rbo->gl_rbo_id);
+    if (gl_error = glGetError()) {
+        fprintf(stderr, "[compositor] error destroying OpenGL RBO, glDeleteRenderbuffers: 0x%08X\n", gl_error);
+    }
+
+    ok = drmModeRmFB(drm.fd, rbo->drm_fb_id);
+    if (ok < 0) {
+        fprintf(stderr, "[compositor] error removing DRM FB, drmModeRmFB: %s\n", strerror(errno));
+    }
+
+    eglDestroyImage(egl.display, rbo->egl_image);
+    if (egl_error = eglGetError(), egl_error != EGL_SUCCESS) {
+        fprintf(stderr, "[compositor] error destroying EGL image, eglDestroyImage: 0x%08X\n", egl_error);
+    }
 }
 
 /// Destroy the OpenGL ES framebuffer-object that is associated with this
 /// DRM FB backed backing store
 static void destroy_drm_fb_backing_store_gl_fb(void *userdata) {
-    struct backing_store_metadata *meta = (struct backing_store_metadata*) userdata;
-    
+    struct backing_store_metadata *meta;
+    EGLint egl_error;
+    GLenum gl_error;
+    int ok;
 
+    meta = (struct backing_store_metadata*) userdata;
+
+    printf("destroy_drm_fb_backing_store_gl_fb(gl_fbo_id: %u)\n", meta->drm_fb.gl_fbo_id);
+
+    eglGetError();
+    glGetError();
+
+    glDeleteFramebuffers(1, &meta->drm_fb.gl_fbo_id);
+    if (gl_error = glGetError()) {
+        fprintf(stderr, "[compositor] error destroying OpenGL FBO, glDeleteFramebuffers: %d\n", gl_error);
+    }
+
+    destroy_drm_rbo(meta->drm_fb.rbos + 0);
+    destroy_drm_rbo(meta->drm_fb.rbos + 1);
+
+    free(meta);
 }
 
 
@@ -257,6 +301,8 @@ static int  create_window_surface_backing_store(
     void *user_data
 ) {
     struct backing_store_metadata *meta;
+
+    printf("create_window_surface_backing_store()\n");
 
     meta = malloc(sizeof(*meta));
     if (meta == NULL) {
@@ -430,6 +476,8 @@ static int  create_drm_fb_backing_store(
     GLenum gl_error;
     int ok;
 
+    printf("create_drm_fb_backing_store\n");
+
     plane_id = find_next_unused_drm_plane();
     if (!plane_id) {
         fprintf(stderr, "[compositor] Could not find an unused DRM overlay plane for flutter backing store creation.\n");
@@ -563,6 +611,9 @@ static int  collect_window_surface_backing_store(
     struct backing_store_metadata *meta
 ) {
     struct window_surface_backing_store *inner = &meta->window_surface;
+
+    printf("collect_window_surface_backing_store\n");
+
     return 0;
 }
 
@@ -571,6 +622,13 @@ static int  collect_drm_fb_backing_store(
     struct backing_store_metadata *meta
 ) {
     struct drm_fb_backing_store *inner = &meta->drm_fb;
+
+    printf("collect_drm_fb_backing_store(gl_fbo_id: %u)\n", inner->gl_fbo_id);
+    
+    // makes sense that the FlutterBackingStore collect callback is called before the
+    // FlutterBackingStore OpenGL framebuffer destroy callback. Thanks flutter. (/s)
+    // free(inner);
+
     return 0;
 }
 
@@ -657,8 +715,6 @@ static int present_drm_fb_backing_store(
 ) {
     int ok;
 
-    printf("Presenting drm fb backing store\n");
-    
     if (zpos != backing_store->current_zpos) {
         ok = set_plane_property_value(backing_store->drm_plane_id, "zpos", zpos);
         if (ok != 0) {
@@ -668,12 +724,10 @@ static int present_drm_fb_backing_store(
     }
 
     backing_store->current_front_rbo ^= 1;
-    printf("Attaching rbo with id %u\n", backing_store->rbos[backing_store->current_front_rbo].gl_rbo_id);
     ok = attach_drm_rbo_to_fbo(backing_store->gl_fbo_id, backing_store->rbos + backing_store->current_front_rbo);
     if (ok != 0) return ok;
 
     // present the back buffer
-    printf("Presenting rbo with id %u\n", backing_store->rbos[backing_store->current_front_rbo ^ 1].gl_rbo_id);
     ok = drmModeSetPlane(
         drm.fd,
         backing_store->drm_plane_id,
@@ -691,20 +745,26 @@ static int present_drm_fb_backing_store(
     return 0;
 }
 
-static struct view_cb_data *get_data_for_view_id(int64_t view_id) {
+static struct view_cb_data *get_cbs_for_view_id_locked(int64_t view_id) {
     struct view_cb_data *data;
     
-    cpset_lock(&flutterpi_compositor.cbs);
-
     for_each_pointer_in_cpset(&flutterpi_compositor.cbs, data) {
         if (data->view_id == view_id) {
-            cpset_unlock(&flutterpi_compositor.cbs);
             return data;
         }
     }
 
-    cpset_unlock(&flutterpi_compositor.cbs);
     return NULL;
+}
+
+static struct view_cb_data *get_cbs_for_view_id(int64_t view_id) {
+    struct view_cb_data *data;
+    
+    cpset_lock(&flutterpi_compositor.cbs);
+    data = get_cbs_for_view_id_locked(view_id);
+    cpset_unlock(&flutterpi_compositor.cbs);
+    
+    return data;
 }
 
 static int present_platform_view(
@@ -717,24 +777,28 @@ static int present_platform_view(
     int height,
     int zpos
 ) {
-    struct view_cb_data *data;
+    struct view_cb_data *cbs;
 
-    data = get_data_for_view_id(view_id);
-    if (data == NULL) {
+    cbs = get_cbs_for_view_id(view_id);
+    if (cbs == NULL) {
         return EINVAL;
     }
 
-    return data->present_cb(
-        view_id,
-        mutations,
-        num_mutations,
-        offset_x,
-        offset_y,
-        width,
-        height,
-        zpos,
-        data->userdata
-    );
+    if (cbs->present != NULL) {
+        return cbs->present(
+            view_id,
+            mutations,
+            num_mutations,
+            offset_x,
+            offset_y,
+            width,
+            height,
+            zpos,
+            cbs->userdata
+        );
+    } else {
+        return 0;
+    }
 }
 
 static bool present_layers_callback(
@@ -745,7 +809,6 @@ static bool present_layers_callback(
     int window_surface_index;
 	int ok;
 
-    /*
     printf("[compositor] present_layers_callback(\n"
            "  layers_count: %lu,\n"
            "  layers = {\n",
@@ -833,7 +896,6 @@ static bool present_layers_callback(
         printf("    },\n");
     }
     printf("  }\n)\n");
-    */
 
     FlutterEngineTraceEventDurationBegin("present");
 
@@ -904,6 +966,7 @@ static bool present_layers_callback(
     return true;
 }
 
+/*
 int compositor_set_platform_view_present_cb(int64_t view_id, platform_view_present_cb cb, void *userdata) {
     struct view_cb_data *entry;
 
@@ -925,11 +988,57 @@ int compositor_set_platform_view_present_cb(int64_t view_id, platform_view_prese
         }
 
         entry->view_id = view_id;
-        entry->present_cb = cb;
+        entry->present = present;
+        entry->mount = mount;
+        entry->unmount = unmount;
         entry->userdata = userdata;
 
         cpset_put_locked(&flutterpi_compositor.cbs, entry);
     }
+
+    return cpset_unlock(&flutterpi_compositor.cbs);
+}
+*/
+
+int compositor_set_view_callbacks(
+    int64_t view_id,
+    platform_view_present_cb present,
+    void *userdata
+) {
+    struct view_cb_data *entry;
+
+    cpset_lock(&flutterpi_compositor.cbs);
+
+    entry = get_cbs_for_view_id_locked(view_id);
+
+    if (entry == NULL) {
+        entry = calloc(1, sizeof(*entry));
+        if (!entry) {
+            cpset_unlock(&flutterpi_compositor.cbs);
+            return ENOMEM;
+        }
+
+        cpset_put_locked(&flutterpi_compositor.cbs, entry);
+    }
+
+    entry->view_id = view_id;
+    entry->present = present;
+    entry->userdata = userdata;
+
+    return cpset_unlock(&flutterpi_compositor.cbs);
+}
+
+int compositor_remove_view_callbacks(int64_t view_id) {
+    struct view_cb_data *entry;
+
+    cpset_lock(&flutterpi_compositor.cbs);
+
+    entry = get_cbs_for_view_id_locked(view_id);
+    if (entry == NULL) {
+        return EINVAL;
+    }
+
+    cpset_remove_locked(&flutterpi_compositor.cbs, entry);
 
     return cpset_unlock(&flutterpi_compositor.cbs);
 }

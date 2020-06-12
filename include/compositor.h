@@ -6,6 +6,16 @@
 #include <gbm.h>
 #include <flutter_embedder.h>
 
+typedef int (*platform_view_mount_cb)(
+    int64_t view_id,
+    void *userdata
+);
+
+typedef int (*platform_view_unmount_cb)(
+    int64_t view_id,
+    void *userdata
+);
+
 typedef int (*platform_view_present_cb)(
     int64_t view_id,
     const FlutterPlatformViewMutation **mutations,
@@ -68,6 +78,14 @@ extern const FlutterCompositor flutter_compositor;
 
 uint32_t gbm_bo_get_drm_fb_id(struct gbm_bo *bo);
 
-int compositor_set_platform_view_present_cb(int64_t view_id, platform_view_present_cb cb, void *userdata);
+int compositor_set_view_callbacks(
+    int64_t view_id,
+    platform_view_present_cb present,
+    void *userdata
+);
+
+int compositor_remove_view_callbacks(
+    int64_t view_id
+);
 
 #endif

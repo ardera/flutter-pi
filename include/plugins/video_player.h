@@ -371,15 +371,12 @@ struct libsystemd {
 struct omxplayer_mgr;
 
 struct omxplayer_video_player {
+	int64_t player_id;
 	char 	event_channel_name[256];
 	char    video_uri[256];
-	int64_t player_id;
-	int64_t view_id;
 
-	/// If flutter says the video should be looping, this value is true.
-	/// Note: this is not related to whether omxplayer is looping.
-	/// omxplayer is always looping so it doesn't accidentally terminate on us.
-	bool    should_loop;
+	bool    has_view;
+	int64_t view_id;
 
 	struct omxplayer_mgr *mgr;
 };
@@ -419,8 +416,6 @@ struct omxplayer_mgr_task {
 		int64_t position;
 		struct {
 			bool visible;
-		};
-		struct {
 			int offset_x, offset_y;
 			int width, height;
 			int zpos;
