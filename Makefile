@@ -18,8 +18,13 @@ REAL_LDFLAGS = $(shell pkg-config --libs gbm libdrm glesv2 egl) \
 	-lm \
 	$(LDFLAGS)
 
-SOURCES = src/flutter-pi.c src/platformchannel.c src/pluginregistry.c src/console_keyboard.c src/texture_registry.c \
+SOURCES = src/flutter-pi.c \
+	src/platformchannel.c \
+	src/pluginregistry.c \
+	src/console_keyboard.c \
+	src/texture_registry.c \
 	src/compositor.c \
+	src/modesetting.c \
 	src/plugins/elm327plugin.c src/plugins/services.c src/plugins/testplugin.c src/plugins/text_input.c \
 	src/plugins/raw_keyboard.c src/plugins/gpiod.c src/plugins/spidev.c src/plugins/video_player.c
 OBJECTS = $(patsubst src/%.c,out/obj/%.o,$(SOURCES))

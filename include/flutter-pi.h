@@ -21,6 +21,8 @@
 #include <GLES2/gl2ext.h>
 #include <flutter_embedder.h>
 
+#include <modesetting.h>
+
 enum device_orientation {
 	kPortraitUp, kLandscapeLeft, kPortraitDown, kLandscapeRight
 };
@@ -38,6 +40,7 @@ enum device_orientation {
 
 
 extern enum device_orientation orientation;
+extern int rotation;
 
 typedef enum {
 	kVBlankRequest,
@@ -110,16 +113,18 @@ struct mousepointer_mtslot {
 };
 
 extern struct drm {
-	char device[PATH_MAX];
-	bool has_device;
-	int fd;
-	uint32_t connector_id;
-	drmModeModeInfo *mode;
-	uint32_t crtc_id;
-	size_t crtc_index;
+	//char device[PATH_MAX];
+	//bool has_device;
+	//int fd;
+	//uint32_t connector_id;
+	//drmModeModeInfo *mode;
+	//uint32_t crtc_id;
+	//size_t crtc_index;
 	struct gbm_bo *current_bo;
 	drmEventContext evctx;
+	
 	bool disable_vsync;
+	struct drmdev *drmdev;
 } drm;
 
 extern struct gbm {
@@ -249,8 +254,6 @@ extern struct mousepointer_mtslot mousepointer;
 extern FlutterEngine engine;
 
 struct drm_fb *drm_fb_get_from_bo(struct gbm_bo *bo);
-
-void *proc_resolver(void* userdata, const char* name);
 
 void post_platform_task(struct flutterpi_task *task);
 

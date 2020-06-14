@@ -167,6 +167,7 @@ static int get_player_from_map_arg(
 /// Should be presented.
 static int on_present(
     int64_t view_id,
+    struct drmdev_atomic_req *req,
     const FlutterPlatformViewMutation **mutations,
     size_t num_mutations,
     int offset_x,
@@ -349,6 +350,11 @@ static void *omxplayer_mgr_entry(void *userdata) {
     current_zpos = -1;
     pid_t me = fork();
     if (me == 0) {
+        char orientation_str[16] = {0};
+        snprintf(orientation_str, sizeof orientation_str, "%d", task.orientation);
+
+        printf("orientation_str: %s\n", orientation_str);
+
         // I'm the child!
         prctl(PR_SET_PDEATHSIG, SIGKILL);
         int _ok = execvp(
@@ -361,6 +367,7 @@ static void *omxplayer_mgr_entry(void *userdata) {
                 "--loop",
                 "--layer", "-1",
                 "--win", "0,0,1,1",
+                "--orientation", orientation_str, 
                 "--dbus_name", dbus_name,
                 mgr->player->video_uri,
                 NULL
@@ -1259,7 +1266,8 @@ static int on_create(
 
     ok = cqueue_enqueue(&mgr->task_queue, &(const struct omxplayer_mgr_task) {
         .type = kCreate,
-        .responsehandle = responsehandle
+        .responsehandle = responsehandle,
+        .orientation = rotation
     });
 
     if (ok != 0) {

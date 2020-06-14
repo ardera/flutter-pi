@@ -408,6 +408,7 @@ struct omxplayer_mgr_task {
 	
 	union {
 		struct {
+			int orientation;
 			char *omxplayer_dbus_name;
 			bool omxplayer_online;
 		};
