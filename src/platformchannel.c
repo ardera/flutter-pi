@@ -1081,9 +1081,14 @@ int platch_respond(FlutterPlatformMessageResponseHandle *handle, struct platch_o
 	if (ok != 0) return ok;
 
 	result = FlutterEngineSendPlatformMessageResponse(engine, (const FlutterPlatformMessageResponseHandle*) handle, (const uint8_t*) buffer, size);
-	
-	if (buffer != NULL) free(buffer);
-	
+	if (result != kSuccess) {
+		fprintf(stderr, "[platformchannel] Could not send platform message response. FlutterEngineSendPlatformMessageResponse: %d\n", result);
+	}
+
+	if (buffer != NULL) {
+		free(buffer);
+	}
+
 	return (result == kSuccess) ? 0 : EINVAL;
 }
 

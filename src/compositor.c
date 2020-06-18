@@ -19,8 +19,17 @@
 
 struct view_cb_data {
     int64_t view_id;
+    platform_view_mount_cb mount;
+    platform_view_unmount_cb unmount;
+    platform_view_update_view_cb update_view;
     platform_view_present_cb present;
     void *userdata;
+
+    bool was_present_last_frame;
+    FlutterSize last_size;
+    FlutterPoint last_offset;
+    int last_num_mutations;
+    FlutterPlatformViewMutation last_mutations[16];
 };
 
 struct plane_reservation_data {
@@ -313,7 +322,7 @@ static void destroy_drm_fb_backing_store_gl_fb(void *userdata) {
 
     meta = (struct backing_store_metadata*) userdata;
 
-    printf("destroy_drm_fb_backing_store_gl_fb(gl_fbo_id: %u)\n", meta->drm_fb.gl_fbo_id);
+    //printf("destroy_drm_fb_backing_store_gl_fb(gl_fbo_id: %u)\n", meta->drm_fb.gl_fbo_id);
 
     eglGetError();
     glGetError();
@@ -350,7 +359,8 @@ static int  create_window_surface_backing_store(
     struct backing_store_metadata *meta;
     int ok;
 
-    printf("create_window_surface_backing_store()\n");
+    // This should really be creating the GBM surface,
+    // but we need the GBM surface to be bound as an EGL display earlier.
 
     meta = calloc(1, sizeof *meta);
     if (meta == NULL) {
@@ -393,8 +403,6 @@ static int  create_drm_fb_backing_store(
     GLenum gl_error;
     int ok;
 
-    printf("create_drm_fb_backing_store\n");
-
     meta = calloc(1, sizeof *meta);
     if (meta == NULL) {
         perror("[compositor] Could not allocate backing store metadata, calloc");
@@ -425,8 +433,8 @@ static int  create_drm_fb_backing_store(
     }
 
     ok = create_drm_rbo(
-        config->size.width,
-        config->size.height,
+        compositor->drmdev->selected_mode->hdisplay,
+        compositor->drmdev->selected_mode->vdisplay,
         inner->rbos + 0
     );
     if (ok != 0) {
@@ -437,8 +445,8 @@ static int  create_drm_fb_backing_store(
     }
 
     ok = create_drm_rbo(
-        config->size.width,
-        config->size.height,
+        compositor->drmdev->selected_mode->hdisplay,
+        compositor->drmdev->selected_mode->vdisplay,
         inner->rbos + 1
     );
     if (ok != 0) {
@@ -563,7 +571,7 @@ static int  collect_drm_fb_backing_store(
 ) {
     struct drm_fb_backing_store *inner = &meta->drm_fb;
 
-    printf("collect_drm_fb_backing_store(gl_fbo_id: %u)\n", inner->gl_fbo_id);
+    //printf("collect_drm_fb_backing_store(gl_fbo_id: %u)\n", inner->gl_fbo_id);
     
     // makes sense that the FlutterBackingStore collect callback is called before the
     // FlutterBackingStore OpenGL framebuffer destroy callback. Thanks flutter. (/s)
@@ -678,8 +686,6 @@ static int present_drm_fb_backing_store(
     }
     */
 
-    printf("present drm_fb, zpos: %d\n", zpos);
-
     drmdev_atomic_req_put_plane_property(req, backing_store->drm_plane_id, "FB_ID", backing_store->rbos[backing_store->current_front_rbo ^ 1].drm_fb_id);
     drmdev_atomic_req_put_plane_property(req, backing_store->drm_plane_id, "CRTC_ID", backing_store->compositor->drmdev->selected_crtc->crtc->crtc_id);
     drmdev_atomic_req_put_plane_property(req, backing_store->drm_plane_id, "SRC_X", 0);
@@ -718,6 +724,22 @@ static int present_platform_view(
         return EINVAL;
     }
 
+    if (cbs->was_present_last_frame == false) {
+        cbs->mount(
+            view_id,
+            req,
+            mutations,
+            num_mutations,
+            offset_x,
+            offset_y,
+            width,
+            height,
+            zpos,
+            cbs->userdata
+        );
+        cbs->was_present_last_frame = true;
+    }
+
     if (cbs->present != NULL) {
         return cbs->present(
             view_id,
@@ -744,6 +766,7 @@ static bool present_layers_callback(
     struct plane_reservation_data *data;
     struct flutterpi_compositor *compositor;
     struct drmdev_atomic_req *req;
+    struct view_cb_data *cb_data;
     uint32_t req_flags;
 	int ok;
 
@@ -841,28 +864,13 @@ static bool present_layers_callback(
 
     FlutterEngineTraceEventDurationBegin("present");
 
+    // flush GL
     eglMakeCurrent(egl.display, egl.surface, egl.surface, egl.root_context);
     eglSwapBuffers(egl.display, egl.surface);
 
-    /*
-    /// find the index of the window surface.
-    /// the window surface's zpos can't change, so we need to
-    /// normalize all other backing stores' zpos around the
-    /// window surfaces zpos.
-    for (int i = 0; i < layers_count; i++) {
-        if (layers[i]->type == kFlutterLayerContentTypeBackingStore
-            && layers[i]->backing_store->type == kFlutterBackingStoreTypeOpenGL
-            && layers[i]->backing_store->open_gl.type == kFlutterOpenGLTargetTypeFramebuffer
-            && ((struct backing_store_metadata *) layers[i]->backing_store->user_data)->type == kWindowSurface) {
-            
-            window_surface_index = i;
-
-            break;
-        }
-    }*/
-
     drmdev_new_atomic_req(compositor->drmdev, &req);
 
+    // if we haven't yet set the display mode, set one
     req_flags = DRM_MODE_PAGE_FLIP_EVENT | DRM_MODE_ATOMIC_NONBLOCK;
     if (compositor->has_applied_modeset == false) {
         ok = drmdev_atomic_req_put_modeset_props(req, &req_flags);
@@ -871,6 +879,32 @@ static bool present_layers_callback(
         compositor->has_applied_modeset = true;
     }
 
+    // unmount non-present platform views
+    for_each_pointer_in_cpset(&compositor->cbs, cb_data) {
+        bool is_present = false;
+        for (int i = 0; i < layers_count; i++) {
+            if (layers[i]->type == kFlutterLayerContentTypePlatformView &&
+                layers[i]->platform_view->identifier == cb_data->view_id) {
+                is_present = true;
+                break;
+            }
+        }
+
+        if (!is_present && cb_data->was_present_last_frame) {
+            if (cb_data->unmount != NULL) {
+                ok = cb_data->unmount(
+                    cb_data->view_id,
+                    req,
+                    cb_data->userdata
+                );
+                if (ok != 0) {
+                    fprintf(stderr, "[compositor] Could not unmount platform view. %s\n", strerror(ok));
+                }
+            }
+        }
+    }
+
+    // present all layers, invoke the mount/update_view/present callbacks of platform views
     for (int i = 0; i < layers_count; i++) {
         const FlutterLayer *layer = layers[i];
 
@@ -899,18 +933,86 @@ static bool present_layers_callback(
                     1
                 );
             }
+            
         } else if (layer->type == kFlutterLayerContentTypePlatformView) {
-            ok = present_platform_view(
-                layer->platform_view->identifier,
-                req,
-                layer->platform_view->mutations,
-                layer->platform_view->mutations_count,
-                (int) round(layer->offset.x),
-                (int) round(layer->offset.y),
-                (int) round(layer->size.width),
-                (int) round(layer->size.height),
-                0
-            );
+            cb_data = get_cbs_for_view_id(layer->platform_view->identifier);
+            
+            if (cb_data != NULL) {
+                if (cb_data->was_present_last_frame == false) {
+                    if (cb_data->mount != NULL) {
+                        ok = cb_data->mount(
+                            layer->platform_view->identifier,
+                            req,
+                            layer->platform_view->mutations,
+                            layer->platform_view->mutations_count,
+                            (int) round(layer->offset.x),
+                            (int) round(layer->offset.y),
+                            (int) round(layer->size.width),
+                            (int) round(layer->size.height),
+                            0,
+                            cb_data->userdata
+                        );
+                        if (ok != 0) {
+                            fprintf(stderr, "[compositor] Could not mount platform view. %s\n", strerror(ok));
+                        }
+                    }
+                } else {
+                    bool did_update_view = false;
+                    
+                    did_update_view = did_update_view || memcmp(&cb_data->last_size, &layer->size, sizeof(FlutterSize));
+                    did_update_view = did_update_view || memcmp(&cb_data->last_offset, &layer->offset, sizeof(FlutterPoint));
+                    did_update_view = did_update_view || (cb_data->last_num_mutations != layer->platform_view->mutations_count);
+                    for (int i = 0; (i < layer->platform_view->mutations_count) && !did_update_view; i++) {
+                        did_update_view = did_update_view || memcmp(cb_data->last_mutations + i, layer->platform_view->mutations[i], sizeof(FlutterPlatformViewMutation));
+                    }
+
+                    if (did_update_view) {
+                        if (cb_data->update_view != NULL) {
+                            ok = cb_data->update_view(
+                                cb_data->view_id,
+                                req,
+                                layer->platform_view->mutations,
+                                layer->platform_view->mutations_count,
+                                (int) round(layer->offset.x),
+                                (int) round(layer->offset.y),
+                                (int) round(layer->size.width),
+                                (int) round(layer->size.height),
+                                0,
+                                cb_data->userdata
+                            );
+                            if (ok != 0) {
+                                fprintf(stderr, "[compositor] Could not update platform views' view. %s\n", strerror(ok));
+                            }
+                        }
+                    }
+                }
+
+                if (cb_data->present) {
+                    ok = cb_data->present(
+                        layer->platform_view->identifier,
+                        req,
+                        layer->platform_view->mutations,
+                        layer->platform_view->mutations_count,
+                        (int) round(layer->offset.x),
+                        (int) round(layer->offset.y),
+                        (int) round(layer->size.width),
+                        (int) round(layer->size.height),
+                        0,
+                        cb_data->userdata
+                    );
+                    if (ok != 0) {
+                        fprintf(stderr, "[compositor] Could not present platform view. %s\n", strerror(ok));
+                    }
+                }
+
+                cb_data->was_present_last_frame = true;
+                cb_data->last_size = layer->size;
+                cb_data->last_offset = layer->offset;
+                cb_data->last_num_mutations = layer->platform_view->mutations_count;
+                for (int i = 0; i < layer->platform_view->mutations_count; i++) {
+                    memcpy(cb_data->last_mutations + i, layer->platform_view->mutations[i], sizeof(FlutterPlatformViewMutation));
+                }
+            }
         } else {
             fprintf(stderr, "[compositor] Unsupported flutter layer type: %d\n", layer->type);
         }
@@ -918,6 +1020,7 @@ static bool present_layers_callback(
     
     eglMakeCurrent(egl.display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
 
+    // all unused planes will be set inactive
     for_each_pointer_in_cpset(&compositor->planes, data) {
         if (data->is_reserved == false) {
             drmdev_atomic_req_put_plane_property(req, data->plane->plane->plane_id, "FB_ID", 0);
@@ -936,6 +1039,9 @@ static bool present_layers_callback(
 /// PLATFORM VIEW CALLBACKS
 int compositor_set_view_callbacks(
     int64_t view_id,
+    platform_view_mount_cb mount,
+    platform_view_unmount_cb unmount,
+    platform_view_update_view_cb update_view,
     platform_view_present_cb present,
     void *userdata
 ) {
@@ -956,6 +1062,9 @@ int compositor_set_view_callbacks(
     }
 
     entry->view_id = view_id;
+    entry->mount = mount;
+    entry->unmount = unmount;
+    entry->update_view = update_view;
     entry->present = present;
     entry->userdata = userdata;
 

@@ -9,6 +9,38 @@
 #include <collection.h>
 #include <modesetting.h>
 
+typedef int (*platform_view_mount_cb)(
+    int64_t view_id,
+    struct drmdev_atomic_req *req,
+    const FlutterPlatformViewMutation **mutations,
+    size_t num_mutations,
+    int offset_x,
+    int offset_y,
+    int width,
+    int height,
+    int zpos,
+    void *userdata  
+);
+
+typedef int (*platform_view_unmount_cb)(
+    int64_t view_id,
+    struct drmdev_atomic_req *req,
+    void *userdata
+);
+
+typedef int (*platform_view_update_view_cb)(
+    int64_t view_id,
+    struct drmdev_atomic_req *req,
+    const FlutterPlatformViewMutation **mutations,
+    size_t num_mutations,
+    int offset_x,
+    int offset_y,
+    int width,
+    int height,
+    int zpos,
+    void *userdata
+);
+
 typedef int (*platform_view_present_cb)(
     int64_t view_id,
     struct drmdev_atomic_req *req,
@@ -80,6 +112,9 @@ int compositor_on_page_flip(
 
 int compositor_set_view_callbacks(
     int64_t view_id,
+    platform_view_mount_cb mount,
+    platform_view_unmount_cb unmount,
+    platform_view_update_view_cb update_view,
     platform_view_present_cb present,
     void *userdata
 );

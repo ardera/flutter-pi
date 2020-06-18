@@ -7,10 +7,12 @@ REAL_CFLAGS = -I./include $(shell pkg-config --cflags gbm libdrm glesv2 egl libs
 	-DBUILD_SPIDEV_PLUGIN \
 	-DBUILD_TEST_PLUGIN \
 	-DBUILD_OMXPLAYER_VIDEO_PLAYER_PLUGIN \
-	-ggdb -fsanitize=undefined \
+	-ggdb \
+	-O2 \
 	$(CFLAGS)
 
-REAL_LDFLAGS = $(shell pkg-config --libs gbm libdrm glesv2 egl) \
+REAL_LDFLAGS = \
+	$(shell pkg-config --libs gbm libdrm glesv2 egl) \
 	-lrt \
 	-lflutter_engine \
 	-lpthread \

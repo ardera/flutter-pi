@@ -587,7 +587,7 @@ int drmdev_atomic_req_put_connector_property(
     uint64_t value
 ) {
     int ok;
-    
+
     drmdev_lock(req->drmdev);
 
     for (int i = 0; i < req->drmdev->selected_connector->props->count_props; i++) {
@@ -704,40 +704,41 @@ int drmdev_atomic_req_put_modeset_props(
     struct drmdev_atomic_req *req,
     uint32_t *flags
 ) {
+    struct drmdev_atomic_req *augment;
     int ok;
 
-    drmModeAtomicReq *new_req = drmModeAtomicAlloc();
-    if (new_req == NULL) {
-        return ENOMEM;
+    ok = drmdev_new_atomic_req(req->drmdev, &augment);
+    if (ok != 0) {
+        return ok;
     }
 
     ok = drmdev_atomic_req_put_connector_property(req, "CRTC_ID", req->drmdev->selected_crtc->crtc->crtc_id);
     if (ok != 0) {
-        drmModeAtomicFree(new_req);
+        drmdev_destroy_atomic_req(augment);
         return ok;
     }
 
     ok = drmdev_atomic_req_put_crtc_property(req, "MODE_ID", req->drmdev->selected_mode_blob_id);
     if (ok != 0) {
-        drmModeAtomicFree(new_req);
+        drmdev_destroy_atomic_req(augment);
         return ok;
     }
 
     ok = drmdev_atomic_req_put_crtc_property(req, "ACTIVE", 1);
     if (ok != 0) {
-        drmModeAtomicFree(new_req);
+        drmdev_destroy_atomic_req(augment);
         return ok;
     }
 
-    ok = drmModeAtomicMerge(req->atomic_req, new_req);
+    ok = drmModeAtomicMerge(req->atomic_req, augment->atomic_req);
     if (ok < 0) {
         ok = errno;
         perror("[modesetting] Could not apply modesetting properties to atomic request. drmModeAtomicMerge");
-        drmModeAtomicFree(new_req);
-        return errno;
+        drmdev_destroy_atomic_req(augment);
+        return ok;
     }
 
-    drmModeAtomicFree(new_req);
+    drmdev_destroy_atomic_req(augment);
 
     if (flags != NULL) {
         *flags |= DRM_MODE_ATOMIC_ALLOW_MODESET;

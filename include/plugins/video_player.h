@@ -25,7 +25,7 @@
 
 #define DBUS_OMXPLAYER_OBJECT "/org/mpris/MediaPlayer2"
 #define DBUS_OMXPLAYER_PLAYER_FACE "org.mpris.MediaPlayer2.Player"
-#define DBUS_OMXPLAYER_ROOT_FACE "org.mpris.MediaPlayer2.Root"
+#define DBUS_OMXPLAYER_ROOT_FACE "org.mpris.MediaPlayer2"
 #define DBUS_PROPERTY_FACE "org.freedesktop.DBus.Properties"
 #define DBUS_PROPERTY_GET "Get"
 #define DBUS_PROPRETY_SET "Set"

@@ -21,7 +21,10 @@ typedef int (*init_deinit_cb)(void);
 /// the platform message using the codec given to plugin_registry_set_receiver.
 /// BE AWARE that object->type can be kNotImplemented, REGARDLESS of the codec
 ///   passed to plugin_registry_set_receiver.
-typedef int (*platch_obj_recv_callback)(char *channel, struct platch_obj *object, FlutterPlatformMessageResponseHandle *responsehandle);
+typedef int (*platch_obj_recv_callback)(
+	char *channel,
+	struct platch_obj *object, 
+	FlutterPlatformMessageResponseHandle *responsehandle);
 
 /// details of a plugin for flutter-pi.
 /// All plugins are initialized (i.e. get their "init" callbacks called)
@@ -47,7 +50,13 @@ int plugin_registry_on_platform_message(FlutterPlatformMessage *message);
 /// Sets the callback that should be called when a platform message arrives on channel "channel",
 /// and the codec used to automatically decode the platform message.
 /// Call this method with NULL as the callback parameter to remove the current listener on that channel.
-int plugin_registry_set_receiver(char *channel, enum platch_codec codec, platch_obj_recv_callback callback);
+int plugin_registry_set_receiver(
+	const char *channel,
+	enum platch_codec codec,
+	platch_obj_recv_callback callback
+);
+
+int plugin_registry_remove_receiver(const char *channel);
 
 int plugin_registry_deinit();
 

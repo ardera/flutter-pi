@@ -55,12 +55,12 @@ static struct {
 struct libsystemd libsystemd = {0};
 
 /// Add a player instance to the player collection.
-static int add_player(struct omxplayer_video_player *player) {
+int add_player(struct omxplayer_video_player *player) {
     return cpset_put(&omxpvidpp.players, player);
 }
 
 /// Get a player instance by its id.
-static struct omxplayer_video_player *get_player_by_id(int64_t player_id) {
+struct omxplayer_video_player *get_player_by_id(int64_t player_id) {
     struct omxplayer_video_player *player;
     
     cpset_lock(&omxpvidpp.players);
@@ -76,7 +76,7 @@ static struct omxplayer_video_player *get_player_by_id(int64_t player_id) {
 }
 
 /// Get a player instance by its event channel name.
-static struct omxplayer_video_player *get_player_by_evch(const char *const event_channel_name) {
+struct omxplayer_video_player *get_player_by_evch(const char *const event_channel_name) {
     struct omxplayer_video_player *player;
     
     cpset_lock(&omxpvidpp.players);
@@ -163,9 +163,60 @@ static int get_player_from_map_arg(
     return 0;
 }
 
-/// Called on the flutter rasterizer thread when a players platform view
-/// Should be presented.
-static int on_present(
+/// Called on the flutter rasterizer thread when a players platform view is presented
+/// for the first time after it was unmounted or initialized.
+static int on_mount(
+    int64_t view_id,
+    struct drmdev_atomic_req *req,
+    const FlutterPlatformViewMutation **mutations,
+    size_t num_mutations,
+    int offset_x,
+    int offset_y,
+    int width,
+    int height,
+    int zpos,
+    void *userdata  
+) {
+    struct omxplayer_video_player *player = userdata;
+
+    return cqueue_enqueue(
+        &player->mgr->task_queue,
+        &(struct omxplayer_mgr_task) {
+            .type = kUpdateView,
+            .offset_x = offset_x,
+            .offset_y = offset_y,
+            .width = width,
+            .height = height,
+            .zpos = zpos
+        }
+    );
+}
+
+/// Called on the flutter rasterizer thread when a players platform view is not present
+/// in the currently being drawn frame after it was present in the previous frame.
+static int on_unmount(
+    int64_t view_id,
+    struct drmdev_atomic_req *req,
+    void *userdata
+) {
+    struct omxplayer_video_player *player = userdata;
+
+    return cqueue_enqueue(
+        &player->mgr->task_queue,
+        &(struct omxplayer_mgr_task) {
+            .type = kUpdateView,
+            .offset_x = 0,
+            .offset_y = 0,
+            .width = 1,
+            .height = 1,
+            .zpos = -128
+        }
+    );
+}
+
+/// Called on the flutter rasterizer thread when the presentation details (offset, mutations, dimensions, zpos)
+/// changed from the previous frame.
+static int on_update_view(
     int64_t view_id,
     struct drmdev_atomic_req *req,
     const FlutterPlatformViewMutation **mutations,
@@ -238,7 +289,7 @@ static int get_dbus_property(
 /// Callback to be called when the omxplayer manager receives
 /// a DBus message. (Currently only used for listening to NameOwnerChanged messages,
 /// to find out when omxplayer registers to the dbus.)
-static int omxplayer_mgr_on_dbus_message(
+static int mgr_on_dbus_message(
     sd_bus_message *m,
     void *userdata,
     sd_bus_error *ret_error
@@ -265,13 +316,13 @@ static int omxplayer_mgr_on_dbus_message(
         }
     }
 
-    libsystemd.sd_bus_message_unref(m);
-
     return 0;
 }
 
 /// The entry function of the manager thread.
-static void *omxplayer_mgr_entry(void *userdata) {
+/// Manager thread has the ownership over the player / manager / task queue objects
+/// and must free them when it quits.
+static void *mgr_entry(void *userdata) {
     struct omxplayer_mgr_task task;
     struct concurrent_queue *q;
     struct omxplayer_mgr *mgr;
@@ -292,7 +343,7 @@ static void *omxplayer_mgr_entry(void *userdata) {
 
     mgr = userdata;
     q = &mgr->task_queue;
-    
+
     // dequeue the first task of the queue (creation task)
     ok = cqueue_dequeue(q, &task);
     if (ok != 0) {
@@ -342,18 +393,16 @@ static void *omxplayer_mgr_entry(void *userdata) {
         "/org/freedesktop/DBus",
         "org.freedesktop.DBus",
         "NameOwnerChanged",
-        omxplayer_mgr_on_dbus_message,
+        mgr_on_dbus_message,
         &task
     );
-    
+
     // spawn the omxplayer process
     current_zpos = -1;
     pid_t me = fork();
     if (me == 0) {
         char orientation_str[16] = {0};
         snprintf(orientation_str, sizeof orientation_str, "%d", task.orientation);
-
-        printf("orientation_str: %s\n", orientation_str);
 
         // I'm the child!
         prctl(PR_SET_PDEATHSIG, SIGKILL);
@@ -365,7 +414,7 @@ static void *omxplayer_mgr_entry(void *userdata) {
                 "--no-osd",
                 "--no-keys",
                 "--loop",
-                "--layer", "-1",
+                "--layer", "-128",
                 "--win", "0,0,1,1",
                 "--orientation", orientation_str, 
                 "--dbus_name", dbus_name,
@@ -375,9 +424,9 @@ static void *omxplayer_mgr_entry(void *userdata) {
         );
 
         if (_ok != 0) {
-            _exit(_ok);
+            exit(_ok);
         }
-        _exit(0);
+        exit(0);
     } else if (me > 0) {
         // I'm the parent!
         omxplayer_pid = me;
@@ -392,7 +441,6 @@ static void *omxplayer_mgr_entry(void *userdata) {
         return (void*) EXIT_FAILURE;
     }
 
-    // wait for omxplayer to register to the dbus
     while (!task.omxplayer_online) {
         ok = libsystemd.sd_bus_wait(bus, 1000*1000*5);
         if (ok < 0) {
@@ -408,11 +456,26 @@ static void *omxplayer_mgr_entry(void *userdata) {
     libsystemd.sd_bus_slot_unref(slot);
     slot = NULL;
 
+    duration_us = 0;
+    ok = get_dbus_property(
+        bus,
+        dbus_name,
+        DBUS_OMXPLAYER_OBJECT,
+        DBUS_OMXPLAYER_PLAYER_FACE,
+        "Duration",
+        &err,
+        'x',
+        &duration_us
+    );
+    if (ok != 0) {
+        return (void*) EXIT_FAILURE;
+    }
+
     // wait for the first frame to appear
     {
         struct timespec delta = {
             .tv_sec = 0,
-            .tv_nsec = 350*1000*1000
+            .tv_nsec = 300*1000*1000
         };
         while (nanosleep(&delta, &delta));
     }
@@ -423,7 +486,7 @@ static void *omxplayer_mgr_entry(void *userdata) {
         dbus_name,
         DBUS_OMXPLAYER_OBJECT,
         DBUS_OMXPLAYER_PLAYER_FACE,
-        "Pause",
+        "Play",
         &err,
         &msg,
         ""
@@ -499,7 +562,7 @@ static void *omxplayer_mgr_entry(void *userdata) {
             printf("[omxplayer_video_player plugin] Omxplayer manager got a creation task, even though the player is already running.\n");
         } else if (task.type == kDispose) {
             if (mgr->player->has_view) {
-                printf("[omxplayer_video_player plugin] flutter attempted to dispose the video player before its view was disposed.\n");
+                fprintf(stderr, "[omxplayer_video_player plugin] flutter attempted to dispose the video player before its view was disposed.\n");
 
                 compositor_remove_view_callbacks(mgr->player->view_id);
 
@@ -532,10 +595,14 @@ static void *omxplayer_mgr_entry(void *userdata) {
             // close the bus
             libsystemd.sd_bus_unref(bus);
 
+            plugin_registry_remove_receiver(mgr->player->event_channel_name);
+
             // remove the player from the set of players
             remove_player(mgr->player);
 
             platch_respond_success_std(task.responsehandle, NULL);
+
+            break;
         } else if (task.type == kListen) {
             platch_respond_success_std(task.responsehandle, NULL);
 
@@ -639,8 +706,6 @@ static void *omxplayer_mgr_entry(void *userdata) {
             libsystemd.sd_bus_message_unref(msg);
 
             if (current_zpos != task.zpos) {
-                printf("setting layer to %d\n", task.zpos);
-
                 ok = libsystemd.sd_bus_call_method(
                     bus,
                     dbus_name,
@@ -684,38 +749,49 @@ static void *omxplayer_mgr_entry(void *userdata) {
             platch_respond_success_std(task.responsehandle, &STDINT64(position));
         } else if (task.type == kSetPosition) {
             if (is_stream) {
-                // Don't allow flutter to seek on a stream.
-                fprintf(stderr, "[omxplayer_video_player plugin] Flutter attempted to seek on non-seekable video (a stream).\n");
-                platch_respond_error_std(
-                    task.responsehandle,
-                    "state-error",
-                    "Attempted to seek on non-seekable video (a stream)",
-                    NULL
+                if (task.position == -1) {
+                    fprintf(stderr, "[omxplayer_video_player plugin] Flutter attempted to seek to end on non-seekable video (a stream) to %lldms\n", task.position);
+
+                    // TODO: implement seek-to-end
+
+                    platch_respond_success_std(
+                        task.responsehandle,
+                        NULL
+                    );
+                } else {
+                    // Don't allow flutter to seek to anything other than the end on a stream.
+                    fprintf(stderr, "[omxplayer_video_player plugin] Flutter attempted to seek on non-seekable video (a stream) to %lldms\n", task.position);
+
+                    platch_respond_error_std(
+                        task.responsehandle,
+                        "state-error",
+                        "Attempted to seek on non-seekable video (a stream)",
+                        NULL
+                    );
+                }
+            } else {
+                ok = libsystemd.sd_bus_call_method(
+                    bus,
+                    dbus_name,
+                    DBUS_OMXPLAYER_OBJECT,
+                    DBUS_OMXPLAYER_PLAYER_FACE,
+                    "SetPosition",
+                    &err,
+                    &msg,
+                    "ox",
+                    "/path/not/used",
+                    (int64_t) (task.position * 1000)
                 );
-                continue;
+                if (ok != 0) {
+                    fprintf(stderr, "[omxplayer_video_player plugin] Could not set omxplayer position: %s, %s\n", err.name, err.message);
+                    platch_respond_native_error_std(task.responsehandle, -ok);
+                    continue;
+                }
+
+                libsystemd.sd_bus_message_unref(msg);
+
+                platch_respond_success_std(task.responsehandle, NULL);
             }
-
-            ok = libsystemd.sd_bus_call_method(
-                bus,
-                dbus_name,
-                DBUS_OMXPLAYER_OBJECT,
-                DBUS_OMXPLAYER_PLAYER_FACE,
-                "SetPosition",
-                &err,
-                &msg,
-                "ox",
-                "/path/not/used",
-                (int64_t) (task.position * 1000)
-            );
-            if (ok != 0) {
-                fprintf(stderr, "[omxplayer_video_player plugin] Could not set omxplayer position: %s, %s\n", err.name, err.message);
-                platch_respond_native_error_std(task.responsehandle, ok);
-                continue;
-            }
-
-            libsystemd.sd_bus_message_unref(msg);
-
-            platch_respond_success_std(task.responsehandle, NULL);
         } else if (task.type == kSetLooping) {
             pause_on_end = false;
             platch_respond_success_std(task.responsehandle, NULL);
@@ -735,7 +811,7 @@ static void *omxplayer_mgr_entry(void *userdata) {
             );
             if (ok < 0) {
                 fprintf(stderr, "[omxplayer_video_player plugin] Could not set omxplayer volume: %s, %s\n", err.name, err.message);
-                platch_respond_native_error_std(task.responsehandle, ok);
+                platch_respond_native_error_std(task.responsehandle, -ok);
                 continue;
             }
 
@@ -753,6 +829,12 @@ static int ensure_binding_initialized(void) {
     int ok;
 
     if (omxpvidpp.initialized) return 0;
+
+    ok = access("/usr/bin/omxplayer.bin", X_OK);
+    if (ok < 0) {
+        fprintf(stderr, "[omxplayer_video_player plugin] omxplayer doesn't seem to be installed. Please install using 'sudo apt install omxplayer'. access: %s\n", strerror(errno));
+        return errno;
+    }
 
     libsystemd.handle = dlopen("libsystemd.so", RTLD_NOW | RTLD_LOCAL);
 
@@ -1105,7 +1187,6 @@ static int respond_init_failed(FlutterPlatformMessageResponseHandle *handle) {
     );
 }
 
-
 /*******************************************************
  * CHANNEL HANDLERS                                    *
  * handle method calls on the method and event channel *
@@ -1311,14 +1392,10 @@ static int on_create(
     // so we can immediately pause omxplayer once it has registered
     // to dbus.
 
-    ok = pthread_create(&mgr->thread, NULL, omxplayer_mgr_entry, mgr);
+    ok = pthread_create(&mgr->thread, NULL, mgr_entry, mgr);
     if (ok != 0) {
         //remove_player(player);
-        plugin_registry_set_receiver(
-            player->event_channel_name,
-            kStandardMethodCall,
-            NULL
-        );
+        plugin_registry_remove_receiver(player->event_channel_name);
         free(mgr);
         cqueue_deinit(&mgr->task_queue);
         free(player);
@@ -1502,22 +1579,10 @@ static int on_create_platform_view(
             "Expected `arg['platformViewId']` to be an integer."
         );
     }
+    
+    printf("on_create_platform_view(%lld)\n", view_id);
 
     if (player->has_view) {
-        /* don't change the view id anymore. Let the platform-side handle multiple omxplayer views for one player instance.
-
-        fprintf(stderr, "[omxplayer_video_player plugin] Flutter attempted to register more than one platform view for this player instance. flutter-pi will dispose the currently registered view.\n");
-
-        ok = compositor_hack_change_view_id(player->view_id, view_id);
-        if (ok != 0) {
-            return platch_respond_native_error_std(responsehandle, ok);
-        }
-        
-        player->view_id = view_id;
-
-        return platch_respond_success_std(responsehandle, ok);
-        */
-
         fprintf(stderr, "[omxplayer_video_player plugin] Flutter attempted to register more than one platform view for one player instance.\n");
         
         return platch_respond_illegal_arg_std(
@@ -1525,7 +1590,14 @@ static int on_create_platform_view(
             "Attempted to register more than one platform view for this player instance."
         );
     } else {
-        ok = compositor_set_view_callbacks(view_id, on_present, player);
+        ok = compositor_set_view_callbacks(
+            view_id,
+            on_mount,
+            on_unmount,
+            on_update_view,
+            NULL,
+            player
+        );
         if (ok != 0) {
             return platch_respond_native_error_std(responsehandle, ok);
         }
@@ -1558,6 +1630,8 @@ static int on_dispose_platform_view(
             "Expected `arg['platformViewId']` to be an integer."
         );
     }
+
+    printf("on_dispose_platform_view(%lld)\n", view_id);
 
     if (player->view_id != view_id) {
         fprintf(

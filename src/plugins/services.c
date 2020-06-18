@@ -12,18 +12,18 @@ struct {
 } services = {0};
 
 
-int services_on_receive_navigation(char *channel, struct platch_obj *object, FlutterPlatformMessageResponseHandle *responsehandle) {
+static int on_receive_navigation(char *channel, struct platch_obj *object, FlutterPlatformMessageResponseHandle *responsehandle) {
     return platch_respond_not_implemented(responsehandle);
 }
 
-int services_on_receive_isolate(char *channel, struct platch_obj *object, FlutterPlatformMessageResponseHandle *responsehandle) {
+static int on_receive_isolate(char *channel, struct platch_obj *object, FlutterPlatformMessageResponseHandle *responsehandle) {
     memset(&(services.isolate_id), sizeof(services.isolate_id), 0);
     memcpy(services.isolate_id, object->binarydata, object->binarydata_size);
     
     return platch_respond_not_implemented(responsehandle);
 }
 
-int services_on_receive_platform(char *channel, struct platch_obj *object, FlutterPlatformMessageResponseHandle *responsehandle) {
+static int on_receive_platform(char *channel, struct platch_obj *object, FlutterPlatformMessageResponseHandle *responsehandle) {
     struct json_value *value;
     struct json_value *arg = &(object->json_arg);
     int ok;
@@ -63,6 +63,8 @@ int services_on_receive_platform(char *channel, struct platch_obj *object, Flutt
          *      portraitUp, landscapeLeft, portraitDown, landscapeRight
          *  }
          */
+
+        printf("setPreferredOrientations\n");
         
         value = &object->json_arg;
         
@@ -111,9 +113,15 @@ int services_on_receive_platform(char *channel, struct platch_obj *object, Flutt
                     .orientation = i,
                     .target_time = 0
                 });
-                return 0;
+
+                return platch_respond_success_json(responsehandle, NULL);
             }
         }
+
+        return platch_respond_illegal_arg_json(
+            responsehandle,
+            "Expected `arg` to contain at least one element."
+        );
     } else if (strcmp(object->method, "SystemChrome.setApplicationSwitcherDescription") == 0) {
         /*
          *  SystemChrome.setApplicationSwitcherDescription(Map description)
@@ -168,11 +176,11 @@ int services_on_receive_platform(char *channel, struct platch_obj *object, Flutt
     return platch_respond_not_implemented(responsehandle);
 }
 
-int services_on_receive_accessibility(char *channel, struct platch_obj *object, FlutterPlatformMessageResponseHandle *responsehandle) {
+static int on_receive_accessibility(char *channel, struct platch_obj *object, FlutterPlatformMessageResponseHandle *responsehandle) {
     return platch_respond_not_implemented(responsehandle);
 }
 
-int services_on_receive_platform_views(char *channel, struct platch_obj *object, FlutterPlatformMessageResponseHandle *responsehandle) {
+static int on_receive_platform_views(char *channel, struct platch_obj *object, FlutterPlatformMessageResponseHandle *responsehandle) {
     struct json_value *value;
     struct json_value *arg = &(object->json_arg);
     int ok;
@@ -192,31 +200,31 @@ int services_init(void) {
 
     printf("[services] Initializing...\n");
 
-    ok = plugin_registry_set_receiver("flutter/navigation", kJSONMethodCall, services_on_receive_navigation);
+    ok = plugin_registry_set_receiver("flutter/navigation", kJSONMethodCall, on_receive_navigation);
     if (ok != 0) {
         fprintf(stderr, "[services-plugin] could not set \"flutter/navigation\" ChannelObject receiver: %s\n", strerror(ok));
         return ok;
     }
 
-    ok = plugin_registry_set_receiver("flutter/isolate", kBinaryCodec, services_on_receive_isolate);
+    ok = plugin_registry_set_receiver("flutter/isolate", kBinaryCodec, on_receive_isolate);
     if (ok != 0) {
         fprintf(stderr, "[services-plugin] could not set \"flutter/isolate\" ChannelObject receiver: %s\n", strerror(ok));
         return ok;
     }
 
-    ok = plugin_registry_set_receiver("flutter/platform", kJSONMethodCall, services_on_receive_platform);
+    ok = plugin_registry_set_receiver("flutter/platform", kJSONMethodCall, on_receive_platform);
     if (ok != 0) {
         fprintf(stderr, "[services-plugin] could not set \"flutter/platform\" ChannelObject receiver: %s\n", strerror(ok));
         return ok;
     }
 
-    ok = plugin_registry_set_receiver("flutter/accessibility", kBinaryCodec, services_on_receive_accessibility);
+    ok = plugin_registry_set_receiver("flutter/accessibility", kBinaryCodec, on_receive_accessibility);
     if (ok != 0) {
         fprintf(stderr, "[services-plugin] could not set \"flutter/accessibility\" ChannelObject receiver: %s\n", strerror(ok));
         return ok;
     }
 
-    ok = plugin_registry_set_receiver("flutter/platform_views", kStandardMethodCall, services_on_receive_platform_views);
+    ok = plugin_registry_set_receiver("flutter/platform_views", kStandardMethodCall, on_receive_platform_views);
     if (ok != 0) {
         fprintf(stderr, "[services-plugin] could not set \"flutter/platform_views\" ChannelObject receiver: %s\n", strerror(ok));
         return ok;

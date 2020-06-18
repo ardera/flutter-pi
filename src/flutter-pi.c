@@ -353,8 +353,11 @@ static void on_platform_message(
 	void* userdata
 ) {
 	int ok;
-	if ((ok = plugin_registry_on_platform_message((FlutterPlatformMessage *)message)) != 0)
-		fprintf(stderr, "plugin_registry_on_platform_message failed: %s\n", strerror(ok));
+	
+	ok = plugin_registry_on_platform_message((FlutterPlatformMessage *) message);
+	if (ok != 0) {
+		fprintf(stderr, "[flutter-pi] Error handling platform message. plugin_registry_on_platform_message: %s\n", strerror(ok));
+	}
 }
 
 static void vsync_callback(
@@ -610,7 +613,7 @@ int flutterpi_send_platform_message(
 	return 0;
 }
 
-int   flutterpi_respond_to_platform_message(
+int flutterpi_respond_to_platform_message(
 	FlutterPlatformMessageResponseHandle *handle,
 	const uint8_t *restrict message,
 	size_t message_size

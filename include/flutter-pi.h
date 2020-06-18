@@ -80,17 +80,6 @@ struct flutterpi_task {
     uint64_t target_time;
 };
 
-static inline void *memdup(const void *restrict src, const size_t n) {
-	void *__restrict__ dest;
-
-	if ((src == NULL) || (n == 0)) return NULL;
-
-	dest = malloc(n);
-	if (dest == NULL) return NULL;
-
-	return memcpy(dest, src, n);
-}
-
 struct drm_fb {
 	struct gbm_bo *bo;
 	uint32_t fb_id;
@@ -252,8 +241,6 @@ struct input_device {
 extern struct mousepointer_mtslot mousepointer;
 
 extern FlutterEngine engine;
-
-struct drm_fb *drm_fb_get_from_bo(struct gbm_bo *bo);
 
 void post_platform_task(struct flutterpi_task *task);
 
