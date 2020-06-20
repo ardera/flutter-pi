@@ -52,7 +52,8 @@ typedef enum {
 	kRegisterExternalTexture,
 	kUnregisterExternalTexture,
 	kMarkExternalTextureFrameAvailable,
-	kGeneric
+	kGeneric,
+	kExit
 } flutterpi_task_type;
 
 struct flutterpi_task {

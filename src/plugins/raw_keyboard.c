@@ -10,14 +10,14 @@
 
 #include <plugins/raw_keyboard.h>
 
-struct {
+static struct {
     // same as mods, just that it differentiates between left and right-sided modifiers.
     uint16_t leftright_mods;
     glfw_keymod_map mods;
     bool initialized;
-} raw_keyboard = {.initialized = false};
+} raw_keyboard = {0};
 
-int rawkb_send_glfw_keyevent(uint32_t code_point, glfw_key key_code, uint32_t scan_code, glfw_keymod_map mods, bool is_down) {
+static int send_glfw_keyevent(uint32_t code_point, glfw_key key_code, uint32_t scan_code, glfw_keymod_map mods, bool is_down) {
     return platch_send(
         KEY_EVENT_CHANNEL,
         &(struct platch_obj) {
@@ -109,7 +109,7 @@ int rawkb_on_keyevent(glfw_key key, uint32_t scan_code, glfw_key_action action) 
     }
 
     if (send) {
-        rawkb_send_glfw_keyevent(0, key, scan_code, raw_keyboard.mods, action != GLFW_RELEASE);
+        send_glfw_keyevent(0, key, scan_code, raw_keyboard.mods, action != GLFW_RELEASE);
     }
 
     raw_keyboard.leftright_mods = lrmods_after;
@@ -119,19 +119,15 @@ int rawkb_on_keyevent(glfw_key key, uint32_t scan_code, glfw_key_action action) 
 }
 
 int rawkb_init(void) {
-    printf("[raw_keyboard] Initializing...\n");
-
     raw_keyboard.leftright_mods = 0;
     raw_keyboard.mods = 0;
     raw_keyboard.initialized = true;
     
-    printf("[raw_keyboard] Done.\n");
     return 0;
 }
 
 int rawkb_deinit(void) {
     raw_keyboard.initialized = false;
 
-    printf("[raw_keyboard] deinit.\n");
     return 0;
 }

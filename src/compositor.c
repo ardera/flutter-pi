@@ -347,7 +347,6 @@ int compositor_on_page_flip(
 }
 
 /// CREATE FUNCS
-
 /// Create a flutter backing store that is backed by the
 /// EGL window surface (created using libgbm).
 /// I.e. create a EGL window surface and set fbo_id to 0.
@@ -467,39 +466,6 @@ static int  create_drm_fb_backing_store(
         return ok;
     }
 
-    /*
-    ok = get_plane_property_value(inner->drm_plane_id, "zpos", &inner->current_zpos);
-    if (ok != 0) {
-        return false;
-    }
-
-    // Reflect Y because GL draws to its buffers that upside-down.
-    ok = set_plane_property_value(inner->drm_plane_id, "rotation", DRM_MODE_ROTATE_0 | DRM_MODE_REFLECT_Y);
-    if (ok == -1) {
-        perror("[compositor] Could not set rotation & reflection of hardware plane. drmModeObjectSetProperty");
-        return false;
-    }
-
-    // We don't scan out anything yet. Just attach the FB to this plane to reserve it.
-    // Compositing details (offset, size, zpos) are set in the present
-    // procedure.
-    ok = drmModeSetPlane(
-        drm.fd,
-        inner->drm_plane_id,
-        drm.crtc_id,
-        inner->rbos[1 ^ inner->current_front_rbo].drm_fb_id,
-        0,
-        0, 0, 0, 0,
-        0, 0, ((uint32_t) config->size.width) << 16, ((uint32_t) config->size.height) << 16
-    );
-    if (ok == -1) {
-        perror("[compositor] Could not attach DRM framebuffer to hardware plane. drmModeSetPlane");
-        return false;
-    }
-    
-    get_plane_property_value(inner->drm_plane_id, "zpos", (uint64_t*) &inner->current_zpos);
-    */
-
     backing_store_out->type = kFlutterBackingStoreTypeOpenGL;
     backing_store_out->open_gl.type = kFlutterOpenGLTargetTypeFramebuffer;
     backing_store_out->open_gl.framebuffer.target = GL_BGRA8_EXT;
@@ -539,11 +505,14 @@ static bool create_backing_store(
         // backing stores, which have a FBO, that have a
         // color-attached RBO, that has a DRM EGLImage as the storage,
         // which in turn has a DRM FB associated with it.
+
+        FlutterEngineTraceEventDurationBegin("create_drm_fb_backing_store");
         ok = create_drm_fb_backing_store(
             config,
             backing_store_out,
             user_data
         );
+        FlutterEngineTraceEventDurationEnd("create_drm_fb_backing_store");
 
         if (ok != 0) {
             return false;
@@ -865,10 +834,14 @@ static bool present_layers_callback(
     FlutterEngineTraceEventDurationBegin("present");
 
     // flush GL
+    FlutterEngineTraceEventDurationBegin("eglSwapBuffers");
     eglMakeCurrent(egl.display, egl.surface, egl.surface, egl.root_context);
     eglSwapBuffers(egl.display, egl.surface);
+    FlutterEngineTraceEventDurationEnd("eglSwapBuffers");
 
+    FlutterEngineTraceEventDurationBegin("drmdev_new_atomic_req");
     drmdev_new_atomic_req(compositor->drmdev, &req);
+    FlutterEngineTraceEventDurationEnd("drmdev_new_atomic_req");
 
     // if we haven't yet set the display mode, set one
     req_flags = DRM_MODE_PAGE_FLIP_EVENT | DRM_MODE_ATOMIC_NONBLOCK;
@@ -880,6 +853,7 @@ static bool present_layers_callback(
     }
 
     // unmount non-present platform views
+    FlutterEngineTraceEventDurationBegin("unmount non-present platform views");
     for_each_pointer_in_cpset(&compositor->cbs, cb_data) {
         bool is_present = false;
         for (int i = 0; i < layers_count; i++) {
@@ -903,6 +877,7 @@ static bool present_layers_callback(
             }
         }
     }
+    FlutterEngineTraceEventDurationEnd("unmount non-present platform views");
 
     // present all layers, invoke the mount/update_view/present callbacks of platform views
     for (int i = 0; i < layers_count; i++) {
@@ -913,6 +888,7 @@ static bool present_layers_callback(
             struct backing_store_metadata *meta = backing_store->user_data;
 
             if (meta->type == kWindowSurface) {
+                FlutterEngineTraceEventDurationBegin("present_window_surface_backing_store");
                 ok = present_window_surface_backing_store(
                     &meta->window_surface,
                     req,
@@ -922,7 +898,9 @@ static bool present_layers_callback(
                     (int) layer->size.height,
                     0
                 );
+                FlutterEngineTraceEventDurationEnd("present_window_surface_backing_store");
             } else if (meta->type == kDrmFb) {
+                FlutterEngineTraceEventDurationBegin("present_drm_fb_backing_store");
                 ok = present_drm_fb_backing_store(
                     &meta->drm_fb,
                     req,
@@ -932,6 +910,7 @@ static bool present_layers_callback(
                     (int) layer->size.height,
                     1
                 );
+                FlutterEngineTraceEventDurationEnd("present_drm_fb_backing_store");
             }
             
         } else if (layer->type == kFlutterLayerContentTypePlatformView) {
@@ -940,6 +919,7 @@ static bool present_layers_callback(
             if (cb_data != NULL) {
                 if (cb_data->was_present_last_frame == false) {
                     if (cb_data->mount != NULL) {
+                        FlutterEngineTraceEventDurationBegin("mount platform view");
                         ok = cb_data->mount(
                             layer->platform_view->identifier,
                             req,
@@ -952,6 +932,7 @@ static bool present_layers_callback(
                             0,
                             cb_data->userdata
                         );
+                        FlutterEngineTraceEventDurationEnd("mount platform view");
                         if (ok != 0) {
                             fprintf(stderr, "[compositor] Could not mount platform view. %s\n", strerror(ok));
                         }
@@ -968,6 +949,7 @@ static bool present_layers_callback(
 
                     if (did_update_view) {
                         if (cb_data->update_view != NULL) {
+                            FlutterEngineTraceEventDurationBegin("update platform view");
                             ok = cb_data->update_view(
                                 cb_data->view_id,
                                 req,
@@ -980,6 +962,7 @@ static bool present_layers_callback(
                                 0,
                                 cb_data->userdata
                             );
+                            FlutterEngineTraceEventDurationEnd("update platform view");
                             if (ok != 0) {
                                 fprintf(stderr, "[compositor] Could not update platform views' view. %s\n", strerror(ok));
                             }
@@ -988,6 +971,7 @@ static bool present_layers_callback(
                 }
 
                 if (cb_data->present) {
+                    FlutterEngineTraceEventDurationBegin("present platform view");
                     ok = cb_data->present(
                         layer->platform_view->identifier,
                         req,
@@ -1000,6 +984,7 @@ static bool present_layers_callback(
                         0,
                         cb_data->userdata
                     );
+                    FlutterEngineTraceEventDurationEnd("present platform view");
                     if (ok != 0) {
                         fprintf(stderr, "[compositor] Could not present platform view. %s\n", strerror(ok));
                     }
@@ -1027,7 +1012,9 @@ static bool present_layers_callback(
         }
     }
 
+    FlutterEngineTraceEventDurationBegin("drmdev_atomic_req_commit");
     drmdev_atomic_req_commit(req, req_flags, NULL);
+    FlutterEngineTraceEventDurationEnd("drmdev_atomic_req_commit");
 
     drmdev_destroy_atomic_req(req);
 

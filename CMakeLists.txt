@@ -106,7 +106,6 @@ set(FLUTTER_PI_SRC
   src/platformchannel.c
   src/pluginregistry.c
   src/console_keyboard.c
-  src/plugins/elm327plugin.c
   src/plugins/services.c
   src/plugins/testplugin.c
   src/plugins/text_input.c
@@ -143,7 +142,6 @@ target_compile_options(flutter-pi PRIVATE
   ${GLESV2_CFLAGS} ${EGL_CFLAGS}
   ${GPIOD_CFLAGS} -ggdb
   -DBUILD_TEXT_INPUT_PLUGIN 
-  -DBUILD_ELM327_PLUGIN 
   -DBUILD_SPIDEV_PLUGIN 
   -DBUILD_TEST_PLUGIN 
   -DBUILD_VIDEO_PLAYER_PLUGIN 

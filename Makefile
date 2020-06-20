@@ -1,13 +1,9 @@
-CC = cc
-LD = cc
 REAL_CFLAGS = -I./include $(shell pkg-config --cflags gbm libdrm glesv2 egl libsystemd) \
 	-DBUILD_TEXT_INPUT_PLUGIN \
-	-DBUILD_ELM327_PLUGIN \
 	-DBUILD_GPIOD_PLUGIN \
 	-DBUILD_SPIDEV_PLUGIN \
 	-DBUILD_TEST_PLUGIN \
 	-DBUILD_OMXPLAYER_VIDEO_PLAYER_PLUGIN \
-	-ggdb \
 	-O2 \
 	$(CFLAGS)
 
@@ -27,8 +23,14 @@ SOURCES = src/flutter-pi.c \
 	src/texture_registry.c \
 	src/compositor.c \
 	src/modesetting.c \
-	src/plugins/elm327plugin.c src/plugins/services.c src/plugins/testplugin.c src/plugins/text_input.c \
-	src/plugins/raw_keyboard.c src/plugins/gpiod.c src/plugins/spidev.c src/plugins/video_player.c
+	src/plugins/services.c \
+	src/plugins/testplugin.c \
+	src/plugins/text_input.c \
+	src/plugins/raw_keyboard.c \
+	src/plugins/gpiod.c \
+	src/plugins/spidev.c \
+	src/plugins/video_player.c
+
 OBJECTS = $(patsubst src/%.c,out/obj/%.o,$(SOURCES))
 
 all: out/flutter-pi

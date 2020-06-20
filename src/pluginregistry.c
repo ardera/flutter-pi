@@ -21,9 +21,6 @@
 #ifdef BUILD_TEST_PLUGIN
 #	include <plugins/testplugin.h>
 #endif
-#ifdef BUILD_ELM327_PLUGIN
-#	include <plugins/elm327plugin.h>
-#endif
 #ifdef BUILD_GPIOD_PLUGIN
 #	include <plugins/gpiod_plugin.h>
 #endif
@@ -60,10 +57,6 @@ struct flutterpi_plugin hardcoded_plugins[] = {
 
 #ifdef BUILD_TEST_PLUGIN
 	{.name = "testplugin",   .init = testp_init, .deinit = testp_deinit},
-#endif
-
-#ifdef BUILD_ELM327_PLUGIN
-	{.name = "elm327plugin", .init = ELM327Plugin_init, .deinit = ELM327Plugin_deinit},
 #endif
 
 #ifdef BUILD_GPIOD_PLUGIN

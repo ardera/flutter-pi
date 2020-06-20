@@ -183,6 +183,7 @@ static int on_mount(
         &player->mgr->task_queue,
         &(struct omxplayer_mgr_task) {
             .type = kUpdateView,
+            .responsehandle = NULL,
             .offset_x = offset_x,
             .offset_y = offset_y,
             .width = width,
@@ -234,12 +235,29 @@ static int on_update_view(
         &player->mgr->task_queue,
         &(struct omxplayer_mgr_task) {
             .type = kUpdateView,
+            .responsehandle = NULL,
             .offset_x = offset_x,
             .offset_y = offset_y,
             .width = width,
             .height = height,
             .zpos = zpos
         }
+    );
+}
+
+static int respond_sd_bus_error(
+    FlutterPlatformMessageResponseHandle *handle,
+    sd_bus_error *err
+) {
+    char str[256];
+
+    snprintf(str, sizeof(str), "%s: %s", err->name, err->message);
+
+    return platch_respond_error_std(
+        handle,
+        "dbus-error",
+        str,
+        NULL
     );
 }
 
@@ -278,6 +296,7 @@ static int get_dbus_property(
     ok = libsystemd.sd_bus_message_read_basic(msg, type, ret_ptr);
     if (ok < 0) {
         fprintf(stderr, "[omxplayer_video_player plugin] Could not read DBus property: %s\n", strerror(-ok));
+        libsystemd.sd_bus_message_unref(msg);
         return -ok;
     }
 
@@ -348,13 +367,25 @@ static void *mgr_entry(void *userdata) {
     ok = cqueue_dequeue(q, &task);
     if (ok != 0) {
         fprintf(stderr, "[omxplayer_video_player plugin] Could not dequeue creation task in manager thread. cqueue_dequeue: %s\n", strerror(ok));
-        return (void*) EXIT_FAILURE;
+        platch_respond_error_std(
+            task.responsehandle,
+            "internal-error",
+            "Could not dequeue creation task in manager thread.",
+            NULL
+        );
+        goto fail_remove_evch_listener;
     }
 
     // check that it really is a creation task
     if (task.type != kCreate || task.responsehandle == NULL) {
         fprintf(stderr, "[omxplayer_video_player plugin] First task of manager thread is not a creation task.\n");
-        return (void*) EXIT_FAILURE;
+        platch_respond_error_std(
+            task.responsehandle,
+            "internal-error",
+            "First task of manager thread is not a creation task.",
+            NULL
+        );
+        goto fail_remove_evch_listener;
     }
 
     // determine whether we're watching a stream or not.
@@ -379,7 +410,8 @@ static void *mgr_entry(void *userdata) {
     ok = libsystemd.sd_bus_open_user(&bus);
     if (ok < 0) {
         fprintf(stderr, "[omxplayer_video_player plugin] Could not open DBus in manager thread. sd_bus_open_user: %s\n", strerror(-ok));
-        return (void*) EXIT_FAILURE;
+        platch_respond_native_error_std(task.responsehandle, -ok);
+        goto fail_remove_evch_listener;
     }
 
     // register a callbacks that tells us when
@@ -396,6 +428,11 @@ static void *mgr_entry(void *userdata) {
         mgr_on_dbus_message,
         &task
     );
+    if (ok < 0) {
+        fprintf(stderr, "[omxplayer_video_player plugin] Could not wait for omxplayer DBus registration in manager thread. sd_bus_match_signal: %s\n", strerror(-ok));
+        platch_respond_native_error_std(task.responsehandle, -ok);
+        goto fail_close_dbus;
+    }
 
     // spawn the omxplayer process
     current_zpos = -1;
@@ -432,24 +469,27 @@ static void *mgr_entry(void *userdata) {
         omxplayer_pid = me;
     } else if (me < 0) {
         // something went wrong.
+        ok = errno;
         perror("[omxplayer_video_player plugin] Could not spawn omxplayer subprocess. fork");
-        platch_respond_native_error_std(
-            task.responsehandle,
-            errno
-        );
-
-        return (void*) EXIT_FAILURE;
+        platch_respond_native_error_std(task.responsehandle, ok);
+        goto fail_unref_slot;
     }
 
     while (!task.omxplayer_online) {
         ok = libsystemd.sd_bus_wait(bus, 1000*1000*5);
         if (ok < 0) {
-            fprintf(stderr, "[omxplayer_video_player plugin] Could not wait for sd bus messages on manager thread: %s\n", strerror(-ok));
+            ok = -ok;
+            fprintf(stderr, "[omxplayer_video_player plugin] Could not wait for sd bus messages on manager thread: %s\n", strerror(ok));
+            platch_respond_native_error_std(task.responsehandle, ok);
+            goto fail_kill_unregistered_player;
         }
 
         ok = libsystemd.sd_bus_process(bus, NULL);
         if (ok < 0) {
-            fprintf(stderr, "[omxplayer_video_player plugin] Could not wait for sd bus messages on manager thread: %s\n", strerror(-ok));
+            ok = -ok;
+            fprintf(stderr, "[omxplayer_video_player plugin] Could not wait for sd bus messages on manager thread: %s\n", strerror(ok));
+            platch_respond_native_error_std(task.responsehandle, ok);
+            goto fail_kill_unregistered_player;
         }
     }
 
@@ -468,7 +508,8 @@ static void *mgr_entry(void *userdata) {
         &duration_us
     );
     if (ok != 0) {
-        return (void*) EXIT_FAILURE;
+        respond_sd_bus_error(task.responsehandle, &err);
+        goto fail_kill_registered_player;
     }
 
     // wait for the first frame to appear
@@ -493,7 +534,8 @@ static void *mgr_entry(void *userdata) {
     );
     if (ok < 0) {
         fprintf(stderr, "[omxplayer_video_player plugin] Could not send initial pause message: %s, %s\n", err.name, err.message);
-        return (void*) EXIT_FAILURE;
+        respond_sd_bus_error(task.responsehandle, &err);
+        goto fail_kill_registered_player;
     }
 
     libsystemd.sd_bus_message_unref(msg);
@@ -512,7 +554,8 @@ static void *mgr_entry(void *userdata) {
         &duration_us
     );
     if (ok != 0) {
-        return (void*) EXIT_FAILURE;
+        respond_sd_bus_error(task.responsehandle, &err);
+        goto fail_kill_registered_player;
     }
 
     // get the video width
@@ -528,8 +571,8 @@ static void *mgr_entry(void *userdata) {
         &video_width
     );
     if (ok < 0) {
-        fprintf(stderr, "[omxplayer_video_player plugin] Could not query video width: %s, %s\n", err.name, err.message);
-        return (void*) EXIT_FAILURE;
+        respond_sd_bus_error(task.responsehandle, &err);
+        goto fail_kill_registered_player;
     }
 
     // get the video width
@@ -545,8 +588,8 @@ static void *mgr_entry(void *userdata) {
         &video_height
     );
     if (ok < 0) {
-        fprintf(stderr, "[omxplayer_video_player plugin] Could not query video height: %s, %s\n", err.name, err.message);
-        return (void*) EXIT_FAILURE;
+        respond_sd_bus_error(task.responsehandle, &err);
+        goto fail_kill_registered_player;
     }
 
     // creation was a success! respond to the dart-side with our player id.
@@ -583,22 +626,30 @@ static void *mgr_entry(void *userdata) {
             );
             if (ok < 0) {
                 fprintf(stderr, "[omxplayer_video_player plugin] Could not send Quit message to omxplayer: %s, %s\n", err.name, err.message);
-                platch_respond_native_error_std(task.responsehandle, -ok);
+                respond_sd_bus_error(task.responsehandle, &err);
                 continue;
             }
 
             libsystemd.sd_bus_message_unref(msg);
 
-            // wait for omxplayer to quit
-            waitpid(omxplayer_pid, NULL, 0);
+            ok = (int) waitpid(omxplayer_pid, NULL, 0);
+            if (ok < 0) {
+                fprintf(stderr, "[omxplayer_video_player plugin] omxplayer quit with exit code %d\n", ok);
+            }
 
-            // close the bus
             libsystemd.sd_bus_unref(bus);
-
+            
             plugin_registry_remove_receiver(mgr->player->event_channel_name);
-
-            // remove the player from the set of players
+            
             remove_player(mgr->player);
+            
+            free(mgr->player);
+            mgr->player = NULL;
+
+            cqueue_deinit(&mgr->task_queue);
+            
+            free(mgr);
+            mgr = NULL;
 
             platch_respond_success_std(task.responsehandle, NULL);
 
@@ -644,7 +695,7 @@ static void *mgr_entry(void *userdata) {
             );
             if (ok < 0) {
                 fprintf(stderr, "[omxplayer_video_player plugin] Could not send play message: %s, %s\n", err.name, err.message);
-                platch_respond_native_error_std(task.responsehandle, -ok);
+                respond_sd_bus_error(task.responsehandle, &err);
                 continue;
             }
 
@@ -666,7 +717,7 @@ static void *mgr_entry(void *userdata) {
             );
             if (ok < 0) {
                 fprintf(stderr, "[omxplayer_video_player plugin] Could not send pause message: %s, %s\n", err.name, err.message);
-                platch_respond_native_error_std(task.responsehandle, -ok);
+                respond_sd_bus_error(task.responsehandle, &err);
                 continue;
             }
 
@@ -699,7 +750,7 @@ static void *mgr_entry(void *userdata) {
                 video_pos_str
             );
             if (ok < 0) {
-                platch_respond_native_error_std(task.responsehandle, -ok);
+                fprintf(stderr, "[omxplayer_video_player plugin] Could not update omxplayer viewport. %s, %s\n", err.name, err.message);
                 continue;
             }
 
@@ -718,7 +769,8 @@ static void *mgr_entry(void *userdata) {
                     (int64_t) task.zpos
                 );
                 if (ok < 0) {
-                    platch_respond_native_error_std(task.responsehandle, -ok);
+                    fprintf(stderr, "[omxplayer_video_player plugin] Could not update omxplayer layer. %s, %s\n", err.name, err.message);
+                    continue;
                 }
 
                 libsystemd.sd_bus_message_unref(msg);
@@ -740,7 +792,7 @@ static void *mgr_entry(void *userdata) {
             );
             if (ok != 0) {
                 fprintf(stderr, "[omxplayer_video_player plugin] Could not get omxplayer position: %s, %s\n", err.name, err.message);
-                platch_respond_native_error_std(task.responsehandle, ok);
+                respond_sd_bus_error(task.responsehandle, &err);
                 continue;
             }
             
@@ -750,8 +802,6 @@ static void *mgr_entry(void *userdata) {
         } else if (task.type == kSetPosition) {
             if (is_stream) {
                 if (task.position == -1) {
-                    fprintf(stderr, "[omxplayer_video_player plugin] Flutter attempted to seek to end on non-seekable video (a stream) to %lldms\n", task.position);
-
                     // TODO: implement seek-to-end
 
                     platch_respond_success_std(
@@ -760,7 +810,7 @@ static void *mgr_entry(void *userdata) {
                     );
                 } else {
                     // Don't allow flutter to seek to anything other than the end on a stream.
-                    fprintf(stderr, "[omxplayer_video_player plugin] Flutter attempted to seek on non-seekable video (a stream) to %lldms\n", task.position);
+                    fprintf(stderr, "[omxplayer_video_player plugin] Flutter attempted to seek on non-seekable video (a stream).\n");
 
                     platch_respond_error_std(
                         task.responsehandle,
@@ -784,7 +834,7 @@ static void *mgr_entry(void *userdata) {
                 );
                 if (ok != 0) {
                     fprintf(stderr, "[omxplayer_video_player plugin] Could not set omxplayer position: %s, %s\n", err.name, err.message);
-                    platch_respond_native_error_std(task.responsehandle, -ok);
+                    respond_sd_bus_error(task.responsehandle, &err);
                     continue;
                 }
 
@@ -811,7 +861,7 @@ static void *mgr_entry(void *userdata) {
             );
             if (ok < 0) {
                 fprintf(stderr, "[omxplayer_video_player plugin] Could not set omxplayer volume: %s, %s\n", err.name, err.message);
-                platch_respond_native_error_std(task.responsehandle, -ok);
+                respond_sd_bus_error(task.responsehandle, &err);
                 continue;
             }
 
@@ -822,6 +872,34 @@ static void *mgr_entry(void *userdata) {
     }
     
     return (void*) EXIT_SUCCESS;
+
+
+    fail_kill_registered_player:
+    kill(omxplayer_pid, SIGKILL);
+    waitpid(omxplayer_pid, NULL, 0);
+    goto fail_close_dbus;
+
+    fail_kill_unregistered_player:
+    kill(omxplayer_pid, SIGKILL);
+    waitpid(omxplayer_pid, NULL, 0);
+
+    fail_unref_slot:
+    libsystemd.sd_bus_slot_unref(slot);
+    slot = NULL;
+
+    fail_close_dbus:
+    libsystemd.sd_bus_unref(bus);
+
+    fail_remove_evch_listener:
+    plugin_registry_remove_receiver(mgr->player->event_channel_name);
+    remove_player(mgr->player);
+    free(mgr->player);
+    cqueue_deinit(&mgr->task_queue);
+    free(mgr);
+    mgr = NULL;
+
+    fail_return_ok:
+    return (void*) EXIT_FAILURE;
 }
 
 /// Ensures the bindings to libsystemd are initialized.
@@ -1328,15 +1406,13 @@ static int on_create(
 
     ok = cqueue_init(&mgr->task_queue, sizeof(struct omxplayer_mgr_task), CQUEUE_DEFAULT_MAX_QUEUE_SIZE);
     if (ok != 0) {
-        free(mgr);
-        return platch_respond_native_error_std(responsehandle, ok);
+        goto fail_free_mgr;
     }
 
     // Allocate the player metadata
     player = calloc(1, sizeof(*player));
     if (player == NULL) {
-        cqueue_deinit(&mgr->task_queue);
-        return platch_respond_native_error_std(responsehandle, ENOMEM);
+        goto fail_deinit_task_queue;
     }
 
     player->player_id = omxpvidpp.next_unused_player_id++;
@@ -1352,10 +1428,7 @@ static int on_create(
     });
 
     if (ok != 0) {
-        free(mgr);
-        cqueue_deinit(&mgr->task_queue);
-        free(player);
-        return platch_respond_native_error_std(responsehandle, ok);
+        goto fail_free_player;
     }
 
     snprintf(
@@ -1368,10 +1441,7 @@ static int on_create(
     // add it to our player collection
     ok = add_player(player);
     if (ok != 0) {
-        free(mgr);
-        cqueue_deinit(&mgr->task_queue);
-        free(player);
-        return platch_respond_native_error_std(responsehandle, ok);
+        goto fail_free_player;
     }
 
     // set a receiver on the videoEvents event channel
@@ -1381,28 +1451,35 @@ static int on_create(
         on_receive_evch
     );
     if (ok != 0) {
-        //remove_player(player);
-        free(mgr);
-        cqueue_deinit(&mgr->task_queue);
-        free(player);
-        return platch_respond_native_error_std(responsehandle, ok);
+        goto fail_remove_player;
     }
-
-    // before we fork, wait for DBus NameOwnerChanged signals,
-    // so we can immediately pause omxplayer once it has registered
-    // to dbus.
 
     ok = pthread_create(&mgr->thread, NULL, mgr_entry, mgr);
     if (ok != 0) {
-        //remove_player(player);
-        plugin_registry_remove_receiver(player->event_channel_name);
-        free(mgr);
-        cqueue_deinit(&mgr->task_queue);
-        free(player);
-        return platch_respond_native_error_std(responsehandle, ok);
+        goto fail_remove_evch_listener;
     }
 
     return 0;
+
+
+    fail_remove_evch_listener:
+    plugin_registry_remove_receiver(player->event_channel_name);
+
+    fail_remove_player:
+    remove_player(player);
+
+    fail_free_player:
+    free(player);
+    player = NULL;
+
+    fail_deinit_task_queue:
+    cqueue_deinit(&mgr->task_queue);
+
+    fail_free_mgr:
+    free(mgr);
+    mgr = NULL;
+
+    return platch_respond_native_error_std(responsehandle, ok);
 }
 
 static int on_dispose(
@@ -1580,8 +1657,6 @@ static int on_create_platform_view(
         );
     }
     
-    printf("on_create_platform_view(%lld)\n", view_id);
-
     if (player->has_view) {
         fprintf(stderr, "[omxplayer_video_player plugin] Flutter attempted to register more than one platform view for one player instance.\n");
         
@@ -1630,8 +1705,6 @@ static int on_dispose_platform_view(
             "Expected `arg['platformViewId']` to be an integer."
         );
     }
-
-    printf("on_dispose_platform_view(%lld)\n", view_id);
 
     if (player->view_id != view_id) {
         fprintf(
@@ -1715,6 +1788,7 @@ int omxpvidpp_init(void) {
 }
 
 int omxpvidpp_deinit(void) {
+    plugin_registry_remove_receiver("flutter.io/omxplayerVideoPlayer");
 
     return 0;
 }

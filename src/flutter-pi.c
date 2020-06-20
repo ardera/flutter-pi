@@ -518,6 +518,8 @@ static bool message_loop(void) {
 				fprintf(stderr, "Error running platform task\n");
 				return false;
 			}
+		} else if (task->type == kExit) {
+			printf("[flutter-pi] flutter requested application shutdown. not yet implemented\n");
 		} else if (task->type == kGeneric) {
 			task->callback(task->userdata);
 		}
@@ -706,7 +708,7 @@ static int init_display() {
 	const struct drm_connector *connector;
 	const struct drm_encoder *encoder;
 	const struct drm_crtc *crtc;
-	const drmModeModeInfo *mode;
+	const drmModeModeInfo *mode, *mode_iter;
 	struct drmdev *drmdev;
 	drmDevicePtr devices[64];
 	EGLint egl_error;
@@ -719,6 +721,7 @@ static int init_display() {
 		return -num_devices;
 	}
 	
+	// find a GPU that has a primary node
 	for (int i = 0; i < num_devices; i++) {
 		drmDevicePtr device;
 		
@@ -735,7 +738,6 @@ static int init_display() {
 			continue;
 		}
 
-		printf("[flutter-pi] Chose \"%s\" as the DRM device.\n", device->nodes[DRM_NODE_PRIMARY]);
 		break;
 	}
 
@@ -746,25 +748,23 @@ static int init_display() {
 		return false;
 	}
 
+	// find a connected connector
 	for_each_connector_in_drmdev(drmdev, connector) {
 		if (connector->connector->connection == DRM_MODE_CONNECTED) {
 			// only update the physical size of the display if the values
 			//   are not yet initialized / not set with a commandline option
 			if ((width_mm == 0) && (height_mm == 0)) {
-				if ((connector->connector->mmWidth == 160) &&
-					(connector->connector->mmHeight == 90))
-				{
-					// if width and height is exactly 160mm x 90mm, the values are probably bogus.
-					width_mm = 0;
-					height_mm = 0;
-				} else if ((connector->connector->connector_type == DRM_MODE_CONNECTOR_DSI) &&
-						   (connector->connector->mmWidth == 0) &&
-						   (connector->connector->mmHeight == 0))
+				if ((connector->connector->connector_type == DRM_MODE_CONNECTOR_DSI) &&
+					(connector->connector->mmWidth == 0) &&
+					(connector->connector->mmHeight == 0))
 				{
 					// if it's connected via DSI, and the width & height are 0,
 					//   it's probably the official 7 inch touchscreen.
 					width_mm = 155;
 					height_mm = 86;
+				} else if ((connector->connector->mmHeight % 10 == 0) &&
+						   (connector->connector->mmWidth % 10 == 0)) {
+					// don't change anything.
 				} else {
 					width_mm = connector->connector->mmWidth;
 					height_mm = connector->connector->mmHeight;
@@ -780,23 +780,23 @@ static int init_display() {
 		return EINVAL;
 	}
 	
-	{
-		drmModeModeInfo *mode_iter;
-		for_each_mode_in_connector(connector, mode_iter) {
-			if (mode_iter->type & DRM_MODE_TYPE_PREFERRED) {
-				mode = mode_iter;
-				break;
-			} else if (mode == NULL) {
-				mode = mode_iter;
-			} else {
-				int area = mode_iter->hdisplay * mode_iter->vdisplay;
-				int old_area = mode->hdisplay * mode->vdisplay;
+	// Find the preferred mode (GPU drivers _should_ always supply a preferred mode, but of course, they don't)
+	// Alternatively, find the mode with the highest width*height. If there are multiple modes with the same w*h,
+	// prefer higher refresh rates. After that, prefer progressive scanout modes.
+	for_each_mode_in_connector(connector, mode_iter) {
+		if (mode_iter->type & DRM_MODE_TYPE_PREFERRED) {
+			mode = mode_iter;
+			break;
+		} else if (mode == NULL) {
+			mode = mode_iter;
+		} else {
+			int area = mode_iter->hdisplay * mode_iter->vdisplay;
+			int old_area = mode->hdisplay * mode->vdisplay;
 
-				if ((area > old_area) ||
-				    ((area == old_area) && (mode_iter->vrefresh > mode->vrefresh)) ||
-					((area == old_area) && (mode_iter->vrefresh == mode->vrefresh) && ((mode->flags & DRM_MODE_FLAG_INTERLACE) == 0))) {
-					mode = mode_iter;
-				}
+			if ((area > old_area) ||
+				((area == old_area) && (mode_iter->vrefresh > mode->vrefresh)) ||
+				((area == old_area) && (mode_iter->vrefresh == mode->vrefresh) && ((mode->flags & DRM_MODE_FLAG_INTERLACE) == 0))) {
+				mode = mode_iter;
 			}
 		}
 	}
@@ -813,11 +813,14 @@ static int init_display() {
 
 	if (pixel_ratio == 0.0) {
 		if ((width_mm == 0) || (height_mm == 0)) {
+			fprintf(
+				stderr,
+				"[flutter-pi] WARNING: display didn't provide valid physical dimensions.\n"
+				"             The device-pixel ratio will default to 1.0, which may not be the fitting device-pixel ratio for your display.\n"
+			);
 			pixel_ratio = 1.0;
 		} else {
 			pixel_ratio = (10.0 * width) / (width_mm * 38.0);
-			// lets try if this works.
-			// if (pixel_ratio < 1.0) pixel_ratio = 1.0;
 		}
 	}
 
@@ -846,12 +849,23 @@ static int init_display() {
 	ok = drmdev_configure(drmdev, connector->connector->connector_id, encoder->encoder->encoder_id, crtc->crtc->crtc_id, mode);
 	if (ok != 0) return ok;
 
-	printf("[flutter-pi] display properties:\n  %u x %u, %uHz\n  %umm x %umm\n  pixel_ratio = %f\n", width, height, refresh_rate, width_mm, height_mm, pixel_ratio);
+	printf(
+		"===================================\n"
+		"display mode:\n"
+		"  resolution: %u x %u\n"
+		"  refresh rate: %uHz\n"
+		"  physical size: %umm x %umm\n"
+		"  flutter device pixel ratio: %f\n"
+		"===================================\n",
+		width, height,
+		refresh_rate,
+		width_mm, height_mm,
+		pixel_ratio
+	);
 
 	/**********************
 	 * GBM INITIALIZATION *
 	 **********************/
-	printf("Creating GBM device\n");
 	gbm.device = gbm_create_device(drmdev->fd);
 	gbm.format = DRM_FORMAT_ARGB8888;
 	gbm.surface = NULL;
@@ -914,8 +928,7 @@ static int init_display() {
 
 	egl_exts_dpy = eglQueryString(egl.display, EGL_EXTENSIONS);
 
-	printf("Using display %p with EGL version %d.%d\n", egl.display, major, minor);
-	printf("===================================\n");
+	//printf("===================================\n");
 	printf("EGL information:\n");
 	printf("  version: %s\n", eglQueryString(egl.display, EGL_VERSION));
 	printf("  vendor: \"%s\"\n", eglQueryString(egl.display, EGL_VENDOR));
@@ -1107,7 +1120,7 @@ static int init_display() {
 	egl.renderer = (char*) glGetString(GL_RENDERER);
 
 	gl_exts = (char*) glGetString(GL_EXTENSIONS);
-	printf("===================================\n");
+	//printf("===================================\n");
 	printf("OpenGL ES information:\n");
 	printf("  version: \"%s\"\n", glGetString(GL_VERSION));
 	printf("  shading language version: \"%s\"\n", glGetString(GL_SHADING_LANGUAGE_VERSION));
@@ -1339,8 +1352,7 @@ static void  init_io(void) {
 		uint32_t props[(INPUT_PROP_CNT+31) /32] = {0};
 		
 		snprintf(dev.path, sizeof(dev.path), "%s", input_devices_glob.gl_pathv[i]);
-		printf("  input device %i: path=\"%s\"\n", i, dev.path);
-		
+
 		// first, try to open the event device.
 		dev.fd = open(dev.path, O_RDONLY);
 		if (dev.fd < 0) {
@@ -1355,9 +1367,6 @@ static void  init_io(void) {
 			perror("\n    could not query input device name / id: ioctl for EVIOCGNAME or EVIOCGID failed");
 			goto close_continue;
 		}
-
-		printf("      %s, connected via %s. vendor: 0x%04X, product: 0x%04X, version: 0x%04X\n", dev.name,
-			   INPUT_BUSTYPE_FRIENDLY_NAME(dev.input_id.bustype), dev.input_id.vendor, dev.input_id.product, dev.input_id.version);
 
 		// query supported event codes (for EV_ABS, EV_REL and EV_KEY event types)
 		ok = ioctl(dev.fd, EVIOCGBIT(EV_ABS, sizeof(absbits)), absbits);
@@ -1448,7 +1457,7 @@ static void  init_io(void) {
 	}
 
 	if (n_input_devices == 0)
-		printf("Warning: No evdev input devices configured.\n");
+		printf("[flutter-pi] Warning: No input devices configured.\n");
 	
 	// configure the console
 	ok = console_make_raw();
@@ -1460,7 +1469,7 @@ static void  init_io(void) {
 
 	// now send all the kAdd events to flutter.
 	ok = kSuccess == FlutterEngineSendPointerEvent(engine, flutterevents, i_flutterevent);
-	if (!ok) fprintf(stderr, "error while sending initial mousepointer / multitouch slot information to flutter\n");
+	if (!ok) fprintf(stderr, "[flutter-pi] error while sending initial mousepointer / multitouch slot information to flutter\n");
 }
 
 static void  on_evdev_input(fd_set fds, size_t n_ready_fds) {
@@ -1808,11 +1817,9 @@ static bool  parse_cmd_args(int argc, char **argv) {
 	flutter.engine_argc = argc-optind;
 	flutter.engine_argv = (const char* const*) &(argv[optind]);
 
-	for (int i=0; i<flutter.engine_argc; i++)
-		printf("engine_argv[%i] = %s\n", i, flutter.engine_argv[i]);
-	
 	return true;
 }
+
 int   main(int argc, char **argv) {
 	int ok;
 	if (!parse_cmd_args(argc, argv)) {
@@ -1835,21 +1842,17 @@ int   main(int argc, char **argv) {
 	}
 	
 	// initialize application
-	printf("Initializing Application...\n");
 	ok = init_application();
 	if (ok != 0) {
 		return EXIT_FAILURE;
 	}
 
-	printf("Initializing Input devices...\n");
 	init_io();
 	
 	// read input events
-	printf("Running IO thread...\n");
 	run_io_thread();
 
 	// run message loop
-	printf("Running message loop...\n");
 	message_loop();
 
 	// exit
