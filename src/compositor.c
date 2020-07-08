@@ -37,7 +37,7 @@ struct plane_reservation_data {
     bool is_reserved;
 };
 
-struct flutterpi_compositor flutterpi_compositor = {
+struct compositor compositor = {
     .drmdev = NULL,
     .cbs = CPSET_INITIALIZER(CPSET_DEFAULT_MAX_SIZE),
     .planes = CPSET_INITIALIZER(CPSET_DEFAULT_MAX_SIZE),
@@ -49,7 +49,7 @@ struct flutterpi_compositor flutterpi_compositor = {
 static struct view_cb_data *get_cbs_for_view_id_locked(int64_t view_id) {
     struct view_cb_data *data;
     
-    for_each_pointer_in_cpset(&flutterpi_compositor.cbs, data) {
+    for_each_pointer_in_cpset(&compositor.cbs, data) {
         if (data->view_id == view_id) {
             return data;
         }
@@ -61,9 +61,9 @@ static struct view_cb_data *get_cbs_for_view_id_locked(int64_t view_id) {
 static struct view_cb_data *get_cbs_for_view_id(int64_t view_id) {
     struct view_cb_data *data;
     
-    cpset_lock(&flutterpi_compositor.cbs);
+    cpset_lock(&compositor.cbs);
     data = get_cbs_for_view_id_locked(view_id);
-    cpset_unlock(&flutterpi_compositor.cbs);
+    cpset_unlock(&compositor.cbs);
     
     return data;
 }
@@ -76,7 +76,7 @@ static void destroy_gbm_bo(
 	struct drm_fb *fb = userdata;
 
 	if (fb && fb->fb_id)
-		drmModeRmFB(drm.drmdev->fd, fb->fb_id);
+		drmModeRmFB(flutterpi.drm.drmdev->fd, fb->fb_id);
 	
 	free(fb);
 }
@@ -114,7 +114,7 @@ static uint32_t gbm_bo_get_drm_fb_id(struct gbm_bo *bo) {
 		flags = DRM_MODE_FB_MODIFIERS;
 	}
 
-	ok = drmModeAddFB2WithModifiers(drm.drmdev->fd, width, height, format, handles, strides, offsets, modifiers, &fb->fb_id, flags);
+	ok = drmModeAddFB2WithModifiers(flutterpi.drm.drmdev->fd, width, height, format, handles, strides, offsets, modifiers, &fb->fb_id, flags);
 
 	if (ok) {
 		if (flags)
@@ -124,7 +124,7 @@ static uint32_t gbm_bo_get_drm_fb_id(struct gbm_bo *bo) {
 		memcpy(strides, (uint32_t [4]){gbm_bo_get_stride(bo),0,0,0}, 16);
 		memset(offsets, 0, 16);
 
-		ok = drmModeAddFB2(drm.drmdev->fd, width, height, format, handles, strides, offsets, &fb->fb_id, 0);
+		ok = drmModeAddFB2(flutterpi.drm.drmdev->fd, width, height, format, handles, strides, offsets, &fb->fb_id, 0);
 	}
 
 	if (ok) {
@@ -152,7 +152,7 @@ static int create_drm_rbo(
     eglGetError();
     glGetError();
 
-    fbo.egl_image = egl.createDRMImageMESA(egl.display, (const EGLint[]) {
+    fbo.egl_image = flutterpi.egl.createDRMImageMESA(flutterpi.egl.display, (const EGLint[]) {
         EGL_WIDTH, width,
         EGL_HEIGHT, height,
         EGL_DRM_BUFFER_FORMAT_MESA, EGL_DRM_BUFFER_FORMAT_ARGB32_MESA,
@@ -164,7 +164,7 @@ static int create_drm_rbo(
         return EINVAL;
     }
 
-    egl.exportDRMImageMESA(egl.display, fbo.egl_image, NULL, &fbo.gem_handle, &fbo.gem_stride);
+    flutterpi.egl.exportDRMImageMESA(flutterpi.egl.display, fbo.egl_image, NULL, &fbo.gem_handle, &fbo.gem_stride);
     if ((egl_error = eglGetError()) != EGL_SUCCESS) {
         fprintf(stderr, "[compositor] error getting handle & stride for DRM EGL Image, eglExportDRMImageMESA: %d\n", egl_error);
         return EINVAL;
@@ -182,7 +182,7 @@ static int create_drm_rbo(
         return EINVAL;
     }
 
-    gl.EGLImageTargetRenderbufferStorageOES(GL_RENDERBUFFER, fbo.egl_image);
+    flutterpi.gl.EGLImageTargetRenderbufferStorageOES(GL_RENDERBUFFER, fbo.egl_image);
     if (gl_error = glGetError()) {
         fprintf(stderr, "[compositor] error binding DRM EGL Image to renderbuffer, glEGLImageTargetRenderbufferStorageOES: %ld\n", gl_error);
         return EINVAL;
@@ -216,7 +216,7 @@ static int create_drm_rbo(
     // glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
     ok = drmModeAddFB2(
-        drm.drmdev->fd,
+        flutterpi.drm.drmdev->fd,
         width,
         height,
         DRM_FORMAT_ARGB8888,
@@ -301,12 +301,12 @@ static void destroy_drm_rbo(
         fprintf(stderr, "[compositor] error destroying OpenGL RBO, glDeleteRenderbuffers: 0x%08X\n", gl_error);
     }
 
-    ok = drmModeRmFB(drm.drmdev->fd, rbo->drm_fb_id);
+    ok = drmModeRmFB(flutterpi.drm.drmdev->fd, rbo->drm_fb_id);
     if (ok < 0) {
         fprintf(stderr, "[compositor] error removing DRM FB, drmModeRmFB: %s\n", strerror(errno));
     }
 
-    eglDestroyImage(egl.display, rbo->egl_image);
+    eglDestroyImage(flutterpi.egl.display, rbo->egl_image);
     if (egl_error = eglGetError(), egl_error != EGL_SUCCESS) {
         fprintf(stderr, "[compositor] error destroying EGL image, eglDestroyImage: 0x%08X\n", egl_error);
     }
@@ -353,7 +353,7 @@ int compositor_on_page_flip(
 static int  create_window_surface_backing_store(
     const FlutterBackingStoreConfig *config,
     FlutterBackingStore *backing_store_out,
-    struct flutterpi_compositor *compositor
+    struct compositor *compositor
 ) {
     struct backing_store_metadata *meta;
     int ok;
@@ -376,8 +376,8 @@ static int  create_window_surface_backing_store(
 
     meta->type = kWindowSurface;
     meta->window_surface.compositor = compositor;
-    meta->window_surface.current_front_bo = drm.current_bo;
-    meta->window_surface.gbm_surface = gbm.surface;
+    meta->window_surface.current_front_bo = NULL;
+    meta->window_surface.gbm_surface = flutterpi.gbm.surface;
 
     backing_store_out->type = kFlutterBackingStoreTypeOpenGL;
     backing_store_out->open_gl.type = kFlutterOpenGLTargetTypeFramebuffer;
@@ -393,7 +393,7 @@ static int  create_window_surface_backing_store(
 static int  create_drm_fb_backing_store(
     const FlutterBackingStoreConfig *config,
     FlutterBackingStore *backing_store_out,
-    struct flutterpi_compositor *compositor
+    struct compositor *compositor
 ) {
     struct backing_store_metadata *meta;
     struct drm_fb_backing_store *inner;
@@ -432,8 +432,8 @@ static int  create_drm_fb_backing_store(
     }
 
     ok = create_drm_rbo(
-        compositor->drmdev->selected_mode->hdisplay,
-        compositor->drmdev->selected_mode->vdisplay,
+        flutterpi.display.width,
+        flutterpi.display.height,
         inner->rbos + 0
     );
     if (ok != 0) {
@@ -444,8 +444,8 @@ static int  create_drm_fb_backing_store(
     }
 
     ok = create_drm_rbo(
-        compositor->drmdev->selected_mode->hdisplay,
-        compositor->drmdev->selected_mode->vdisplay,
+        flutterpi.display.width,
+        flutterpi.display.height,
         inner->rbos + 1
     );
     if (ok != 0) {
@@ -484,7 +484,9 @@ static bool create_backing_store(
 ) {
     int ok;
 
-    if (flutterpi_compositor.should_create_window_surface_backing_store) {
+    printf("create_backing_store\n");
+
+    if (compositor.should_create_window_surface_backing_store) {
         // We create 1 "backing store" that is rendering to the DRM_PLANE_PRIMARY
         // plane. That backing store isn't really a backing store at all, it's
         // FBO id is 0, so it's actually rendering to the window surface.
@@ -498,7 +500,7 @@ static bool create_backing_store(
             return false;
         }
 
-        flutterpi_compositor.should_create_window_surface_backing_store = false;
+        compositor.should_create_window_surface_backing_store = false;
     } else {
         // After the primary plane backing store was created,
         // we only create overlay plane backing stores. I.e.
@@ -530,6 +532,10 @@ static int  collect_window_surface_backing_store(
     struct window_surface_backing_store *inner = &meta->window_surface;
 
     printf("collect_window_surface_backing_store\n");
+
+    compositor_free_plane(inner->drm_plane_id);
+
+    compositor.should_create_window_surface_backing_store = true;
 
     return 0;
 }
@@ -567,7 +573,7 @@ static bool collect_backing_store(
                 return false;
             }
 
-            flutterpi_compositor.should_create_window_surface_backing_store = true;
+            compositor.should_create_window_surface_backing_store = true;
         } else if (meta->type == kDrmFb) {
             ok = collect_drm_fb_backing_store(renderer, meta);
             if (ok != 0) {
@@ -606,18 +612,20 @@ static int present_window_surface_backing_store(
     drmdev_atomic_req_put_plane_property(atomic_req, backing_store->drm_plane_id, "CRTC_ID", backing_store->compositor->drmdev->selected_crtc->crtc->crtc_id);
     drmdev_atomic_req_put_plane_property(atomic_req, backing_store->drm_plane_id, "SRC_X", 0);
     drmdev_atomic_req_put_plane_property(atomic_req, backing_store->drm_plane_id, "SRC_Y", 0);
-    drmdev_atomic_req_put_plane_property(atomic_req, backing_store->drm_plane_id, "SRC_W", ((uint16_t) width) << 16);
-    drmdev_atomic_req_put_plane_property(atomic_req, backing_store->drm_plane_id, "SRC_H", ((uint16_t) height) << 16);
+    drmdev_atomic_req_put_plane_property(atomic_req, backing_store->drm_plane_id, "SRC_W", ((uint16_t) flutterpi.display.width) << 16);
+    drmdev_atomic_req_put_plane_property(atomic_req, backing_store->drm_plane_id, "SRC_H", ((uint16_t) flutterpi.display.height) << 16);
     drmdev_atomic_req_put_plane_property(atomic_req, backing_store->drm_plane_id, "CRTC_X", 0);
     drmdev_atomic_req_put_plane_property(atomic_req, backing_store->drm_plane_id, "CRTC_Y", 0);
-    drmdev_atomic_req_put_plane_property(atomic_req, backing_store->drm_plane_id, "CRTC_W", width);
-    drmdev_atomic_req_put_plane_property(atomic_req, backing_store->drm_plane_id, "CRTC_H", height);
+    drmdev_atomic_req_put_plane_property(atomic_req, backing_store->drm_plane_id, "CRTC_W", flutterpi.display.width);
+    drmdev_atomic_req_put_plane_property(atomic_req, backing_store->drm_plane_id, "CRTC_H", flutterpi.display.height);
     drmdev_atomic_req_put_plane_property(atomic_req, backing_store->drm_plane_id, "zpos", zpos);
 
     // TODO: move this to the page flip handler.
     // We can only be sure the buffer can be released when the buffer swap
     // ocurred.
-	gbm_surface_release_buffer(backing_store->gbm_surface, backing_store->current_front_bo);
+    if (backing_store->current_front_bo != NULL) {
+        gbm_surface_release_buffer(backing_store->gbm_surface, backing_store->current_front_bo);
+    }
 	backing_store->current_front_bo = (struct gbm_bo *) next_front_bo;
 
     return 0;
@@ -659,18 +667,14 @@ static int present_drm_fb_backing_store(
     drmdev_atomic_req_put_plane_property(req, backing_store->drm_plane_id, "CRTC_ID", backing_store->compositor->drmdev->selected_crtc->crtc->crtc_id);
     drmdev_atomic_req_put_plane_property(req, backing_store->drm_plane_id, "SRC_X", 0);
     drmdev_atomic_req_put_plane_property(req, backing_store->drm_plane_id, "SRC_Y", 0);
-    drmdev_atomic_req_put_plane_property(req, backing_store->drm_plane_id, "SRC_W", ((uint16_t) width) << 16);
-    drmdev_atomic_req_put_plane_property(req, backing_store->drm_plane_id, "SRC_H", ((uint16_t) height) << 16);
+    drmdev_atomic_req_put_plane_property(req, backing_store->drm_plane_id, "SRC_W", ((uint16_t) flutterpi.display.width) << 16);
+    drmdev_atomic_req_put_plane_property(req, backing_store->drm_plane_id, "SRC_H", ((uint16_t) flutterpi.display.height) << 16);
     drmdev_atomic_req_put_plane_property(req, backing_store->drm_plane_id, "CRTC_X", 0);
     drmdev_atomic_req_put_plane_property(req, backing_store->drm_plane_id, "CRTC_Y", 0);
-    drmdev_atomic_req_put_plane_property(req, backing_store->drm_plane_id, "CRTC_W", width);
-    drmdev_atomic_req_put_plane_property(req, backing_store->drm_plane_id, "CRTC_H", height);
+    drmdev_atomic_req_put_plane_property(req, backing_store->drm_plane_id, "CRTC_W", flutterpi.display.width);
+    drmdev_atomic_req_put_plane_property(req, backing_store->drm_plane_id, "CRTC_H", flutterpi.display.height);
     drmdev_atomic_req_put_plane_property(req, backing_store->drm_plane_id, "rotation", DRM_MODE_ROTATE_0 | DRM_MODE_REFLECT_Y);
-    
-    ok = drmdev_atomic_req_put_plane_property(req, backing_store->drm_plane_id, "zpos", zpos);
-    if (ok != 0) {
-        fprintf(stderr, "Could not put zpos plane property: %s\n", strerror(ok));
-    }
+    drmdev_atomic_req_put_plane_property(req, backing_store->drm_plane_id, "zpos", zpos);
 
     return 0;
 }
@@ -733,13 +737,15 @@ static bool present_layers_callback(
     void *user_data
 ) {
     struct plane_reservation_data *data;
-    struct flutterpi_compositor *compositor;
+    struct compositor *compositor;
     struct drmdev_atomic_req *req;
     struct view_cb_data *cb_data;
     uint32_t req_flags;
 	int ok;
 
     compositor = user_data;
+
+    printf("present_layers_callback\n");
 
     /*
     printf("[compositor] present_layers_callback(\n"
@@ -835,8 +841,8 @@ static bool present_layers_callback(
 
     // flush GL
     FlutterEngineTraceEventDurationBegin("eglSwapBuffers");
-    eglMakeCurrent(egl.display, egl.surface, egl.surface, egl.root_context);
-    eglSwapBuffers(egl.display, egl.surface);
+    eglMakeCurrent(flutterpi.egl.display, flutterpi.egl.surface, flutterpi.egl.surface, flutterpi.egl.root_context);
+    eglSwapBuffers(flutterpi.egl.display, flutterpi.egl.surface);
     FlutterEngineTraceEventDurationEnd("eglSwapBuffers");
 
     FlutterEngineTraceEventDurationBegin("drmdev_new_atomic_req");
@@ -1003,7 +1009,7 @@ static bool present_layers_callback(
         }
     }
     
-    eglMakeCurrent(egl.display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+    eglMakeCurrent(flutterpi.egl.display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
 
     // all unused planes will be set inactive
     for_each_pointer_in_cpset(&compositor->planes, data) {
@@ -1034,18 +1040,18 @@ int compositor_set_view_callbacks(
 ) {
     struct view_cb_data *entry;
 
-    cpset_lock(&flutterpi_compositor.cbs);
+    cpset_lock(&compositor.cbs);
 
     entry = get_cbs_for_view_id_locked(view_id);
 
     if (entry == NULL) {
         entry = calloc(1, sizeof(*entry));
         if (!entry) {
-            cpset_unlock(&flutterpi_compositor.cbs);
+            cpset_unlock(&compositor.cbs);
             return ENOMEM;
         }
 
-        cpset_put_locked(&flutterpi_compositor.cbs, entry);
+        cpset_put_locked(&compositor.cbs, entry);
     }
 
     entry->view_id = view_id;
@@ -1055,41 +1061,41 @@ int compositor_set_view_callbacks(
     entry->present = present;
     entry->userdata = userdata;
 
-    return cpset_unlock(&flutterpi_compositor.cbs);
+    return cpset_unlock(&compositor.cbs);
 }
 
 int compositor_remove_view_callbacks(int64_t view_id) {
     struct view_cb_data *entry;
 
-    cpset_lock(&flutterpi_compositor.cbs);
+    cpset_lock(&compositor.cbs);
 
     entry = get_cbs_for_view_id_locked(view_id);
     if (entry == NULL) {
         return EINVAL;
     }
 
-    cpset_remove_locked(&flutterpi_compositor.cbs, entry);
+    cpset_remove_locked(&compositor.cbs, entry);
 
-    return cpset_unlock(&flutterpi_compositor.cbs);
+    return cpset_unlock(&compositor.cbs);
 }
 
 /// DRM HARDWARE PLANE RESERVATION
 int compositor_reserve_plane(uint32_t *plane_id_out) {
     struct plane_reservation_data *data;
 
-    cpset_lock(&flutterpi_compositor.planes);
+    cpset_lock(&compositor.planes);
 
-    for_each_pointer_in_cpset(&flutterpi_compositor.planes, data) {
+    for_each_pointer_in_cpset(&compositor.planes, data) {
         if (data->is_reserved == false) {
             data->is_reserved = true;
-            cpset_unlock(&flutterpi_compositor.planes);
+            cpset_unlock(&compositor.planes);
 
             *plane_id_out = data->plane->plane->plane_id;
             return 0;
         }
     }
 
-    cpset_unlock(&flutterpi_compositor.planes);
+    cpset_unlock(&compositor.planes);
     
     *plane_id_out = 0;
     return EBUSY;
@@ -1098,17 +1104,17 @@ int compositor_reserve_plane(uint32_t *plane_id_out) {
 int compositor_free_plane(uint32_t plane_id) {
     struct plane_reservation_data *data;
 
-    cpset_lock(&flutterpi_compositor.planes);
+    cpset_lock(&compositor.planes);
 
-    for_each_pointer_in_cpset(&flutterpi_compositor.planes, data) {
+    for_each_pointer_in_cpset(&compositor.planes, data) {
         if (data->plane->plane->plane_id == plane_id) {
             data->is_reserved = false;
-            cpset_unlock(&flutterpi_compositor.planes);
+            cpset_unlock(&compositor.planes);
             return 0;
         }
     }
 
-    cpset_unlock(&flutterpi_compositor.planes);
+    cpset_unlock(&compositor.planes);
     return EINVAL;
 }
 
@@ -1117,26 +1123,27 @@ int compositor_initialize(struct drmdev *drmdev) {
     struct plane_reservation_data *data;
     const struct drm_plane *plane;
 
-    cpset_lock(&flutterpi_compositor.planes);
+    cpset_lock(&compositor.planes);
 
     for_each_plane_in_drmdev(drmdev, plane) {
+        
         data = calloc(1, sizeof (struct plane_reservation_data));
         if (data == NULL) {
-            for_each_pointer_in_cpset(&flutterpi_compositor.planes, data)
+            for_each_pointer_in_cpset(&compositor.planes, data)
                 free(data);
-            cpset_unlock(&flutterpi_compositor.planes);
+            cpset_unlock(&compositor.planes);
             return ENOMEM;
         }
 
         data->plane = plane;
         data->is_reserved = false;
 
-        cpset_put_locked(&flutterpi_compositor.planes, data);
+        cpset_put_locked(&compositor.planes, data);
     }
 
-    cpset_unlock(&flutterpi_compositor.planes);
+    cpset_unlock(&compositor.planes);
 
-    flutterpi_compositor.drmdev = drmdev;
+    compositor.drmdev = drmdev;
 
     return 0;
 }
@@ -1147,5 +1154,5 @@ const FlutterCompositor flutter_compositor = {
     .create_backing_store_callback = create_backing_store,
     .collect_backing_store_callback = collect_backing_store,
     .present_layers_callback = present_layers_callback,
-    .user_data = &flutterpi_compositor
+    .user_data = &compositor
 };

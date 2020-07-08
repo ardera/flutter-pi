@@ -1,14 +1,14 @@
-REAL_CFLAGS = -I./include $(shell pkg-config --cflags gbm libdrm glesv2 egl libsystemd) \
+REAL_CFLAGS = -I./include $(shell pkg-config --cflags gbm libdrm glesv2 egl libsystemd libinput libudev) \
 	-DBUILD_TEXT_INPUT_PLUGIN \
 	-DBUILD_GPIOD_PLUGIN \
 	-DBUILD_SPIDEV_PLUGIN \
 	-DBUILD_TEST_PLUGIN \
 	-DBUILD_OMXPLAYER_VIDEO_PLAYER_PLUGIN \
-	-O2 \
+	-O0 -ggdb \
 	$(CFLAGS)
 
 REAL_LDFLAGS = \
-	$(shell pkg-config --libs gbm libdrm glesv2 egl) \
+	$(shell pkg-config --libs gbm libdrm glesv2 egl libsystemd libinput libudev) \
 	-lrt \
 	-lflutter_engine \
 	-lpthread \
@@ -23,6 +23,7 @@ SOURCES = src/flutter-pi.c \
 	src/texture_registry.c \
 	src/compositor.c \
 	src/modesetting.c \
+	src/collection.c \
 	src/plugins/services.c \
 	src/plugins/testplugin.c \
 	src/plugins/text_input.c \
@@ -37,7 +38,7 @@ all: out/flutter-pi
 
 out/obj/%.o: src/%.c 
 	@mkdir -p $(@D)
-	$(CC) -c $(REAL_CFLAGS) $(REAL_LDFLAGS) $< -o $@
+	$(CC) -c $(REAL_CFLAGS) $< -o $@
 
 out/flutter-pi: $(OBJECTS)
 	@mkdir -p $(@D)

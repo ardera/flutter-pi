@@ -54,16 +54,17 @@ typedef int (*platform_view_present_cb)(
     void *userdata
 );
 
-struct flutterpi_compositor {
+struct compositor {
     struct drmdev *drmdev;
     struct concurrent_pointer_set cbs;
     struct concurrent_pointer_set planes;
     bool should_create_window_surface_backing_store;
     bool has_applied_modeset;
+    FlutterCompositor flutter_compositor;
 };
 
 struct window_surface_backing_store {
-    struct flutterpi_compositor *compositor;
+    struct compositor *compositor;
     struct gbm_surface *gbm_surface;
     struct gbm_bo *current_front_bo;
     uint32_t drm_plane_id;
@@ -77,8 +78,13 @@ struct drm_rbo {
     uint32_t drm_fb_id;
 };
 
+struct drm_fb {
+    struct gbm_bo *bo;
+    uint32_t fb_id;
+};
+
 struct drm_fb_backing_store {   
-    struct flutterpi_compositor *compositor;
+    struct compositor *compositor;
 
     GLuint gl_fbo_id;
     struct drm_rbo rbos[2];
@@ -134,5 +140,6 @@ int compositor_free_plane(
 int compositor_initialize(
     struct drmdev *drmdev
 );
+
 
 #endif

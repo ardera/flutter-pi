@@ -1010,43 +1010,64 @@ int platch_send(char *channel, struct platch_obj *object, enum platch_codec resp
 
 	if (on_response) {
 		handlerdata = malloc(sizeof(struct platch_msg_resp_handler_data));
-		if (!handlerdata) return ENOMEM;
+		if (!handlerdata) {
+			return ENOMEM;
+		}
 		
 		handlerdata->codec = response_codec;
 		handlerdata->on_response = on_response;
 		handlerdata->userdata = userdata;
 
-		result = FlutterPlatformMessageCreateResponseHandle(engine, platch_on_response_internal, handlerdata, &response_handle);
-		if (result != kSuccess) return EINVAL;
+		result = FlutterPlatformMessageCreateResponseHandle(flutterpi.flutter.engine, platch_on_response_internal, handlerdata, &response_handle);
+		if (result != kSuccess) {
+			fprintf(stderr, "[flutter-pi] Error create platform message response handle. FlutterPlatformMessageCreateResponseHandle: %s\n", FLUTTER_RESULT_TO_STRING(result));
+			goto fail_free_handlerdata;
+		}
 	}
 
-	//printf("[platformchannel] sending platform message to flutter on channel \"%s\". message_size: %d, has response_handle? %s\n", channel, size, response_handle ? "yes" : "no");
-	//printf("  message buffer: \"");
-	//for (int i = 0; i < size; i++)
-	//	if (isprint(buffer[i])) printf("%c", buffer[i]);
-	//	else printf("\\x%02X", buffer[i]);
-	//printf("\"\n");
-	
-	result = FlutterEngineSendPlatformMessage(
-		engine,
-		& (const FlutterPlatformMessage) {
-			.struct_size = sizeof(FlutterPlatformMessage),
-			.channel = (const char*) channel,
-			.message = (const uint8_t*) buffer,
-			.message_size = (const size_t) size,
-			.response_handle = response_handle
-		}
+	ok = flutterpi_send_platform_message(
+		channel,
+		buffer,
+		size,
+		response_handle
 	);
+	if (ok != 0) {
+		goto fail_release_handle;
+	}
 
 	if (on_response) {
-		result = FlutterPlatformMessageReleaseResponseHandle(engine, response_handle);
-		if (result != kSuccess) return EINVAL;
+		result = FlutterPlatformMessageReleaseResponseHandle(flutterpi.flutter.engine, response_handle);
+		if (result != kSuccess) {
+			fprintf(stderr, "[flutter-pi] Error releasing platform message response handle. FlutterPlatformMessageReleaseResponseHandle: %s\n", FLUTTER_RESULT_TO_STRING(result));
+			ok = EIO;
+			goto fail_free_buffer;
+		}
 	}
 
-	if (object->codec != kBinaryCodec)
+	if (object->codec != kBinaryCodec) {
 		free(buffer);
+	}
 	
-	return (result == kSuccess) ? 0 : EINVAL;
+	return 0;
+
+
+	fail_release_handle:
+	if (on_response) {
+		FlutterPlatformMessageReleaseResponseHandle(flutterpi.flutter.engine, response_handle);
+	}
+
+	fail_free_buffer:
+	if (object->codec != kBinaryCodec) {
+		free(buffer);
+	}
+
+	fail_free_handlerdata:
+	if (on_response) {
+		free(handlerdata);
+	}
+
+	fail_return_ok:
+	return ok;
 }
 
 int platch_call_std(char *channel, char *method, struct std_value *argument, platch_msg_resp_callback on_response, void *userdata) {
@@ -1080,9 +1101,9 @@ int platch_respond(FlutterPlatformMessageResponseHandle *handle, struct platch_o
 	ok = platch_encode(response, &buffer, &size);
 	if (ok != 0) return ok;
 
-	result = FlutterEngineSendPlatformMessageResponse(engine, (const FlutterPlatformMessageResponseHandle*) handle, (const uint8_t*) buffer, size);
+	result = FlutterEngineSendPlatformMessageResponse(flutterpi.flutter.engine, (const FlutterPlatformMessageResponseHandle*) handle, (const uint8_t*) buffer, size);
 	if (result != kSuccess) {
-		fprintf(stderr, "[platformchannel] Could not send platform message response. FlutterEngineSendPlatformMessageResponse: %d\n", result);
+		fprintf(stderr, "[platformchannel] Could not send platform message response. FlutterEngineSendPlatformMessageResponse: %s\n", FLUTTER_RESULT_TO_STRING(result));
 	}
 
 	if (buffer != NULL) {

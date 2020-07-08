@@ -1404,7 +1404,7 @@ static int on_create(
         return platch_respond_native_error_std(responsehandle, ENOMEM);
     }
 
-    ok = cqueue_init(&mgr->task_queue, sizeof(struct omxplayer_mgr_task), CQUEUE_DEFAULT_MAX_QUEUE_SIZE);
+    ok = cqueue_init(&mgr->task_queue, sizeof(struct omxplayer_mgr_task), CQUEUE_DEFAULT_MAX_SIZE);
     if (ok != 0) {
         goto fail_free_mgr;
     }
@@ -1424,7 +1424,7 @@ static int on_create(
     ok = cqueue_enqueue(&mgr->task_queue, &(const struct omxplayer_mgr_task) {
         .type = kCreate,
         .responsehandle = responsehandle,
-        .orientation = rotation
+        .orientation = 0 //rotation
     });
 
     if (ok != 0) {

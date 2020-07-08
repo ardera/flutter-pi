@@ -98,7 +98,7 @@ static int on_receive_platform(char *channel, struct platch_obj *object, Flutter
             }
 
             // if the list contains the current orientation, we just return and don't change the current orientation at all.
-            if (o == orientation) {
+            if (o == flutterpi.view.orientation) {
                 return 0;
             }
 
@@ -109,11 +109,21 @@ static int on_receive_platform(char *channel, struct platch_obj *object, Flutter
         // select the first one that is preferred by flutter.
         for (int i = kPortraitUp; i <= kLandscapeRight; i++) {
             if (preferred_orientations[i]) {
-                post_platform_task(&(struct flutterpi_task) {
-                    .type = kUpdateOrientation,
-                    .orientation = i,
-                    .target_time = 0
+                FlutterEngineResult result;
+
+                flutterpi_fill_view_properties(true, i, false, 0);
+
+                // send updated window metrics to flutter
+                result = FlutterEngineSendWindowMetricsEvent(flutterpi.flutter.engine, &(const FlutterWindowMetricsEvent) {
+                    .struct_size = sizeof(FlutterWindowMetricsEvent),
+                    .width = flutterpi.view.width, 
+                    .height = flutterpi.view.height,
+                    .pixel_ratio = flutterpi.display.pixel_ratio
                 });
+                if (result != kSuccess) {
+                    fprintf(stderr, "[services] Could not send updated window metrics to flutter. FlutterEngineSendWindowMetricsEvent: %s\n", FLUTTER_RESULT_TO_STRING(result));
+                    return platch_respond_error_json(responsehandle, "engine-error", "Could not send updated window metrics to flutter", NULL);
+                }
 
                 return platch_respond_success_json(responsehandle, NULL);
             }
@@ -171,10 +181,7 @@ static int on_receive_platform(char *channel, struct platch_obj *object, Flutter
          *      systemNavigationBarIconBrightness: null / Brightness
          */
     } else if (strcmp(object->method, "SystemNavigator.pop") == 0) {
-        post_platform_task(&(struct flutterpi_task) {
-            .type = kExit,
-            .target_time = 0,
-        });
+        // do nothing
     }
 
     return platch_respond_not_implemented(responsehandle);
