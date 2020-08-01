@@ -1815,6 +1815,8 @@ static int on_libinput_ready(sd_event_source *s, int fd, uint32_t revents, void 
 			libinput_device_set_user_data(device, data);
 
 			if (libinput_device_has_capability(device, LIBINPUT_DEVICE_CAP_POINTER)) {
+				printf("pointer device was added\n");
+
 				pointer_events[n_pointer_events++] = (FlutterPointerEvent) {
 					.struct_size = sizeof(FlutterPointerEvent),
 					.phase = kAdd,
@@ -1830,6 +1832,7 @@ static int on_libinput_ready(sd_event_source *s, int fd, uint32_t revents, void 
 				};
 
 				compositor_set_cursor_enabled(true);
+				compositor_apply_cursor_skin_for_rotation(flutterpi.view.rotation);
 			} else if (libinput_device_has_capability(device, LIBINPUT_DEVICE_CAP_TOUCH)) {
 				int touch_count = libinput_device_touch_get_touch_count(device);
 
@@ -1915,12 +1918,64 @@ static int on_libinput_ready(sd_event_source *s, int fd, uint32_t revents, void 
 			struct input_device_data *data = libinput_device_get_user_data(libinput_event_get_device(event));
 
 			if (type == LIBINPUT_EVENT_POINTER_MOTION) {
-				
+				double dx = libinput_event_pointer_get_dx(pointer_event);
+				double dy = libinput_event_pointer_get_dy(pointer_event);
+
+				data->timestamp = libinput_event_pointer_get_time_usec(pointer_event);
+
+				apply_flutter_transformation(FLUTTER_ROTZ_TRANSFORMATION(flutterpi.view.rotation), &dx, &dy);
+
+				double newx = flutterpi.input.cursor_x + dx;
+				double newy = flutterpi.input.cursor_y + dy;
+
+				if (newx < 0) {
+					newx = 0;
+				} else if (newx > flutterpi.display.width - 1) {
+					newx = flutterpi.display.width - 1;
+				}
+
+				if (newy < 0) {
+					newy = 0;
+				} else if (newy > flutterpi.display.height - 1) {
+					newy = flutterpi.display.height - 1;
+				}
+
+				flutterpi.input.cursor_x = newx;
+				flutterpi.input.cursor_y = newy;
+
+				apply_flutter_transformation(flutterpi.view.display_to_view_transform, &newx, &newy);
+
+				printf("cursor: %03f, %03f\n", newx, newy);
+
+				pointer_events[n_pointer_events++] = (FlutterPointerEvent) {
+					.struct_size = sizeof(FlutterPointerEvent),
+					.phase = data->buttons & kFlutterPointerButtonMousePrimary ? kMove : kHover,
+					.timestamp = libinput_event_pointer_get_time_usec(pointer_event),
+					.x = newx,
+					.y = newy,
+					.device = data->flutter_device_id_offset,
+					.signal_kind = kFlutterPointerSignalKindNone,
+					.scroll_delta_x = 0.0,
+					.scroll_delta_y = 0.0,
+					.device_kind = kFlutterPointerDeviceKindMouse,
+					.buttons = data->buttons
+				};
+
+				compositor_set_cursor_pos(round(flutterpi.input.cursor_x), round(flutterpi.input.cursor_y));
 			} else if (type == LIBINPUT_EVENT_POINTER_MOTION_ABSOLUTE) {
 				double x = libinput_event_pointer_get_absolute_x_transformed(pointer_event, flutterpi.display.width);
 				double y = libinput_event_pointer_get_absolute_y_transformed(pointer_event, flutterpi.display.height);
 
+				flutterpi.input.cursor_x = x;
+				flutterpi.input.cursor_y = y;
+
+				data->x = x;
+				data->y = y;
+				data->timestamp = libinput_event_pointer_get_time_usec(pointer_event);
+
 				apply_flutter_transformation(flutterpi.view.display_to_view_transform, &x, &y);
+
+				printf("cursor: %03f, %03f\n", x, y);
 
 				pointer_events[n_pointer_events++] = (FlutterPointerEvent) {
 					.struct_size = sizeof(FlutterPointerEvent),
@@ -1937,10 +1992,6 @@ static int on_libinput_ready(sd_event_source *s, int fd, uint32_t revents, void 
 				};
 
 				compositor_set_cursor_pos((int) round(x), (int) round(y));
-
-				data->x = x;
-				data->y = y;
-				data->timestamp = libinput_event_pointer_get_time_usec(pointer_event);
 			} else if (type == LIBINPUT_EVENT_POINTER_BUTTON) {
 				uint32_t button = libinput_event_pointer_get_button(pointer_event);
 				enum libinput_button_state button_state = libinput_event_pointer_get_button_state(pointer_event);
@@ -1975,12 +2026,17 @@ static int on_libinput_ready(sd_event_source *s, int fd, uint32_t revents, void 
 						phase = kMove;
 					}
 
+					double x = flutterpi.input.cursor_x;
+					double y = flutterpi.input.cursor_y;
+
+					apply_flutter_transformation(flutterpi.view.display_to_view_transform, &x, &y);
+
 					pointer_events[n_pointer_events++] = (FlutterPointerEvent) {
 						.struct_size = sizeof(FlutterPointerEvent),
 						.phase = phase,
 						.timestamp = libinput_event_pointer_get_time_usec(pointer_event),
-						.x = data->x,
-						.y = data->y,
+						.x = x,
+						.y = y,
 						.device = data->flutter_device_id_offset,
 						.signal_kind = kFlutterPointerSignalKindNone,
 						.scroll_delta_x = 0.0,

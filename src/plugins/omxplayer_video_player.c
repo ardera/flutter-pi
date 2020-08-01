@@ -179,6 +179,10 @@ static int on_mount(
 ) {
     struct omxplayer_video_player *player = userdata;
 
+    if (zpos == 1) {
+        zpos = -126;
+    }
+
     return cqueue_enqueue(
         &player->mgr->task_queue,
         &(struct omxplayer_mgr_task) {
@@ -230,6 +234,10 @@ static int on_update_view(
     void *userdata
 ) {
     struct omxplayer_video_player *player = userdata;
+
+    if (zpos == 1) {
+        zpos = -126;
+    }
 
     return cqueue_enqueue(
         &player->mgr->task_queue,
@@ -1792,7 +1800,7 @@ static int on_receive_mch(
     return platch_respond_not_implemented(responsehandle);
 }
 
-extern int8_t omxpvidpp_is_present(void) {
+int8_t omxpvidpp_is_present(void) {
     return plugin_registry_is_plugin_present("omxplayer_video_player");
 }
 

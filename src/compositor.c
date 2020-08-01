@@ -17,6 +17,7 @@
 #include <flutter-pi.h>
 #include <collection.h>
 #include <compositor.h>
+#include <cursor.h>
 
 struct view_cb_data {
     int64_t view_id;
@@ -46,10 +47,23 @@ struct plane_data {
 struct compositor compositor = {
     .drmdev = NULL,
     .cbs = CPSET_INITIALIZER(CPSET_DEFAULT_MAX_SIZE),
-    .planes = CPSET_INITIALIZER(CPSET_DEFAULT_MAX_SIZE),
     .has_applied_modeset = false,
     .should_create_window_surface_backing_store = true,
-    .is_cursor_enabled = false
+    .stale_rendertargets = CPSET_INITIALIZER(CPSET_DEFAULT_MAX_SIZE),
+    .cursor = {
+        .is_enabled = false,
+        .width = 0,
+        .height = 0,
+        .bpp = 0,
+        .depth = 0,
+        .pitch = 0,
+        .size = 0,
+        .drm_fb_id = 0,
+        .gem_bo_handle = 0,
+        .buffer = NULL,
+        .x = 0,
+        .y = 0
+    }
 };
 
 static struct view_cb_data *get_cbs_for_view_id_locked(int64_t view_id) {
@@ -697,7 +711,6 @@ static bool on_create_backing_store(
     return true;
 }
 
-
 /// PRESENT FUNCS
 static bool on_present_layers(
     const FlutterLayer **layers,
@@ -706,8 +719,8 @@ static bool on_present_layers(
 ) {
     struct drmdev_atomic_req *req;
     struct view_cb_data *cb_data;
-    struct plane_data *plane;
     struct compositor *compositor;
+    struct drm_plane *plane;
     uint32_t req_flags;
     int ok;
 
@@ -804,7 +817,7 @@ static bool on_present_layers(
                 if (layers[i]->type == kFlutterLayerContentTypePlatformView &&
                     layers[i]->platform_view->identifier == cb_data->view_id) {
                     layer = layers[i];
-                    zpos = i - 127;
+                    zpos = i;
                     break;
                 }
             }
@@ -842,7 +855,7 @@ static bool on_present_layers(
                 if (layers[i]->type == kFlutterLayerContentTypePlatformView &&
                     layers[i]->platform_view->identifier == cb_data->view_id) {
                     layer = layers[i];
-                    zpos = i - 127;
+                    zpos = i;
                     break;
                 }
             }
@@ -864,29 +877,35 @@ static bool on_present_layers(
                     fprintf(stderr, "[compositor] Could not mount platform view. %s\n", strerror(ok));
                 }
             }
+
+            cb_data->last_zpos = zpos;
+            cb_data->last_size = layer->size;
+            cb_data->last_offset = layer->offset;
+            cb_data->last_num_mutations = layer->platform_view->mutations_count;
+            for (int i = 0; i < layer->platform_view->mutations_count; i++) {
+                memcpy(cb_data->last_mutations + i, layer->platform_view->mutations[i], sizeof(FlutterPlatformViewMutation));
+            }
         }
     }
 
     for (int i = 0; i < layers_count; i++) {
-        struct drm_plane *drm_plane;
-
         if (layers[i]->type == kFlutterLayerContentTypeBackingStore) {
-            for_each_unreserved_plane_in_atomic_req(req, drm_plane) {
+            for_each_unreserved_plane_in_atomic_req(req, plane) {
                 // choose a plane which has an "intrinsic" zpos that matches
                 // the zpos we want the plane to have.
                 // (Since planes are buggy and we can't rely on the zpos we explicitly
                 // configure the plane to have to be actually applied to the hardware.
                 // In short, assigning a different value to the zpos property won't always
                 // take effect.)
-                if ((i == 0) && (drm_plane->type == DRM_PLANE_TYPE_PRIMARY)) {
-                    drmdev_atomic_req_reserve_plane(req, drm_plane);
+                if ((i == 0) && (plane->type == DRM_PLANE_TYPE_PRIMARY)) {
+                    drmdev_atomic_req_reserve_plane(req, plane);
                     break;
-                } else if ((i != 0) && (drm_plane->type == DRM_PLANE_TYPE_OVERLAY)) {
-                    drmdev_atomic_req_reserve_plane(req, drm_plane);
+                } else if ((i != 0) && (plane->type == DRM_PLANE_TYPE_OVERLAY)) {
+                    drmdev_atomic_req_reserve_plane(req, plane);
                     break;
                 }
             }
-            if (drm_plane == NULL) {
+            if (plane == NULL) {
                 fprintf(stderr, "[compositor] Could not find a free primary/overlay DRM plane for presenting the backing store. drmdev_atomic_req_reserve_plane: %s\n", strerror(ok));
                 continue;
             }
@@ -897,12 +916,12 @@ static bool on_present_layers(
             ok = target->present(
                 target,
                 req,
-                drm_plane->plane->plane_id,
+                plane->plane->plane_id,
                 0,
                 0,
                 compositor->drmdev->selected_mode->hdisplay,
                 compositor->drmdev->selected_mode->vdisplay,
-                i
+                plane->type == DRM_PLANE_TYPE_PRIMARY ? 0 : 1
             );
             if (ok != 0) {
                 fprintf(stderr, "[compositor] Could not present backing store. rendertarget->present: %s\n", strerror(ok));
@@ -920,7 +939,7 @@ static bool on_present_layers(
                     (int) round(layers[i]->offset.y),
                     (int) round(layers[i]->size.width),
                     (int) round(layers[i]->size.height),
-                    i - 127,
+                    i,
                     cb_data->userdata
                 );
                 if (ok != 0) {
@@ -930,13 +949,16 @@ static bool on_present_layers(
         }
     }
 
+    for_each_unreserved_plane_in_atomic_req(req, plane) {
+        drmdev_atomic_req_put_plane_property(req, plane->plane->plane_id, "FB", 0);
+    }
+
     eglMakeCurrent(flutterpi.egl.display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
 
     FlutterEngineTraceEventDurationBegin("drmdev_atomic_req_commit");
     drmdev_atomic_req_commit(req, req_flags, NULL);
     FlutterEngineTraceEventDurationEnd("drmdev_atomic_req_commit");
 
-    cpset_unlock(&compositor->planes);
     cpset_unlock(&compositor->cbs);
 }
 
@@ -1042,6 +1064,41 @@ int compositor_initialize(struct drmdev *drmdev) {
     return 0;
 }
 
+int compositor_apply_cursor_skin_for_rotation(int rotation) {
+    const struct cursor_icon *cursor;
+    int ok;
+    
+    if (compositor.cursor.is_enabled) {
+        cursor = NULL;
+        for (int i = 0; i < n_cursors; i++) {
+            if (cursors[i].rotation == rotation) {
+                cursor = cursors + i;
+                break;
+            }
+        }
+
+        memcpy(compositor.cursor.buffer, cursor->data, compositor.cursor.size);
+
+        ok = drmModeSetCursor2(
+            compositor.drmdev->fd,
+            compositor.drmdev->selected_crtc->crtc->crtc_id,
+            compositor.cursor.gem_bo_handle,
+            compositor.cursor.width,
+            compositor.cursor.height,
+            cursor->hot_x,
+            cursor->hot_y
+        );
+        if (ok < 0) {
+            perror("[compositor] Could not set the mouse cursor buffer. drmModeSetCursor");
+            return errno;
+        }
+
+        return 0;
+    }
+
+    return 0;
+}
+
 int compositor_set_cursor_enabled(bool enabled) {
     if ((compositor.cursor.is_enabled == false) && (enabled == true)) {
         struct drm_mode_create_dumb create_req;
@@ -1104,21 +1161,6 @@ int compositor_set_cursor_enabled(bool enabled) {
             return errno;
         }
 
-        memset(buffer, 0, create_req.size);
-        buffer[0] = 0xFFFFFF;
-
-        ok = drmModeSetCursor(
-            compositor.drmdev->fd,
-            compositor.drmdev->selected_crtc->crtc->crtc_id,
-            create_req.handle,
-            create_req.width,
-            create_req.height
-        );
-        if (ok < 0) {
-            perror("[compositor] Could not set the mouse cursor buffer. drmModeSetCursor");
-            return errno;
-        }
-
         compositor.cursor.is_enabled = true;
         compositor.cursor.width = create_req.width;
         compositor.cursor.height = create_req.height;
@@ -1166,12 +1208,15 @@ int compositor_set_cursor_enabled(bool enabled) {
 
 int compositor_set_cursor_pos(int x, int y) {
     int ok;
-    
+
     ok = drmModeMoveCursor(compositor.drmdev->fd, compositor.drmdev->selected_crtc->crtc->crtc_id, x, y);
     if (ok < 0) {
         perror("[compositor] Could not move cursor. drmModeMoveCursor");
         return errno;
     }
+
+    compositor.cursor.x = x;
+    compositor.cursor.y = y;    
 
     return 0;
 }

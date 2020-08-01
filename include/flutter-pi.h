@@ -267,6 +267,7 @@ struct flutterpi {
 		sd_event_source *libinput_event_source;
 		sd_event_source *stdin_event_source;
 		int64_t next_unused_flutter_device_id;
+		double cursor_x, cursor_y;
 	} input;
 	
 	/// flutter stuff

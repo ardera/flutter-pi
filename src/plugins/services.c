@@ -3,6 +3,7 @@
 
 #include <flutter-pi.h>
 #include <pluginregistry.h>
+#include <compositor.h>
 #include <plugins/services.h>
 
 static struct {
@@ -112,6 +113,8 @@ static int on_receive_platform(char *channel, struct platch_obj *object, Flutter
                 FlutterEngineResult result;
 
                 flutterpi_fill_view_properties(true, i, false, 0);
+
+                compositor_apply_cursor_skin_for_rotation(flutterpi.view.rotation);
 
                 // send updated window metrics to flutter
                 result = FlutterEngineSendWindowMetricsEvent(flutterpi.flutter.engine, &(const FlutterWindowMetricsEvent) {

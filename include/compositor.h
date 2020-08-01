@@ -66,14 +66,6 @@ struct compositor {
     struct concurrent_pointer_set cbs;
 
     /**
-     * @brief A set that contains a struct for each existing DRM primary/overlay plane, containing
-     * the DRM plane id and whether it's reserved.
-     * 
-     * @see compositor_reserve_plane compositor_free_plane
-     */
-    struct concurrent_pointer_set planes;
-
-    /**
      * @brief Whether the compositor should invoke @ref rendertarget_gbm_new the next time
      * flutter creates a backing store. Otherwise @ref rendertarget_nogbm_new is invoked.
      * 
@@ -90,7 +82,6 @@ struct compositor {
      */
     bool has_applied_modeset;
 
-    
     FlutterCompositor flutter_compositor;
 
     /**
@@ -105,7 +96,6 @@ struct compositor {
     /**
      * @brief Whether the mouse cursor is currently enabled and visible.
      */
-    bool is_cursor_enabled;
 
     struct {
         bool is_enabled;
@@ -248,6 +238,8 @@ int compositor_remove_view_callbacks(
 int compositor_set_cursor_enabled(bool enabled);
 
 int compositor_set_cursor_pos(int x, int y);
+
+int compositor_apply_cursor_skin_for_rotation(int rotation);
 
 int compositor_initialize(
     struct drmdev *drmdev
