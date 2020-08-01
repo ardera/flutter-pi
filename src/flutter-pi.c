@@ -40,6 +40,9 @@
 #include <plugins/text_input.h>
 #include <plugins/raw_keyboard.h>
 
+#include <elf.h>
+#include <sys/mman.h>
+#include <aot.h>
 
 char* usage ="\
 flutter-pi - run flutter apps on your Raspberry Pi.\n\
@@ -61,6 +64,7 @@ OPTIONS:\n\
                       you use as a parameter so it isn't implicitly expanded\n\
                       by your shell.\n\
                       \n\
+  -a <path libapp.so> Enable AOT\n\
   -h                  Show this help and exit.\n\
 \n\
 EXAMPLES:\n\
@@ -106,6 +110,9 @@ enum device_orientation orientation;
 /// (applied as a rotation to the flutter window in transformation_callback, and also
 /// is used to determine if width/height should be swapped when sending a WindowMetrics event to flutter)
 int rotation = 0;
+
+/// AOT library path, for example './libapp.so'
+char* aot_library = NULL;
 
 struct {
 	char device[PATH_MAX];
@@ -1196,6 +1203,64 @@ void destroy_display(void) {
 	fprintf(stderr, "Deinitializing display not yet implemented\n");
 }
 
+bool init_aot(void){
+  int fd = open(aot_library, O_RDONLY);
+  if (!fd) {
+    printf("Error open '%s'\n", aot_library);
+    return false;
+  }
+  struct stat statbuf;
+  fstat(fd, & statbuf);
+  char * fbase = mmap(NULL, statbuf.st_size, PROT_READ, MAP_SHARED, fd, 0);
+  close(fd);
+
+  Elf32_Ehdr * ehdr = (Elf32_Ehdr * ) fbase;
+  Elf32_Shdr * sects = (Elf32_Shdr * )(fbase + ehdr -> e_shoff);
+  int shsize = ehdr -> e_shentsize;
+  int shnum = ehdr -> e_shnum;
+  int shstrndx = ehdr -> e_shstrndx;
+
+  Elf32_Shdr * shstrsect = & sects[shstrndx];
+  char * shstrtab = fbase + shstrsect -> sh_offset;
+
+  int i, ii;
+  Elf32_Shdr dynamic_str;
+  Elf32_Shdr dynamic_sym;
+  for (i = 0; i < shnum; i++) {
+    if (!strcmp(shstrtab + sects[i].sh_name, ".dynstr")) {
+      dynamic_str = sects[i]; // count == sects[i].sh_size
+    }else
+    if (!strcmp(shstrtab + sects[i].sh_name, ".dynsym")) {
+      dynamic_sym = sects[i]; //unsigned long number = dynamic_sym.sh_size / dynamic_sym.sh_entsize; 
+    }
+  }
+
+  char * d_strs = (char * )(fbase + dynamic_str.sh_offset);
+  Elf32_Sym * d_syms = (Elf32_Sym * )(fbase + dynamic_sym.sh_offset);
+  unsigned long number = dynamic_sym.sh_size / dynamic_sym.sh_entsize;
+
+  for (ii = 0; ii < number; ii++) {
+    printf("Symbol value:%i, size:%i name:%s\n", d_syms[ii].st_value, d_syms[ii].st_size, d_strs + d_syms[ii].st_name);
+    if (!strcmp(d_strs + d_syms[ii].st_name, "_kDartIsolateSnapshotData")) {
+      _kDartIsolateSnapshotDataSize = d_syms[ii].st_size;
+    } 
+    else if (!strcmp(d_strs + d_syms[ii].st_name, "_kDartIsolateSnapshotInstructions")) {
+      _kDartIsolateSnapshotInstructionsSize = d_syms[ii].st_size;
+    } 
+    else if (!strcmp(d_strs + d_syms[ii].st_name, "_kDartVmSnapshotData")) {
+      _kDartVmSnapshotDataSize = d_syms[ii].st_size;
+    } 
+    else if (!strcmp(d_strs + d_syms[ii].st_name, "_kDartVmSnapshotInstructions")) {
+      _kDartVmSnapshotInstructionsSize = d_syms[ii].st_size;
+    }
+  }
+  
+  munmap(fbase,statbuf.st_size);
+  printf("Done\n");
+  return true;
+}
+
+
 bool init_application(void) {
 	int ok, _errno;
 
@@ -1204,6 +1269,27 @@ bool init_application(void) {
 	if (ok != 0) {
 		fprintf(stderr, "Could not initialize plugin registry: %s\n", strerror(ok));
 		return false;
+	}
+	
+	if (aot_library){
+		printf("Initializing AOT...\n");
+		if (!init_aot()){
+			fprintf(stderr, "Could not initialize AOT\n");
+			return false;
+		}
+		void *library_handler;
+
+		library_handler = dlopen(aot_library,RTLD_LAZY);
+		if (!library_handler){
+			fprintf(stderr,"dlopen() error: %s\n", dlerror());
+			return false;
+		};
+		_kDartIsolateSnapshotData = dlsym(library_handler,"_kDartIsolateSnapshotData");
+		_kDartIsolateSnapshotInstructions = dlsym(library_handler,"_kDartIsolateSnapshotInstructions");
+		_kDartVmSnapshotData = dlsym(library_handler,"_kDartVmSnapshotData");
+		_kDartVmSnapshotInstructions = dlsym(library_handler,"_kDartVmSnapshotInstructions");
+	} else {
+	   printf("AOT skipped\n");
 	}
 
 	// configure flutter rendering
@@ -1220,14 +1306,14 @@ bool init_application(void) {
 	flutter.args.struct_size				= sizeof(FlutterProjectArgs);
 	flutter.args.assets_path				= flutter.asset_bundle_path;
 	flutter.args.icu_data_path				= flutter.icu_data_path;
-	flutter.args.isolate_snapshot_data_size = 0;
-	flutter.args.isolate_snapshot_data		= NULL;
-	flutter.args.isolate_snapshot_instructions_size = 0;
-	flutter.args.isolate_snapshot_instructions	 = NULL;
-	flutter.args.vm_snapshot_data_size		= 0;
-	flutter.args.vm_snapshot_data			= NULL;
-	flutter.args.vm_snapshot_instructions_size = 0;
-	flutter.args.vm_snapshot_instructions	= NULL;
+	flutter.args.isolate_snapshot_data_size = _kDartIsolateSnapshotDataSize;
+	flutter.args.isolate_snapshot_data		= _kDartIsolateSnapshotData;
+	flutter.args.isolate_snapshot_instructions_size = _kDartIsolateSnapshotInstructionsSize;
+	flutter.args.isolate_snapshot_instructions	 = _kDartIsolateSnapshotInstructions;
+	flutter.args.vm_snapshot_data_size		= _kDartVmSnapshotDataSize;
+	flutter.args.vm_snapshot_data			= _kDartVmSnapshotData;
+	flutter.args.vm_snapshot_instructions_size = _kDartVmSnapshotInstructionsSize;
+	flutter.args.vm_snapshot_instructions	= _kDartVmSnapshotInstructions;
 	flutter.args.command_line_argc			= flutter.engine_argc;
 	flutter.args.command_line_argv			= flutter.engine_argv;
 	flutter.args.platform_message_callback	= on_platform_message;
@@ -1770,13 +1856,17 @@ bool  parse_cmd_args(int argc, char **argv) {
 	int ok, opt, index = 0;
 	input_devices_glob = (glob_t) {0};
 
-	while ((opt = getopt(argc, (char *const *) argv, "+i:h")) != -1) {
+	while ((opt = getopt(argc, (char *const *) argv, "+i:a:h")) != -1) {
 		index++;
 		switch(opt) {
 			case 'i':
 				input_specified = true;
 				glob(optarg, GLOB_BRACE | GLOB_TILDE | (input_specified ? GLOB_APPEND : 0), NULL, &input_devices_glob);
 				index++;
+				break;
+			case 'a':
+			        aot_library = optarg;
+			        index++;
 				break;
 			case 'h':
 			default:
