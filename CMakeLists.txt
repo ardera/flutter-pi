@@ -111,7 +111,7 @@ set(FLUTTER_PI_SRC
   src/plugins/text_input.c
   src/plugins/raw_keyboard.c
   src/plugins/spidev.c
-  src/plugins/video_player.c
+  src/plugins/omxplayer_video_player.c
 )
 
 if(GPIOD_FOUND)

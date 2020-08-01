@@ -56,19 +56,82 @@ typedef int (*platform_view_present_cb)(
 
 struct compositor {
     struct drmdev *drmdev;
+
+    /**
+     * @brief Contains a struct for each existing platform view, containing the view id
+     * and platform view callbacks.
+     * 
+     * @see compositor_set_view_callbacks compositor_remove_view_callbacks
+     */
     struct concurrent_pointer_set cbs;
+
+    /**
+     * @brief A set that contains a struct for each existing DRM primary/overlay plane, containing
+     * the DRM plane id and whether it's reserved.
+     * 
+     * @see compositor_reserve_plane compositor_free_plane
+     */
     struct concurrent_pointer_set planes;
+
+    /**
+     * @brief Whether the compositor should invoke @ref rendertarget_gbm_new the next time
+     * flutter creates a backing store. Otherwise @ref rendertarget_nogbm_new is invoked.
+     * 
+     * It's only possible to have at most one GBM-Surface backed backing store (== @ref rendertarget_gbm). So the first
+     * time @ref on_create_backing_store is invoked, a GBM-Surface backed backing store is returned and after that,
+     * only backing stores with @ref rendertarget_nogbm.
+     */
     bool should_create_window_surface_backing_store;
+
+    /**
+     * @brief Whether the display mode was already applied. (Resolution, Refresh rate, etc)
+     * If it wasn't already applied, it will be the first time @ref on_present_layers
+     * is invoked.
+     */
     bool has_applied_modeset;
+
+    
     FlutterCompositor flutter_compositor;
+
+    /**
+     * @brief A cache of rendertargets that are not currently in use for
+     * any flutter layers and can be reused.
+     * 
+     * Make sure to destroy all stale rendertargets before presentation so all the DRM planes
+     * that are reserved by any stale rendertargets get freed.
+     */
+    struct concurrent_pointer_set stale_rendertargets;
+
+    /**
+     * @brief Whether the mouse cursor is currently enabled and visible.
+     */
+    bool is_cursor_enabled;
+
+    struct {
+        bool is_enabled;
+
+        int width;
+        int height;
+        int bpp;
+        int depth;
+        int pitch;
+        int size;
+
+        uint32_t drm_fb_id;
+        uint32_t gem_bo_handle;
+        uint32_t *buffer;
+        int x, y;
+    } cursor;
 };
 
+/*
 struct window_surface_backing_store {
     struct compositor *compositor;
     struct gbm_surface *gbm_surface;
     struct gbm_bo *current_front_bo;
     uint32_t drm_plane_id;
 };
+*/
 
 struct drm_rbo {
     EGLImage egl_image;
@@ -83,6 +146,7 @@ struct drm_fb {
     uint32_t fb_id;
 };
 
+/*
 struct drm_fb_backing_store {   
     struct compositor *compositor;
 
@@ -108,6 +172,58 @@ struct backing_store_metadata {
         struct drm_fb_backing_store drm_fb;
     };
 };
+*/
+
+struct rendertarget_gbm {
+    struct gbm_surface *gbm_surface;
+    struct gbm_bo *current_front_bo;
+};
+
+/**
+ * @brief No-GBM Rendertarget.
+ * A type of rendertarget that is not backed by a GBM-Surface, used for rendering into DRM overlay planes.
+ */
+struct rendertarget_nogbm {
+    GLuint gl_fbo_id;
+    struct drm_rbo rbos[2];
+    
+    /**
+     * @brief The index of the @ref drm_rbo in the @ref rendertarget_nogbm::rbos array that
+     * OpenGL is currently rendering into.
+     */
+    int current_front_rbo;
+};
+
+struct rendertarget {
+    bool is_gbm;
+
+    struct compositor *compositor;
+
+    union {
+        struct rendertarget_gbm gbm;
+        struct rendertarget_nogbm nogbm;
+    };
+
+    GLuint gl_fbo_id;
+
+    void (*destroy)(struct rendertarget *target);
+    int (*present)(
+        struct rendertarget *target,
+        struct drmdev_atomic_req *atomic_req,
+        uint32_t drm_plane_id,
+        int offset_x,
+        int offset_y,
+        int width,
+        int height,
+        int zpos
+    );
+};
+
+struct flutterpi_backing_store {
+    struct rendertarget *target;
+    FlutterBackingStore flutter_backing_store;
+    bool should_free_on_next_destroy;
+};
 
 extern const FlutterCompositor flutter_compositor;
 
@@ -129,13 +245,9 @@ int compositor_remove_view_callbacks(
     int64_t view_id
 );
 
-int compositor_reserve_plane(
-    uint32_t *plane_id_out
-);
+int compositor_set_cursor_enabled(bool enabled);
 
-int compositor_free_plane(
-    uint32_t plane_id
-);
+int compositor_set_cursor_pos(int x, int y);
 
 int compositor_initialize(
     struct drmdev *drmdev

@@ -28,7 +28,7 @@
 #	include <plugins/spidev.h>
 #endif
 #ifdef BUILD_OMXPLAYER_VIDEO_PLAYER_PLUGIN
-#	include <plugins/video_player.h>
+#	include <plugins/omxplayer_video_player.h>
 #endif
 
 
@@ -186,6 +186,18 @@ int plugin_registry_set_receiver(
 	return 0;
 }
 
+bool plugin_registry_is_plugin_present(
+	const char *plugin_name
+) {
+	for (int i = 0; i < plugin_registry.n_plugins; i++) {
+		if (strcmp(plugin_registry.plugins[i].name, plugin_name) == 0) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
 int plugin_registry_remove_receiver(const char *channel) {
 	struct platch_obj_cb_data *data;
 
@@ -222,7 +234,7 @@ int plugin_registry_deinit() {
 	}
 
 	for_each_pointer_in_cpset(&plugin_registry.platch_obj_cbs, data) {
-		cpset_remove_locked(&plugin_registry.platch_obj_cbs, data);
+		cpset_remove_(&plugin_registry.platch_obj_cbs, data);
 		if (data != NULL) {
 			free(data->channel);
 			free(data);

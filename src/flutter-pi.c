@@ -13,14 +13,19 @@
 #include <pthread.h>
 #include <signal.h>
 #include <errno.h>
-#include <linux/input.h>
 #include <math.h>
 #include <limits.h>
 #include <float.h>
 #include <assert.h>
 #include <time.h>
-#include <sys/eventfd.h>
 #include <getopt.h>
+#include <elf.h>
+#include <sys/eventfd.h>
+#include <sys/types.h>
+#include <sys/mman.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <linux/input.h>
 
 #include <xf86drm.h>
 #include <xf86drmMode.h>
@@ -72,11 +77,11 @@ OPTIONS:\n\
                              pattern you use as a parameter so it isn't \n\
                              implicitly expanded by your shell.\n\
                              \n\
-  -r, --release              Run the app in release mode. This AOT snapshot\n\
+  -r, --release              Run the app in release mode. The AOT snapshot\n\
                              of the app (\"app.so\") must be located inside the\n\
                              asset bundle directory.\n\
                              \n\
-  -p, --profile              Run the app in profile mode. This runtime mode, too\n\
+  -p, --profile              Run the app in profile mode. This runtime mode too\n\
                              depends on the AOT snapshot.\n\
                              \n\
   -d, --debug                Run the app in debug mode. This is the default.\n\
@@ -441,8 +446,8 @@ static void on_frame_request(
 }
 
 static FlutterTransformation on_get_transformation(void *userdata) {
-	printf("on_get_transformation\n");
-	return FLUTTER_ROTZ_TRANSFORMATION((FlutterEngineGetCurrentTime() / 10000000) % 360);
+	//return FLUTTER_ROTZ_TRANSFORMATION(FlutterEngineGetCurrentTime() % 10000000000000);
+	return flutterpi.view.view_to_display_transform;
 }
 
 
@@ -775,6 +780,14 @@ int flutterpi_send_platform_message(
 			on_send_platform_message,
 			msg
 		);
+		if (ok != 0) {
+			if (message && message_size) {
+				free(msg->message);
+			}
+			free(msg->target_channel);
+			free(msg);
+			return ok;
+		}
 	}
 
 	return 0;
@@ -1109,24 +1122,31 @@ int flutterpi_fill_view_properties(
 		flutterpi.view.height_mm = flutterpi.display.width_mm;
 	}
 
-	FlutterTransformation center_view_around_origin = FLUTTER_TRANSLATION_TRANSFORMATION(flutterpi.display.width - flutterpi.view.width, 0);
-	FlutterTransformation rotate = FLUTTER_ROTZ_TRANSFORMATION(flutterpi.view.rotation);
-	FlutterTransformation translate_to_fill_screen = FLUTTER_TRANSLATION_TRANSFORMATION(flutterpi.display.width/2, flutterpi.display.height/2);
+	if (flutterpi.view.rotation == 0) {
+		flutterpi.view.view_to_display_transform = FLUTTER_TRANSLATION_TRANSFORMATION(0, 0);
 
-	FlutterTransformation multiplied;
-	multiplied = FLUTTER_MULTIPLIED_TRANSFORMATIONS(center_view_around_origin, rotate);
-	multiplied = FLUTTER_MULTIPLIED_TRANSFORMATIONS(multiplied, translate_to_fill_screen);
+		flutterpi.view.display_to_view_transform = FLUTTER_TRANSLATION_TRANSFORMATION(0, 0);
+	} else if (flutterpi.view.rotation == 90) {
+		flutterpi.view.view_to_display_transform = FLUTTER_ROTZ_TRANSFORMATION(90);
+		flutterpi.view.view_to_display_transform.transX = flutterpi.display.width;
 
-	flutterpi.view.view_to_display_transform = center_view_around_origin;
+		flutterpi.view.display_to_view_transform = FLUTTER_ROTZ_TRANSFORMATION(-90);
+		flutterpi.view.display_to_view_transform.transY = flutterpi.display.width;
+	} else if (flutterpi.view.rotation == 180) {
+		flutterpi.view.view_to_display_transform = FLUTTER_ROTZ_TRANSFORMATION(180);
+		flutterpi.view.view_to_display_transform.transX = flutterpi.display.width;
+		flutterpi.view.view_to_display_transform.transY = flutterpi.display.height;
 
-	FlutterTransformation inverse_center_view_around_origin = FLUTTER_TRANSLATION_TRANSFORMATION(flutterpi.view.width/2, flutterpi.view.height/2);
-	FlutterTransformation inverse_rotate = FLUTTER_ROTZ_TRANSFORMATION(-flutterpi.view.rotation);
-	FlutterTransformation inverse_translate_to_fill_screen = FLUTTER_TRANSLATION_TRANSFORMATION(-flutterpi.display.width/2, -flutterpi.display.height/2);
+		flutterpi.view.display_to_view_transform = FLUTTER_ROTZ_TRANSFORMATION(-180);
+		flutterpi.view.display_to_view_transform.transX = flutterpi.display.width;
+		flutterpi.view.display_to_view_transform.transY = flutterpi.display.height;
+	} else if (flutterpi.view.rotation == 270) {
+		flutterpi.view.view_to_display_transform = FLUTTER_ROTZ_TRANSFORMATION(270);
+		flutterpi.view.view_to_display_transform.transY = flutterpi.display.height;
 
-	multiplied = FLUTTER_MULTIPLIED_TRANSFORMATIONS(inverse_translate_to_fill_screen, inverse_rotate);
-	multiplied = FLUTTER_MULTIPLIED_TRANSFORMATIONS(multiplied, inverse_center_view_around_origin);
-
-	flutterpi.view.display_to_view_transform = inverse_center_view_around_origin;
+		flutterpi.view.display_to_view_transform = FLUTTER_ROTZ_TRANSFORMATION(-270);
+		flutterpi.view.display_to_view_transform.transX = flutterpi.display.height;
+	}
 
 	return 0;
 }
@@ -1154,8 +1174,7 @@ static int init_display(void) {
 	const drmModeModeInfo *mode, *mode_iter;
 	drmDevicePtr devices[64];
 	EGLint egl_error;
-	GLenum gl_error;
-	int ok, area, num_devices;
+	int ok, num_devices;
 
 	/**********************
 	 * DRM INITIALIZATION *
@@ -1582,15 +1601,6 @@ static int init_application(void) {
 	void *app_elf_handle;
 	int ok;
 
-	if (flutterpi.flutter.runtime_mode == kRelease || flutterpi.flutter.runtime_mode == kProfile) {
-		fprintf(
-			stderr,
-			"flutter-pi doesn't support running apps in release or profile mode yet.\n"
-			"See https://github.com/ardera/flutter-pi/issues/65 for more info.\n"
-		);
-		return EINVAL;
-	}
-
 	ok = plugin_registry_init();
 	if (ok != 0) {
 		fprintf(stderr, "[flutter-pi] Could not initialize plugin registry: %s\n", strerror(ok));
@@ -1648,6 +1658,101 @@ static int init_application(void) {
 		.shutdown_dart_vm_when_done = true,
 		.compositor = &flutter_compositor
 	};
+
+	if (flutterpi.flutter.runtime_mode == kRelease || flutterpi.flutter.runtime_mode == kProfile) {
+		const uint8_t *vm_instr, *vm_data, *isolate_instr, *isolate_data;
+		size_t vm_instr_size, vm_data_size, isolate_instr_size, isolate_data_size;
+
+		app_elf_handle = dlopen(flutterpi.flutter.app_elf_path, RTLD_NOW | RTLD_LOCAL);
+		if (app_elf_handle == NULL) {
+			perror("[flutter-pi] Could not open \"app.so\". dlopen");
+			return errno;
+		}
+
+		vm_instr = dlsym(app_elf_handle, "_kDartVmSnapshotInstructions");
+		if (vm_instr == NULL) {
+			perror("[flutter-pi] Could not resolve vm instructions section in \"app.so\". dlsym");
+			dlclose(app_elf_handle);
+			return errno;
+		}
+
+		vm_data = dlsym(app_elf_handle, "_kDartSnapshotData");
+		if (vm_data == NULL) {
+			perror("[flutter-pi] Could not resolve vm data section in \"app.so\". dlsym");
+			dlclose(app_elf_handle);
+			return errno;
+		}
+
+		isolate_instr = dlsym(app_elf_handle, "_kDartIsolateSnapshotInstructions");
+		if (isolate_instr == NULL) {
+			perror("[flutter-pi] Could not resolve isolate instructions section in \"app.so\". dlsym");
+			dlclose(app_elf_handle);
+			return errno;
+		}
+
+		isolate_data = dlsym(app_elf_handle, "_kDartIsolateSnapshotData");
+		if (isolate_data == NULL) {
+			perror("[flutter-pi] Could not resolve isolate data section in \"app.so\". dlsym");
+			dlclose(app_elf_handle);
+			return errno;
+		}
+
+		// now find out the sizes for the sections...
+		int fd = open(flutterpi.flutter.app_elf_path, O_RDONLY);
+
+		struct stat statbuf;
+		fstat(fd, &statbuf);
+		char *fbase = mmap(NULL, statbuf.st_size, PROT_READ, MAP_SHARED, fd, 0);
+
+		Elf32_Ehdr *ehdr = (Elf32_Ehdr *) fbase;
+		Elf32_Shdr *sections = (Elf32_Shdr *) (fbase + ehdr->e_shoff);
+		
+		int section_header_size = ehdr->e_shentsize;
+		int section_header_num = ehdr->e_shnum;
+		int section_header_strndx = ehdr->e_shstrndx;
+
+		Elf32_Shdr *shstr_section = sections + shstr_section->sh_offset;
+		char *shstrtab = fbase + shstr_section->sh_offset;
+
+
+		// Assume the first .text section is the vm instructions,
+		// the second .text is isolate instructions
+		// Assume the first .rodata section is the vm data,
+		// the second .rodata is isolate data
+
+		vm_instr_size = 0; isolate_instr_size = 0;
+		vm_data_size = 0; isolate_data_size = 0;
+		for (int i = 0; i < section_header_num; i++) {
+			if (strcmp(shstrtab + sections[i].sh_name, ".text") == 0) {
+				if (vm_instr_size == 0) {
+					vm_instr_size = sections[i].sh_size;
+				} else if (isolate_instr_size == 0) {
+					isolate_instr_size = sections[i].sh_size;
+				}
+			} else if (strcmp(shstrtab + sections[i].sh_name, ".rodata") == 0) {
+				if (vm_data_size == 0) {
+					vm_data_size = sections[i].sh_size;
+				} else if (isolate_data_size == 0) {
+					isolate_data_size = sections[i].sh_size;
+				}
+			}
+		}
+
+		munmap(fbase, statbuf.st_size);
+		close(fd);
+
+		project_args.vm_snapshot_instructions = vm_instr;
+		project_args.vm_snapshot_instructions_size = vm_instr_size;
+
+		project_args.isolate_snapshot_instructions = isolate_instr;
+		project_args.isolate_snapshot_instructions_size = isolate_instr_size;
+
+		project_args.vm_snapshot_data = vm_data;
+		project_args.vm_snapshot_data_size = vm_data_size;
+
+		project_args.isolate_snapshot_data = isolate_data;
+		project_args.isolate_snapshot_data_size = isolate_data_size;
+	}
 
 	// spin up the engine
 	engine_result = FlutterEngineRun(FLUTTER_ENGINE_VERSION, &renderer_config, &project_args, NULL, &flutterpi.flutter.engine);
@@ -1723,6 +1828,8 @@ static int on_libinput_ready(sd_event_source *s, int fd, uint32_t revents, void 
 					.device_kind = kFlutterPointerDeviceKindMouse,
 					.buttons = 0
 				};
+
+				compositor_set_cursor_enabled(true);
 			} else if (libinput_device_has_capability(device, LIBINPUT_DEVICE_CAP_TOUCH)) {
 				int touch_count = libinput_device_touch_get_touch_count(device);
 
@@ -1762,8 +1869,10 @@ static int on_libinput_ready(sd_event_source *s, int fd, uint32_t revents, void 
 					FlutterPointerPhase phase;
 					if (type == LIBINPUT_EVENT_TOUCH_DOWN) {
 						phase = kDown;
+						printf("reporting touch: down at %03f, %03f\n", x, y);
 					} else if (type == LIBINPUT_EVENT_TOUCH_MOTION) {
 						phase = kMove;
+						printf("reporting touch: move at %03f, %03f\n", x, y);
 					}
 
 					pointer_events[n_pointer_events++] = (FlutterPointerEvent) {
@@ -1784,12 +1893,14 @@ static int on_libinput_ready(sd_event_source *s, int fd, uint32_t revents, void 
 					data->y = y;
 					data->timestamp = libinput_event_touch_get_time_usec(touch_event);
 				} else {
+					printf("reporting touch: up\n");
+
 					pointer_events[n_pointer_events++] = (FlutterPointerEvent) {
 						.struct_size = sizeof(FlutterPointerEvent),
 						.phase = kUp,
 						.timestamp = libinput_event_touch_get_time_usec(touch_event),
-						.x = 0.0,
-						.y = 0.0,
+						.x = data->x,
+						.y = data->y,
 						.device = data->flutter_device_id_offset + slot,
 						.signal_kind = kFlutterPointerSignalKindNone,
 						.scroll_delta_x = 0.0,
@@ -1804,7 +1915,7 @@ static int on_libinput_ready(sd_event_source *s, int fd, uint32_t revents, void 
 			struct input_device_data *data = libinput_device_get_user_data(libinput_event_get_device(event));
 
 			if (type == LIBINPUT_EVENT_POINTER_MOTION) {
-
+				
 			} else if (type == LIBINPUT_EVENT_POINTER_MOTION_ABSOLUTE) {
 				double x = libinput_event_pointer_get_absolute_x_transformed(pointer_event, flutterpi.display.width);
 				double y = libinput_event_pointer_get_absolute_y_transformed(pointer_event, flutterpi.display.height);
@@ -1824,6 +1935,8 @@ static int on_libinput_ready(sd_event_source *s, int fd, uint32_t revents, void 
 					.device_kind = kFlutterPointerDeviceKindMouse,
 					.buttons = data->buttons
 				};
+
+				compositor_set_cursor_pos((int) round(x), (int) round(y));
 
 				data->x = x;
 				data->y = y;
@@ -2054,7 +2167,7 @@ static bool setup_paths(void) {
 static bool parse_cmd_args(int argc, char **argv) {
 	glob_t input_devices_glob = {0};
 	bool input_specified = false;
-	int ok, opt, longopt_index = 0, runtime_mode_int = kDebug;
+	int opt, longopt_index = 0, runtime_mode_int = kDebug;
 
 	struct option long_options[] = {
 		{"release", no_argument, &runtime_mode_int, kRelease},
@@ -2114,7 +2227,7 @@ static bool parse_cmd_args(int argc, char **argv) {
 			}
 
 			flutterpi.view.rotation = rotation;
-		} else {
+		} else if ((opt == '?') || (opt == ':')) {
 			printf("%s", usage);
 			return false;
 		}
@@ -2123,15 +2236,6 @@ static bool parse_cmd_args(int argc, char **argv) {
 	if (!input_specified) {
 		// user specified no input devices. use "/dev/input/event*"".
 		glob("/dev/input/event*", GLOB_BRACE | GLOB_TILDE, NULL, &input_devices_glob);
-	}
-	
-	if (runtime_mode_int != kDebug) {
-		fprintf(
-			stderr,
-			"flutter-pi doesn't support running apps in release or profile mode yet.\n"
-			"See https://github.com/ardera/flutter-pi/issues/65 for more info.\n"
-		);
-		return false;
 	}
 
 	if (optind >= argc) {

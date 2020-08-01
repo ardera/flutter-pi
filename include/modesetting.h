@@ -7,6 +7,8 @@
 #include <xf86drm.h>
 #include <xf86drmMode.h>
 
+#include <collection.h>
+
 struct drm_connector {
     drmModeConnector *connector;
 	drmModeObjectProperties *props;
@@ -24,6 +26,7 @@ struct drm_crtc {
 };
 
 struct drm_plane {
+    int type;
     drmModePlane *plane;
     drmModeObjectProperties *props;
     drmModePropertyRes **props_info;
@@ -60,6 +63,9 @@ struct drmdev {
 struct drmdev_atomic_req {
     struct drmdev *drmdev;
     drmModeAtomicReq *atomic_req;
+
+    void *available_planes_storage[32];
+    struct pointer_set available_planes;
 };
 
 int drmdev_new_from_fd(
@@ -112,6 +118,13 @@ int drmdev_atomic_req_put_modeset_props(
     struct drmdev_atomic_req *req,
     uint32_t *flags
 );
+
+inline static int drmdev_atomic_req_reserve_plane(
+    struct drmdev_atomic_req *req,
+    struct drm_plane *plane
+) {
+    return pset_remove(&req->available_planes, plane);
+}
 
 int drmdev_atomic_req_commit(
     struct drmdev_atomic_req *req,
@@ -193,5 +206,7 @@ inline static drmModeModeInfo *__next_mode(const struct drm_connector *connector
 #define for_each_plane_in_drmdev(drmdev, plane) for (plane = __next_plane(drmdev, NULL); plane != NULL; plane = __next_plane(drmdev, plane))
 
 #define for_each_mode_in_connector(connector, mode) for (mode = __next_mode(connector, NULL); mode != NULL; mode = __next_mode(connector, mode))
+
+#define for_each_unreserved_plane_in_atomic_req(atomic_req, plane) for_each_pointer_in_pset(&(atomic_req)->available_planes, plane)
 
 #endif

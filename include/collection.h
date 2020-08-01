@@ -25,13 +25,36 @@ struct concurrent_queue {
 	struct queue queue;
 };
 
-struct concurrent_pointer_set {
-	pthread_mutex_t mutex;
+struct pointer_set {
+	/**
+	 * @brief The number of non-NULL pointers currently stored in @ref pointers. 
+	 */
 	size_t count_pointers;
+
+	/**
+	 * @brief The current size of the @ref pointers memory block, in pointers.
+	 */
 	size_t size;
+
+	/**
+	 * @brief The actual memory where the pointers are stored.
+	 */
 	void **pointers;
 
+	/**
+	 * @brief The maximum size of the @ref pointers memory block, in pointers.
+	 */
 	size_t max_size;
+
+	/**
+	 * @brief Whether this pointer_set is using static memory.
+	 */
+	bool is_static;
+};
+
+struct concurrent_pointer_set {
+	pthread_mutex_t mutex;
+	struct pointer_set set;
 };
 
 #define QUEUE_DEFAULT_MAX_SIZE 64
@@ -56,15 +79,38 @@ struct concurrent_pointer_set {
 		.queue = QUEUE_INITIALIZER(element_type, _max_queue_size) \
 	})
 
+#define PSET_DEFAULT_MAX_SIZE 64
+
+#define PSET_INITIALIZER(_max_size) \
+	((struct pointer_set) { \
+		.count_pointers = 0, \
+		.size = 0, \
+		.pointers = NULL, \
+		.max_size = _max_size, \
+		.is_static = false \
+	})
+
+#define PSET_INITIALIZER_STATIC(_storage, _size) \
+	((struct pointer_set) { \
+		.count_pointers = 0, \
+		.size = _size, \
+		.pointers = _storage, \
+		.max_size = _size, \
+		.is_static = true \
+	})
+
 #define CPSET_DEFAULT_MAX_SIZE 64
 
 #define CPSET_INITIALIZER(_max_size) \
 	((struct concurrent_pointer_set) { \
 		.mutex = PTHREAD_MUTEX_INITIALIZER, \
-		.count_pointers = 0, \
-		.size = 0, \
-		.pointers = NULL, \
-		.max_size = _max_size \
+		.set = { \
+			.count_pointers = 0, \
+			.size = 0, \
+			.pointers = NULL, \
+			.max_size = _max_size, \
+			.is_static = false \
+		} \
 	})
 
 
@@ -157,203 +203,189 @@ int cqueue_peek_locked(
 	void **pelement_out
 );
 
-static inline int cpset_init(
-	struct concurrent_pointer_set *const set,
-	const size_t max_size
+/*
+ * pointer set
+ */
+int pset_init(
+	struct pointer_set *set,
+	size_t max_size
+);
+
+int pset_init_static(
+	struct pointer_set *set,
+	void **storage,
+	size_t size
+);
+
+void pset_deinit(
+	struct pointer_set *set
+);
+
+int pset_put(
+	struct pointer_set *set,
+	void *pointer
+);
+
+bool pset_contains(
+	const struct pointer_set *set,
+	const void *pointer
+);
+
+int pset_remove(
+	struct pointer_set *set,
+	const void *pointer
+);
+
+static inline int pset_get_count_pointers(
+	const struct pointer_set *set
 ) {
-	memset(set, 0, sizeof(*set));
-
-	pthread_mutex_init(&set->mutex, NULL);
-
-	set->count_pointers = 0;
-	set->size = 2;
-	set->pointers = (void**) calloc(2, sizeof(void*));
-
-	set->max_size = max_size;
-
-	if (set->pointers == NULL) {
-		set->size = 0;
-		return ENOMEM;
-	}
-
-	return 0;
+	return set->count_pointers;
 }
 
-static inline int cpset_deinit(struct concurrent_pointer_set *const set) {
-	pthread_mutex_destroy(&set->mutex);
-
-	if (set->pointers != NULL) {
-		free(set->pointers);
-	}
-
-	set->count_pointers = 0;
-	set->size = 0;
-	set->pointers = NULL;
-
-	set->max_size = 0;
-
-	return 0;
+/**
+ * @brief Returns the size of the internal storage of set, in pointers.
+ */
+static inline int pset_get_storage_size(
+	const struct pointer_set *set
+) {
+	return set->size;
 }
 
-static inline int cpset_lock(struct concurrent_pointer_set *const set) {
+int pset_copy(
+	const struct pointer_set *src,
+	struct pointer_set *dest
+);
+
+void pset_intersect(
+	struct pointer_set *src_dest,
+	const struct pointer_set *b
+);
+
+int pset_union(
+	struct pointer_set *src_dest,
+	const struct pointer_set *b
+);
+
+int pset_subtract(
+	struct pointer_set *minuend_difference,
+	const struct pointer_set *subtrahend
+);
+
+void *__pset_next_pointer(
+	struct pointer_set *set,
+	const void *pointer
+);
+
+#define for_each_pointer_in_pset(set, pointer) for ((pointer) = __pset_next_pointer(set, NULL); (pointer) != NULL; (pointer) = __pset_next_pointer(set, (pointer)))
+
+/*
+ * concurrent pointer set
+ */
+int cpset_init(
+	struct concurrent_pointer_set *set,
+	size_t max_size
+);
+
+void cpset_deinit(struct concurrent_pointer_set *set);
+
+static inline int cpset_lock(struct concurrent_pointer_set *set) {
 	return pthread_mutex_lock(&set->mutex);
 }
 
-static inline int cpset_unlock(struct concurrent_pointer_set *const set) {
+static inline int cpset_unlock(struct concurrent_pointer_set *set) {
 	return pthread_mutex_unlock(&set->mutex);
 }
 
 static inline int cpset_put_locked(
-	struct concurrent_pointer_set *const set,
+	struct concurrent_pointer_set *set,
 	void *pointer
 ) {
-	size_t new_size;
-	int index;
-
-	index = -1;
-	for (int i = 0; i < set->size; i++) {
-		if (set->pointers[i] && (pointer == set->pointers[i])) {
-			index = i;
-			break;
-		}
-	}
-	
-	if ((index == -1) && (set->size == set->count_pointers)) {
-		new_size = set->size ? set->size << 1 : 1;
-
-		if (new_size < set->max_size) {
-			void **new_pointers = (void**) realloc(set->pointers, new_size * sizeof(void*));
-			
-			if (new_pointers == NULL) {
-				return ENOMEM;
-			}
-
-			memset(new_pointers + set->size, 0, (new_size - set->size) * sizeof(void*));
-
-			index = set->size;
-
-			set->pointers = new_pointers;
-			set->size = new_size;
-		} else {
-			return ENOSPC;
-		}
-	}
-
-	if (index == -1) {
-		while (set->pointers[++index]);
-	}
-
-	set->pointers[index] = pointer;
-
-	set->count_pointers++;
-
-	return 0;
+	return pset_put(&set->set, pointer);
 }
 
-static inline int cpset_put(
-	struct concurrent_pointer_set *const set,
+static inline int cpset_put_(
+	struct concurrent_pointer_set *set,
 	void *pointer
 ) {
 	int ok;
 
 	cpset_lock(set);
-	ok = cpset_put_locked(set, pointer);
+	ok = pset_put(&set->set, pointer);
 	cpset_unlock(set);
 
 	return ok;
 }
 
 static inline bool cpset_contains_locked(
-	struct concurrent_pointer_set *const set,
-	const void const *pointer
+	struct concurrent_pointer_set *set,
+	const void *pointer
 ) {
-	for (int i = 0; i < set->size; i++) {
-		if (set->pointers[i] && (set->pointers[i] == pointer)) {
-			return true;
-		}
-	}
-
-	return false;
+	return pset_contains(&set->set, pointer);
 }
 
-static inline bool cpset_contains(
-	struct concurrent_pointer_set *const set,
-	const void const *pointer
+static inline bool cpset_contains_(
+	struct concurrent_pointer_set *set,
+	const void *pointer
 ) {
 	bool result;
-	
+
 	cpset_lock(set);
-	result = cpset_contains_locked(set, pointer);
+	result = pset_contains(&set->set, pointer);
 	cpset_unlock(set);
 
 	return result;
 }
 
-
-
-static inline void *cpset_remove_locked(
-	struct concurrent_pointer_set *const set,
-	const void const *pointer
+static inline int cpset_remove_locked(
+	struct concurrent_pointer_set *set,
+	const void *pointer
 ) {
-	void *result;
-	size_t new_size;
-	int index;
-
-	result = NULL;
-
-	for (index = 0; index < set->size; index++) {
-		if (set->pointers[index] && (set->pointers[index] == pointer)) {
-			result = set->pointers[index];
-			
-			set->pointers[index] = NULL;
-			set->count_pointers--;
-			
-			return result;
-		}
-	}
-
-	return NULL;
+	return pset_remove(&set->set, pointer); 
 }
 
-static inline void *cpset_remove(
-	struct concurrent_pointer_set *const set,
-	const void const *pointer
+static inline int cpset_remove_(
+	struct concurrent_pointer_set *set,
+	const void *pointer
 ) {
-	void *result;
+	int ok;
 
 	cpset_lock(set);
-	result = cpset_remove_locked(set, pointer);
+	ok = cpset_remove_locked(set, pointer);
 	cpset_unlock(set);
 
-	return result;
+	return ok;
 }
 
-static inline void *__cpset_next_pointer(
-	struct concurrent_pointer_set *const set,
-	const void const *pointer
+static inline int cpset_get_count_pointers_locked(
+	const struct concurrent_pointer_set *set
 ) {
-	int i = -1;
-
-	if (pointer != NULL) {
-		for (i = 0; i < set->size; i++) {
-			if (set->pointers[i] == pointer) {
-				break;
-			}
-		}
-
-		if (i == set->size) return NULL;
-	}
-
-	for (i = i+1; i < set->size; i++) {
-		if (set->pointers[i]) {
-			return set->pointers[i];
-		}
-	}
-
-	return NULL;
+	return set->set.count_pointers;
 }
 
-#define for_each_pointer_in_cpset(set, pointer) for ((pointer) = __cpset_next_pointer(set, NULL); (pointer) != NULL; (pointer) = __cpset_next_pointer(set, (pointer)))
+/**
+ * @brief Returns the size of the internal storage of set, in pointers.
+ */
+static inline int cpset_get_storage_size_locked(
+	const struct concurrent_pointer_set *set
+) {
+	return set->set.size;
+}
+
+static inline int cpset_copy_into_pset_locked(
+	struct concurrent_pointer_set *src,
+	struct pointer_set *dest
+) {
+	return pset_copy(&src->set, dest);
+}
+
+static inline void *__cpset_next_pointer_locked(
+	struct concurrent_pointer_set *set,
+	const void *pointer
+) {
+	return __pset_next_pointer(&set->set, pointer);
+}
+
+#define for_each_pointer_in_cpset(set, pointer) for ((pointer) = __cpset_next_pointer_locked(set, NULL); (pointer) != NULL; (pointer) = __cpset_next_pointer_locked(set, (pointer)))
 
 static inline void *memdup(const void *restrict src, const size_t n) {
 	void *__restrict__ dest;

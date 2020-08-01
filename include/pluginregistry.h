@@ -44,8 +44,11 @@ struct flutterpi_plugin {
 };
 
 
-int plugin_registry_init();
-int plugin_registry_on_platform_message(FlutterPlatformMessage *message);
+int plugin_registry_init(void);
+
+int plugin_registry_on_platform_message(
+	FlutterPlatformMessage *message
+);
 
 /// Sets the callback that should be called when a platform message arrives on channel "channel",
 /// and the codec used to automatically decode the platform message.
@@ -56,8 +59,14 @@ int plugin_registry_set_receiver(
 	platch_obj_recv_callback callback
 );
 
-int plugin_registry_remove_receiver(const char *channel);
+int plugin_registry_remove_receiver(
+	const char *channel
+);
 
-int plugin_registry_deinit();
+bool plugin_registry_is_plugin_present(
+	const char *plugin_name
+);
+
+int plugin_registry_deinit(void);
 
 #endif

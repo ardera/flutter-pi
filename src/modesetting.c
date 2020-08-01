@@ -316,6 +316,16 @@ static int fetch_planes(struct drmdev *drmdev, struct drm_plane **planes_out, si
                 drmModeFreePlane(plane);
                 goto fail_free_planes;
             }
+
+            if (strcmp(props_info[j]->name, "type") == 0) {
+                planes[i].type = 0;
+                for (int k = 0; k < props->count_props; k++) {
+                    if (props->props[k] == props_info[j]->prop_id) {
+                        planes[i].type = props->prop_values[k];
+                        break;
+                    }
+                }
+            }
         }
 
         planes[i].plane = plane;
@@ -554,6 +564,7 @@ int drmdev_new_atomic_req(
     struct drmdev_atomic_req **req_out
 ) {
     struct drmdev_atomic_req *req;
+    struct drm_plane *plane;
     int ok;
 
     req = calloc(1, sizeof *req);
@@ -567,6 +578,12 @@ int drmdev_new_atomic_req(
     if (req->atomic_req == NULL) {
         free(req);
         return ENOMEM;
+    }
+
+    req->available_planes = PSET_INITIALIZER_STATIC(req->available_planes_storage, 32);
+
+    for_each_plane_in_drmdev(drmdev, plane) {
+        pset_put(&req->available_planes, plane);
     }
 
     *req_out = req;

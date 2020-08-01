@@ -23,7 +23,7 @@
 #include <collection.h>
 #include <compositor.h>
 
-#include <plugins/video_player.h>
+#include <plugins/omxplayer_video_player.h>
 
 static struct {
     bool initialized;
@@ -56,7 +56,7 @@ struct libsystemd libsystemd = {0};
 
 /// Add a player instance to the player collection.
 int add_player(struct omxplayer_video_player *player) {
-    return cpset_put(&omxpvidpp.players, player);
+    return cpset_put_(&omxpvidpp.players, player);
 }
 
 /// Get a player instance by its id.
@@ -92,8 +92,8 @@ struct omxplayer_video_player *get_player_by_evch(const char *const event_channe
 }
 
 /// Remove a player instance from the player collection.
-static void *remove_player(struct omxplayer_video_player *player) {
-    return cpset_remove(&omxpvidpp.players, player);
+static int remove_player(struct omxplayer_video_player *player) {
+    return cpset_remove_(&omxpvidpp.players, player);
 }
 
 /// Get the player id from the given arg, which is a kStdMap.
@@ -435,7 +435,7 @@ static void *mgr_entry(void *userdata) {
     }
 
     // spawn the omxplayer process
-    current_zpos = -1;
+    current_zpos = -128;
     pid_t me = fork();
     if (me == 0) {
         char orientation_str[16] = {0};
@@ -600,7 +600,21 @@ static void *mgr_entry(void *userdata) {
     has_scheduled_pause_time = false;
     while (1) {
         ok = cqueue_dequeue(q, &task);
+        
+        if (task.type == kUpdateView) {
+            struct omxplayer_mgr_task *peek;
 
+            cqueue_lock(q);
+
+            cqueue_peek_locked(q, (void**) &peek);
+            while ((peek != NULL) && (peek->type == kUpdateView)) {
+                cqueue_dequeue_locked(q, &task);
+                cqueue_peek_locked(q, (void**) &peek);
+            }
+
+            cqueue_unlock(q);
+        }
+        
         if (task.type == kCreate) {
             printf("[omxplayer_video_player plugin] Omxplayer manager got a creation task, even though the player is already running.\n");
         } else if (task.type == kDispose) {
@@ -757,6 +771,7 @@ static void *mgr_entry(void *userdata) {
             libsystemd.sd_bus_message_unref(msg);
 
             if (current_zpos != task.zpos) {
+                printf("setting omxplayer layer to %d\n", task.zpos);
                 ok = libsystemd.sd_bus_call_method(
                     bus,
                     dbus_name,
@@ -1424,7 +1439,7 @@ static int on_create(
     ok = cqueue_enqueue(&mgr->task_queue, &(const struct omxplayer_mgr_task) {
         .type = kCreate,
         .responsehandle = responsehandle,
-        .orientation = 0 //rotation
+        .orientation = flutterpi.view.rotation
     });
 
     if (ok != 0) {
@@ -1777,6 +1792,9 @@ static int on_receive_mch(
     return platch_respond_not_implemented(responsehandle);
 }
 
+extern int8_t omxpvidpp_is_present(void) {
+    return plugin_registry_is_plugin_present("omxplayer_video_player");
+}
 
 int omxpvidpp_init(void) {
     int ok;

@@ -5,9 +5,10 @@
 #include <string.h>
 #include <stdbool.h>
 #include <stdatomic.h>
-
 #include <pthread.h>
+
 #include <systemd/sd-bus.h>
+#include <flutter_embedder.h>
 
 #include <collection.h>
 

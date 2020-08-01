@@ -591,7 +591,7 @@ int platch_decode_value_json(char *message, size_t size, jsmntok_t **pptoken, si
 		jsmn_parser parser;
 		size_t tokensremaining;
 
-		memset(tokens, sizeof(tokens), 0);
+		memset(tokens, 0, sizeof(tokens));
 
 		jsmn_init(&parser);
 		result = jsmn_parse(&parser, (const char *) message, (const size_t) size, tokens, JSON_DECODE_TOKENLIST_SIZE);
@@ -788,8 +788,6 @@ int platch_decode(uint8_t *buffer, size_t size, enum platch_codec codec, struct 
 			ok = _read8(&buffer_cursor, (uint8_t*) &object_out->success, &remaining);
 
 			if (object_out->success) {
-				struct std_value result;
-
 				ok = platch_decode_value_std(&buffer_cursor, &remaining, &(object_out->std_result));
 				if (ok != 0) return ok;
 			} else {

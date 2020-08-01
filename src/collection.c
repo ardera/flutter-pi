@@ -207,7 +207,6 @@ int cqueue_enqueue(
 	return 0;
 }
 
-
 int cqueue_try_dequeue_locked(
 	struct concurrent_queue *queue,
 	void *element_out
@@ -267,10 +266,263 @@ int cqueue_dequeue(
 	return ok;
 }
 
-
 int cqueue_peek_locked(
 	struct concurrent_queue *queue,
 	void **pelement_out
 ) {
     return queue_peek(&queue->queue, pelement_out);
+}
+
+
+int pset_init(
+	struct pointer_set *set,
+	size_t max_size
+) {
+	void **storage = (void**) calloc(2, sizeof(void*));
+	if (storage == NULL) {
+		return ENOMEM;
+	}
+
+	memset(set, 0, sizeof(*set));
+
+	set->count_pointers = 0;
+	set->size = 2;
+	set->pointers = storage;
+	set->max_size = max_size;
+	set->is_static = false;
+
+	return 0;
+}
+
+int pset_init_static(
+	struct pointer_set *set,
+	void **storage,
+	size_t size
+) {
+	if (storage == NULL) {
+		return EINVAL;
+	}
+
+	memset(set, 0, sizeof *set);
+
+	set->count_pointers = 0;
+	set->size = size;
+	set->pointers = storage;
+	set->max_size = size;
+	set->is_static = true;
+
+	return 0;
+}
+
+void pset_deinit(
+	struct pointer_set *set
+) {
+	if ((set->is_static == false) && (set->pointers != NULL)) {
+		free(set->pointers);
+	}
+
+	set->count_pointers = 0;
+	set->size = 0;
+	set->pointers = NULL;
+	set->max_size = 0;
+	set->is_static = false;
+}
+
+int pset_put(
+	struct pointer_set *set,
+	void *pointer
+) {
+	size_t new_size;
+	int index;
+
+	index = -1;
+	for (int i = 0; i < set->size; i++) {
+		if (set->pointers[i] == NULL) {
+			index = i;
+		} else if (pointer == set->pointers[i]) {
+			return 0;
+		}
+	}
+	
+	if (index != -1) {
+		set->pointers[index] = pointer;
+		set->count_pointers++;
+		return 0;
+	}
+	
+	if (set->is_static) {
+		return ENOSPC;
+	} else {
+		new_size = set->size ? set->size << 1 : 1;
+
+		if (new_size < set->max_size) {
+			void **new_pointers = (void**) realloc(set->pointers, new_size * sizeof(void*));
+			if (new_pointers == NULL) {
+				return ENOMEM;
+			}
+
+			memset(new_pointers + set->size, 0, (new_size - set->size) * sizeof(void*));
+
+			new_pointers[set->size] = pointer;
+			set->count_pointers++;
+
+			set->pointers = new_pointers;
+			set->size = new_size;
+		} else {
+			return ENOSPC;
+		}
+	} 
+
+	return 0;
+}
+
+bool pset_contains(
+	const struct pointer_set *set,
+	const void *pointer
+) {
+	for (int i = 0; i < set->size; i++) {
+		if ((set->pointers[i] != NULL) && (set->pointers[i] == pointer)) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
+int pset_remove(
+	struct pointer_set *set,
+	const void *pointer
+) {
+	for (int i = 0; i < set->size; i++) {
+		if ((set->pointers[i] != NULL) && (set->pointers[i] == pointer)) {
+			set->pointers[i] = NULL;
+			set->count_pointers--;
+			
+			return 0;
+		}
+	}
+
+	return EINVAL;
+}
+
+int pset_copy(
+	const struct pointer_set *src,
+	struct pointer_set *dest
+) {
+	if (dest->size < src->count_pointers) {
+		if (dest->max_size < src->count_pointers) {
+			return ENOSPC;
+		} else {
+			void *new_pointers = realloc(dest->pointers, src->count_pointers);
+			if (new_pointers == NULL) {
+				return ENOMEM;
+			}
+
+			dest->pointers = new_pointers;
+			dest->size = src->count_pointers;
+		}
+	}
+
+	if (dest->size >= src->size) {
+		memcpy(dest->pointers, src->pointers, src->size * sizeof(void*));
+
+		if (dest->size > src->size) {
+			memset(dest->pointers + src->size, 0, (dest->size - src->size) * sizeof(void*));
+		}
+	} else {
+		for (int i = 0, j = 0; i < src->size; i++) {
+			if (src->pointers[i] != NULL) {
+				dest->pointers[j] = src->pointers[i];
+				j++;
+			}
+		}
+	}
+
+	dest->count_pointers = src->count_pointers;
+}
+
+void pset_intersect(
+	struct pointer_set *src_dest,
+	const struct pointer_set *b
+) {
+	for (int i = 0, j = 0; (i < src_dest->size) && (j < src_dest->count_pointers); i++) {
+		if (src_dest->pointers[i] != NULL) {
+			if (pset_contains(b, src_dest->pointers[i]) == false) {
+				src_dest->pointers[i] = NULL;
+				src_dest->count_pointers--;
+			} else {
+				j++;
+			}
+		}
+	}
+}
+
+int pset_union(
+	struct pointer_set *src_dest,
+	const struct pointer_set *b
+) {
+	int ok;
+
+	for (int i = 0, j = 0; (i < b->size) && (j < b->size); i++) {
+		if (b->pointers[i] != NULL) {
+			ok = pset_put(src_dest, b->pointers[i]);
+			if (ok != 0) {
+				return ok;
+			}
+
+			j++;
+		}
+	}
+
+	return 0;
+}
+
+void *__pset_next_pointer(
+	struct pointer_set *set,
+	const void *pointer
+) {
+	int i = -1;
+
+	if (pointer != NULL) {
+		for (i = 0; i < set->size; i++) {
+			if (set->pointers[i] == pointer) {
+				break;
+			}
+		}
+
+		if (i == set->size) return NULL;
+	}
+
+	for (i = i+1; i < set->size; i++) {
+		if (set->pointers[i]) {
+			return set->pointers[i];
+		}
+	}
+
+	return NULL;
+}
+
+
+int cpset_init(
+	struct concurrent_pointer_set *set,
+	size_t max_size
+) {
+	int ok;
+
+	ok = pset_init(&set->set, max_size);
+	if (ok != 0) {
+		return ok;
+	}
+
+	ok = pthread_mutex_init(&set->mutex, NULL);
+	if (ok < 0) {
+		return errno;
+	}
+
+	return 0;
+}
+
+void cpset_deinit(struct concurrent_pointer_set *set) {
+	pthread_mutex_destroy(&set->mutex);
+	pset_deinit(&set->set);
 }

@@ -97,6 +97,12 @@ enum device_orientation {
 	 .pers1  = a.pers0  * b.skewX  + a.pers1  * b.scaleY + a.pers2  * b.pers1, \
 	 .pers2  = a.pers0  * b.transX + a.pers1  * b.transY + a.pers2  * b.pers2})
 
+#define FLUTTER_ADDED_TRANSFORMATIONS(a, b) ((FlutterTransformation) \
+	{.scaleX = a.scaleX + b.scaleX, .skewX  = a.skewX  + b.skewX,  .transX = a.transX + b.transX, \
+	 .skewY  = a.skewY  + b.skewY,  .scaleY = a.scaleY + b.scaleY, .transY = a.transY + b.transY, \
+	 .pers0  = a.pers0  + b.pers0,  .pers1  = a.pers1  + b.pers1,  .pers2  = a.pers2  + b.pers2 \
+	})
+
 static inline void apply_flutter_transformation(
 	const FlutterTransformation t,
 	double *px,

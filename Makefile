@@ -14,6 +14,7 @@ REAL_LDFLAGS = \
 	-lpthread \
 	-ldl \
 	-lm \
+	-rdynamic \
 	$(LDFLAGS)
 
 SOURCES = src/flutter-pi.c \
@@ -30,7 +31,7 @@ SOURCES = src/flutter-pi.c \
 	src/plugins/raw_keyboard.c \
 	src/plugins/gpiod.c \
 	src/plugins/spidev.c \
-	src/plugins/video_player.c
+	src/plugins/omxplayer_video_player.c
 
 OBJECTS = $(patsubst src/%.c,out/obj/%.o,$(SOURCES))
 
