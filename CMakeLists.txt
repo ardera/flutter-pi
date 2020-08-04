@@ -99,19 +99,26 @@ pkg_check_modules(GBM REQUIRED gbm)
 pkg_check_modules(DRM REQUIRED libdrm)
 pkg_check_modules(GLESV2 REQUIRED glesv2)
 pkg_check_modules(EGL REQUIRED egl)
+pkg_check_modules(LIBSYSTEMD REQUIRED libsystemd)
+pkg_check_modules(LIBUDEV REQUIRED libudev)
 pkg_check_modules(GPIOD libgpiod)
 
 set(FLUTTER_PI_SRC
-  src/flutter-pi.c
-  src/platformchannel.c
-  src/pluginregistry.c
-  src/console_keyboard.c
-  src/plugins/services.c
-  src/plugins/testplugin.c
-  src/plugins/text_input.c
-  src/plugins/raw_keyboard.c
-  src/plugins/spidev.c
-  src/plugins/omxplayer_video_player.c
+  src/flutter-pi.c \
+	src/platformchannel.c \
+	src/pluginregistry.c \
+	src/console_keyboard.c \
+	src/texture_registry.c \
+	src/compositor.c \
+	src/modesetting.c \
+	src/collection.c \
+	src/cursor.c \
+	src/plugins/services.c \
+	src/plugins/testplugin.c \
+	src/plugins/text_input.c \
+	src/plugins/raw_keyboard.c \
+	src/plugins/spidev.c \
+	src/plugins/omxplayer_video_player.c
 )
 
 if(GPIOD_FOUND)
@@ -141,10 +148,14 @@ target_compile_options(flutter-pi PRIVATE
   ${GBM_CFLAGS} ${DRM_CFLAGS}
   ${GLESV2_CFLAGS} ${EGL_CFLAGS}
   ${GPIOD_CFLAGS} -ggdb
-  -DBUILD_TEXT_INPUT_PLUGIN 
-  -DBUILD_SPIDEV_PLUGIN 
-  -DBUILD_TEST_PLUGIN 
-  -DBUILD_VIDEO_PLAYER_PLUGIN 
+  -DBUILD_TEXT_INPUT_PLUGIN
+	-DBUILD_SPIDEV_PLUGIN
+	-DBUILD_TEST_PLUGIN
+	-DBUILD_OMXPLAYER_VIDEO_PLAYER_PLUGIN
+)
+
+target_link_options(flutter-pi PRIVATE
+  -rdynamic
 )
 
 install(TARGETS flutter-pi RUNTIME DESTINATION bin)

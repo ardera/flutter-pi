@@ -139,6 +139,9 @@ static inline void apply_flutter_transformation(
 	((event_type) == LIBINPUT_EVENT_POINTER_BUTTON) || \
 	((event_type) == LIBINPUT_EVENT_POINTER_AXIS))
 
+#define LIBINPUT_EVENT_IS_KEYBOARD(event_type) (\
+	((event_type) == LIBINPUT_EVENT_KEYBOARD_KEY))
+
 enum frame_state {
 	kFramePending,
 	kFrameRendering,
@@ -261,6 +264,7 @@ struct flutterpi {
 	/// IO
 	struct {
 		bool use_paths;
+		bool disable_text_input;
 		glob_t input_devices_glob;
 		struct udev *udev;
 		struct libinput *libinput;

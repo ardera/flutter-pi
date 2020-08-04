@@ -101,7 +101,11 @@ OPTIONS:\n\
                              clock-wise.\n\
                              Valid values are 0, 90, 180 and 270.\n\
                              \n\
-  -h                         Show this help and exit.\n\
+  --no-text-input            Disable text input from the console.\n\
+                             This means flutter-pi won't configure the console\n\
+                             to raw/non-canonical mode.\n\
+                             \n\
+  -h, --help                 Show this help and exit.\n\
 \n\
 EXAMPLES:\n\
   flutter-pi -i \"/dev/input/event{0,1}\" -i \"/dev/input/event{2,3}\" /home/pi/helloworld_flutterassets\n\
@@ -449,31 +453,6 @@ static FlutterTransformation on_get_transformation(void *userdata) {
 	//return FLUTTER_ROTZ_TRANSFORMATION(FlutterEngineGetCurrentTime() % 10000000000000);
 	return flutterpi.view.view_to_display_transform;
 }
-
-
-/************************
- * PLATFORM TASK-RUNNER *
- ************************/
-/*
-		} else if (task->type == kUpdateOrientation) {
-			rotation += ANGLE_FROM_ORIENTATION(task->orientation) - ANGLE_FROM_ORIENTATION(orientation);
-			if (rotation < 0) rotation += 360;
-			else if (rotation >= 360) rotation -= 360;
-
-			orientation = task->orientation;
-
-			// send updated window metrics to flutter
-			FlutterEngineSendWindowMetricsEvent(engine, &(const FlutterWindowMetricsEvent) {
-				.struct_size = sizeof(FlutterWindowMetricsEvent),
-
-				// we send swapped width/height if the screen is rotated 90 or 270 degrees.
-				.width = (rotation == 0) || (rotation == 180) ? width : height, 
-				.height = (rotation == 0) || (rotation == 180) ? height : width,
-				.pixel_ratio = pixel_ratio
-			});
-
-		}
-*/
 
 /// platform tasks
 static int on_execute_platform_task(
@@ -2050,6 +2029,15 @@ static int on_libinput_ready(sd_event_source *s, int fd, uint32_t revents, void 
 			} else if (type == LIBINPUT_EVENT_POINTER_AXIS) {
 
 			}
+		} else if (LIBINPUT_EVENT_IS_KEYBOARD(type)) {
+			struct libinput_event_keyboard *keyboard_event = libinput_event_get_keyboard_event(event);
+			
+			uint32_t keycode = libinput_event_keyboard_get_key(keyboard_event);
+			enum libinput_key_state state = libinput_event_keyboard_get_key_state(keyboard_event);
+
+			glfw_key glfw_key = evdev_code_glfw_key[keycode];
+	
+			rawkb_on_keyevent(glfw_key, keycode, state == LIBINPUT_KEY_STATE_PRESSED ? GLFW_PRESS : GLFW_RELEASE);
 		}
 	}
 
@@ -2148,28 +2136,30 @@ static int init_user_input(void) {
 		return -ok;
 	}
 
-	ok = sd_event_add_io(
-		flutterpi.event_loop,
-		&stdin_event_source,
-		STDIN_FILENO,
-		EPOLLIN,
-		on_stdin_ready,
-		NULL
-	);
-	if (ok < 0) {
-		fprintf(stderr, "[flutter-pi] Could not add libinput callback to main loop. sd_event_add_io: %s\n", strerror(-ok));
-		sd_event_source_unrefp(&libinput_event_source);
-		libinput_unref(libinput);
-		udev_unref(udev);
-		return -ok;
-	}
+	if (flutterpi.input.disable_text_input == false) {
+		ok = sd_event_add_io(
+			flutterpi.event_loop,
+			&stdin_event_source,
+			STDIN_FILENO,
+			EPOLLIN,
+			on_stdin_ready,
+			NULL
+		);
+		if (ok < 0) {
+			fprintf(stderr, "[flutter-pi] Could not add libinput callback to main loop. sd_event_add_io: %s\n", strerror(-ok));
+			sd_event_source_unrefp(&libinput_event_source);
+			libinput_unref(libinput);
+			udev_unref(udev);
+			return -ok;
+		}
 
-	ok = 1; //console_make_raw();
-	if (ok == 0) {
-		console_flush_stdin();
-	} else {
-		fprintf(stderr, "[flutter-pi] WARNING: could not make stdin raw\n");
-		sd_event_source_unrefp(&stdin_event_source);
+		ok = console_make_raw();
+		if (ok == 0) {
+			console_flush_stdin();
+		} else {
+			fprintf(stderr, "[flutter-pi] WARNING: could not make stdin raw\n");
+			sd_event_source_unrefp(&stdin_event_source);
+		}
 	}
 
 	flutterpi.input.udev = udev;
@@ -2223,7 +2213,7 @@ static bool setup_paths(void) {
 static bool parse_cmd_args(int argc, char **argv) {
 	glob_t input_devices_glob = {0};
 	bool input_specified = false;
-	int opt, longopt_index = 0, runtime_mode_int = kDebug;
+	int opt, longopt_index = 0, runtime_mode_int = kDebug, disable_text_input_int = false;
 
 	struct option long_options[] = {
 		{"release", no_argument, &runtime_mode_int, kRelease},
@@ -2232,6 +2222,7 @@ static bool parse_cmd_args(int argc, char **argv) {
 		{"input", required_argument, 0, 'i'},
 		{"orientation", required_argument, 0, 'o'},
 		{"rotation", required_argument, 0, 'r'},
+		{"no-text-input", required_argument, &disable_text_input_int, true},
 		{"help", no_argument, 0, 'h'},
 		{0, 0, 0, 0}
 	};
@@ -2283,7 +2274,7 @@ static bool parse_cmd_args(int argc, char **argv) {
 			}
 
 			flutterpi.view.rotation = rotation;
-		} else if ((opt == '?') || (opt == ':')) {
+		} else if (((opt == 0) && (longopt_index == 7)) || ((opt == 'h') || (opt == '?') || (opt == ':'))) {
 			printf("%s", usage);
 			return false;
 		}
@@ -2303,6 +2294,7 @@ static bool parse_cmd_args(int argc, char **argv) {
 	flutterpi.input.use_paths = input_specified;
 	flutterpi.flutter.asset_bundle_path = strdup(argv[optind]);
 	flutterpi.flutter.runtime_mode = (enum flutter_runtime_mode) runtime_mode_int;
+	flutterpi.input.disable_text_input = disable_text_input_int;
 
 	argv[optind] = argv[0];
 	flutterpi.flutter.engine_argc = argc - optind;

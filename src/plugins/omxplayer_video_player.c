@@ -51,9 +51,6 @@ static struct {
     .players = CPSET_INITIALIZER(CPSET_DEFAULT_MAX_SIZE)
 };
 
-/// libsystemd DLL
-struct libsystemd libsystemd = {0};
-
 /// Add a player instance to the player collection.
 int add_player(struct omxplayer_video_player *player) {
     return cpset_put_(&omxpvidpp.players, player);
@@ -284,7 +281,7 @@ static int get_dbus_property(
     sd_bus_message *msg;
     int ok;
 
-    ok = libsystemd.sd_bus_call_method(
+    ok = sd_bus_call_method(
         bus,
         destination,
         path,
@@ -301,14 +298,14 @@ static int get_dbus_property(
         return -ok;
     }
 
-    ok = libsystemd.sd_bus_message_read_basic(msg, type, ret_ptr);
+    ok = sd_bus_message_read_basic(msg, type, ret_ptr);
     if (ok < 0) {
         fprintf(stderr, "[omxplayer_video_player plugin] Could not read DBus property: %s\n", strerror(-ok));
-        libsystemd.sd_bus_message_unref(msg);
+        sd_bus_message_unref(msg);
         return -ok;
     }
 
-    libsystemd.sd_bus_message_unref(msg);
+    sd_bus_message_unref(msg);
 
     return 0;
 }
@@ -328,11 +325,11 @@ static int mgr_on_dbus_message(
 
     task = userdata;
 
-    sender = libsystemd.sd_bus_message_get_sender(m);
-    member = libsystemd.sd_bus_message_get_member(m);
+    sender = sd_bus_message_get_sender(m);
+    member = sd_bus_message_get_member(m);
 
     if (STREQ(sender, "org.freedesktop.DBus") && STREQ(member, "NameOwnerChanged")) {
-        ok = libsystemd.sd_bus_message_read(m, "sss", &name, &old_owner, &new_owner);
+        ok = sd_bus_message_read(m, "sss", &name, &old_owner, &new_owner);
         if (ok < 0) {
             fprintf(stderr, "Could not read message");
             return -1;
@@ -415,7 +412,7 @@ static void *mgr_entry(void *userdata) {
     );
 
     // open the session dbus
-    ok = libsystemd.sd_bus_open_user(&bus);
+    ok = sd_bus_open_user(&bus);
     if (ok < 0) {
         fprintf(stderr, "[omxplayer_video_player plugin] Could not open DBus in manager thread. sd_bus_open_user: %s\n", strerror(-ok));
         platch_respond_native_error_std(task.responsehandle, -ok);
@@ -426,7 +423,7 @@ static void *mgr_entry(void *userdata) {
     // omxplayer has registered to the dbus
     task.omxplayer_online = false;
     task.omxplayer_dbus_name = dbus_name;
-    ok = libsystemd.sd_bus_match_signal(
+    ok = sd_bus_match_signal(
         bus,
         &slot,
         "org.freedesktop.DBus",
@@ -484,7 +481,7 @@ static void *mgr_entry(void *userdata) {
     }
 
     while (!task.omxplayer_online) {
-        ok = libsystemd.sd_bus_wait(bus, 1000*1000*5);
+        ok = sd_bus_wait(bus, 1000*1000*5);
         if (ok < 0) {
             ok = -ok;
             fprintf(stderr, "[omxplayer_video_player plugin] Could not wait for sd bus messages on manager thread: %s\n", strerror(ok));
@@ -492,7 +489,7 @@ static void *mgr_entry(void *userdata) {
             goto fail_kill_unregistered_player;
         }
 
-        ok = libsystemd.sd_bus_process(bus, NULL);
+        ok = sd_bus_process(bus, NULL);
         if (ok < 0) {
             ok = -ok;
             fprintf(stderr, "[omxplayer_video_player plugin] Could not wait for sd bus messages on manager thread: %s\n", strerror(ok));
@@ -501,7 +498,7 @@ static void *mgr_entry(void *userdata) {
         }
     }
 
-    libsystemd.sd_bus_slot_unref(slot);
+    sd_bus_slot_unref(slot);
     slot = NULL;
 
     duration_us = 0;
@@ -530,7 +527,7 @@ static void *mgr_entry(void *userdata) {
     }
 
     // pause right on the first frame
-    ok = libsystemd.sd_bus_call_method(
+    ok = sd_bus_call_method(
         bus,
         dbus_name,
         DBUS_OMXPLAYER_OBJECT,
@@ -546,7 +543,7 @@ static void *mgr_entry(void *userdata) {
         goto fail_kill_registered_player;
     }
 
-    libsystemd.sd_bus_message_unref(msg);
+    sd_bus_message_unref(msg);
     msg = NULL;
 
     // get the video duration
@@ -636,14 +633,14 @@ static void *mgr_entry(void *userdata) {
             }
 
             // tell omxplayer to quit
-            ok = libsystemd.sd_bus_call_method(
+            ok = sd_bus_call_method(
                 bus,
                 dbus_name,
                 DBUS_OMXPLAYER_OBJECT,
                 DBUS_OMXPLAYER_ROOT_FACE,
                 "Quit",
                 &err,
-                &msg,
+                NULL,
                 ""
             );
             if (ok < 0) {
@@ -652,14 +649,12 @@ static void *mgr_entry(void *userdata) {
                 continue;
             }
 
-            libsystemd.sd_bus_message_unref(msg);
-
             ok = (int) waitpid(omxplayer_pid, NULL, 0);
             if (ok < 0) {
                 fprintf(stderr, "[omxplayer_video_player plugin] omxplayer quit with exit code %d\n", ok);
             }
 
-            libsystemd.sd_bus_unref(bus);
+            sd_bus_unref(bus);
             
             plugin_registry_remove_receiver(mgr->player->event_channel_name);
             
@@ -705,14 +700,14 @@ static void *mgr_entry(void *userdata) {
         } else if (task.type == kUnlisten) {
             platch_respond_success_std(task.responsehandle, NULL);
         } else if (task.type == kPlay) {
-            ok = libsystemd.sd_bus_call_method(
+            ok = sd_bus_call_method(
                 bus,
                 dbus_name,
                 DBUS_OMXPLAYER_OBJECT,
                 DBUS_OMXPLAYER_PLAYER_FACE,
                 "Play",
                 &err,
-                &msg,
+                NULL,
                 ""
             );
             if (ok < 0) {
@@ -721,20 +716,18 @@ static void *mgr_entry(void *userdata) {
                 continue;
             }
 
-            libsystemd.sd_bus_message_unref(msg);
-
             platch_respond_success_std(task.responsehandle, NULL);
         } else if (task.type == kPause) {
             has_scheduled_pause_time = false;
 
-            ok = libsystemd.sd_bus_call_method(
+            ok = sd_bus_call_method(
                 bus,
                 dbus_name,
                 DBUS_OMXPLAYER_OBJECT,
                 DBUS_OMXPLAYER_PLAYER_FACE,
                 "Pause",
                 &err,
-                &msg,
+                NULL,
                 ""
             );
             if (ok < 0) {
@@ -743,7 +736,6 @@ static void *mgr_entry(void *userdata) {
                 continue;
             }
 
-            libsystemd.sd_bus_message_unref(msg);
             msg = NULL;
 
             platch_respond_success_std(task.responsehandle, NULL);   
@@ -759,14 +751,14 @@ static void *mgr_entry(void *userdata) {
                 (double) (task.offset_y + task.height)
             );
 
-            ok = libsystemd.sd_bus_call_method(
+            ok = sd_bus_call_method(
                 bus,
                 dbus_name,
                 DBUS_OMXPLAYER_OBJECT,
                 DBUS_OMXPLAYER_PLAYER_FACE,
                 "VideoPos",
                 &err,
-                &msg,
+                NULL,
                 "os",
                 "/obj/not/used",
                 video_pos_str
@@ -776,18 +768,16 @@ static void *mgr_entry(void *userdata) {
                 continue;
             }
 
-            libsystemd.sd_bus_message_unref(msg);
-
             if (current_zpos != task.zpos) {
                 printf("setting omxplayer layer to %d\n", task.zpos);
-                ok = libsystemd.sd_bus_call_method(
+                ok = sd_bus_call_method(
                     bus,
                     dbus_name,
                     DBUS_OMXPLAYER_OBJECT,
                     DBUS_OMXPLAYER_PLAYER_FACE,
                     "SetLayer",
                     &err,
-                    &msg,
+                    NULL,
                     "x",
                     (int64_t) task.zpos
                 );
@@ -795,8 +785,6 @@ static void *mgr_entry(void *userdata) {
                     fprintf(stderr, "[omxplayer_video_player plugin] Could not update omxplayer layer. %s, %s\n", err.name, err.message);
                     continue;
                 }
-
-                libsystemd.sd_bus_message_unref(msg);
 
                 current_zpos = task.zpos;
             }
@@ -843,25 +831,23 @@ static void *mgr_entry(void *userdata) {
                     );
                 }
             } else {
-                ok = libsystemd.sd_bus_call_method(
+                ok = sd_bus_call_method(
                     bus,
                     dbus_name,
                     DBUS_OMXPLAYER_OBJECT,
                     DBUS_OMXPLAYER_PLAYER_FACE,
                     "SetPosition",
                     &err,
-                    &msg,
+                    NULL,
                     "ox",
                     "/path/not/used",
                     (int64_t) (task.position * 1000)
                 );
-                if (ok != 0) {
-                    fprintf(stderr, "[omxplayer_video_player plugin] Could not set omxplayer position: %s, %s\n", err.name, err.message);
+                if (ok < 0) {
+                    fprintf(stderr, "[omxplayer_video_player plugin] Could not set omxplayer position: %s, %s, %s\n", strerror(-ok), err.name, err.message);
                     respond_sd_bus_error(task.responsehandle, &err);
                     continue;
                 }
-
-                libsystemd.sd_bus_message_unref(msg);
 
                 platch_respond_success_std(task.responsehandle, NULL);
             }
@@ -869,14 +855,14 @@ static void *mgr_entry(void *userdata) {
             pause_on_end = false;
             platch_respond_success_std(task.responsehandle, NULL);
         } else if (task.type == kSetVolume) {
-            ok = libsystemd.sd_bus_call_method(
+            ok = sd_bus_call_method(
                 bus,
                 dbus_name,
                 DBUS_OMXPLAYER_OBJECT,
                 DBUS_PROPERTY_FACE,
                 DBUS_PROPRETY_SET,
                 &err,
-                &msg,
+                NULL,
                 "ssd",
                 DBUS_OMXPLAYER_PLAYER_FACE,
                 "Volume",
@@ -887,8 +873,6 @@ static void *mgr_entry(void *userdata) {
                 respond_sd_bus_error(task.responsehandle, &err);
                 continue;
             }
-
-            libsystemd.sd_bus_message_unref(msg);
 
             platch_respond_success_std(task.responsehandle, NULL);
         }
@@ -907,11 +891,11 @@ static void *mgr_entry(void *userdata) {
     waitpid(omxplayer_pid, NULL, 0);
 
     fail_unref_slot:
-    libsystemd.sd_bus_slot_unref(slot);
+    sd_bus_slot_unref(slot);
     slot = NULL;
 
     fail_close_dbus:
-    libsystemd.sd_bus_unref(bus);
+    sd_bus_unref(bus);
 
     fail_remove_evch_listener:
     plugin_registry_remove_receiver(mgr->player->event_channel_name);
@@ -936,342 +920,6 @@ static int ensure_binding_initialized(void) {
         fprintf(stderr, "[omxplayer_video_player plugin] omxplayer doesn't seem to be installed. Please install using 'sudo apt install omxplayer'. access: %s\n", strerror(errno));
         return errno;
     }
-
-    libsystemd.handle = dlopen("libsystemd.so", RTLD_NOW | RTLD_LOCAL);
-
-    LOAD_LIBSYSTEMD_PROC(sd_bus_default);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_default_user);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_default_system);
-
-    LOAD_LIBSYSTEMD_PROC(sd_bus_open);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_open_with_description);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_open_user);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_open_user_with_description);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_open_system);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_open_system_with_description);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_open_system_remote);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_open_system_machine);
-
-    LOAD_LIBSYSTEMD_PROC(sd_bus_new);
-
-    LOAD_LIBSYSTEMD_PROC(sd_bus_set_address);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_set_fd);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_set_exec);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_get_address);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_set_bus_client);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_is_bus_client);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_set_server);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_is_server);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_set_anonymous);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_is_anonymous);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_set_trusted);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_is_trusted);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_set_monitor);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_is_monitor);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_set_description);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_get_description);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_negotiate_creds);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_negotiate_timestamp);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_negotiate_fds);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_can_send);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_get_creds_mask);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_set_allow_interactive_authorization);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_get_allow_interactive_authorization);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_set_exit_on_disconnect);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_get_exit_on_disconnect);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_set_close_on_exit);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_get_close_on_exit);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_set_watch_bind);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_get_watch_bind);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_set_connected_signal);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_get_connected_signal);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_set_sender);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_get_sender);
-
-    LOAD_LIBSYSTEMD_PROC(sd_bus_start);
-
-    LOAD_LIBSYSTEMD_PROC(sd_bus_try_close);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_close);
-
-    LOAD_LIBSYSTEMD_PROC(sd_bus_ref);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_unref);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_close_unref);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_flush_close_unref);
-
-    LOAD_LIBSYSTEMD_PROC(sd_bus_default_flush_close);
-
-    LOAD_LIBSYSTEMD_PROC(sd_bus_is_open);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_is_ready);
-
-    LOAD_LIBSYSTEMD_PROC(sd_bus_get_bus_id);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_get_scope);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_get_tid);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_get_owner_creds);
-
-    LOAD_LIBSYSTEMD_PROC(sd_bus_send);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_send_to);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_call);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_call_async);
-
-    LOAD_LIBSYSTEMD_PROC(sd_bus_get_fd);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_get_events);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_get_timeout);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_process);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_process_priority);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_wait);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_flush);
-
-    LOAD_LIBSYSTEMD_PROC(sd_bus_get_current_slot);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_get_current_message);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_get_current_handler);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_get_current_userdata);
-
-    LOAD_LIBSYSTEMD_PROC(sd_bus_attach_event);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_detach_event);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_get_event);
-
-    LOAD_LIBSYSTEMD_PROC(sd_bus_get_n_queued_read);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_get_n_queued_write);
-
-    LOAD_LIBSYSTEMD_PROC(sd_bus_set_method_call_timeout);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_get_method_call_timeout);
-
-    LOAD_LIBSYSTEMD_PROC(sd_bus_add_filter);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_add_match);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_add_match_async);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_add_object);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_add_fallback);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_add_object_vtable);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_add_fallback_vtable);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_add_node_enumerator);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_add_object_manager);
-
-    LOAD_LIBSYSTEMD_PROC(sd_bus_slot_ref);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_slot_unref);
-
-    LOAD_LIBSYSTEMD_PROC(sd_bus_slot_get_bus);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_slot_get_userdata);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_slot_set_userdata);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_slot_set_description);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_slot_get_description);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_slot_get_floating);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_slot_set_floating);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_slot_set_destroy_callback);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_slot_get_destroy_callback);
-
-    LOAD_LIBSYSTEMD_PROC(sd_bus_slot_get_current_message);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_slot_get_current_handler);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_slot_get_current_userdata);
-
-    LOAD_LIBSYSTEMD_PROC(sd_bus_message_new);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_message_new_signal);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_message_new_method_call);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_message_new_method_return);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_message_new_method_error);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_message_new_method_errorf);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_message_new_method_errno);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_message_new_method_errnof);
-
-    LOAD_LIBSYSTEMD_PROC(sd_bus_message_ref);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_message_unref);
-
-    LOAD_LIBSYSTEMD_PROC(sd_bus_message_seal);
-
-    LOAD_LIBSYSTEMD_PROC(sd_bus_message_get_type);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_message_get_cookie);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_message_get_reply_cookie);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_message_get_priority);
-
-    LOAD_LIBSYSTEMD_PROC(sd_bus_message_get_expect_reply);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_message_get_auto_start);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_message_get_allow_interactive_authorization);
-
-    LOAD_LIBSYSTEMD_PROC(sd_bus_message_get_signature);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_message_get_path);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_message_get_interface);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_message_get_member);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_message_get_destination);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_message_get_sender);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_message_get_error);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_message_get_errno);
-
-    LOAD_LIBSYSTEMD_PROC(sd_bus_message_get_monotonic_usec);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_message_get_realtime_usec);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_message_get_seqnum);
-
-    LOAD_LIBSYSTEMD_PROC(sd_bus_message_get_bus);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_message_get_creds);
-
-    LOAD_LIBSYSTEMD_PROC(sd_bus_message_is_signal);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_message_is_method_call);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_message_is_method_error);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_message_is_empty);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_message_has_signature);
-
-    LOAD_LIBSYSTEMD_PROC(sd_bus_message_set_expect_reply);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_message_set_auto_start);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_message_set_allow_interactive_authorization);
-
-    LOAD_LIBSYSTEMD_PROC(sd_bus_message_set_destination);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_message_set_sender);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_message_set_priority);
-
-    LOAD_LIBSYSTEMD_PROC(sd_bus_message_append);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_message_appendv);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_message_append_basic);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_message_append_array);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_message_append_array_space);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_message_append_array_iovec);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_message_append_array_memfd);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_message_append_string_space);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_message_append_string_iovec);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_message_append_string_memfd);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_message_append_strv);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_message_open_container);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_message_close_container);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_message_copy);
-
-    LOAD_LIBSYSTEMD_PROC(sd_bus_message_read);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_message_readv);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_message_read_basic);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_message_read_array);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_message_read_strv);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_message_skip);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_message_enter_container);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_message_exit_container);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_message_peek_type);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_message_verify_type);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_message_at_end);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_message_rewind);
-
-    LOAD_LIBSYSTEMD_PROC(sd_bus_get_unique_name);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_request_name);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_request_name_async);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_release_name);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_release_name_async);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_list_names);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_get_name_creds);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_get_name_machine_id);
-
-    LOAD_LIBSYSTEMD_PROC(sd_bus_call_method);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_call_method_async);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_get_property);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_get_property_trivial);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_get_property_string);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_get_property_strv);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_set_property);
-
-    LOAD_LIBSYSTEMD_PROC(sd_bus_reply_method_return);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_reply_method_error);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_reply_method_errorf);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_reply_method_errno);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_reply_method_errnof);
-
-    LOAD_LIBSYSTEMD_PROC(sd_bus_emit_signal);
-
-    LOAD_LIBSYSTEMD_PROC(sd_bus_emit_properties_changed_strv);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_emit_properties_changed);
-
-    LOAD_LIBSYSTEMD_PROC(sd_bus_emit_object_added);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_emit_object_removed);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_emit_interfaces_added_strv);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_emit_interfaces_added);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_emit_interfaces_removed_strv);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_emit_interfaces_removed);
-
-    LOAD_LIBSYSTEMD_PROC(sd_bus_query_sender_creds);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_query_sender_privilege);
-
-    LOAD_LIBSYSTEMD_PROC(sd_bus_match_signal);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_match_signal_async);
-
-    LOAD_LIBSYSTEMD_PROC(sd_bus_creds_new_from_pid);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_creds_ref);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_creds_unref);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_creds_get_mask);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_creds_get_augmented_mask);
-
-    LOAD_LIBSYSTEMD_PROC(sd_bus_creds_get_pid);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_creds_get_ppid);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_creds_get_tid);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_creds_get_uid);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_creds_get_euid);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_creds_get_suid);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_creds_get_fsuid);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_creds_get_gid);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_creds_get_egid);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_creds_get_sgid);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_creds_get_fsgid);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_creds_get_supplementary_gids);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_creds_get_comm);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_creds_get_tid_comm);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_creds_get_exe);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_creds_get_cmdline);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_creds_get_cgroup);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_creds_get_unit);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_creds_get_slice);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_creds_get_user_unit);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_creds_get_user_slice);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_creds_get_session);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_creds_get_owner_uid);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_creds_has_effective_cap);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_creds_has_permitted_cap);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_creds_has_inheritable_cap);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_creds_has_bounding_cap);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_creds_get_selinux_context);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_creds_get_audit_session_id);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_creds_get_audit_login_uid);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_creds_get_tty);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_creds_get_unique_name);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_creds_get_well_known_names);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_creds_get_description);
-
-    LOAD_LIBSYSTEMD_PROC(sd_bus_error_free);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_error_set);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_error_setf);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_error_set_const);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_error_set_errno);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_error_set_errnof);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_error_set_errnofv);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_error_get_errno);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_error_copy);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_error_move);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_error_is_set);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_error_has_name);
-
-    LOAD_LIBSYSTEMD_PROC(sd_bus_error_add_map);
-
-    LOAD_LIBSYSTEMD_PROC(sd_bus_path_encode);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_path_encode_many);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_path_decode);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_path_decode_many);
-
-    LOAD_LIBSYSTEMD_PROC(sd_bus_track_new);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_track_ref);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_track_unref);
-
-    LOAD_LIBSYSTEMD_PROC(sd_bus_track_get_bus);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_track_get_userdata);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_track_set_userdata);
-
-    LOAD_LIBSYSTEMD_PROC(sd_bus_track_add_sender);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_track_remove_sender);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_track_add_name);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_track_remove_name);
-
-    LOAD_LIBSYSTEMD_PROC(sd_bus_track_set_recursive);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_track_get_recursive);
-
-    LOAD_LIBSYSTEMD_PROC(sd_bus_track_count);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_track_count_sender);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_track_count_name);
-
-    LOAD_LIBSYSTEMD_PROC(sd_bus_track_contains);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_track_first);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_track_next);
-
-    LOAD_LIBSYSTEMD_PROC(sd_bus_track_set_destroy_callback);
-    LOAD_LIBSYSTEMD_PROC(sd_bus_track_get_destroy_callback);
 
     omxpvidpp.initialized = true;
 
