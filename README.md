@@ -21,12 +21,10 @@ If you encounter issues running flutter-pi on any of the supported platforms lis
 1. **[Running your App on the Raspberry Pi](#running-your-app-on-the-raspberry-pi)**  
 1.1 [Configuring your Raspberry Pi](#configuring-your-raspberry-pi)  
 1.2 [Patching the App](#patching-the-app)  
-1.3 [Building the Asset bundle](#building-the-asset-bundle)    
-1.4 [Running your App with flutter-pi](#running-your-app-with-flutter-pi)  
-2. **[Dependencies](#dependencies)**  
-2.1 [flutter engine](#flutter-engine)  
-2.2 [graphics libs](#graphics-libs)  
-2.3 [fonts](#fonts)  
+1.3 [Building the Asset bundle](#building-the-asset-bundle)  
+1.4 [Building the app.so](#building-the-app-so)
+1.5 [Running your App with flutter-pi](#running-your-app-with-flutter-pi)  
+2. **[Dependencies](#dependencies)**
 3. **[Compiling flutter-pi (on the Raspberry Pi)](#compiling-flutter-pi-on-the-raspberry-pi)**  
 4. **[Performance](#performance)**  
 5. **[Keyboard Input](#keyboard-input)**
@@ -88,6 +86,9 @@ flutter build bundle
 
 After that `flutter/examples/flutter_gallery/build/flutter_assets` would be a valid path to pass as an argument to flutter-pi.
 
+### Building the `app.so` (for running your app in Release/Profile mode)
+** WIP **
+
 ### Running your App with flutter-pi
 ```txt
 USAGE:
@@ -125,7 +126,7 @@ of the flutter app you're trying to run.
 flutter-pi needs `libflutter_engine.so` and `flutter_embedder.h` to compile. It also needs the flutter engine's `icudtl.dat` at runtime.
 You have two options here:
 
-- you build the engine yourself. takes a lot of time, and it most probably won't work on the first try. But once you have it set up, you have unlimited freedom on which engine version you want to use. You can find some rough guidelines [here](https://medium.com/flutter/flutter-on-raspberry-pi-mostly-from-scratch-2824c5e7dcb1). [Andrew jones](https://github.com/andyjjones28) is working on some more detailed instructions.
+- you build the engine yourself. takes a lot of time, and it most probably won't work on the first try. But once you have it set up, you have unlimited freedom on which engine version you want to use. You can find some rough guidelines [here](https://medium.com/flutter/flutter-on-raspberry-pi-mostly-from-scratch-2824c5e7dcb1).
 - you can use the pre-built engine binaries I am providing [in the _engine-binaries_ branch of this project.](https://github.com/ardera/flutter-pi/tree/engine-binaries). I will only provide binaries for some engine versions though (most likely the stable ones).
 
 ### graphics libs
@@ -138,10 +139,11 @@ The flutter engine, by default, uses the _Arial_ font. Since that doesn't come i
 sudo apt install ttf-mscorefonts-installer fontconfig
 sudo fc-cache
 ```
-### libgpiod (for the included GPIO plugin)
+### libgpiod (for the included GPIO plugin), libsystemd, libudev
 ```bash
-sudo apt-get install gpiod libgpiod-dev
+sudo apt-get install gpiod libgpiod-dev libsystemd-dev libudev-dev
 ```
+
 ## Compiling flutter-pi (on the Raspberry Pi)
 fetch all the dependencies, clone this repo and run
 ```bash
