@@ -99,18 +99,21 @@ struct compositor {
 
     struct {
         bool is_enabled;
+        int cursor_size;
+        const struct cursor_icon *current_cursor;
+        int current_rotation;
+        int hot_x, hot_y;
+        int x, y;
 
-        int width;
-        int height;
-        int bpp;
-        int depth;
-        int pitch;
-        int size;
-
+        bool has_buffer;
+        int buffer_depth;
+        int buffer_pitch;
+        int buffer_width;
+        int buffer_height;
+        int buffer_size;
         uint32_t drm_fb_id;
         uint32_t gem_bo_handle;
         uint32_t *buffer;
-        int x, y;
     } cursor;
 };
 
@@ -235,11 +238,13 @@ int compositor_remove_view_callbacks(
     int64_t view_id
 );
 
-int compositor_set_cursor_enabled(bool enabled);
+int compositor_apply_cursor_state(
+    bool is_enabled,
+    int rotation,
+    double device_pixel_ratio
+);
 
 int compositor_set_cursor_pos(int x, int y);
-
-int compositor_apply_cursor_skin_for_rotation(int rotation);
 
 int compositor_initialize(
     struct drmdev *drmdev

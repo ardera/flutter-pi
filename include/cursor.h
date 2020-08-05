@@ -10,7 +10,7 @@ struct cursor_icon {
 	uint32_t *data;
 };
 
-extern const struct cursor_icon cursors[4];
+extern const struct cursor_icon cursors[5];
 extern int n_cursors;
 
 #endif
