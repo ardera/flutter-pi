@@ -22,7 +22,7 @@ If you encounter issues running flutter-pi on any of the supported platforms lis
 1.1 [Configuring your Raspberry Pi](#configuring-your-raspberry-pi)  
 1.2 [Patching the App](#patching-the-app)  
 1.3 [Building the Asset bundle](#building-the-asset-bundle)  
-1.4 [Building the app.so](#building-the-app-so)
+1.4 [Building the app.so](#building-the-appso-for-running-your-app-in-releaseprofile-mode)  
 1.5 [Running your App with flutter-pi](#running-your-app-with-flutter-pi)  
 2. **[Dependencies](#dependencies)**
 3. **[Compiling flutter-pi (on the Raspberry Pi)](#compiling-flutter-pi-on-the-raspberry-pi)**  
@@ -92,27 +92,57 @@ After that `flutter/examples/flutter_gallery/build/flutter_assets` would be a va
 ### Running your App with flutter-pi
 ```txt
 USAGE:
-  flutter-pi [options] <asset bundle path> [flutter engine options...]
+  flutter-pi [options] <asset bundle path> [flutter engine options]
 
 OPTIONS:
-  -i <glob pattern>   Appends all files matching this glob pattern
-                      to the list of input (touchscreen, mouse, touchpad)
-                      devices. Brace and tilde expansion is enabled.
-                      Every file that matches this pattern, but is not
-                      a valid touchscreen / -pad or mouse is silently
-                      ignored.
-                        If no -i options are given, all files matching
-                      "/dev/input/event*" will be used as inputs.
-                      This should be what you want in most cases.
-                        Note that you need to properly escape each glob pattern
-                      you use as a parameter so it isn't implicitly expanded
-                      by your shell.
+  -i, --input <glob pattern> Appends all files matching this glob pattern to the
+                             list of input (touchscreen, mouse, touchpad,
+                             keyboard) devices. Brace and tilde expansion is
+                             enabled.
+                             Every file that matches this pattern, but is not
+                             a valid touchscreen / -pad, mouse or keyboard is
+                             silently ignored.
+                             If no -i options are given, flutter-pi will try to
+                             use all input devices assigned to udev seat0.
+                             If that fails, or udev is not installed, flutter-pi
+                             will fallback to using all devices matching
+                             "/dev/input/event*" as inputs.
+                             In most cases, there's no need to specify this
+                             option.
+                             Note that you need to properly escape each glob
+                             pattern you use as a parameter so it isn't
+                             implicitly expanded by your shell.
 
-  -h                  Show this help and exit.
+  --aot                      Run the app in AOT mode. The AOT snapshot
+                             of the app ("app.so") must be located inside the
+                             asset bundle directory.
+
+  -o, --orientation <orientation>  Start the app in this orientation. Valid
+                             for <orientation> are: portrait_up, landscape_left,
+                             portrait_down, landscape_right.
+                             For more information about this orientation, see
+                             the flutter docs for the "DeviceOrientation"
+                             enum.
+                             Only one of the --orientation and --rotation
+                             options can be specified.
+
+  -r, --rotation <degrees>   Start the app with this rotation. This is just an
+                             alternative, more intuitive way to specify the
+                             startup orientation. The angle is in degrees and
+                             clock-wise.
+                             Valid values are 0, 90, 180 and 270.
+
+  --no-text-input            Disable text input from the console.
+                             This means flutter-pi won't configure the console
+                             to raw/non-canonical mode.
+
+  -h, --help                 Show this help and exit.
 
 EXAMPLES:
-  flutter-pi -i "/dev/input/event{0,1}" -i "/dev/input/event{2,3}" /home/helloworld_flutterassets
+  flutter-pi -i "/dev/input/event{0,1}" -i "/dev/input/event{2,3}" /home/pi/helloworld_flutterassets
   flutter-pi -i "/dev/input/mouse*" /home/pi/helloworld_flutterassets
+  flutter-pi -o portrait_up ./flutter_assets
+  flutter-pi -r 90 ./flutter_assets
   flutter-pi /home/pi/helloworld_flutterassets
 ```
 
