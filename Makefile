@@ -1,18 +1,46 @@
-CC = cc
-LD = cc
-REAL_CFLAGS = -I./include $(shell pkg-config --cflags gbm libdrm glesv2 egl) -DBUILD_TEXT_INPUT_PLUGIN -DBUILD_ELM327_PLUGIN -DBUILD_GPIOD_PLUGIN -DBUILD_SPIDEV_PLUGIN -DBUILD_TEST_PLUGIN -ggdb $(CFLAGS)
-REAL_LDFLAGS = $(shell pkg-config --libs gbm libdrm glesv2 egl) -lrt -lflutter_engine -lpthread -ldl $(LDFLAGS)
+REAL_CFLAGS = -I./include $(shell pkg-config --cflags gbm libdrm glesv2 egl libsystemd libinput libudev) \
+	-DBUILD_TEXT_INPUT_PLUGIN \
+	-DBUILD_GPIOD_PLUGIN \
+	-DBUILD_SPIDEV_PLUGIN \
+	-DBUILD_TEST_PLUGIN \
+	-DBUILD_OMXPLAYER_VIDEO_PLAYER_PLUGIN \
+	-O0 -ggdb \
+	$(CFLAGS)
 
-SOURCES = src/flutter-pi.c src/platformchannel.c src/pluginregistry.c src/console_keyboard.c \
-	src/plugins/elm327plugin.c src/plugins/services.c src/plugins/testplugin.c src/plugins/text_input.c \
-	src/plugins/raw_keyboard.c src/plugins/gpiod.c src/plugins/spidev.c
+REAL_LDFLAGS = \
+	$(shell pkg-config --libs gbm libdrm glesv2 egl libsystemd libinput libudev) \
+	-lrt \
+	-lflutter_engine \
+	-lpthread \
+	-ldl \
+	-lm \
+	-rdynamic \
+	$(LDFLAGS)
+
+SOURCES = src/flutter-pi.c \
+	src/platformchannel.c \
+	src/pluginregistry.c \
+	src/console_keyboard.c \
+	src/texture_registry.c \
+	src/compositor.c \
+	src/modesetting.c \
+	src/collection.c \
+	src/cursor.c \
+	src/plugins/services.c \
+	src/plugins/testplugin.c \
+	src/plugins/text_input.c \
+	src/plugins/raw_keyboard.c \
+	src/plugins/gpiod.c \
+	src/plugins/spidev.c \
+	src/plugins/omxplayer_video_player.c
+
 OBJECTS = $(patsubst src/%.c,out/obj/%.o,$(SOURCES))
 
 all: out/flutter-pi
 
 out/obj/%.o: src/%.c 
 	@mkdir -p $(@D)
-	$(CC) -c $(REAL_CFLAGS) $(REAL_LDFLAGS) $< -o $@
+	$(CC) -c $(REAL_CFLAGS) $< -o $@
 
 out/flutter-pi: $(OBJECTS)
 	@mkdir -p $(@D)

@@ -8,9 +8,7 @@
 #include <pluginregistry.h>
 #include <plugins/gpiod_plugin.h>
 
-
-
-struct {
+static struct {
     bool initialized;
     bool line_event_listener_should_run;
     
@@ -29,7 +27,7 @@ struct {
     bool should_emit_events;
 } gpio_plugin;
 
-struct {
+static struct {
     void *handle;
 
     // GPIO chips
@@ -84,7 +82,7 @@ struct line_config {
 };
 
 // because libgpiod doesn't provide it, but it's useful
-static inline void gpiod_line_bulk_remove(struct gpiod_line_bulk *bulk, struct gpiod_line *line) {
+static inline void line_bulk_remove(struct gpiod_line_bulk *bulk, struct gpiod_line *line) {
     struct gpiod_line *linetemp, **cursor;
     struct gpiod_line_bulk new_bulk = GPIOD_LINE_BULK_INITIALIZER;
 
@@ -96,10 +94,10 @@ static inline void gpiod_line_bulk_remove(struct gpiod_line_bulk *bulk, struct g
     memcpy(bulk, &new_bulk, sizeof(struct gpiod_line_bulk));
 }
 
-static void *gpiodp_io_loop(void *userdata);
+static void *line_event_listener_entry(void *userdata);
 
 /// ensures the libgpiod binding and the `gpio_plugin` chips list and line map is initialized.
-static int gpiodp_ensure_gpiod_initialized(void) {
+static int ensure_binding_initialized(void) {
     struct gpiod_chip_iter *chipiter;
     struct gpiod_line_iter *lineiter;
     struct gpiod_chip *chip;
@@ -204,7 +202,7 @@ static int gpiodp_ensure_gpiod_initialized(void) {
     ok = pthread_create(
         &gpio_plugin.line_event_listener_thread,
         NULL,
-        gpiodp_io_loop,
+        line_event_listener_entry,
         NULL
     );
     if (ok == -1) {
@@ -218,7 +216,7 @@ static int gpiodp_ensure_gpiod_initialized(void) {
 
 /// Sends a platform message to `handle` saying that the libgpiod binding has failed to initialize.
 /// Should be called when `gpiodp_ensure_gpiod_initialized()` has failed.
-static int gpiodp_respond_init_failed(FlutterPlatformMessageResponseHandle *handle) {
+static int respond_init_failed(FlutterPlatformMessageResponseHandle *handle) {
     return platch_respond_error_std(
         handle,
         "couldnotinit",
@@ -229,17 +227,19 @@ static int gpiodp_respond_init_failed(FlutterPlatformMessageResponseHandle *hand
 
 /// Sends a platform message to `handle` with error code "illegalargument"
 /// and error messsage "supplied line handle is not valid".
-static int gpiodp_respond_illegal_line_handle(FlutterPlatformMessageResponseHandle *handle) {
+static int respond_illegal_line_handle(FlutterPlatformMessageResponseHandle *handle) {
     return platch_respond_illegal_arg_std(handle, "supplied line handle is not valid");
 }
 
-static int gpiodp_respond_not_supported(FlutterPlatformMessageResponseHandle *handle, char *msg) {
+static int respond_not_supported(FlutterPlatformMessageResponseHandle *handle, char *msg) {
     return platch_respond_error_std(handle, "notsupported", msg, NULL);
 }
 
-static int gpiodp_get_config(struct std_value *value,
-                      struct line_config *conf_out,
-                      FlutterPlatformMessageResponseHandle *responsehandle) {
+static int get_config_from_map_arg(
+    struct std_value *value,
+    struct line_config *conf_out,
+    FlutterPlatformMessageResponseHandle *responsehandle
+) {
     struct std_value *temp;
     unsigned int line_handle;
     bool has_bias;
@@ -277,7 +277,7 @@ static int gpiodp_get_config(struct std_value *value,
     if (line_handle < gpio_plugin.n_lines) {
         conf_out->line = gpio_plugin.lines[line_handle];
     } else {
-        ok = gpiodp_respond_illegal_line_handle(responsehandle);
+        ok = respond_illegal_line_handle(responsehandle);
         if (ok != 0) return ok;
 
         return EINVAL;
@@ -372,7 +372,7 @@ static int gpiodp_get_config(struct std_value *value,
     }
 
     if (has_bias && !libgpiod.line_bias) {
-        ok = gpiodp_respond_not_supported(
+        ok = respond_not_supported(
             responsehandle,
             "Setting line bias is not supported on this platform. "
             "Expected `arg['bias']` to be null."
@@ -439,7 +439,7 @@ static int gpiodp_get_config(struct std_value *value,
 /// on any of the lines in `gpio_plugin.listening_lines`
 /// and sends them on to the event channel, if someone
 /// is listening on it.
-static void *gpiodp_io_loop(void *userdata) {
+static void *line_event_listener_entry(void *userdata) {
     struct gpiod_line_event event;
     struct gpiod_line *line, **cursor;
     struct gpiod_chip *chip;
@@ -526,20 +526,24 @@ static void *gpiodp_io_loop(void *userdata) {
 }
 
 
-static int gpiodp_get_num_chips(struct platch_obj *object,
-                         FlutterPlatformMessageResponseHandle *responsehandle) {
+static int on_get_num_chips(
+    struct platch_obj *object,
+    FlutterPlatformMessageResponseHandle *responsehandle
+) {
     int ok;
     
-    ok = gpiodp_ensure_gpiod_initialized();
+    ok = ensure_binding_initialized();
     if (ok != 0) {
-        return gpiodp_respond_init_failed(responsehandle);
+        return respond_init_failed(responsehandle);
     }
 
     return platch_respond_success_std(responsehandle, &STDINT32(gpio_plugin.n_chips));
 }
 
-static int gpiodp_get_chip_details(struct platch_obj *object,
-                            FlutterPlatformMessageResponseHandle *responsehandle) {
+static int on_get_chip_details(
+    struct platch_obj *object,
+    FlutterPlatformMessageResponseHandle *responsehandle
+) {
     struct gpiod_chip *chip;
     unsigned int chip_index;
     int ok;
@@ -555,9 +559,9 @@ static int gpiodp_get_chip_details(struct platch_obj *object,
     }
 
     // init GPIO
-    ok = gpiodp_ensure_gpiod_initialized();
+    ok = ensure_binding_initialized();
     if (ok != 0) {
-        return gpiodp_respond_init_failed(responsehandle);
+        return respond_init_failed(responsehandle);
     }
 
     // get the chip index
@@ -590,8 +594,10 @@ static int gpiodp_get_chip_details(struct platch_obj *object,
     );
 }
 
-static int gpiodp_get_line_handle(struct platch_obj *object,
-                           FlutterPlatformMessageResponseHandle *responsehandle) {
+static int on_get_line_handle(
+    struct platch_obj *object,
+    FlutterPlatformMessageResponseHandle *responsehandle
+) {
     struct gpiod_chip *chip;
     unsigned int chip_index, line_index;
     int ok;
@@ -623,9 +629,9 @@ static int gpiodp_get_line_handle(struct platch_obj *object,
     }
 
     // try to init GPIO
-    ok = gpiodp_ensure_gpiod_initialized();
+    ok = ensure_binding_initialized();
     if (ok != 0) {
-        return gpiodp_respond_init_failed(responsehandle);
+        return respond_init_failed(responsehandle);
     }
 
     // try to get the chip correspondig to the chip index
@@ -653,8 +659,10 @@ static int gpiodp_get_line_handle(struct platch_obj *object,
     return platch_respond_success_std(responsehandle, &STDINT32(line_index));
 }
 
-static int gpiodp_get_line_details(struct platch_obj *object,
-                            FlutterPlatformMessageResponseHandle *responsehandle) {
+static int on_get_line_details(
+    struct platch_obj *object,
+    FlutterPlatformMessageResponseHandle *responsehandle
+) {
     struct gpiod_line *line;
     unsigned int line_handle;
     char *name, *consumer;
@@ -674,16 +682,16 @@ static int gpiodp_get_line_details(struct platch_obj *object,
     }
 
     // init GPIO
-    ok = gpiodp_ensure_gpiod_initialized();
+    ok = ensure_binding_initialized();
     if (ok != 0) {
-        return gpiodp_respond_init_failed(responsehandle);
+        return respond_init_failed(responsehandle);
     }
 
     // try to get the gpiod line corresponding to the line handle
     if (line_handle < gpio_plugin.n_lines) {
         line = gpio_plugin.lines[line_handle];
     } else {
-        return gpiodp_respond_illegal_line_handle(responsehandle);
+        return respond_illegal_line_handle(responsehandle);
     }    
 
     // if we don't own the line, update it
@@ -766,8 +774,10 @@ static int gpiodp_get_line_details(struct platch_obj *object,
     );
 }
 
-static int gpiodp_request_line(struct platch_obj *object,
-                        FlutterPlatformMessageResponseHandle *responsehandle) {
+static int on_request_line(
+    struct platch_obj *object,
+    FlutterPlatformMessageResponseHandle *responsehandle
+) {
     struct line_config config;
     struct std_value *temp;
     bool is_event_line = false;
@@ -783,9 +793,9 @@ static int gpiodp_request_line(struct platch_obj *object,
     }
 
     // ensure GPIO is initialized
-    ok = gpiodp_ensure_gpiod_initialized();
+    ok = ensure_binding_initialized();
     if (ok != 0) {
-        return gpiodp_respond_init_failed(responsehandle);
+        return respond_init_failed(responsehandle);
     }
 
     temp = stdmap_get_str(&object->std_arg, "consumer");
@@ -801,7 +811,7 @@ static int gpiodp_request_line(struct platch_obj *object,
     }
 
     // get the line config
-    ok = gpiodp_get_config(&object->std_arg, &config, responsehandle);
+    ok = get_config_from_map_arg(&object->std_arg, &config, responsehandle);
     if (ok != 0) return ok;
 
     // get the triggers
@@ -901,8 +911,10 @@ static int gpiodp_request_line(struct platch_obj *object,
     return platch_respond_success_std(responsehandle, NULL);
 }
 
-static int gpiodp_release_line(struct platch_obj *object,
-                        FlutterPlatformMessageResponseHandle *responsehandle) {
+static int on_release_line(
+    struct platch_obj *object,
+    FlutterPlatformMessageResponseHandle *responsehandle
+) {
     struct gpiod_line *line;
     unsigned int line_handle;
     int ok, fd;
@@ -921,7 +933,7 @@ static int gpiodp_release_line(struct platch_obj *object,
     if (line_handle < gpio_plugin.n_lines) {
         line = gpio_plugin.lines[line_handle];
     } else {
-        return gpiodp_respond_illegal_line_handle(responsehandle);
+        return respond_illegal_line_handle(responsehandle);
     }
 
     // Try to get the line associated fd and remove
@@ -930,7 +942,7 @@ static int gpiodp_release_line(struct platch_obj *object,
     if (fd != -1) {
         pthread_mutex_lock(&gpio_plugin.listening_lines_mutex);
 
-        gpiod_line_bulk_remove(&gpio_plugin.listening_lines, line);
+        line_bulk_remove(&gpio_plugin.listening_lines, line);
 
         ok = epoll_ctl(gpio_plugin.epollfd, EPOLL_CTL_DEL, fd, NULL);
         if (ok == -1) {
@@ -950,22 +962,24 @@ static int gpiodp_release_line(struct platch_obj *object,
     return platch_respond_success_std(responsehandle, NULL);
 }
 
-static int gpiodp_reconfigure_line(struct platch_obj *object,
-                            FlutterPlatformMessageResponseHandle *responsehandle) {
+static int on_reconfigure_line(
+    struct platch_obj *object,
+    FlutterPlatformMessageResponseHandle *responsehandle
+) {
     struct line_config config;
     int ok;
     
     // ensure GPIO is initialized
-    ok = gpiodp_ensure_gpiod_initialized();
+    ok = ensure_binding_initialized();
     if (ok != 0) {
-        return gpiodp_respond_init_failed(responsehandle);
+        return respond_init_failed(responsehandle);
     }
 
-    ok = gpiodp_get_config(&object->std_arg, &config, responsehandle);
+    ok = get_config_from_map_arg(&object->std_arg, &config, responsehandle);
     if (ok != 0) return ok;
 
     if (!libgpiod.line_set_config) {
-        return gpiodp_respond_not_supported(
+        return respond_not_supported(
             responsehandle,
             "Line reconfiguration is not supported on this platform."
         );
@@ -985,8 +999,10 @@ static int gpiodp_reconfigure_line(struct platch_obj *object,
     return platch_respond_success_std(responsehandle, NULL);
 }
 
-static int gpiodp_get_line_value(struct platch_obj *object,
-                          FlutterPlatformMessageResponseHandle *responsehandle) {
+static int on_get_line_value(
+    struct platch_obj *object,
+    FlutterPlatformMessageResponseHandle *responsehandle
+) {
     struct gpiod_line *line;
     unsigned int line_handle;
     int ok;
@@ -1005,7 +1021,7 @@ static int gpiodp_get_line_value(struct platch_obj *object,
     if (line_handle < gpio_plugin.n_lines) {
         line = gpio_plugin.lines[line_handle];
     } else {
-        return gpiodp_respond_illegal_line_handle(responsehandle);
+        return respond_illegal_line_handle(responsehandle);
     }
 
     // get the line value
@@ -1017,8 +1033,10 @@ static int gpiodp_get_line_value(struct platch_obj *object,
     return platch_respond_success_std(responsehandle, &STDBOOL(ok));
 }
 
-static int gpiodp_set_line_value(struct platch_obj *object,
-                          FlutterPlatformMessageResponseHandle *responsehandle) {
+static int on_set_line_value(
+    struct platch_obj *object,
+    FlutterPlatformMessageResponseHandle *responsehandle
+) {
     struct std_value *temp;
     struct gpiod_line *line;
     unsigned int line_handle;
@@ -1054,7 +1072,7 @@ static int gpiodp_set_line_value(struct platch_obj *object,
     if (line_handle < gpio_plugin.n_lines) {
         line = gpio_plugin.lines[line_handle];
     } else {
-        return gpiodp_respond_illegal_line_handle(responsehandle);
+        return respond_illegal_line_handle(responsehandle);
     }
 
     // get the line value
@@ -1066,67 +1084,79 @@ static int gpiodp_set_line_value(struct platch_obj *object,
     return platch_respond_success_std(responsehandle, NULL);
 }
 
-static int gpiodp_supports_bias(struct platch_obj *object,
-                         FlutterPlatformMessageResponseHandle *responsehandle) {
+static int on_supports_bias(
+    struct platch_obj *object,
+    FlutterPlatformMessageResponseHandle *responsehandle
+) {
     int ok;
     
     // ensure GPIO is initialized
-    ok = gpiodp_ensure_gpiod_initialized();
+    ok = ensure_binding_initialized();
     if (ok != 0) {
-        return gpiodp_respond_init_failed(responsehandle);
+        return respond_init_failed(responsehandle);
     }
     
     return platch_respond_success_std(responsehandle, &STDBOOL(libgpiod.line_bias));
 }
 
-static int gpiodp_supports_reconfiguration(struct platch_obj *object,
-                                    FlutterPlatformMessageResponseHandle *responsehandle) {
+static int on_supports_reconfiguration(
+    struct platch_obj *object,
+    FlutterPlatformMessageResponseHandle *responsehandle
+) {
     int ok;
     
     // ensure GPIO is initialized
-    ok = gpiodp_ensure_gpiod_initialized();
+    ok = ensure_binding_initialized();
     if (ok != 0) {
-        return gpiodp_respond_init_failed(responsehandle);
+        return respond_init_failed(responsehandle);
     }
     
     return platch_respond_success_std(responsehandle, &STDBOOL(libgpiod.line_set_config));
 }
 
 /// Handles incoming platform messages. Calls the above methods.
-int gpiodp_on_receive(char *channel, struct platch_obj *object, FlutterPlatformMessageResponseHandle *responsehandle) {
+static int on_receive_mch(
+    char *channel,
+    struct platch_obj *object,
+    FlutterPlatformMessageResponseHandle *responsehandle
+) {
     unsigned int chip_index, line_index;
     bool is_legal_arg;
     int ok;
 
 
     if STREQ("getNumChips", object->method) {
-        return gpiodp_get_num_chips(object, responsehandle);
+        return on_get_num_chips(object, responsehandle);
     } else if STREQ("getChipDetails", object->method) {
-        return gpiodp_get_chip_details(object, responsehandle);
+        return on_get_chip_details(object, responsehandle);
     } else if STREQ("getLineHandle", object->method) {
-        return gpiodp_get_line_handle(object, responsehandle);
+        return on_get_line_handle(object, responsehandle);
     } else if STREQ("getLineDetails", object->method) {
-        return gpiodp_get_line_details(object, responsehandle);
+        return on_get_line_details(object, responsehandle);
     } else if STREQ("requestLine", object->method) {
-        return gpiodp_request_line(object, responsehandle);
+        return on_request_line(object, responsehandle);
     } else if STREQ("releaseLine", object->method) {
-        return gpiodp_release_line(object, responsehandle);
+        return on_release_line(object, responsehandle);
     } else if STREQ("reconfigureLine", object->method) {
-        return gpiodp_reconfigure_line(object, responsehandle);
+        return on_reconfigure_line(object, responsehandle);
     } else if STREQ("getLineValue", object->method) {
-        return gpiodp_get_line_value(object, responsehandle);
+        return on_get_line_value(object, responsehandle);
     } else if STREQ("setLineValue", object->method) {
-        return gpiodp_set_line_value(object, responsehandle);
+        return on_set_line_value(object, responsehandle);
     } else if STREQ("supportsBias", object->method) {
-        return gpiodp_supports_bias(object, responsehandle);
+        return on_supports_bias(object, responsehandle);
     } else if STREQ("supportsLineReconfiguration", object->method) {
-        return gpiodp_supports_reconfiguration(object, responsehandle);
+        return on_supports_reconfiguration(object, responsehandle);
     }
 
     return platch_respond_not_implemented(responsehandle);
 }
 
-int gpiodp_on_receive_evch(char *channel, struct platch_obj *object, FlutterPlatformMessageResponseHandle *responsehandle) {
+static int on_receive_evch(
+    char *channel,
+    struct platch_obj *object,
+    FlutterPlatformMessageResponseHandle *responsehandle
+) {
     if STREQ("listen", object->method) {
         gpio_plugin.should_emit_events = true;
         return platch_respond_success_std(responsehandle, NULL);
@@ -1142,22 +1172,22 @@ int gpiodp_on_receive_evch(char *channel, struct platch_obj *object, FlutterPlat
 int gpiodp_init(void) {
     int ok;
 
-    printf("[flutter_gpiod] Initializing...\n");
-
     gpio_plugin.initialized = false;
 
-    ok = plugin_registry_set_receiver(GPIOD_PLUGIN_METHOD_CHANNEL, kStandardMethodCall, gpiodp_on_receive);
+    ok = plugin_registry_set_receiver(GPIOD_PLUGIN_METHOD_CHANNEL, kStandardMethodCall, on_receive_mch);
     if (ok != 0) return ok;
 
-    plugin_registry_set_receiver(GPIOD_PLUGIN_EVENT_CHANNEL, kStandardMethodCall, gpiodp_on_receive_evch);
-    if (ok != 0) return ok;
-
-    printf("[flutter_gpiod] Done.\n");
+    ok = plugin_registry_set_receiver(GPIOD_PLUGIN_EVENT_CHANNEL, kStandardMethodCall, on_receive_evch);
+    if (ok != 0) {
+        plugin_registry_remove_receiver(GPIOD_PLUGIN_METHOD_CHANNEL);
+        return ok;
+    }
 
     return 0;
 }
 
 int gpiodp_deinit(void) {
-    printf("[flutter_gpiod] deinit.\n");
+    plugin_registry_remove_receiver(GPIOD_PLUGIN_METHOD_CHANNEL);
+    plugin_registry_remove_receiver(GPIOD_PLUGIN_EVENT_CHANNEL);
     return 0;
 }

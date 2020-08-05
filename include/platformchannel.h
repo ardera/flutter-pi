@@ -315,6 +315,28 @@ int platch_respond_illegal_arg_json(FlutterPlatformMessageResponseHandle *handle
 int platch_respond_native_error_json(FlutterPlatformMessageResponseHandle *handle,
                                      int _errno);
 
+int platch_respond_success_pigeon(
+	FlutterPlatformMessageResponseHandle *handle,
+	struct std_value *return_value
+);
+
+int platch_respond_error_pigeon(
+	FlutterPlatformMessageResponseHandle *handle,
+	char *error_code,
+	char *error_msg,
+	struct std_value *error_details
+);
+
+int platch_respond_illegal_arg_pigeon(
+	FlutterPlatformMessageResponseHandle *handle,
+	char *error_msg
+);
+
+int platch_respond_native_error_pigeon(
+	FlutterPlatformMessageResponseHandle *handle,
+	int _errno
+);
+
 /// Sends a success event with value `event_value` to an event channel
 /// that uses the standard method codec.                                 
 int platch_send_success_event_std(char *channel,

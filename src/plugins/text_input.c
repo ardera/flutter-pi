@@ -616,21 +616,17 @@ int textin_on_key(glfw_key key) {
 int textin_init(void) {
     int ok;
 
-    printf("[test_input] Initializing...\n");
-
     text_input.text[0] = '\0';
     text_input.warned_about_autocorrect = false;
 
     ok = plugin_registry_set_receiver(TEXT_INPUT_CHANNEL, kJSONMethodCall, textin_on_receive);
     if (ok != 0) return ok;
 
-    printf("[text_input] Done.\n");
-
     return 0;
 }
 
 int textin_deinit(void) {
-    printf("[text_input] deinit.\n");
+    plugin_registry_remove_receiver(TEXT_INPUT_CHANNEL);
 
     return 0;
 }

@@ -531,8 +531,6 @@ static int spidevp_on_receive(char *channel, struct platch_obj *object, FlutterP
 }
 
 int spidevp_init(void) {
-    printf("[flutter_spidev] Initializing...\n");
-
     spi_plugin.size_threads = 1;
     spi_plugin.threads = malloc(spi_plugin.size_threads * sizeof(struct spidevp_thread *));
 
@@ -543,7 +541,6 @@ int spidevp_init(void) {
 
     plugin_registry_set_receiver(SPI_PLUGIN_METHOD_CHANNEL, kStandardMethodCall, spidevp_on_receive);
     
-    printf("[flutter_spidev] Done.\n");
     return 0;
 }
 

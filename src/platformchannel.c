@@ -591,7 +591,7 @@ int platch_decode_value_json(char *message, size_t size, jsmntok_t **pptoken, si
 		jsmn_parser parser;
 		size_t tokensremaining;
 
-		memset(tokens, sizeof(tokens), 0);
+		memset(tokens, 0, sizeof(tokens));
 
 		jsmn_init(&parser);
 		result = jsmn_parse(&parser, (const char *) message, (const size_t) size, tokens, JSON_DECODE_TOKENLIST_SIZE);
@@ -788,8 +788,6 @@ int platch_decode(uint8_t *buffer, size_t size, enum platch_codec codec, struct 
 			ok = _read8(&buffer_cursor, (uint8_t*) &object_out->success, &remaining);
 
 			if (object_out->success) {
-				struct std_value result;
-
 				ok = platch_decode_value_std(&buffer_cursor, &remaining, &(object_out->std_result));
 				if (ok != 0) return ok;
 			} else {
@@ -1010,43 +1008,64 @@ int platch_send(char *channel, struct platch_obj *object, enum platch_codec resp
 
 	if (on_response) {
 		handlerdata = malloc(sizeof(struct platch_msg_resp_handler_data));
-		if (!handlerdata) return ENOMEM;
+		if (!handlerdata) {
+			return ENOMEM;
+		}
 		
 		handlerdata->codec = response_codec;
 		handlerdata->on_response = on_response;
 		handlerdata->userdata = userdata;
 
-		result = FlutterPlatformMessageCreateResponseHandle(engine, platch_on_response_internal, handlerdata, &response_handle);
-		if (result != kSuccess) return EINVAL;
+		result = FlutterPlatformMessageCreateResponseHandle(flutterpi.flutter.engine, platch_on_response_internal, handlerdata, &response_handle);
+		if (result != kSuccess) {
+			fprintf(stderr, "[flutter-pi] Error create platform message response handle. FlutterPlatformMessageCreateResponseHandle: %s\n", FLUTTER_RESULT_TO_STRING(result));
+			goto fail_free_handlerdata;
+		}
 	}
 
-	//printf("[platformchannel] sending platform message to flutter on channel \"%s\". message_size: %d, has response_handle? %s\n", channel, size, response_handle ? "yes" : "no");
-	//printf("  message buffer: \"");
-	//for (int i = 0; i < size; i++)
-	//	if (isprint(buffer[i])) printf("%c", buffer[i]);
-	//	else printf("\\x%02X", buffer[i]);
-	//printf("\"\n");
-	
-	result = FlutterEngineSendPlatformMessage(
-		engine,
-		& (const FlutterPlatformMessage) {
-			.struct_size = sizeof(FlutterPlatformMessage),
-			.channel = (const char*) channel,
-			.message = (const uint8_t*) buffer,
-			.message_size = (const size_t) size,
-			.response_handle = response_handle
-		}
+	ok = flutterpi_send_platform_message(
+		channel,
+		buffer,
+		size,
+		response_handle
 	);
+	if (ok != 0) {
+		goto fail_release_handle;
+	}
 
 	if (on_response) {
-		result = FlutterPlatformMessageReleaseResponseHandle(engine, response_handle);
-		if (result != kSuccess) return EINVAL;
+		result = FlutterPlatformMessageReleaseResponseHandle(flutterpi.flutter.engine, response_handle);
+		if (result != kSuccess) {
+			fprintf(stderr, "[flutter-pi] Error releasing platform message response handle. FlutterPlatformMessageReleaseResponseHandle: %s\n", FLUTTER_RESULT_TO_STRING(result));
+			ok = EIO;
+			goto fail_free_buffer;
+		}
 	}
 
-	if (object->codec != kBinaryCodec)
+	if (object->codec != kBinaryCodec) {
 		free(buffer);
+	}
 	
-	return (result == kSuccess) ? 0 : EINVAL;
+	return 0;
+
+
+	fail_release_handle:
+	if (on_response) {
+		FlutterPlatformMessageReleaseResponseHandle(flutterpi.flutter.engine, response_handle);
+	}
+
+	fail_free_buffer:
+	if (object->codec != kBinaryCodec) {
+		free(buffer);
+	}
+
+	fail_free_handlerdata:
+	if (on_response) {
+		free(handlerdata);
+	}
+
+	fail_return_ok:
+	return ok;
 }
 
 int platch_call_std(char *channel, char *method, struct std_value *argument, platch_msg_resp_callback on_response, void *userdata) {
@@ -1080,10 +1099,15 @@ int platch_respond(FlutterPlatformMessageResponseHandle *handle, struct platch_o
 	ok = platch_encode(response, &buffer, &size);
 	if (ok != 0) return ok;
 
-	result = FlutterEngineSendPlatformMessageResponse(engine, (const FlutterPlatformMessageResponseHandle*) handle, (const uint8_t*) buffer, size);
-	
-	if (buffer != NULL) free(buffer);
-	
+	result = FlutterEngineSendPlatformMessageResponse(flutterpi.flutter.engine, (const FlutterPlatformMessageResponseHandle*) handle, (const uint8_t*) buffer, size);
+	if (result != kSuccess) {
+		fprintf(stderr, "[platformchannel] Could not send platform message response. FlutterEngineSendPlatformMessageResponse: %s\n", FLUTTER_RESULT_TO_STRING(result));
+	}
+
+	if (buffer != NULL) {
+		free(buffer);
+	}
+
 	return (result == kSuccess) ? 0 : EINVAL;
 }
 
@@ -1095,6 +1119,9 @@ int platch_respond_not_implemented(FlutterPlatformMessageResponseHandle *handle)
 		});
 }
 
+/****************************
+ * STANDARD METHOD CHANNELS *
+ ****************************/
 
 int platch_respond_success_std(FlutterPlatformMessageResponseHandle *handle,
 							   struct std_value *return_value) {
@@ -1141,6 +1168,10 @@ int platch_respond_native_error_std(FlutterPlatformMessageResponseHandle *handle
 }
 
 
+/************************
+ * JSON METHOD CHANNELS *
+ ************************/
+
 int platch_respond_success_json(FlutterPlatformMessageResponseHandle *handle,
 								struct json_value *return_value) {
 	return platch_respond(
@@ -1184,7 +1215,97 @@ int platch_respond_native_error_json(FlutterPlatformMessageResponseHandle *handl
 	);
 }
 
+/**************************
+ * PIGEON METHOD CHANNELS *
+ **************************/
+int platch_respond_success_pigeon(
+	FlutterPlatformMessageResponseHandle *handle,
+	struct std_value *return_value
+) {
+	return platch_respond(
+		handle,
+		&(struct platch_obj) {
+			.codec = kStandardMessageCodec,
+			.std_value = {
+				.type = kStdMap,
+				.size = 1,
+				.keys = (struct std_value[1]) {
+					STDSTRING("result")
+				},
+				.values = return_value != NULL ?
+					return_value :
+					(struct std_value[1]) {STDNULL}
+			}
+		}
+	);
+}
 
+int platch_respond_error_pigeon(
+	FlutterPlatformMessageResponseHandle *handle,
+	char *error_code,
+	char *error_msg,
+	struct std_value *error_details
+) {
+	return platch_respond(
+		handle,
+		&(struct platch_obj) {
+			.codec = kStandardMessageCodec,
+			.std_value = {
+				.type = kStdMap,
+				.size = 1,
+				.keys = (struct std_value[1]) {
+					STDSTRING("error")
+				},
+				.values = (struct std_value[1]) {
+					{
+						.type = kStdMap,
+						.size = 3,
+						.keys = (struct std_value[3]) {
+							STDSTRING("code"),
+							STDSTRING("message"),
+							STDSTRING("details")
+						},
+						.values = (struct std_value[3]) {
+							STDSTRING(error_code),
+							STDSTRING(error_msg),
+							error_details != NULL ?
+								*error_details :
+								STDNULL
+						}
+					}
+				}
+			}
+		}
+	);
+}
+
+int platch_respond_illegal_arg_pigeon(
+	FlutterPlatformMessageResponseHandle *handle,
+	char *error_msg
+) {
+	return platch_respond_error_pigeon(
+		handle,
+		"illegalargument",
+		error_msg,
+		NULL
+	);
+}
+
+int platch_respond_native_error_pigeon(
+	FlutterPlatformMessageResponseHandle *handle,
+	int _errno
+) {
+	return platch_respond_error_pigeon(
+		handle,
+		"nativeerror",
+		strerror(_errno),
+		&STDINT32(_errno)
+	);
+}
+
+/***************************
+ * STANDARD EVENT CHANNELS *
+ ***************************/
 int platch_send_success_event_std(char *channel, struct std_value *event_value) {
 	return platch_send(
 		channel,
@@ -1214,7 +1335,9 @@ int platch_send_error_event_std(char *channel,
 	);
 }
 
-
+/***********************
+ * JSON EVENT CHANNELS *
+ ***********************/
 int platch_send_success_event_json(char *channel, struct json_value *event_value) {
 	return platch_send(channel,
 		&(struct platch_obj) {

@@ -146,7 +146,7 @@ int printStd(struct std_value *value, int indent) {
 
 uint64_t testplugin_time_offset;
 
-int testp_on_response_json(struct platch_obj *object, void *userdata) {
+int on_response_json(struct platch_obj *object, void *userdata) {
     uint64_t dt = FlutterEngineGetCurrentTime() - *((uint64_t*) userdata);
     free(userdata);
     
@@ -156,7 +156,7 @@ int testp_on_response_json(struct platch_obj *object, void *userdata) {
     }
 
     if (object->success) {
-        printf("testp_on_response_json(dt: %lu)\n"
+        printf("on_response_json(dt: %lu)\n"
                "  success\n"
                "  result:\n", dt);
         printJSON(&object->json_result, 4);
@@ -171,7 +171,7 @@ int testp_on_response_json(struct platch_obj *object, void *userdata) {
 
     return 0;
 }
-int testp_send_json() {
+int send_json(void) {
     uint64_t* time = malloc(sizeof(uint64_t));
     *time = FlutterEngineGetCurrentTime();
 
@@ -198,13 +198,13 @@ int testp_send_json() {
         },
     };
 
-    int ok = platch_call_json(TESTPLUGIN_CHANNEL_JSON, method, &argument, testp_on_response_json, time);
+    int ok = platch_call_json(TESTPLUGIN_CHANNEL_JSON, method, &argument, on_response_json, time);
     if (ok != 0) {
         printf("Could not MethodCall JSON: %s\n", strerror(ok));
     }
     return 0;
 }
-int testp_on_response_std(struct platch_obj *object, void *userdata) {
+int on_response_std(struct platch_obj *object, void *userdata) {
     uint64_t dt = FlutterEngineGetCurrentTime() - *((uint64_t*) userdata);
     free(userdata);
 
@@ -229,7 +229,7 @@ int testp_on_response_std(struct platch_obj *object, void *userdata) {
 
     return 0;
 }
-int testp_send_std() {
+int send_std() {
     uint64_t *time = malloc(sizeof(uint64_t));
     *time = FlutterEngineGetCurrentTime();
 
@@ -260,18 +260,18 @@ int testp_send_std() {
         },
     };
 
-    platch_call_std(TESTPLUGIN_CHANNEL_STD, method, &argument, testp_on_response_std, time);
+    platch_call_std(TESTPLUGIN_CHANNEL_STD, method, &argument, on_response_std, time);
     return 0;
 }
 
 
-int testp_on_receive_json(char *channel, struct platch_obj *object, FlutterPlatformMessageResponseHandle *responsehandle) {
-    printf("testp_on_receive_json(channel: %s)\n"
+int on_receive_json(char *channel, struct platch_obj *object, FlutterPlatformMessageResponseHandle *responsehandle) {
+    printf("[test plugin] on_receive_json(channel: %s)\n"
            "  method: %s\n"
            "  args: \n", channel, object->method);
     printJSON(&(object->json_arg), 4);
     
-    testp_send_json();
+    send_json();
 
     return platch_respond(responsehandle, &(struct platch_obj) {
         .codec = kJSONMethodCallResponse,
@@ -281,14 +281,14 @@ int testp_on_receive_json(char *channel, struct platch_obj *object, FlutterPlatf
         }
     });
 }
-int testp_on_receive_std(char *channel, struct platch_obj *object, FlutterPlatformMessageResponseHandle *responsehandle) {
-    printf("TestPlugin_onReceiveStd(channel: %s)\n"
+int on_receive_std(char *channel, struct platch_obj *object, FlutterPlatformMessageResponseHandle *responsehandle) {
+    printf("[test plugin] on_receive_std(channel: %s)\n"
            "  method: %s\n"
            "  args: \n", channel, object->method);
 
     printStd(&(object->std_arg), 4);
 
-    testp_send_std();
+    send_std();
     
     return platch_respond(
         responsehandle,
@@ -301,7 +301,7 @@ int testp_on_receive_std(char *channel, struct platch_obj *object, FlutterPlatfo
         }
     );
 }
-int testp_on_receive_ping(char *channel, struct platch_obj *object, FlutterPlatformMessageResponseHandle *responsehandle) {
+int on_receive_ping(char *channel, struct platch_obj *object, FlutterPlatformMessageResponseHandle *responsehandle) {
     return platch_respond(
         responsehandle,
         &(struct platch_obj) {
@@ -315,21 +315,28 @@ int testp_on_receive_ping(char *channel, struct platch_obj *object, FlutterPlatf
 int testp_init(void) {
     int ok;
 
-    printf("[test_plugin] Initializing...\n");
-
-    ok = plugin_registry_set_receiver(TESTPLUGIN_CHANNEL_JSON, kJSONMethodCall, testp_on_receive_json);
+    ok = plugin_registry_set_receiver(TESTPLUGIN_CHANNEL_JSON, kJSONMethodCall, on_receive_json);
     if (ok != 0) return ok;
 
-    ok = plugin_registry_set_receiver(TESTPLUGIN_CHANNEL_STD, kStandardMethodCall, testp_on_receive_std);
-    if (ok != 0) return ok;
+    ok = plugin_registry_set_receiver(TESTPLUGIN_CHANNEL_STD, kStandardMethodCall, on_receive_std);
+    if (ok != 0) {
+        plugin_registry_remove_receiver(TESTPLUGIN_CHANNEL_JSON);
+        return ok;
+    }
     
-    ok = plugin_registry_set_receiver(TESTPLUGIN_CHANNEL_PING, kStringCodec, testp_on_receive_ping);
-    if (ok != 0) return ok;
+    ok = plugin_registry_set_receiver(TESTPLUGIN_CHANNEL_PING, kStringCodec, on_receive_ping);
+    if (ok != 0) {
+        plugin_registry_remove_receiver(TESTPLUGIN_CHANNEL_STD);
+        plugin_registry_remove_receiver(TESTPLUGIN_CHANNEL_JSON);
+        return ok;
+    }
 
-    printf("[test_plugin] Done.\n");
     return 0;
 }
 int testp_deinit(void) {
-    printf("[test_plugin] deinit.\n");
+    plugin_registry_remove_receiver(TESTPLUGIN_CHANNEL_PING);
+    plugin_registry_remove_receiver(TESTPLUGIN_CHANNEL_STD);
+    plugin_registry_remove_receiver(TESTPLUGIN_CHANNEL_JSON);
+    
     return 0;
 }

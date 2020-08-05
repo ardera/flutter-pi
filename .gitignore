@@ -1,6 +1,7 @@
 out
 .vscode
 build.sh
+build_all.sh
 compile_commands.json
 .clang-format
 build

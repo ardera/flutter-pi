@@ -21,12 +21,10 @@ If you encounter issues running flutter-pi on any of the supported platforms lis
 1. **[Running your App on the Raspberry Pi](#running-your-app-on-the-raspberry-pi)**  
 1.1 [Configuring your Raspberry Pi](#configuring-your-raspberry-pi)  
 1.2 [Patching the App](#patching-the-app)  
-1.3 [Building the Asset bundle](#building-the-asset-bundle)    
-1.4 [Running your App with flutter-pi](#running-your-app-with-flutter-pi)  
-2. **[Dependencies](#dependencies)**  
-2.1 [flutter engine](#flutter-engine)  
-2.2 [graphics libs](#graphics-libs)  
-2.3 [fonts](#fonts)  
+1.3 [Building the Asset bundle](#building-the-asset-bundle)  
+1.4 [Building the app.so](#building-the-appso-for-running-your-app-in-releaseprofile-mode)  
+1.5 [Running your App with flutter-pi](#running-your-app-with-flutter-pi)  
+2. **[Dependencies](#dependencies)**
 3. **[Compiling flutter-pi (on the Raspberry Pi)](#compiling-flutter-pi-on-the-raspberry-pi)**  
 4. **[Performance](#performance)**  
 5. **[Keyboard Input](#keyboard-input)**
@@ -88,30 +86,63 @@ flutter build bundle
 
 After that `flutter/examples/flutter_gallery/build/flutter_assets` would be a valid path to pass as an argument to flutter-pi.
 
+### Building the `app.so` (for running your app in Release/Profile mode)
+** WIP **
+
 ### Running your App with flutter-pi
 ```txt
 USAGE:
-  flutter-pi [options] <asset bundle path> [flutter engine options...]
+  flutter-pi [options] <asset bundle path> [flutter engine options]
 
 OPTIONS:
-  -i <glob pattern>   Appends all files matching this glob pattern
-                      to the list of input (touchscreen, mouse, touchpad)
-                      devices. Brace and tilde expansion is enabled.
-                      Every file that matches this pattern, but is not
-                      a valid touchscreen / -pad or mouse is silently
-                      ignored.
-                        If no -i options are given, all files matching
-                      "/dev/input/event*" will be used as inputs.
-                      This should be what you want in most cases.
-                        Note that you need to properly escape each glob pattern
-                      you use as a parameter so it isn't implicitly expanded
-                      by your shell.
+  -i, --input <glob pattern> Appends all files matching this glob pattern to the
+                             list of input (touchscreen, mouse, touchpad,
+                             keyboard) devices. Brace and tilde expansion is
+                             enabled.
+                             Every file that matches this pattern, but is not
+                             a valid touchscreen / -pad, mouse or keyboard is
+                             silently ignored.
+                             If no -i options are given, flutter-pi will try to
+                             use all input devices assigned to udev seat0.
+                             If that fails, or udev is not installed, flutter-pi
+                             will fallback to using all devices matching
+                             "/dev/input/event*" as inputs.
+                             In most cases, there's no need to specify this
+                             option.
+                             Note that you need to properly escape each glob
+                             pattern you use as a parameter so it isn't
+                             implicitly expanded by your shell.
 
-  -h                  Show this help and exit.
+  --aot                      Run the app in AOT mode. The AOT snapshot
+                             of the app ("app.so") must be located inside the
+                             asset bundle directory.
+
+  -o, --orientation <orientation>  Start the app in this orientation. Valid
+                             for <orientation> are: portrait_up, landscape_left,
+                             portrait_down, landscape_right.
+                             For more information about this orientation, see
+                             the flutter docs for the "DeviceOrientation"
+                             enum.
+                             Only one of the --orientation and --rotation
+                             options can be specified.
+
+  -r, --rotation <degrees>   Start the app with this rotation. This is just an
+                             alternative, more intuitive way to specify the
+                             startup orientation. The angle is in degrees and
+                             clock-wise.
+                             Valid values are 0, 90, 180 and 270.
+
+  --no-text-input            Disable text input from the console.
+                             This means flutter-pi won't configure the console
+                             to raw/non-canonical mode.
+
+  -h, --help                 Show this help and exit.
 
 EXAMPLES:
-  flutter-pi -i "/dev/input/event{0,1}" -i "/dev/input/event{2,3}" /home/helloworld_flutterassets
+  flutter-pi -i "/dev/input/event{0,1}" -i "/dev/input/event{2,3}" /home/pi/helloworld_flutterassets
   flutter-pi -i "/dev/input/mouse*" /home/pi/helloworld_flutterassets
+  flutter-pi -o portrait_up ./flutter_assets
+  flutter-pi -r 90 ./flutter_assets
   flutter-pi /home/pi/helloworld_flutterassets
 ```
 
@@ -125,7 +156,7 @@ of the flutter app you're trying to run.
 flutter-pi needs `libflutter_engine.so` and `flutter_embedder.h` to compile. It also needs the flutter engine's `icudtl.dat` at runtime.
 You have two options here:
 
-- you build the engine yourself. takes a lot of time, and it most probably won't work on the first try. But once you have it set up, you have unlimited freedom on which engine version you want to use. You can find some rough guidelines [here](https://medium.com/flutter/flutter-on-raspberry-pi-mostly-from-scratch-2824c5e7dcb1). [Andrew jones](https://github.com/andyjjones28) is working on some more detailed instructions.
+- you build the engine yourself. takes a lot of time, and it most probably won't work on the first try. But once you have it set up, you have unlimited freedom on which engine version you want to use. You can find some rough guidelines [here](https://medium.com/flutter/flutter-on-raspberry-pi-mostly-from-scratch-2824c5e7dcb1).
 - you can use the pre-built engine binaries I am providing [in the _engine-binaries_ branch of this project.](https://github.com/ardera/flutter-pi/tree/engine-binaries). I will only provide binaries for some engine versions though (most likely the stable ones).
 
 ### graphics libs
@@ -138,10 +169,11 @@ The flutter engine, by default, uses the _Arial_ font. Since that doesn't come i
 sudo apt install ttf-mscorefonts-installer fontconfig
 sudo fc-cache
 ```
-### libgpiod (for the included GPIO plugin)
+### libgpiod (for the included GPIO plugin), libsystemd, libudev
 ```bash
-sudo apt-get install gpiod libgpiod-dev
+sudo apt-get install gpiod libgpiod-dev libsystemd-dev libudev-dev
 ```
+
 ## Compiling flutter-pi (on the Raspberry Pi)
 fetch all the dependencies, clone this repo and run
 ```bash
