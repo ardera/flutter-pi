@@ -50,20 +50,6 @@ struct compositor compositor = {
     .has_applied_modeset = false,
     .should_create_window_surface_backing_store = true,
     .stale_rendertargets = CPSET_INITIALIZER(CPSET_DEFAULT_MAX_SIZE),
-    .cursor = {
-        .is_enabled = false,
-        .width = 0,
-        .height = 0,
-        .bpp = 0,
-        .depth = 0,
-        .pitch = 0,
-        .size = 0,
-        .drm_fb_id = 0,
-        .gem_bo_handle = 0,
-        .buffer = NULL,
-        .x = 0,
-        .y = 0
-    }
 };
 
 static struct view_cb_data *get_cbs_for_view_id_locked(int64_t view_id) {
@@ -571,8 +557,6 @@ static void on_destroy_backing_store_gl_fb(void *userdata) {
     store = userdata;
     compositor = store->target->compositor;
 
-    printf("on_destroy_backing_store_gl_fb(is_gbm: %s, backing_store: %p)\n", store->target->is_gbm ? "true" : "false", store);
-
     cpset_put_(&compositor->stale_rendertargets, store->target);
 
     if (store->should_free_on_next_destroy) {
@@ -599,8 +583,6 @@ static bool on_collect_backing_store(
     
     store = backing_store->user_data;
     compositor = store->target->compositor;
-
-    printf("on_collect_backing_store(is_gbm: %s, backing_store: %p)\n", store->target->is_gbm ? "true" : "false", store);
 
     cpset_put_(&compositor->stale_rendertargets, store->target);
 
@@ -638,13 +620,10 @@ static bool on_create_backing_store(
         return false;
     }
 
-    printf("on_create_backing_store(%f x %f): %p\n", config->size.width, config->size.height, store);
-
     // first, try to find a stale GBM rendertarget.
     cpset_lock(&compositor->stale_rendertargets);
     for_each_pointer_in_cpset(&compositor->stale_rendertargets, target) break;
     if (target != NULL) {
-        printf("found stale rendertarget.\n");
         cpset_remove_locked(&compositor->stale_rendertargets, target);
     }
     cpset_unlock(&compositor->stale_rendertargets);
@@ -657,8 +636,6 @@ static bool on_create_backing_store(
             // We create 1 "backing store" that is rendering to the DRM_PLANE_PRIMARY
             // plane. That backing store isn't really a backing store at all, it's
             // FBO id is 0, so it's actually rendering to the window surface.
-
-            printf("Creating a GBM rendertarget.\n");
 
             FlutterEngineTraceEventDurationBegin("rendertarget_gbm_new");
             ok = rendertarget_gbm_new(
@@ -674,8 +651,6 @@ static bool on_create_backing_store(
 
             compositor->should_create_window_surface_backing_store = false;
         } else {
-            printf("Creating a No-GBM rendertarget.\n");
-
             FlutterEngineTraceEventDurationBegin("rendertarget_nogbm_new");
             ok = rendertarget_nogbm_new(
                 &target,
@@ -737,6 +712,13 @@ static bool on_present_layers(
     if (compositor->has_applied_modeset == false) {
         ok = drmdev_atomic_req_put_modeset_props(req, &req_flags);
         if (ok != 0) return false;
+
+        for_each_unreserved_plane_in_atomic_req(req, plane) {
+            if (plane->type == DRM_PLANE_TYPE_CURSOR) {
+                // make sure the cursor is in front of everything
+                drmdev_atomic_req_put_plane_property(req, plane->plane->plane_id, "zpos", 2);
+            }
+        }
         
         compositor->has_applied_modeset = true;
     }
@@ -1064,152 +1046,265 @@ int compositor_initialize(struct drmdev *drmdev) {
     return 0;
 }
 
-int compositor_apply_cursor_skin_for_rotation(int rotation) {
+static void destroy_cursor_buffer(void) {
+    struct drm_mode_destroy_dumb destroy_req;
+
+    munmap(compositor.cursor.buffer, compositor.cursor.buffer_size);
+
+    drmModeRmFB(compositor.drmdev->fd, compositor.cursor.drm_fb_id);
+
+    memset(&destroy_req, 0, sizeof destroy_req);
+    destroy_req.handle = compositor.cursor.gem_bo_handle;
+
+    ioctl(compositor.drmdev->fd, DRM_IOCTL_MODE_DESTROY_DUMB, &destroy_req);
+
+    compositor.cursor.has_buffer = false;
+    compositor.cursor.buffer_depth = 0;
+    compositor.cursor.gem_bo_handle = 0;
+    compositor.cursor.buffer_pitch = 0;
+    compositor.cursor.buffer_width = 0;
+    compositor.cursor.buffer_height = 0;
+    compositor.cursor.buffer_size = 0;
+    compositor.cursor.drm_fb_id = 0;
+    compositor.cursor.buffer = NULL;
+}
+
+static int create_cursor_buffer(int width, int height, int bpp) {
+    struct drm_mode_create_dumb create_req;
+    struct drm_mode_map_dumb map_req;
+    uint32_t drm_fb_id;
+    uint32_t *buffer;
+    uint64_t cap;
+    uint8_t depth;
+    int ok;
+
+    ok = drmGetCap(compositor.drmdev->fd, DRM_CAP_DUMB_BUFFER, &cap);
+    if (ok < 0) {
+        ok = errno;
+        perror("[compositor] Could not query GPU Driver support for dumb buffers. drmGetCap");
+        goto fail_return_ok;
+    }
+
+    if (cap == 0) {
+        fprintf(stderr, "[compositor] Kernel / GPU Driver does not support dumb DRM buffers. Mouse cursor will not be displayed.\n");
+        ok = ENOTSUP;
+        goto fail_return_ok;
+    }
+
+    ok = drmGetCap(compositor.drmdev->fd, DRM_CAP_DUMB_PREFERRED_DEPTH, &cap);
+    if (ok < 0) {
+        ok = errno;
+        perror("[compositor] Could not query dumb buffer preferred depth capability. drmGetCap");
+        goto fail_return_ok;
+    }
+
+    depth = (uint8_t) cap;
+
+    if (depth != 32) {
+        fprintf(stderr, "[compositor] Preferred framebuffer depth for hardware cursor is not supported by flutter-pi.\n");
+    }
+
+    memset(&create_req, 0, sizeof create_req);
+    create_req.width = width;
+    create_req.height = height;
+    create_req.bpp = bpp;
+    create_req.flags = 0;
+
+    ok = ioctl(compositor.drmdev->fd, DRM_IOCTL_MODE_CREATE_DUMB, &create_req);
+    if (ok < 0) {
+        ok = errno;
+        perror("[compositor] Could not create a dumb buffer for the hardware cursor. ioctl");
+        goto fail_return_ok;
+    }
+
+    ok = drmModeAddFB(compositor.drmdev->fd, create_req.width, create_req.height, 32, create_req.bpp, create_req.pitch, create_req.handle, &drm_fb_id);
+    if (ok < 0) {
+        ok = errno;
+        perror("[compositor] Could not make a DRM FB out of the hardware cursor buffer. drmModeAddFB");
+        goto fail_destroy_dumb_buffer;
+    }
+
+    memset(&map_req, 0, sizeof map_req);
+    map_req.handle = create_req.handle;
+
+    ok = ioctl(compositor.drmdev->fd, DRM_IOCTL_MODE_MAP_DUMB, &map_req);
+    if (ok < 0) {
+        ok = errno;
+        perror("[compositor] Could not prepare dumb buffer mmap for uploading the hardware cursor icon. ioctl");
+        goto fail_rm_drm_fb;
+    }
+
+    buffer = mmap(0, create_req.size, PROT_READ | PROT_WRITE, MAP_SHARED, compositor.drmdev->fd, map_req.offset);
+    if (buffer == MAP_FAILED) {
+        ok = errno;
+        perror("[compositor] Could not mmap dumb buffer for uploading the hardware cursor icon. mmap");
+        goto fail_rm_drm_fb;
+    }
+
+    compositor.cursor.has_buffer = true;
+    compositor.cursor.buffer_depth = depth;
+    compositor.cursor.gem_bo_handle = create_req.handle;
+    compositor.cursor.buffer_pitch = create_req.pitch;
+    compositor.cursor.buffer_width = width;
+    compositor.cursor.buffer_height = height;
+    compositor.cursor.buffer_size = create_req.size;
+    compositor.cursor.drm_fb_id = drm_fb_id;
+    compositor.cursor.buffer = buffer;
+    
+    return 0;
+
+
+    fail_rm_drm_fb:
+    drmModeRmFB(compositor.drmdev->fd, drm_fb_id);
+
+    fail_destroy_dumb_buffer: ;
+    struct drm_mode_destroy_dumb destroy_req;
+    memset(&destroy_req, 0, sizeof destroy_req);
+    destroy_req.handle = create_req.handle;
+    ioctl(compositor.drmdev->fd, DRM_IOCTL_MODE_DESTROY_DUMB, &destroy_req);
+
+    fail_return_ok:
+    return ok;
+}
+
+int compositor_apply_cursor_state(
+    bool is_enabled,
+    int rotation,
+    double device_pixel_ratio
+) {
     const struct cursor_icon *cursor;
     int ok;
-    
-    if (compositor.cursor.is_enabled) {
-        cursor = NULL;
-        for (int i = 0; i < n_cursors; i++) {
-            if (cursors[i].rotation == rotation) {
-                cursor = cursors + i;
-                break;
+
+    if (is_enabled == true) {
+        // find the best fitting cursor icon.
+        {
+            double last_diff = INFINITY;
+
+            cursor = NULL;
+            for (int i = 0; i < n_cursors; i++) {
+                double cursor_dpr = (cursors[i].width * 3 * 10.0) / (25.4 * 38);
+                double cursor_screen_dpr_diff = device_pixel_ratio - cursor_dpr;
+                if ((cursor_screen_dpr_diff >= 0) && (cursor_screen_dpr_diff < last_diff)) {
+                    cursor = cursors + i;
+                }
             }
         }
 
-        memcpy(compositor.cursor.buffer, cursor->data, compositor.cursor.size);
-
-        ok = drmModeSetCursor2(
-            compositor.drmdev->fd,
-            compositor.drmdev->selected_crtc->crtc->crtc_id,
-            compositor.cursor.gem_bo_handle,
-            compositor.cursor.width,
-            compositor.cursor.height,
-            cursor->hot_x,
-            cursor->hot_y
-        );
-        if (ok < 0) {
-            perror("[compositor] Could not set the mouse cursor buffer. drmModeSetCursor");
-            return errno;
+        // destroy the old cursor buffer, if necessary
+        if (compositor.cursor.has_buffer && (compositor.cursor.buffer_width != cursor->width)) {
+            destroy_cursor_buffer();
         }
 
+        // create a new cursor buffer, if necessary
+        if (compositor.cursor.has_buffer == false) {
+            create_cursor_buffer(cursor->width, cursor->width, 32);
+        }
+
+        if ((compositor.cursor.is_enabled == false) || (compositor.cursor.current_rotation != rotation) || (compositor.cursor.current_cursor != cursor)) {
+            int rotated_hot_x, rotated_hot_y;
+            
+            if (rotation == 0) {
+                memcpy(compositor.cursor.buffer, cursor->data, compositor.cursor.buffer_size);
+                rotated_hot_x = cursor->hot_x;
+                rotated_hot_y = cursor->hot_y;
+            } else if ((rotation == 90) || (rotation == 180) || (rotation == 270)) {
+                for (int y = 0; y < cursor->width; y++) {
+                    for (int x = 0; x < cursor->width; x++) {
+                        int buffer_x, buffer_y;
+                        if (rotation == 90) {
+                            buffer_x = cursor->width - y - 1;
+                            buffer_y = x;
+                        } else if (rotation == 180) {
+                            buffer_x = cursor->width - y - 1;
+                            buffer_y = cursor->width - x - 1;
+                        } else {
+                            buffer_x = y;
+                            buffer_y = cursor->width - x - 1;
+                        }
+                        
+                        int buffer_offset = compositor.cursor.buffer_pitch * buffer_y + (compositor.cursor.buffer_depth / 8) * buffer_x;
+                        int cursor_offset = cursor->width * y + x;
+                        
+                        compositor.cursor.buffer[buffer_offset / 4] = cursor->data[cursor_offset];
+                    }
+                }
+
+                if (rotation == 90) {
+                    rotated_hot_x = cursor->width - cursor->hot_y - 1;
+                    rotated_hot_y = cursor->hot_x;
+                } else if (rotation == 180) {
+                    rotated_hot_x = cursor->width - cursor->hot_x - 1;
+                    rotated_hot_y = cursor->width - cursor->hot_y - 1;
+                } else if (rotation == 270) {
+                    rotated_hot_x = cursor->hot_y;
+                    rotated_hot_y = cursor->width - cursor->hot_x - 1;
+                }
+            } else {
+                return EINVAL;
+            }
+
+            compositor.cursor.current_rotation = rotation;
+            compositor.cursor.current_cursor = cursor;
+            compositor.cursor.cursor_size = cursor->width;
+            compositor.cursor.hot_x = rotated_hot_x;
+            compositor.cursor.hot_y = rotated_hot_y;
+            compositor.cursor.is_enabled = true;
+
+            ok = drmModeSetCursor2(
+                compositor.drmdev->fd,
+                compositor.drmdev->selected_crtc->crtc->crtc_id,
+                compositor.cursor.gem_bo_handle,
+                compositor.cursor.cursor_size,
+                compositor.cursor.cursor_size,
+                rotated_hot_x,
+                rotated_hot_y
+            );
+            if (ok < 0) {
+                perror("[compositor] Could not set the mouse cursor buffer. drmModeSetCursor");
+                return errno;
+            }
+
+            ok = drmModeMoveCursor(
+                compositor.drmdev->fd,
+                compositor.drmdev->selected_crtc->crtc->crtc_id,
+                compositor.cursor.x - compositor.cursor.hot_x,
+                compositor.cursor.y - compositor.cursor.hot_y
+            );
+            if (ok < 0) {
+                perror("[compositor] Could not move cursor. drmModeMoveCursor");
+                return errno;
+            }
+        }
+        
         return 0;
-    }
-
-    return 0;
-}
-
-int compositor_set_cursor_enabled(bool enabled) {
-    if ((compositor.cursor.is_enabled == false) && (enabled == true)) {
-        struct drm_mode_create_dumb create_req;
-        struct drm_mode_map_dumb map_req;
-        uint32_t drm_fb_id;
-        uint32_t *buffer;
-        uint64_t cap;
-        uint8_t depth;
-        int ok;
-
-        ok = drmGetCap(compositor.drmdev->fd, DRM_CAP_DUMB_BUFFER, &cap);
-        if (ok < 0) {
-            perror("[compositor] Could not query GPU Driver support for dumb buffers. drmGetCap");
-            return errno;
-        }
-
-        if (cap == 0) {
-            fprintf(stderr, "[compositor] Kernel / GPU Driver does not support dumb DRM buffers. Mouse cursor will not be displayed.\n");
-            return ENOTSUP;
-        }
-
-        ok = drmGetCap(compositor.drmdev->fd, DRM_CAP_DUMB_PREFERRED_DEPTH, &cap);
-        if (ok < 0) {
-            perror("[compositor] Could not query dumb buffer preferred depth capability. drmGetCap");
-        }
-
-        depth = (uint8_t) cap;
-
-        memset(&create_req, 0, sizeof create_req);
-        create_req.width = 64;
-        create_req.height = 64;
-        create_req.bpp = 32;
-        create_req.flags = 0;
-
-        ok = ioctl(compositor.drmdev->fd, DRM_IOCTL_MODE_CREATE_DUMB, &create_req);
-        if (ok < 0) {
-            perror("[compositor] Could not create a dumb buffer for the hardware cursor. ioctl");
-            return errno;
-        }
-
-        ok = drmModeAddFB(compositor.drmdev->fd, create_req.width, create_req.height, depth, create_req.bpp, create_req.pitch, create_req.handle, &drm_fb_id);
-        if (ok < 0) {
-            perror("[compositor] Could not make a DRM FB out of the hardware cursor buffer. drmModeAddFB");
-
-            return errno;
-        }
-
-        memset(&map_req, 0, sizeof map_req);
-        map_req.handle = create_req.handle;
-
-        ok = ioctl(compositor.drmdev->fd, DRM_IOCTL_MODE_MAP_DUMB, &map_req);
-        if (ok < 0) {
-            perror("[compositor] Could not prepare dumb buffer mmap for uploading the hardware cursor icon. ioctl");
-            return errno;
-        }
-
-        buffer = mmap(0, create_req.size, PROT_READ | PROT_WRITE, MAP_SHARED, compositor.drmdev->fd, map_req.offset);
-        if (buffer == MAP_FAILED) {
-            perror("[compositor] Could not mmap dumb buffer for uploading the hardware cursor icon. mmap");
-            return errno;
-        }
-
-        compositor.cursor.is_enabled = true;
-        compositor.cursor.width = create_req.width;
-        compositor.cursor.height = create_req.height;
-        compositor.cursor.bpp = create_req.bpp;
-        compositor.cursor.depth = depth;
-        compositor.cursor.gem_bo_handle = create_req.handle;
-        compositor.cursor.pitch = create_req.pitch;
-        compositor.cursor.size = create_req.size;
-        compositor.cursor.drm_fb_id = drm_fb_id;
-        compositor.cursor.x = 0;
-        compositor.cursor.y = 0;
-        compositor.cursor.buffer = buffer;
-    } else if ((compositor.cursor.is_enabled == true) && (enabled == false)) {
-        struct drm_mode_destroy_dumb destroy_req;
-
+    } else if ((is_enabled == false) && (compositor.cursor.is_enabled == true)) {
         drmModeSetCursor(
             compositor.drmdev->fd,
             compositor.drmdev->selected_crtc->crtc->crtc_id,
             0, 0, 0
         );
 
-        munmap(compositor.cursor.buffer, compositor.cursor.size);
+        destroy_cursor_buffer();
 
-        drmModeRmFB(compositor.drmdev->fd, compositor.cursor.drm_fb_id);
-
-        memset(&destroy_req, 0, sizeof destroy_req);
-        destroy_req.handle = compositor.cursor.gem_bo_handle;
-
-        ioctl(compositor.drmdev->fd, DRM_IOCTL_MODE_DESTROY_DUMB, &destroy_req);
-
-        compositor.cursor.is_enabled = false;
-        compositor.cursor.width = 0;
-        compositor.cursor.height = 0;
-        compositor.cursor.bpp = 0;
-        compositor.cursor.depth = 0;
-        compositor.cursor.gem_bo_handle = 0;
-        compositor.cursor.pitch = 0;
-        compositor.cursor.size = 0;
-        compositor.cursor.drm_fb_id = 0;
+        compositor.cursor.cursor_size = 0;
+        compositor.cursor.current_cursor = NULL;
+        compositor.cursor.current_rotation = 0;
+        compositor.cursor.hot_x = 0;
+        compositor.cursor.hot_y = 0;
         compositor.cursor.x = 0;
         compositor.cursor.y = 0;
-        compositor.cursor.buffer = NULL;
+        compositor.cursor.is_enabled = false;
     }
 }
 
 int compositor_set_cursor_pos(int x, int y) {
     int ok;
 
-    ok = drmModeMoveCursor(compositor.drmdev->fd, compositor.drmdev->selected_crtc->crtc->crtc_id, x, y);
+    if (compositor.cursor.is_enabled == false) {
+        return EINVAL;
+    }
+
+    ok = drmModeMoveCursor(compositor.drmdev->fd, compositor.drmdev->selected_crtc->crtc->crtc_id, x - compositor.cursor.hot_x, y - compositor.cursor.hot_y);
     if (ok < 0) {
         perror("[compositor] Could not move cursor. drmModeMoveCursor");
         return errno;

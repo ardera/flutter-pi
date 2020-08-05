@@ -769,7 +769,6 @@ static void *mgr_entry(void *userdata) {
             }
 
             if (current_zpos != task.zpos) {
-                printf("setting omxplayer layer to %d\n", task.zpos);
                 ok = sd_bus_call_method(
                     bus,
                     dbus_name,

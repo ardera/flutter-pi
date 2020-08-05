@@ -892,7 +892,6 @@ static int run_main_loop(void) {
 
 					break;
 				case SD_EVENT_FINISHED:
-					printf("SD_EVENT_FINISHED\n");
 					break;
 				default:
 					fprintf(stderr, "[flutter-pi] Unhandled event loop state: %d. Aborting\n", state);
@@ -1744,8 +1743,6 @@ static int on_libinput_ready(sd_event_source *s, int fd, uint32_t revents, void 
 			libinput_device_set_user_data(device, data);
 
 			if (libinput_device_has_capability(device, LIBINPUT_DEVICE_CAP_POINTER)) {
-				printf("pointer device was added\n");
-
 				pointer_events[n_pointer_events++] = (FlutterPointerEvent) {
 					.struct_size = sizeof(FlutterPointerEvent),
 					.phase = kAdd,
@@ -1760,8 +1757,7 @@ static int on_libinput_ready(sd_event_source *s, int fd, uint32_t revents, void 
 					.buttons = 0
 				};
 
-				compositor_set_cursor_enabled(true);
-				compositor_apply_cursor_skin_for_rotation(flutterpi.view.rotation);
+				compositor_apply_cursor_state(true, flutterpi.view.rotation, flutterpi.display.pixel_ratio);
 			} else if (libinput_device_has_capability(device, LIBINPUT_DEVICE_CAP_TOUCH)) {
 				int touch_count = libinput_device_touch_get_touch_count(device);
 
@@ -1801,10 +1797,8 @@ static int on_libinput_ready(sd_event_source *s, int fd, uint32_t revents, void 
 					FlutterPointerPhase phase;
 					if (type == LIBINPUT_EVENT_TOUCH_DOWN) {
 						phase = kDown;
-						printf("reporting touch: down at %03f, %03f\n", x, y);
 					} else if (type == LIBINPUT_EVENT_TOUCH_MOTION) {
 						phase = kMove;
-						printf("reporting touch: move at %03f, %03f\n", x, y);
 					}
 
 					pointer_events[n_pointer_events++] = (FlutterPointerEvent) {
@@ -1825,8 +1819,6 @@ static int on_libinput_ready(sd_event_source *s, int fd, uint32_t revents, void 
 					data->y = y;
 					data->timestamp = libinput_event_touch_get_time_usec(touch_event);
 				} else {
-					printf("reporting touch: up\n");
-
 					pointer_events[n_pointer_events++] = (FlutterPointerEvent) {
 						.struct_size = sizeof(FlutterPointerEvent),
 						.phase = kUp,
@@ -1874,8 +1866,6 @@ static int on_libinput_ready(sd_event_source *s, int fd, uint32_t revents, void 
 
 				apply_flutter_transformation(flutterpi.view.display_to_view_transform, &newx, &newy);
 
-				printf("cursor: %03f, %03f\n", newx, newy);
-
 				pointer_events[n_pointer_events++] = (FlutterPointerEvent) {
 					.struct_size = sizeof(FlutterPointerEvent),
 					.phase = data->buttons & kFlutterPointerButtonMousePrimary ? kMove : kHover,
@@ -1903,8 +1893,6 @@ static int on_libinput_ready(sd_event_source *s, int fd, uint32_t revents, void 
 				data->timestamp = libinput_event_pointer_get_time_usec(pointer_event);
 
 				apply_flutter_transformation(flutterpi.view.display_to_view_transform, &x, &y);
-
-				printf("cursor: %03f, %03f\n", x, y);
 
 				pointer_events[n_pointer_events++] = (FlutterPointerEvent) {
 					.struct_size = sizeof(FlutterPointerEvent),
@@ -2205,8 +2193,6 @@ static struct libinput *try_create_path_backed_libinput(void) {
 	}
 
 	for (int i = 0; i < flutterpi.input.input_devices_glob.gl_pathc; i++) {
-		printf("adding %s to input_devices\n", flutterpi.input.input_devices_glob.gl_pathv[i]);
-
 		dev = libinput_path_add_device(
 			libinput,
 			flutterpi.input.input_devices_glob.gl_pathv[i]
