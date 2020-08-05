@@ -100,24 +100,24 @@ pkg_check_modules(DRM REQUIRED libdrm)
 pkg_check_modules(GLESV2 REQUIRED glesv2)
 pkg_check_modules(EGL REQUIRED egl)
 pkg_check_modules(LIBSYSTEMD REQUIRED libsystemd)
-pkg_check_modules(LIBUDEV REQUIRED libudev)
+pkg_check_modules(LIBUDEV libudev)
 pkg_check_modules(GPIOD libgpiod)
 
 set(FLUTTER_PI_SRC
-  src/flutter-pi.c \
-	src/platformchannel.c \
-	src/pluginregistry.c \
-	src/console_keyboard.c \
-	src/texture_registry.c \
-	src/compositor.c \
-	src/modesetting.c \
-	src/collection.c \
-	src/cursor.c \
-	src/plugins/services.c \
-	src/plugins/testplugin.c \
-	src/plugins/text_input.c \
-	src/plugins/raw_keyboard.c \
-	src/plugins/spidev.c \
+  src/flutter-pi.c
+	src/platformchannel.c
+	src/pluginregistry.c
+	src/console_keyboard.c
+	src/texture_registry.c
+	src/compositor.c
+	src/modesetting.c
+	src/collection.c
+	src/cursor.c
+	src/plugins/services.c
+	src/plugins/testplugin.c
+	src/plugins/text_input.c
+	src/plugins/raw_keyboard.c
+	src/plugins/spidev.c
 	src/plugins/omxplayer_video_player.c
 )
 
@@ -126,6 +126,11 @@ if(GPIOD_FOUND)
   add_compile_options(-DBUILD_GPIOD_PLUGIN)
 else()
   message(STATUS "Could not find gpiod library and development headers. flutter-pi will be built without gpiod support. To install, execute 'sudo apt install libgpiod-dev'")
+endif()
+
+if (NOT LIBUDEV_FOUND)
+  message(STATUS "Could not find libudev.so and libudev development headers. flutter-pi will be built without udev (hotplugging) support. To install, execute 'sudo apt install libudev-dev'")
+  add_compile_options(-DBUILD_WITHOUT_UDEV_SUPPORT)
 endif()
 
 add_executable(flutter-pi ${FLUTTER_PI_SRC})

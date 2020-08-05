@@ -77,14 +77,9 @@ OPTIONS:\n\
                              pattern you use as a parameter so it isn't \n\
                              implicitly expanded by your shell.\n\
                              \n\
-  -r, --release              Run the app in release mode. The AOT snapshot\n\
+  --aot                      Run the app in AOT mode. The AOT snapshot\n\
                              of the app (\"app.so\") must be located inside the\n\
                              asset bundle directory.\n\
-                             \n\
-  -p, --profile              Run the app in profile mode. This runtime mode too\n\
-                             depends on the AOT snapshot.\n\
-                             \n\
-  -d, --debug                Run the app in debug mode. This is the default.\n\
                              \n\
   -o, --orientation <orientation>  Start the app in this orientation. Valid\n\
                              for <orientation> are: portrait_up, landscape_left,\n\
@@ -119,8 +114,8 @@ SEE ALSO:\n\
   Source:  https://github.com/ardera/flutter-pi\n\
   License: MIT\n\
 \n\
-  For instructions on how to build an asset bundle, please see the linked\n\
-    git repository.\n\
+  For instructions on how to build an asset bundle or an AOT snapshot\n\
+    of your app, please see the linked git repository.\n\
   For a list of options you can pass to the flutter engine, look here:\n\
     https://github.com/flutter/engine/blob/master/shell/common/switches.h\n\
 ";
@@ -1638,9 +1633,8 @@ static int init_application(void) {
 		.compositor = &flutter_compositor
 	};
 
-	if (flutterpi.flutter.runtime_mode == kRelease || flutterpi.flutter.runtime_mode == kProfile) {
+	if (flutterpi.flutter.is_aot) {
 		const uint8_t *vm_instr, *vm_data, *isolate_instr, *isolate_data;
-		size_t vm_instr_size, vm_data_size, isolate_instr_size, isolate_data_size;
 
 		app_elf_handle = dlopen(flutterpi.flutter.app_elf_path, RTLD_NOW | RTLD_LOCAL);
 		if (app_elf_handle == NULL) {
@@ -1655,7 +1649,7 @@ static int init_application(void) {
 			return errno;
 		}
 
-		vm_data = dlsym(app_elf_handle, "_kDartSnapshotData");
+		vm_data = dlsym(app_elf_handle, "_kDartVmSnapshotData");
 		if (vm_data == NULL) {
 			perror("[flutter-pi] Could not resolve vm data section in \"app.so\". dlsym");
 			dlclose(app_elf_handle);
@@ -1676,61 +1670,17 @@ static int init_application(void) {
 			return errno;
 		}
 
-		// now find out the sizes for the sections...
-		int fd = open(flutterpi.flutter.app_elf_path, O_RDONLY);
-
-		struct stat statbuf;
-		fstat(fd, &statbuf);
-		char *fbase = mmap(NULL, statbuf.st_size, PROT_READ, MAP_SHARED, fd, 0);
-
-		Elf32_Ehdr *ehdr = (Elf32_Ehdr *) fbase;
-		Elf32_Shdr *sections = (Elf32_Shdr *) (fbase + ehdr->e_shoff);
-		
-		int section_header_size = ehdr->e_shentsize;
-		int section_header_num = ehdr->e_shnum;
-		int section_header_strndx = ehdr->e_shstrndx;
-
-		Elf32_Shdr *shstr_section = sections + shstr_section->sh_offset;
-		char *shstrtab = fbase + shstr_section->sh_offset;
-
-
-		// Assume the first .text section is the vm instructions,
-		// the second .text is isolate instructions
-		// Assume the first .rodata section is the vm data,
-		// the second .rodata is isolate data
-
-		vm_instr_size = 0; isolate_instr_size = 0;
-		vm_data_size = 0; isolate_data_size = 0;
-		for (int i = 0; i < section_header_num; i++) {
-			if (strcmp(shstrtab + sections[i].sh_name, ".text") == 0) {
-				if (vm_instr_size == 0) {
-					vm_instr_size = sections[i].sh_size;
-				} else if (isolate_instr_size == 0) {
-					isolate_instr_size = sections[i].sh_size;
-				}
-			} else if (strcmp(shstrtab + sections[i].sh_name, ".rodata") == 0) {
-				if (vm_data_size == 0) {
-					vm_data_size = sections[i].sh_size;
-				} else if (isolate_data_size == 0) {
-					isolate_data_size = sections[i].sh_size;
-				}
-			}
-		}
-
-		munmap(fbase, statbuf.st_size);
-		close(fd);
-
 		project_args.vm_snapshot_instructions = vm_instr;
-		project_args.vm_snapshot_instructions_size = vm_instr_size;
+		project_args.vm_snapshot_instructions_size = 0;
 
 		project_args.isolate_snapshot_instructions = isolate_instr;
-		project_args.isolate_snapshot_instructions_size = isolate_instr_size;
+		project_args.isolate_snapshot_instructions_size = 0;
 
 		project_args.vm_snapshot_data = vm_data;
-		project_args.vm_snapshot_data_size = vm_data_size;
+		project_args.vm_snapshot_data_size = 0;
 
 		project_args.isolate_snapshot_data = isolate_data;
-		project_args.isolate_snapshot_data_size = isolate_data_size;
+		project_args.isolate_snapshot_data_size = 0;
 	}
 
 	// spin up the engine
@@ -2087,16 +2037,128 @@ static int on_stdin_ready(sd_event_source *s, int fd, uint32_t revents, void *us
 	}
 }
 
-static int init_user_input(void) {
-	sd_event_source *libinput_event_source, *stdin_event_source;
+static struct libinput *try_create_udev_backed_libinput(void) {
+#ifdef BUILD_WITHOUT_UDEV_SUPPORT
+	return NULL;
+#else
 	struct libinput *libinput;
+	struct libudev *libudev;
 	struct udev *udev;
 	int ok;
 
-	udev = udev_new();
+	void *handle = dlopen("libudev.so", RTLD_LAZY | RTLD_NOW);
+	if (handle == NULL) {
+		printf("[flutter-pi] Could not open libudev. Flutter-pi will run without hotplugging support.\n");
+		return NULL;
+	}
+
+	libudev = &flutterpi.input.libudev;
+
+#	define LOAD_LIBUDEV_PROC(name) \
+		do { \
+			libudev->name = dlsym(handle, #name); \
+			if (!libudev->name) {\
+				perror("[flutter-pi] Could not resolve libudev procedure " #name ". dlsym"); \
+				return NULL; \
+			} \
+		} while (false)
+
+	LOAD_LIBUDEV_PROC(udev_ref);
+	LOAD_LIBUDEV_PROC(udev_unref);
+	LOAD_LIBUDEV_PROC(udev_new);
+	LOAD_LIBUDEV_PROC(udev_get_userdata);
+	LOAD_LIBUDEV_PROC(udev_set_userdata);
+
+	LOAD_LIBUDEV_PROC(udev_list_entry_get_next);
+	LOAD_LIBUDEV_PROC(udev_list_entry_get_by_name);
+	LOAD_LIBUDEV_PROC(udev_list_entry_get_name);
+	LOAD_LIBUDEV_PROC(udev_list_entry_get_value);
+
+	LOAD_LIBUDEV_PROC(udev_device_ref);
+	LOAD_LIBUDEV_PROC(udev_device_unref);
+	LOAD_LIBUDEV_PROC(udev_device_get_udev);
+	LOAD_LIBUDEV_PROC(udev_device_new_from_syspath);
+	LOAD_LIBUDEV_PROC(udev_device_new_from_devnum);
+	LOAD_LIBUDEV_PROC(udev_device_new_from_subsystem_sysname);
+	LOAD_LIBUDEV_PROC(udev_device_new_from_device_id);
+	LOAD_LIBUDEV_PROC(udev_device_new_from_environment);
+	LOAD_LIBUDEV_PROC(udev_device_get_parent);
+	LOAD_LIBUDEV_PROC(udev_device_get_parent_with_subsystem_devtype);
+	LOAD_LIBUDEV_PROC(udev_device_get_devpath);
+	LOAD_LIBUDEV_PROC(udev_device_get_subsystem);
+	LOAD_LIBUDEV_PROC(udev_device_get_devtype);
+	LOAD_LIBUDEV_PROC(udev_device_get_syspath);
+	LOAD_LIBUDEV_PROC(udev_device_get_sysname);
+	LOAD_LIBUDEV_PROC(udev_device_get_sysnum);
+	LOAD_LIBUDEV_PROC(udev_device_get_devnode);
+	LOAD_LIBUDEV_PROC(udev_device_get_is_initialized);
+	LOAD_LIBUDEV_PROC(udev_device_get_devlinks_list_entry);
+	LOAD_LIBUDEV_PROC(udev_device_get_properties_list_entry);
+	LOAD_LIBUDEV_PROC(udev_device_get_tags_list_entry);
+	LOAD_LIBUDEV_PROC(udev_device_get_sysattr_list_entry);
+	LOAD_LIBUDEV_PROC(udev_device_get_property_value);
+	LOAD_LIBUDEV_PROC(udev_device_get_driver);
+	LOAD_LIBUDEV_PROC(udev_device_get_devnum);
+	LOAD_LIBUDEV_PROC(udev_device_get_action);
+	LOAD_LIBUDEV_PROC(udev_device_get_seqnum);
+	LOAD_LIBUDEV_PROC(udev_device_get_usec_since_initialized);
+	LOAD_LIBUDEV_PROC(udev_device_get_sysattr_value);
+	LOAD_LIBUDEV_PROC(udev_device_set_sysattr_value);
+	LOAD_LIBUDEV_PROC(udev_device_has_tag);
+
+	LOAD_LIBUDEV_PROC(udev_monitor_ref);
+	LOAD_LIBUDEV_PROC(udev_monitor_unref);
+	LOAD_LIBUDEV_PROC(udev_monitor_get_udev);
+	LOAD_LIBUDEV_PROC(udev_monitor_new_from_netlink);
+	LOAD_LIBUDEV_PROC(udev_monitor_enable_receiving);
+	LOAD_LIBUDEV_PROC(udev_monitor_set_receive_buffer_size);
+	LOAD_LIBUDEV_PROC(udev_monitor_get_fd);
+	LOAD_LIBUDEV_PROC(udev_monitor_receive_device);
+	LOAD_LIBUDEV_PROC(udev_monitor_filter_add_match_subsystem_devtype);
+	LOAD_LIBUDEV_PROC(udev_monitor_filter_add_match_tag);
+	LOAD_LIBUDEV_PROC(udev_monitor_filter_update);
+	LOAD_LIBUDEV_PROC(udev_monitor_filter_remove);
+
+	LOAD_LIBUDEV_PROC(udev_enumerate_ref);
+	LOAD_LIBUDEV_PROC(udev_enumerate_unref);
+	LOAD_LIBUDEV_PROC(udev_enumerate_get_udev);
+	LOAD_LIBUDEV_PROC(udev_enumerate_new);
+	LOAD_LIBUDEV_PROC(udev_enumerate_add_match_subsystem);
+	LOAD_LIBUDEV_PROC(udev_enumerate_add_nomatch_subsystem);
+	LOAD_LIBUDEV_PROC(udev_enumerate_add_match_sysattr);
+	LOAD_LIBUDEV_PROC(udev_enumerate_add_nomatch_sysattr);
+	LOAD_LIBUDEV_PROC(udev_enumerate_add_match_property);
+	LOAD_LIBUDEV_PROC(udev_enumerate_add_match_sysname);
+	LOAD_LIBUDEV_PROC(udev_enumerate_add_match_tag);
+	LOAD_LIBUDEV_PROC(udev_enumerate_add_match_parent);
+	LOAD_LIBUDEV_PROC(udev_enumerate_add_match_is_initialized);
+	LOAD_LIBUDEV_PROC(udev_enumerate_add_syspath);
+	LOAD_LIBUDEV_PROC(udev_enumerate_scan_devices);
+	LOAD_LIBUDEV_PROC(udev_enumerate_scan_subsystems);
+	LOAD_LIBUDEV_PROC(udev_enumerate_get_list_entry);
+
+	LOAD_LIBUDEV_PROC(udev_queue_ref);
+	LOAD_LIBUDEV_PROC(udev_queue_unref);
+	LOAD_LIBUDEV_PROC(udev_queue_get_udev);
+	LOAD_LIBUDEV_PROC(udev_queue_new);
+	LOAD_LIBUDEV_PROC(udev_queue_get_udev_is_active);
+	LOAD_LIBUDEV_PROC(udev_queue_get_queue_is_empty);
+	LOAD_LIBUDEV_PROC(udev_queue_get_fd);
+	LOAD_LIBUDEV_PROC(udev_queue_flush);
+
+	LOAD_LIBUDEV_PROC(udev_hwdb_new);
+	LOAD_LIBUDEV_PROC(udev_hwdb_ref);
+	LOAD_LIBUDEV_PROC(udev_hwdb_unref);
+	LOAD_LIBUDEV_PROC(udev_hwdb_get_properties_list_entry);
+
+	LOAD_LIBUDEV_PROC(udev_util_encode_string);
+
+#	undef LOAD_LIBUDEV_PROC
+
+	udev = libudev->udev_new();
 	if (udev == NULL) {
 		perror("[flutter-pi] Could not create udev instance. udev_new");
-		return errno;
+		return NULL;
 	}
 
 	libinput = libinput_udev_create_context(
@@ -2104,38 +2166,108 @@ static int init_user_input(void) {
 			.open_restricted = libinput_interface_on_open,
 			.close_restricted = libinput_interface_on_close 
 		},
-		NULL,
+		udev,
 		udev
 	);
 	if (libinput == NULL) {
 		perror("[flutter-pi] Could not create libinput instance. libinput_udev_create_context");
-		udev_unref(udev);
-		return errno;
+		libudev->udev_unref(udev);
+		return NULL;
 	}
 
 	ok = libinput_udev_assign_seat(libinput, "seat0");
 	if (ok < 0) {
 		fprintf(stderr, "[flutter-pi] Could not assign udev seat to libinput instance. libinput_udev_assign_seat: %s\n", strerror(-ok));
 		libinput_unref(libinput);
-		udev_unref(udev);
-		return -ok;
+		libudev->udev_unref(udev);
+		return NULL;
 	}
 
-	ok = sd_event_add_io(
-		flutterpi.event_loop,
-		&libinput_event_source,
-		libinput_get_fd(libinput),
-		EPOLLIN | EPOLLRDHUP | EPOLLPRI,
-		on_libinput_ready,
+	return libinput;
+
+#endif
+}
+
+static struct libinput *try_create_path_backed_libinput(void) {
+	struct libinput_device *dev;
+	struct libinput *libinput;
+	
+	libinput = libinput_path_create_context(
+		&(const struct libinput_interface) {
+			.open_restricted = libinput_interface_on_open,
+			.close_restricted = libinput_interface_on_close 
+		},
 		NULL
 	);
-	if (ok < 0) {
-		fprintf(stderr, "[flutter-pi] Could not add libinput callback to main loop. sd_event_add_io: %s\n", strerror(-ok));
-		libinput_unref(libinput);
-		udev_unref(udev);
-		return -ok;
+	if (libinput == NULL) {
+		perror("[flutter-pi] Could not create path-backed libinput instance. libinput_path_create_context");
+		return NULL;
 	}
 
+	for (int i = 0; i < flutterpi.input.input_devices_glob.gl_pathc; i++) {
+		printf("adding %s to input_devices\n", flutterpi.input.input_devices_glob.gl_pathv[i]);
+
+		dev = libinput_path_add_device(
+			libinput,
+			flutterpi.input.input_devices_glob.gl_pathv[i]
+		);
+		if (dev == NULL) {
+			fprintf(
+				stderr,
+				"[flutter-pi] Could not add input device \"%s\" to libinput. libinput_path_add_device: %s\n",
+				flutterpi.input.input_devices_glob.gl_pathv[i],
+				strerror(errno)
+			);
+		}
+	}
+
+	return libinput;
+}
+
+static int init_user_input(void) {
+	sd_event_source *libinput_event_source, *stdin_event_source;
+	struct libinput *libinput;
+	int ok;
+
+	libinput = NULL;
+	if (flutterpi.input.use_paths == false) {
+		libinput = try_create_udev_backed_libinput();
+	}
+
+	if (libinput == NULL) {
+		libinput = try_create_path_backed_libinput();
+	}
+	
+	libinput_event_source = NULL;
+	if (libinput != NULL) {
+		ok = sd_event_add_io(
+			flutterpi.event_loop,
+			&libinput_event_source,
+			libinput_get_fd(libinput),
+			EPOLLIN | EPOLLRDHUP | EPOLLPRI,
+			on_libinput_ready,
+			NULL
+		);
+		if (ok < 0) {
+			fprintf(stderr, "[flutter-pi] Could not add libinput callback to main loop. sd_event_add_io: %s\n", strerror(-ok));
+#			ifndef BUILD_WITHOUT_UDEV_SUPPORT
+				if (libinput_get_user_data(libinput) != NULL) {
+					struct udev *udev = libinput_get_user_data(libinput);
+					libinput_unref(libinput);
+					flutterpi.input.libudev.udev_unref(udev);
+				} else {
+					libinput_unref(libinput);
+				}
+#			else
+				libinput_unref(libinput);
+#			endif
+			return -ok;
+		}
+	} else {
+		fprintf(stderr, "[flutter-pi] Could not initialize input. Flutter-pi will run without user input.\n");
+	}
+
+	stdin_event_source = NULL;
 	if (flutterpi.input.disable_text_input == false) {
 		ok = sd_event_add_io(
 			flutterpi.event_loop,
@@ -2146,23 +2278,18 @@ static int init_user_input(void) {
 			NULL
 		);
 		if (ok < 0) {
-			fprintf(stderr, "[flutter-pi] Could not add libinput callback to main loop. sd_event_add_io: %s\n", strerror(-ok));
-			sd_event_source_unrefp(&libinput_event_source);
-			libinput_unref(libinput);
-			udev_unref(udev);
-			return -ok;
+			fprintf(stderr, "[flutter-pi] Could not add callback for console input. sd_event_add_io: %s\n", strerror(-ok));
 		}
 
 		ok = console_make_raw();
 		if (ok == 0) {
 			console_flush_stdin();
 		} else {
-			fprintf(stderr, "[flutter-pi] WARNING: could not make stdin raw\n");
+			fprintf(stderr, "[flutter-pi] Could not make stdin raw. Flutter-pi will run without text input support.\n");
 			sd_event_source_unrefp(&stdin_event_source);
 		}
 	}
 
-	flutterpi.input.udev = udev;
 	flutterpi.input.libinput = libinput;
 	flutterpi.input.libinput_event_source = libinput_event_source;
 	flutterpi.input.stdin_event_source = stdin_event_source;
@@ -2183,7 +2310,7 @@ static bool setup_paths(void) {
 	asprintf(&kernel_blob_path, "%s/kernel_blob.bin", flutterpi.flutter.asset_bundle_path);
 	asprintf(&app_elf_path, "%s/app.so", flutterpi.flutter.asset_bundle_path);
 
-	if (flutterpi.flutter.runtime_mode == kDebug) {
+	if (flutterpi.flutter.is_aot == false) {
 		if (!PATH_EXISTS(kernel_blob_path)) {
 			fprintf(stderr, "[flutter-pi] Could not find \"kernel.blob\" file inside \"%s\", which is required for debug mode.\n", flutterpi.flutter.asset_bundle_path);
 			return false;
@@ -2213,70 +2340,92 @@ static bool setup_paths(void) {
 static bool parse_cmd_args(int argc, char **argv) {
 	glob_t input_devices_glob = {0};
 	bool input_specified = false;
-	int opt, longopt_index = 0, runtime_mode_int = kDebug, disable_text_input_int = false;
+	int opt;
+	int longopt_index = 0;
+	int is_aot_int = false;
+	int disable_text_input_int = false;
 
 	struct option long_options[] = {
-		{"release", no_argument, &runtime_mode_int, kRelease},
-		{"profile", no_argument, &runtime_mode_int, kProfile},
-		{"debug", no_argument, &runtime_mode_int, kDebug},
-		{"input", required_argument, 0, 'i'},
-		{"orientation", required_argument, 0, 'o'},
-		{"rotation", required_argument, 0, 'r'},
-		{"no-text-input", required_argument, &disable_text_input_int, true},
+		{"aot", no_argument, &is_aot_int, true},
+		{"input", required_argument, NULL, 'i'},
+		{"orientation", required_argument, NULL, 'o'},
+		{"rotation", required_argument, NULL, 'r'},
+		{"no-text-input", no_argument, &disable_text_input_int, true},
 		{"help", no_argument, 0, 'h'},
 		{0, 0, 0, 0}
 	};
 
-	while (1) {
+	bool finished_parsing_options = false;
+	while (!finished_parsing_options) {
 		longopt_index = 0;
-		opt = getopt_long(argc, argv, "+rpdi:o:r:h", long_options, &longopt_index);
+		opt = getopt_long(argc, argv, "+i:o:r:h", long_options, &longopt_index);
 
-		if (opt == -1) {
-			break;
-		} else if (((opt == 0) && (longopt_index == 3)) || (opt == 'i')) {
-			glob(optarg, GLOB_BRACE | GLOB_TILDE | (input_specified ? GLOB_APPEND : 0), NULL, &input_devices_glob);
-			input_specified = true;
-		} else if (((opt == 0) && (longopt_index == 4)) || (opt == 'o')) {
-			if (STREQ(optarg, "portrait_up")) {
-				flutterpi.view.orientation = kPortraitUp;
-				flutterpi.view.has_orientation = true;
-			} else if (STREQ(optarg, "landscape_left")) {
-				flutterpi.view.orientation = kLandscapeLeft;
-				flutterpi.view.has_orientation = true;
-			} else if (STREQ(optarg, "portrait_down")) {
-				flutterpi.view.orientation = kPortraitDown;
-				flutterpi.view.has_orientation = true;
-			} else if (STREQ(optarg, "landscape_right")) {
-				flutterpi.view.orientation = kLandscapeRight;
-				flutterpi.view.has_orientation = true;
-			} else {
-				fprintf(
-					stderr, 
-					"ERROR: Invalid argument for --orientation passed.\n"
-					"Valid values are \"portrait_up\", \"landscape_left\", \"portrait_down\", \"landscape_right\".\n"
-					"%s", 
-					usage
-				);
-				return false;
-			}
-		} else if (((opt == 0) && (longopt_index == 5)) || (opt == 'r')) {
-			errno = 0;
-			long rotation = strtol(optarg, NULL, 0);
-			if ((errno != 0) || ((rotation != 0) && (rotation != 90) && (rotation != 180) && (rotation != 270))) {
-				fprintf(
-					stderr,
-					"ERROR: Invalid argument for --rotation passed.\n"
-					"Valid values are 0, 90, 180, 270.\n"
-					"%s",
-					usage
-				);
-				return false;
-			}
+		switch (opt) {
+			case 0:
+				// flag was encountered. just continue
+				break;
+			case 'i':
+				glob(optarg, GLOB_BRACE | GLOB_TILDE | (input_specified ? GLOB_APPEND : 0), NULL, &input_devices_glob);
+				input_specified = true;
+				break;
 
-			flutterpi.view.rotation = rotation;
-		} else if (((opt == 0) && (longopt_index == 7)) || ((opt == 'h') || (opt == '?') || (opt == ':'))) {
-			printf("%s", usage);
-			return false;
+			case 'o':
+				if (STREQ(optarg, "portrait_up")) {
+					flutterpi.view.orientation = kPortraitUp;
+					flutterpi.view.has_orientation = true;
+				} else if (STREQ(optarg, "landscape_left")) {
+					flutterpi.view.orientation = kLandscapeLeft;
+					flutterpi.view.has_orientation = true;
+				} else if (STREQ(optarg, "portrait_down")) {
+					flutterpi.view.orientation = kPortraitDown;
+					flutterpi.view.has_orientation = true;
+				} else if (STREQ(optarg, "landscape_right")) {
+					flutterpi.view.orientation = kLandscapeRight;
+					flutterpi.view.has_orientation = true;
+				} else {
+					fprintf(
+						stderr, 
+						"ERROR: Invalid argument for --orientation passed.\n"
+						"Valid values are \"portrait_up\", \"landscape_left\", \"portrait_down\", \"landscape_right\".\n"
+						"%s", 
+						usage
+					);
+					return false;
+				}
+				break;
+			
+			case 'r':
+				errno = 0;
+				long rotation = strtol(optarg, NULL, 0);
+				if ((errno != 0) || ((rotation != 0) && (rotation != 90) && (rotation != 180) && (rotation != 270))) {
+					fprintf(
+						stderr,
+						"ERROR: Invalid argument for --rotation passed.\n"
+						"Valid values are 0, 90, 180, 270.\n"
+						"%s",
+						usage
+					);
+					return false;
+				}
+
+				flutterpi.view.rotation = rotation;
+				break;
+			
+			case 'h':
+				printf("%s", usage);
+				return false;
+
+			case '?':
+			case ':':
+				printf("Invalid option specified.\n%s", usage);
+				return false;
+			
+			case -1:
+				finished_parsing_options = true;
+				break;
+			
+			default:
+				break;
 		}
 	}
 	
@@ -2293,8 +2442,9 @@ static bool parse_cmd_args(int argc, char **argv) {
 
 	flutterpi.input.use_paths = input_specified;
 	flutterpi.flutter.asset_bundle_path = strdup(argv[optind]);
-	flutterpi.flutter.runtime_mode = (enum flutter_runtime_mode) runtime_mode_int;
+	flutterpi.flutter.is_aot = is_aot_int;
 	flutterpi.input.disable_text_input = disable_text_input_int;
+	flutterpi.input.input_devices_glob = input_devices_glob;
 
 	argv[optind] = argv[0];
 	flutterpi.flutter.engine_argc = argc - optind;
