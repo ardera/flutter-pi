@@ -77,9 +77,11 @@ OPTIONS:\n\
                              pattern you use as a parameter so it isn't \n\
                              implicitly expanded by your shell.\n\
                              \n\
-  --aot                      Run the app in AOT mode. The AOT snapshot\n\
+  --release                  Run the app in release mode. The AOT snapshot\n\
                              of the app (\"app.so\") must be located inside the\n\
                              asset bundle directory.\n\
+							 This also requires a libflutter_engine.so that was\n\
+							 built with --runtime-mode=release.\n\
                              \n\
   -o, --orientation <orientation>  Start the app in this orientation. Valid\n\
                              for <orientation> are: portrait_up, landscape_left,\n\
@@ -1568,7 +1570,9 @@ static int init_display(void) {
  * FLUTTER INITIALIZATION *
  **************************/
 static int init_application(void) {
+	FlutterEngineAOTDataSource aot_source;
 	FlutterRendererConfig renderer_config = {0};
+	FlutterEngineAOTData aot_data;
 	FlutterEngineResult engine_result;
 	FlutterProjectArgs project_args = {0};
 	void *app_elf_handle;
@@ -1632,54 +1636,44 @@ static int init_application(void) {
 		.compositor = &flutter_compositor
 	};
 
+	bool engine_is_aot = FlutterEngineRunsAOTCompiledDartCode();
+	if (engine_is_aot && !flutterpi.flutter.is_aot) {
+		fprintf(
+			stderr,
+			"[flutter-pi] The flutter engine was built for release (AOT) mode,\n"
+			"             but flutter-pi was not started up in release mode. \n"
+			"             Either you swap out the libflutter_engine.so \n"
+			"             with one that was built for debug mode, or you start\n"
+			"             flutter-pi with the --release flag and make sure\n"
+			"             a valid \"app.so\" is located inside the asset bundle\n"
+			"             directory.\n"
+		);
+		return EINVAL;
+	} else if (!engine_is_aot && flutterpi.flutter.is_aot) {
+		fprintf(
+			stderr,
+			"[flutter-pi] The flutter engine was built for debug mode,\n"
+			"             but flutter-pi was started up in release mode.\n"
+			"             Either you swap out the libflutter_engine.so\n"
+			"             with one that was built for release mode, or you\n"
+			"             start flutter-pi without the --release flag.\n"
+		);
+		return EINVAL;
+	}
+
 	if (flutterpi.flutter.is_aot) {
-		const uint8_t *vm_instr, *vm_data, *isolate_instr, *isolate_data;
+		aot_source = (FlutterEngineAOTDataSource) {
+			.elf_path = flutterpi.flutter.app_elf_path,
+			.type = kFlutterEngineAOTDataSourceTypeElfPath
+		};
 
-		app_elf_handle = dlopen(flutterpi.flutter.app_elf_path, RTLD_NOW | RTLD_LOCAL);
-		if (app_elf_handle == NULL) {
-			perror("[flutter-pi] Could not open \"app.so\". dlopen");
-			return errno;
+		engine_result = FlutterEngineCreateAOTData(&aot_source, &aot_data);
+		if (engine_result != kSuccess) {
+			fprintf(stderr, "[flutter-pi] Could not load AOT data. FlutterEngineCreateAOTData: %s\n", FLUTTER_RESULT_TO_STRING(engine_result));
+			return EIO;
 		}
 
-		vm_instr = dlsym(app_elf_handle, "_kDartVmSnapshotInstructions");
-		if (vm_instr == NULL) {
-			perror("[flutter-pi] Could not resolve vm instructions section in \"app.so\". dlsym");
-			dlclose(app_elf_handle);
-			return errno;
-		}
-
-		vm_data = dlsym(app_elf_handle, "_kDartVmSnapshotData");
-		if (vm_data == NULL) {
-			perror("[flutter-pi] Could not resolve vm data section in \"app.so\". dlsym");
-			dlclose(app_elf_handle);
-			return errno;
-		}
-
-		isolate_instr = dlsym(app_elf_handle, "_kDartIsolateSnapshotInstructions");
-		if (isolate_instr == NULL) {
-			perror("[flutter-pi] Could not resolve isolate instructions section in \"app.so\". dlsym");
-			dlclose(app_elf_handle);
-			return errno;
-		}
-
-		isolate_data = dlsym(app_elf_handle, "_kDartIsolateSnapshotData");
-		if (isolate_data == NULL) {
-			perror("[flutter-pi] Could not resolve isolate data section in \"app.so\". dlsym");
-			dlclose(app_elf_handle);
-			return errno;
-		}
-
-		project_args.vm_snapshot_instructions = vm_instr;
-		project_args.vm_snapshot_instructions_size = 0;
-
-		project_args.isolate_snapshot_instructions = isolate_instr;
-		project_args.isolate_snapshot_instructions_size = 0;
-
-		project_args.vm_snapshot_data = vm_data;
-		project_args.vm_snapshot_data_size = 0;
-
-		project_args.isolate_snapshot_data = isolate_data;
-		project_args.isolate_snapshot_data_size = 0;
+		project_args.aot_data = aot_data;
 	}
 
 	// spin up the engine
@@ -2328,11 +2322,11 @@ static bool parse_cmd_args(int argc, char **argv) {
 	bool input_specified = false;
 	int opt;
 	int longopt_index = 0;
-	int is_aot_int = false;
+	int is_release_int = false;
 	int disable_text_input_int = false;
 
 	struct option long_options[] = {
-		{"aot", no_argument, &is_aot_int, true},
+		{"release", no_argument, &is_release_int, true},
 		{"input", required_argument, NULL, 'i'},
 		{"orientation", required_argument, NULL, 'o'},
 		{"rotation", required_argument, NULL, 'r'},
@@ -2428,7 +2422,7 @@ static bool parse_cmd_args(int argc, char **argv) {
 
 	flutterpi.input.use_paths = input_specified;
 	flutterpi.flutter.asset_bundle_path = strdup(argv[optind]);
-	flutterpi.flutter.is_aot = is_aot_int;
+	flutterpi.flutter.is_aot = is_release_int;
 	flutterpi.input.disable_text_input = disable_text_input_int;
 	flutterpi.input.input_devices_glob = input_devices_glob;
 
