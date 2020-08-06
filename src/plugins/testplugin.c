@@ -5,6 +5,7 @@
 
 #include <pluginregistry.h>
 #include <plugins/testplugin.h>
+#include <flutter-pi.h>
 
 #define INDENT_STRING "                    "
 
@@ -147,7 +148,7 @@ int printStd(struct std_value *value, int indent) {
 uint64_t testplugin_time_offset;
 
 int on_response_json(struct platch_obj *object, void *userdata) {
-    uint64_t dt = FlutterEngineGetCurrentTime() - *((uint64_t*) userdata);
+    uint64_t dt = flutterpi.flutter.libflutter_engine.FlutterEngineGetCurrentTime() - *((uint64_t*) userdata);
     free(userdata);
     
     if (object->codec == kNotImplemented) {
@@ -173,7 +174,7 @@ int on_response_json(struct platch_obj *object, void *userdata) {
 }
 int send_json(void) {
     uint64_t* time = malloc(sizeof(uint64_t));
-    *time = FlutterEngineGetCurrentTime();
+    *time = flutterpi.flutter.libflutter_engine.FlutterEngineGetCurrentTime();
 
     char *method = "test";
     struct json_value argument = {
@@ -205,7 +206,7 @@ int send_json(void) {
     return 0;
 }
 int on_response_std(struct platch_obj *object, void *userdata) {
-    uint64_t dt = FlutterEngineGetCurrentTime() - *((uint64_t*) userdata);
+    uint64_t dt = flutterpi.flutter.libflutter_engine.FlutterEngineGetCurrentTime() - *((uint64_t*) userdata);
     free(userdata);
 
     if (object->codec == kNotImplemented) {
@@ -231,7 +232,7 @@ int on_response_std(struct platch_obj *object, void *userdata) {
 }
 int send_std() {
     uint64_t *time = malloc(sizeof(uint64_t));
-    *time = FlutterEngineGetCurrentTime();
+    *time = flutterpi.flutter.libflutter_engine.FlutterEngineGetCurrentTime();
 
     char *method = "test";
     struct std_value argument = {

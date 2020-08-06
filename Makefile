@@ -10,7 +10,6 @@ REAL_CFLAGS = -I./include $(shell pkg-config --cflags gbm libdrm glesv2 egl libs
 REAL_LDFLAGS = \
 	$(shell pkg-config --libs gbm libdrm glesv2 egl libsystemd libinput libudev) \
 	-lrt \
-	-lflutter_engine \
 	-lpthread \
 	-ldl \
 	-lm \

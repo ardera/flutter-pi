@@ -377,10 +377,10 @@ static int on_execute_frame_request(
 					return errno;
 				}
 			} else {
-				ns = FlutterEngineGetCurrentTime();
+				ns = flutterpi.flutter.libflutter_engine.FlutterEngineGetCurrentTime();
 			}
 			
-			result = FlutterEngineOnVsync(
+			result = flutterpi.flutter.libflutter_engine.FlutterEngineOnVsync(
 				flutterpi.flutter.engine,
 				peek->baton,
 				ns,
@@ -447,7 +447,6 @@ static void on_frame_request(
 }
 
 static FlutterTransformation on_get_transformation(void *userdata) {
-	//return FLUTTER_ROTZ_TRANSFORMATION(FlutterEngineGetCurrentTime() % 10000000000000);
 	return flutterpi.view.view_to_display_transform;
 }
 
@@ -620,7 +619,7 @@ static int on_execute_flutter_task(
 
 	task = userdata;
 
-	result = FlutterEngineRunTask(flutterpi.flutter.engine, task);
+	result = flutterpi.flutter.libflutter_engine.FlutterEngineRunTask(flutterpi.flutter.engine, task);
 	if (result != kSuccess) {
 		fprintf(stderr, "[flutter-pi] Error running platform task. FlutterEngineRunTask: %d\n", result);
 		free(task);
@@ -668,9 +667,9 @@ static int on_send_platform_message(
 	msg = userdata;
 
 	if (msg->is_response) {
-		result = FlutterEngineSendPlatformMessageResponse(flutterpi.flutter.engine, msg->target_handle, msg->message, msg->message_size);
+		result = flutterpi.flutter.libflutter_engine.FlutterEngineSendPlatformMessageResponse(flutterpi.flutter.engine, msg->target_handle, msg->message, msg->message_size);
 	} else {
-		result = FlutterEngineSendPlatformMessage(
+		result = flutterpi.flutter.libflutter_engine.FlutterEngineSendPlatformMessage(
 			flutterpi.flutter.engine,
 			&(FlutterPlatformMessage) {
 				.struct_size = sizeof(FlutterPlatformMessage),
@@ -710,7 +709,7 @@ int flutterpi_send_platform_message(
 	int ok;
 	
 	if (runs_platform_tasks_on_current_thread(NULL)) {
-		result = FlutterEngineSendPlatformMessage(
+		result = flutterpi.flutter.libflutter_engine.FlutterEngineSendPlatformMessage(
 			flutterpi.flutter.engine,
 			&(const FlutterPlatformMessage) {
 				.struct_size = sizeof(FlutterPlatformMessage),
@@ -779,7 +778,7 @@ int flutterpi_respond_to_platform_message(
 	int ok;
 	
 	if (runs_platform_tasks_on_current_thread(NULL)) {
-		result = FlutterEngineSendPlatformMessageResponse(
+		result = flutterpi.flutter.libflutter_engine.FlutterEngineSendPlatformMessageResponse(
 			flutterpi.flutter.engine,
 			handle,
 			message,
@@ -975,7 +974,7 @@ static void on_pageflip_event(
 	struct frame presented_frame, *peek;
 	int ok;
 
-	FlutterEngineTraceEventInstant("pageflip");
+	flutterpi.flutter.libflutter_engine.FlutterEngineTraceEventInstant("pageflip");
 
 	cqueue_lock(&flutterpi.frame_queue);
 	
@@ -996,7 +995,7 @@ static void on_pageflip_event(
 		if (peek->state == kFramePending) {
 			uint64_t ns = (sec * 1000000000ll) + (usec * 1000ll);
 
-			result = FlutterEngineOnVsync(
+			result = flutterpi.flutter.libflutter_engine.FlutterEngineOnVsync(
 				flutterpi.flutter.engine,
 				peek->baton,
 				ns,
@@ -1571,12 +1570,83 @@ static int init_display(void) {
  **************************/
 static int init_application(void) {
 	FlutterEngineAOTDataSource aot_source;
+	struct libflutter_engine *libflutter_engine;
 	FlutterRendererConfig renderer_config = {0};
 	FlutterEngineAOTData aot_data;
 	FlutterEngineResult engine_result;
 	FlutterProjectArgs project_args = {0};
-	void *app_elf_handle;
+	void *libflutter_engine_handle;
 	int ok;
+
+	libflutter_engine_handle = NULL;
+	if (flutterpi.flutter.runtime_mode == kRelease) {
+		libflutter_engine_handle = dlopen("libflutter_engine.so.release", RTLD_LOCAL | RTLD_NOW);
+		if (libflutter_engine_handle == NULL) {
+			printf("[flutter-pi] Warning: Could not load libflutter_engine.so.release. Trying to open libflutter_engine.so...\n");
+		}
+	} else if (flutterpi.flutter.runtime_mode == kDebug) {
+		libflutter_engine_handle = dlopen("libflutter_engine.so.debug", RTLD_LOCAL | RTLD_NOW);
+		if (libflutter_engine_handle == NULL) {
+			printf("[flutter-pi] Warning: Could not load libflutter_engine.so.debug. Trying to open libflutter_engine.so...\n");
+		}
+	}
+
+	if (libflutter_engine_handle == NULL) {
+		libflutter_engine_handle = dlopen("libflutter_engine.so", RTLD_LOCAL | RTLD_NOW);
+		if (libflutter_engine_handle == NULL) {
+			perror("[flutter-pi] Could not load libflutter_engine.so. dlopen");
+			fprintf(stderr, "[flutter-pi] Could not find a fitting libflutter_engine.\n");
+			return EINVAL;
+		}
+	}
+
+	libflutter_engine = &flutterpi.flutter.libflutter_engine;
+
+#	define LOAD_LIBFLUTTER_ENGINE_PROC(name) \
+		do { \
+			libflutter_engine->name = dlsym(libflutter_engine_handle, #name); \
+			if (!libflutter_engine->name) {\
+				perror("[flutter-pi] Could not resolve libflutter_engine procedure " #name ". dlsym"); \
+				return EINVAL; \
+			} \
+		} while (false)
+
+	LOAD_LIBFLUTTER_ENGINE_PROC(FlutterEngineCreateAOTData);
+	LOAD_LIBFLUTTER_ENGINE_PROC(FlutterEngineCollectAOTData);
+	LOAD_LIBFLUTTER_ENGINE_PROC(FlutterEngineRun);
+	LOAD_LIBFLUTTER_ENGINE_PROC(FlutterEngineShutdown);
+	LOAD_LIBFLUTTER_ENGINE_PROC(FlutterEngineInitialize);
+	LOAD_LIBFLUTTER_ENGINE_PROC(FlutterEngineDeinitialize);
+	LOAD_LIBFLUTTER_ENGINE_PROC(FlutterEngineRunInitialized);
+	LOAD_LIBFLUTTER_ENGINE_PROC(FlutterEngineSendWindowMetricsEvent);
+	LOAD_LIBFLUTTER_ENGINE_PROC(FlutterEngineSendPointerEvent);
+	LOAD_LIBFLUTTER_ENGINE_PROC(FlutterEngineSendPlatformMessage);
+	LOAD_LIBFLUTTER_ENGINE_PROC(FlutterPlatformMessageCreateResponseHandle);
+	LOAD_LIBFLUTTER_ENGINE_PROC(FlutterPlatformMessageReleaseResponseHandle);
+	LOAD_LIBFLUTTER_ENGINE_PROC(FlutterEngineSendPlatformMessageResponse);
+	LOAD_LIBFLUTTER_ENGINE_PROC(__FlutterEngineFlushPendingTasksNow);
+	LOAD_LIBFLUTTER_ENGINE_PROC(FlutterEngineRegisterExternalTexture);
+	LOAD_LIBFLUTTER_ENGINE_PROC(FlutterEngineUnregisterExternalTexture);
+	LOAD_LIBFLUTTER_ENGINE_PROC(FlutterEngineMarkExternalTextureFrameAvailable);
+	LOAD_LIBFLUTTER_ENGINE_PROC(FlutterEngineUpdateSemanticsEnabled);
+	LOAD_LIBFLUTTER_ENGINE_PROC(FlutterEngineUpdateAccessibilityFeatures);
+	LOAD_LIBFLUTTER_ENGINE_PROC(FlutterEngineDispatchSemanticsAction);
+	LOAD_LIBFLUTTER_ENGINE_PROC(FlutterEngineOnVsync);
+	LOAD_LIBFLUTTER_ENGINE_PROC(FlutterEngineReloadSystemFonts);
+	LOAD_LIBFLUTTER_ENGINE_PROC(FlutterEngineTraceEventDurationBegin);
+	LOAD_LIBFLUTTER_ENGINE_PROC(FlutterEngineTraceEventDurationEnd);
+	LOAD_LIBFLUTTER_ENGINE_PROC(FlutterEngineTraceEventInstant);
+	LOAD_LIBFLUTTER_ENGINE_PROC(FlutterEnginePostRenderThreadTask);
+	LOAD_LIBFLUTTER_ENGINE_PROC(FlutterEngineGetCurrentTime);
+	LOAD_LIBFLUTTER_ENGINE_PROC(FlutterEngineRunTask);
+	LOAD_LIBFLUTTER_ENGINE_PROC(FlutterEngineUpdateLocales);
+	LOAD_LIBFLUTTER_ENGINE_PROC(FlutterEngineRunsAOTCompiledDartCode);
+	LOAD_LIBFLUTTER_ENGINE_PROC(FlutterEnginePostDartObject);
+	LOAD_LIBFLUTTER_ENGINE_PROC(FlutterEngineNotifyLowMemoryWarning);
+	LOAD_LIBFLUTTER_ENGINE_PROC(FlutterEnginePostCallbackOnAllNativeThreads);
+
+#	undef LOAD_LIBFLUTTER_ENGINE_PROC
+
 
 	ok = plugin_registry_init();
 	if (ok != 0) {
@@ -1636,8 +1706,8 @@ static int init_application(void) {
 		.compositor = &flutter_compositor
 	};
 
-	bool engine_is_aot = FlutterEngineRunsAOTCompiledDartCode();
-	if (engine_is_aot && !flutterpi.flutter.is_aot) {
+	bool engine_is_aot = libflutter_engine->FlutterEngineRunsAOTCompiledDartCode();
+	if ((engine_is_aot == true) && (flutterpi.flutter.runtime_mode != kRelease)) {
 		fprintf(
 			stderr,
 			"[flutter-pi] The flutter engine was built for release (AOT) mode,\n"
@@ -1649,7 +1719,7 @@ static int init_application(void) {
 			"             directory.\n"
 		);
 		return EINVAL;
-	} else if (!engine_is_aot && flutterpi.flutter.is_aot) {
+	} else if ((engine_is_aot == false) && (flutterpi.flutter.runtime_mode != kDebug)) {
 		fprintf(
 			stderr,
 			"[flutter-pi] The flutter engine was built for debug mode,\n"
@@ -1661,13 +1731,13 @@ static int init_application(void) {
 		return EINVAL;
 	}
 
-	if (flutterpi.flutter.is_aot) {
+	if (flutterpi.flutter.runtime_mode == kRelease) {
 		aot_source = (FlutterEngineAOTDataSource) {
 			.elf_path = flutterpi.flutter.app_elf_path,
 			.type = kFlutterEngineAOTDataSourceTypeElfPath
 		};
 
-		engine_result = FlutterEngineCreateAOTData(&aot_source, &aot_data);
+		engine_result = libflutter_engine->FlutterEngineCreateAOTData(&aot_source, &aot_data);
 		if (engine_result != kSuccess) {
 			fprintf(stderr, "[flutter-pi] Could not load AOT data. FlutterEngineCreateAOTData: %s\n", FLUTTER_RESULT_TO_STRING(engine_result));
 			return EIO;
@@ -1677,14 +1747,14 @@ static int init_application(void) {
 	}
 
 	// spin up the engine
-	engine_result = FlutterEngineRun(FLUTTER_ENGINE_VERSION, &renderer_config, &project_args, NULL, &flutterpi.flutter.engine);
+	engine_result = libflutter_engine->FlutterEngineRun(FLUTTER_ENGINE_VERSION, &renderer_config, &project_args, NULL, &flutterpi.flutter.engine);
 	if (engine_result != kSuccess) {
 		fprintf(stderr, "[flutter-pi] Could not run the flutter engine. FlutterEngineRun: %s\n", FLUTTER_RESULT_TO_STRING(engine_result));
 		return EINVAL;
 	}
 
 	// update window size
-	engine_result = FlutterEngineSendWindowMetricsEvent(
+	engine_result = libflutter_engine->FlutterEngineSendWindowMetricsEvent(
 		flutterpi.flutter.engine,
 		&(FlutterWindowMetricsEvent) {
 			.struct_size = sizeof(FlutterWindowMetricsEvent),
@@ -1740,7 +1810,7 @@ static int on_libinput_ready(sd_event_source *s, int fd, uint32_t revents, void 
 				pointer_events[n_pointer_events++] = (FlutterPointerEvent) {
 					.struct_size = sizeof(FlutterPointerEvent),
 					.phase = kAdd,
-					.timestamp = FlutterEngineGetCurrentTime(),
+					.timestamp = flutterpi.flutter.libflutter_engine.FlutterEngineGetCurrentTime(),
 					.x = 0.0,
 					.y = 0.0,
 					.device = flutterpi.input.next_unused_flutter_device_id++,
@@ -1759,7 +1829,7 @@ static int on_libinput_ready(sd_event_source *s, int fd, uint32_t revents, void 
 					pointer_events[n_pointer_events++] = (FlutterPointerEvent) {
 						.struct_size = sizeof(FlutterPointerEvent),
 						.phase = kAdd,
-						.timestamp = FlutterEngineGetCurrentTime(),
+						.timestamp = flutterpi.flutter.libflutter_engine.FlutterEngineGetCurrentTime(),
 						.x = 0.0,
 						.y = 0.0,
 						.device = flutterpi.input.next_unused_flutter_device_id++,
@@ -1974,7 +2044,7 @@ static int on_libinput_ready(sd_event_source *s, int fd, uint32_t revents, void 
 	}
 
 	if (n_pointer_events > 0) {
-		result = FlutterEngineSendPointerEvent(
+		result = flutterpi.flutter.libflutter_engine.FlutterEngineSendPointerEvent(
 			flutterpi.flutter.engine,
 			pointer_events,
 			n_pointer_events
@@ -2290,12 +2360,12 @@ static bool setup_paths(void) {
 	asprintf(&kernel_blob_path, "%s/kernel_blob.bin", flutterpi.flutter.asset_bundle_path);
 	asprintf(&app_elf_path, "%s/app.so", flutterpi.flutter.asset_bundle_path);
 
-	if (flutterpi.flutter.is_aot == false) {
+	if (flutterpi.flutter.runtime_mode == kDebug) {
 		if (!PATH_EXISTS(kernel_blob_path)) {
 			fprintf(stderr, "[flutter-pi] Could not find \"kernel.blob\" file inside \"%s\", which is required for debug mode.\n", flutterpi.flutter.asset_bundle_path);
 			return false;
 		}
-	} else {
+	} else if (flutterpi.flutter.runtime_mode == kRelease) {
 		if (!PATH_EXISTS(app_elf_path)) {
 			fprintf(stderr, "[flutter-pi] Could not find \"app.so\" file inside \"%s\", which is required for release and profile mode.\n", flutterpi.flutter.asset_bundle_path);
 			return false;
@@ -2322,11 +2392,11 @@ static bool parse_cmd_args(int argc, char **argv) {
 	bool input_specified = false;
 	int opt;
 	int longopt_index = 0;
-	int is_release_int = false;
+	int runtime_mode_int = kDebug;
 	int disable_text_input_int = false;
 
 	struct option long_options[] = {
-		{"release", no_argument, &is_release_int, true},
+		{"release", no_argument, &runtime_mode_int, kRelease},
 		{"input", required_argument, NULL, 'i'},
 		{"orientation", required_argument, NULL, 'o'},
 		{"rotation", required_argument, NULL, 'r'},
@@ -2422,7 +2492,7 @@ static bool parse_cmd_args(int argc, char **argv) {
 
 	flutterpi.input.use_paths = input_specified;
 	flutterpi.flutter.asset_bundle_path = strdup(argv[optind]);
-	flutterpi.flutter.is_aot = is_release_int;
+	flutterpi.flutter.runtime_mode = runtime_mode_int;
 	flutterpi.input.disable_text_input = disable_text_input_int;
 	flutterpi.input.input_devices_glob = input_devices_glob;
 

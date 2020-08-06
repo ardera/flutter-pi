@@ -1,7 +1,7 @@
 ## 📰 NEWS
+- the layout of the engine-binaries branch has changed again. The symbolic link from `libflutter_engine.so` to the fitting `libflutter_engine.so.release` or `libflutter_engine.so.debug` is no longer needed, flutter-pi will now dynamically load the engine fitting the the runtime mode that was specified via cmdline. (if `--release` is given, flutter-pi will load `libflutter_engine.so.release`, else `libflutter_engine.so.debug`)
 - flutter-pi now requires `libsystemd-dev`, `libinput-dev` and `libudev-dev` at compile-time. (`libudev-dev` is actually optional. To build without udev support, use cmake.)
 - flutter-pi and the engine binaries updated for flutter 1.20.
-- the layout of the engine-binaries branch has changed, please see the readme in the engine-binaries branch.
 - it's possible to run flutter-pi in AOT mode now. Instructions for that are WIP.
 - `--aot` was renamed to `--release`
 
