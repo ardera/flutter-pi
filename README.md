@@ -1,3 +1,10 @@
+## 📰 NEWS
+- flutter-pi now requires `libsystemd-dev`, `libinput-dev` and `libudev-dev` at compile-time. (`libudev-dev` is actually optional. To build without udev support, use cmake.)
+- flutter-pi and the engine binaries updated for flutter 1.20.
+- the layout of the engine-binaries branch has changed, please see the readme in the engine-binaries branch.
+- it's possible to run flutter-pi in AOT mode now. Instructions for that are WIP.
+- `--aot` was renamed to `--release`
+
 # flutter-pi
 A light-weight Flutter Engine Embedder for Raspberry Pi. Inspired by https://github.com/chinmaygarde/flutter_from_scratch.
 Flutter-pi also runs without X11, so you don't need to boot into Raspbian Desktop & have X11 and LXDE load up; just boot into the command-line.
@@ -169,9 +176,9 @@ The flutter engine, by default, uses the _Arial_ font. Since that doesn't come i
 sudo apt install ttf-mscorefonts-installer fontconfig
 sudo fc-cache
 ```
-### libgpiod (for the included GPIO plugin), libsystemd, libudev
+### libgpiod (for the included GPIO plugin), libsystemd, libinput, libudev
 ```bash
-sudo apt-get install gpiod libgpiod-dev libsystemd-dev libudev-dev
+sudo apt-get install gpiod libgpiod-dev libsystemd-dev libinput-dev libudev-dev
 ```
 
 ## Compiling flutter-pi (on the Raspberry Pi)
