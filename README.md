@@ -1,3 +1,10 @@
+## 📰 NEWS
+- flutter-pi now requires `libsystemd-dev` and `libudev-dev` at compile-time. (`libudev-dev` is actually optional. To build without udev support, use cmake.)
+- flutter-pi and the engine binaries updated for flutter 1.20.
+- the layout of the engine-binaries branch has changed, please see the readme in the engine-binaries branch.
+- it's possible to run flutter-pi in AOT mode now. Instructions for that are WIP.
+- `--aot` was renamed to `--release`
+
 # flutter-pi
 A light-weight Flutter Engine Embedder for Raspberry Pi. Inspired by https://github.com/chinmaygarde/flutter_from_scratch.
 Flutter-pi also runs without X11, so you don't need to boot into Raspbian Desktop & have X11 and LXDE load up; just boot into the command-line.
