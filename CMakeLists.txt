@@ -136,7 +136,7 @@ endif()
 add_executable(flutter-pi ${FLUTTER_PI_SRC})
 
 target_link_libraries(flutter-pi
-  ${FLUTTER_ENGINE_LIBRARY} ${GPIOD_LDFLAGS} ${GBM_LDFLAGS}
+  ${GPIOD_LDFLAGS} ${GBM_LDFLAGS}
   ${DRM_LDFLAGS} ${GLESV2_LDFLAGS} ${EGL_LDFLAGS}
   pthread dl
 )

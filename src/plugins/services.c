@@ -117,7 +117,7 @@ static int on_receive_platform(char *channel, struct platch_obj *object, Flutter
                 compositor_apply_cursor_state(true, flutterpi.view.rotation, flutterpi.display.pixel_ratio);
 
                 // send updated window metrics to flutter
-                result = FlutterEngineSendWindowMetricsEvent(flutterpi.flutter.engine, &(const FlutterWindowMetricsEvent) {
+                result = flutterpi.flutter.libflutter_engine.FlutterEngineSendWindowMetricsEvent(flutterpi.flutter.engine, &(const FlutterWindowMetricsEvent) {
                     .struct_size = sizeof(FlutterWindowMetricsEvent),
                     .width = flutterpi.view.width, 
                     .height = flutterpi.view.height,

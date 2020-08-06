@@ -202,7 +202,7 @@ int texreg_register_texture(
         return ok;
     }
 
-    engine_result = FlutterEngineRegisterExternalTexture(flutterpi.flutter.engine, tex_id);
+    engine_result = flutterpi.flutter.libflutter_engine.FlutterEngineRegisterExternalTexture(flutterpi.flutter.engine, tex_id);
     if (engine_result != kSuccess) {
         free(details);
         return EINVAL;
@@ -216,7 +216,7 @@ int texreg_register_texture(
 int texreg_mark_texture_frame_available(int64_t texture_id) {
     FlutterEngineResult engine_result;
 
-    engine_result = FlutterEngineMarkExternalTextureFrameAvailable(flutterpi.flutter.engine, texture_id);
+    engine_result = flutterpi.flutter.libflutter_engine.FlutterEngineMarkExternalTextureFrameAvailable(flutterpi.flutter.engine, texture_id);
     if (engine_result != kSuccess) {
         return EINVAL;
     }
@@ -233,7 +233,7 @@ int texreg_unregister_texture(int64_t texture_id) {
         return ok;
     }
     
-    engine_result = FlutterEngineUnregisterExternalTexture(flutterpi.flutter.engine, texture_id);
+    engine_result = flutterpi.flutter.libflutter_engine.FlutterEngineUnregisterExternalTexture(flutterpi.flutter.engine, texture_id);
     if (engine_result != kSuccess) {
         return EINVAL;
     }
