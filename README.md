@@ -1,4 +1,5 @@
 ## 📰 NEWS
+- the physical dimensions of the screen can now be specified via cmdline, using the `--dimensions` option.
 - the layout of the engine-binaries branch has changed again. The symbolic link from `libflutter_engine.so` to the fitting `libflutter_engine.so.release` or `libflutter_engine.so.debug` is no longer needed, flutter-pi will now dynamically load the engine fitting the the runtime mode that was specified via cmdline. (if `--release` is given, flutter-pi will load `libflutter_engine.so.release`, else `libflutter_engine.so.debug`)
 - flutter-pi now requires `libsystemd-dev`, `libinput-dev` and `libudev-dev` at compile-time. (`libudev-dev` is actually optional. To build without udev support, use cmake.)
 - flutter-pi and the engine binaries updated for flutter 1.20.
@@ -120,9 +121,11 @@ OPTIONS:
                              pattern you use as a parameter so it isn't
                              implicitly expanded by your shell.
 
-  --aot                      Run the app in AOT mode. The AOT snapshot
+  --release                  Run the app in release mode. The AOT snapshot
                              of the app ("app.so") must be located inside the
                              asset bundle directory.
+                                                         This also requires a libflutter_engine.so that was
+                                                         built with --runtime-mode=release.
 
   -o, --orientation <orientation>  Start the app in this orientation. Valid
                              for <orientation> are: portrait_up, landscape_left,
@@ -139,6 +142,13 @@ OPTIONS:
                              clock-wise.
                              Valid values are 0, 90, 180 and 270.
 
+  -d, --dimensions "width_mm,height_mm" The width & height of your display in
+                             millimeters. Useful if your GPU doesn't provide
+                                                         valid physical dimensions for your display.
+                                                         The physical dimensions of your display are used
+                                                         to calculate the flutter device-pixel-ratio, which
+                                                         in turn basically "scales" the UI.
+
   --no-text-input            Disable text input from the console.
                              This means flutter-pi won't configure the console
                              to raw/non-canonical mode.
@@ -150,7 +160,18 @@ EXAMPLES:
   flutter-pi -i "/dev/input/mouse*" /home/pi/helloworld_flutterassets
   flutter-pi -o portrait_up ./flutter_assets
   flutter-pi -r 90 ./flutter_assets
+  flutter-pi -d "155, 86" ./flutter_assets
   flutter-pi /home/pi/helloworld_flutterassets
+
+SEE ALSO:
+  Author:  Hannes Winkler, a.k.a ardera
+  Source:  https://github.com/ardera/flutter-pi
+  License: MIT
+
+  For instructions on how to build an asset bundle or an AOT snapshot
+    of your app, please see the linked git repository.
+  For a list of options you can pass to the flutter engine, look here:
+    https://github.com/flutter/engine/blob/master/shell/common/switches.h
 ```
 
 `<asset bundle path>` is the path of the flutter asset bundle directory (i.e. the directory containing `kernel_blob.bin`)
