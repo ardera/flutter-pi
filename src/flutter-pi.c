@@ -98,6 +98,13 @@ OPTIONS:\n\
                              clock-wise.\n\
                              Valid values are 0, 90, 180 and 270.\n\
                              \n\
+  -d, --dimensions \"width_mm,height_mm\" The width & height of your display in\n\
+                             millimeters. Useful if your GPU doesn't provide\n\
+							 valid physical dimensions for your display.\n\
+							 The physical dimensions of your display are used\n\
+							 to calculate the flutter device-pixel-ratio, which\n\
+							 in turn basically \"scales\" the UI.\n\
+							 \n\
   --no-text-input            Disable text input from the console.\n\
                              This means flutter-pi won't configure the console\n\
                              to raw/non-canonical mode.\n\
@@ -109,6 +116,7 @@ EXAMPLES:\n\
   flutter-pi -i \"/dev/input/mouse*\" /home/pi/helloworld_flutterassets\n\
   flutter-pi -o portrait_up ./flutter_assets\n\
   flutter-pi -r 90 ./flutter_assets\n\
+  flutter-pi -d \"155, 86\" ./flutter_assets\n\
   flutter-pi /home/pi/helloworld_flutterassets\n\
 \n\
 SEE ALSO:\n\
@@ -1189,26 +1197,26 @@ static int init_display(void) {
 	}
 
 	// find a connected connector
-	flutterpi.display.width_mm = 0;
-	flutterpi.display.height_mm = 0;
 	for_each_connector_in_drmdev(flutterpi.drm.drmdev, connector) {
 		if (connector->connector->connection == DRM_MODE_CONNECTED) {
 			// only update the physical size of the display if the values
 			//   are not yet initialized / not set with a commandline option
-			if ((connector->connector->connector_type == DRM_MODE_CONNECTOR_DSI) &&
-				(connector->connector->mmWidth == 0) &&
-				(connector->connector->mmHeight == 0))
-			{
-				// if it's connected via DSI, and the width & height are 0,
-				//   it's probably the official 7 inch touchscreen.
-				flutterpi.display.width_mm = 155;
-				flutterpi.display.height_mm = 86;
-			} else if ((connector->connector->mmHeight % 10 == 0) &&
-						(connector->connector->mmWidth % 10 == 0)) {
-				// don't change anything.
-			} else {
-				flutterpi.display.width_mm = connector->connector->mmWidth;
-				flutterpi.display.height_mm = connector->connector->mmHeight;
+			if ((flutterpi.display.width_mm == 0) || (flutterpi.display.height_mm == 0)) {
+				if ((connector->connector->connector_type == DRM_MODE_CONNECTOR_DSI) &&
+					(connector->connector->mmWidth == 0) &&
+					(connector->connector->mmHeight == 0))
+				{
+					// if it's connected via DSI, and the width & height are 0,
+					//   it's probably the official 7 inch touchscreen.
+					flutterpi.display.width_mm = 155;
+					flutterpi.display.height_mm = 86;
+				} else if ((connector->connector->mmHeight % 10 == 0) &&
+							(connector->connector->mmWidth % 10 == 0)) {
+					// don't change anything.
+				} else {
+					flutterpi.display.width_mm = connector->connector->mmWidth;
+					flutterpi.display.height_mm = connector->connector->mmHeight;
+				}
 			}
 
 			break;
@@ -2394,6 +2402,7 @@ static bool parse_cmd_args(int argc, char **argv) {
 	int longopt_index = 0;
 	int runtime_mode_int = kDebug;
 	int disable_text_input_int = false;
+	int ok;
 
 	struct option long_options[] = {
 		{"release", no_argument, &runtime_mode_int, kRelease},
@@ -2401,6 +2410,7 @@ static bool parse_cmd_args(int argc, char **argv) {
 		{"orientation", required_argument, NULL, 'o'},
 		{"rotation", required_argument, NULL, 'r'},
 		{"no-text-input", no_argument, &disable_text_input_int, true},
+		{"dimensions", required_argument, NULL, 'd'},
 		{"help", no_argument, 0, 'h'},
 		{0, 0, 0, 0}
 	};
@@ -2408,7 +2418,7 @@ static bool parse_cmd_args(int argc, char **argv) {
 	bool finished_parsing_options = false;
 	while (!finished_parsing_options) {
 		longopt_index = 0;
-		opt = getopt_long(argc, argv, "+i:o:r:h", long_options, &longopt_index);
+		opt = getopt_long(argc, argv, "+i:o:r:d:h", long_options, &longopt_index);
 
 		switch (opt) {
 			case 0:
@@ -2459,6 +2469,22 @@ static bool parse_cmd_args(int argc, char **argv) {
 				}
 
 				flutterpi.view.rotation = rotation;
+				break;
+			
+			case 'd': ;
+				unsigned int width_mm, height_mm;
+
+				ok = sscanf(optarg, "%u,%u", &width_mm, &height_mm);
+				if ((ok == 0) || (ok == EOF)) {
+					fprintf(stderr, "ERROR: Invalid argument for --dimensions passed.\n%s", usage);
+					return false;
+				}
+
+				printf("parsed %u, %u\n", width_mm, height_mm);
+
+				flutterpi.display.width_mm = width_mm;
+				flutterpi.display.height_mm = height_mm;
+				
 				break;
 			
 			case 'h':
