@@ -100,11 +100,11 @@ OPTIONS:\n\
                              \n\
   -d, --dimensions \"width_mm,height_mm\" The width & height of your display in\n\
                              millimeters. Useful if your GPU doesn't provide\n\
-							 valid physical dimensions for your display.\n\
-							 The physical dimensions of your display are used\n\
-							 to calculate the flutter device-pixel-ratio, which\n\
-							 in turn basically \"scales\" the UI.\n\
-							 \n\
+                             valid physical dimensions for your display.\n\
+                             The physical dimensions of your display are used\n\
+                             to calculate the flutter device-pixel-ratio, which\n\
+                             in turn basically \"scales\" the UI.\n\
+                             \n\
   --no-text-input            Disable text input from the console.\n\
                              This means flutter-pi won't configure the console\n\
                              to raw/non-canonical mode.\n\
@@ -2479,8 +2479,6 @@ static bool parse_cmd_args(int argc, char **argv) {
 					fprintf(stderr, "ERROR: Invalid argument for --dimensions passed.\n%s", usage);
 					return false;
 				}
-
-				printf("parsed %u, %u\n", width_mm, height_mm);
 
 				flutterpi.display.width_mm = width_mm;
 				flutterpi.display.height_mm = height_mm;
