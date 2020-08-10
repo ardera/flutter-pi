@@ -928,7 +928,7 @@ static bool on_present_layers(
 	}
 
 	for_each_unreserved_plane_in_atomic_req(req, plane) {
-		drmdev_atomic_req_put_plane_property(req, plane->plane->plane_id, "FB", 0);
+		drmdev_atomic_req_put_plane_property(req, plane->plane->plane_id, "FB_ID", 0);
 	}
 
 	eglMakeCurrent(flutterpi.egl.display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);

@@ -597,10 +597,10 @@ static int post_platform_task_with_time(
 	if (pthread_self() != flutterpi.event_loop_thread) {
 		ok = write(flutterpi.wakeup_event_loop_fd, (uint8_t[8]) {0, 0, 0, 0, 0, 0, 0, 1}, 8);
 		if (ok < 0) {
-		perror("[flutter-pi] Error arming main loop for platform task. write");
-		ok = errno;
-		goto fail_unlock_event_loop;
-	}
+			perror("[flutter-pi] Error arming main loop for platform task. write");
+			ok = errno;
+			goto fail_unlock_event_loop;
+		}
 	}
 
 	if (pthread_self() != flutterpi.event_loop_thread) {
@@ -614,6 +614,9 @@ static int post_platform_task_with_time(
 	if (pthread_self() != flutterpi.event_loop_thread) {
 		pthread_mutex_unlock(&flutterpi.event_loop_mutex);
 	}
+
+	fail_free_task:
+	free(task);
 
 	return ok;
 }
@@ -1779,6 +1782,29 @@ static int init_application(void) {
 	return 0;
 }
 
+int flutterpi_schedule_exit(void) {
+	int ok;
+
+	if (pthread_self() != flutterpi.event_loop_thread) {
+		pthread_mutex_lock(&flutterpi.event_loop_mutex);
+	}
+	
+	ok = sd_event_exit(flutterpi.event_loop, 0);
+	if (ok < 0) {
+		fprintf(stderr, "[flutter-pi] Could not schedule application exit. sd_event_exit: %s\n", strerror(-ok));
+		if (pthread_self() != flutterpi.event_loop_thread) {
+			pthread_mutex_unlock(&flutterpi.event_loop_mutex);
+		}
+		return -ok;
+	}
+
+	if (pthread_self() != flutterpi.event_loop_thread) {
+		pthread_mutex_unlock(&flutterpi.event_loop_mutex);
+	}
+
+	return 0;
+}
+
 /**************
  * USER INPUT *
  **************/
@@ -2049,6 +2075,9 @@ static int on_libinput_ready(sd_event_source *s, int fd, uint32_t revents, void 
 	
 			rawkb_on_keyevent(glfw_key, keycode, state == LIBINPUT_KEY_STATE_PRESSED ? GLFW_PRESS : GLFW_RELEASE);
 		}
+
+		libinput_event_destroy(event);
+		event = NULL;
 	}
 
 	if (n_pointer_events > 0) {

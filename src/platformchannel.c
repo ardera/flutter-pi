@@ -1033,6 +1033,7 @@ int platch_send(char *channel, struct platch_obj *object, enum platch_codec resp
 		goto fail_release_handle;
 	}
 
+	// TODO: This won't work if we're not on the main thread
 	if (on_response) {
 		result = flutterpi.flutter.libflutter_engine.FlutterPlatformMessageReleaseResponseHandle(flutterpi.flutter.engine, response_handle);
 		if (result != kSuccess) {
