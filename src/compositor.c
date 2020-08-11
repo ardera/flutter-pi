@@ -928,10 +928,14 @@ static bool on_present_layers(
 	}
 
 	for_each_unreserved_plane_in_atomic_req(req, plane) {
-		drmdev_atomic_req_put_plane_property(req, plane->plane->plane_id, "FB_ID", 0);
+		if ((plane->type == DRM_PLANE_TYPE_PRIMARY) || (plane->type == DRM_PLANE_TYPE_OVERLAY)) {
+			drmdev_atomic_req_put_plane_property(req, plane->plane->plane_id, "FB_ID", 0);
+			drmdev_atomic_req_put_plane_property(req, plane->plane->plane_id, "CRTC_ID", 0);
+		}
 	}
 
 	eglMakeCurrent(flutterpi.egl.display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+
 	drmdev_atomic_req_commit(req, req_flags, NULL);
 
 	cpset_unlock(&compositor->cbs);
