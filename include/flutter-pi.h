@@ -477,4 +477,6 @@ int flutterpi_respond_to_platform_message(
 	size_t message_size
 );
 
+int flutterpi_schedule_exit(void);
+
 #endif
