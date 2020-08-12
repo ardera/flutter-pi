@@ -102,6 +102,7 @@ pkg_check_modules(EGL REQUIRED egl)
 pkg_check_modules(LIBSYSTEMD REQUIRED libsystemd)
 pkg_check_modules(LIBUDEV libudev)
 pkg_check_modules(GPIOD libgpiod)
+pkg_check_modules(LIBINPUT libinput)
 
 set(FLUTTER_PI_SRC
   src/flutter-pi.c
