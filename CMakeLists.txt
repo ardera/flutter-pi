@@ -34,7 +34,7 @@ project(flutter-pi LANGUAGES C)
 message(STATUS "Generator .............. ${CMAKE_GENERATOR}")
 message(STATUS "Build Type ............. ${CMAKE_BUILD_TYPE}")
 
-if(NOT FLUTTER_ENGINE_LIBRARY)
+if(NOT FLUTTER_EMBEDDER_HEADER)
 
   include(FetchContent)
 
@@ -67,24 +67,15 @@ if(NOT FLUTTER_ENGINE_LIBRARY)
 
   message(STATUS "Engine SHA1 ............ ${FLUTTER_ENGINE_SHA}")
 
-  # Download and setup the Flutter Engine.
+  set(FLUTTER_EMBEDDER_HEADER ${CMAKE_BINARY_DIR}/flutter_embedder.h)
 
-  set(FLUTTER_EMBEDDER_ARTIFACTS_ZIP ${CMAKE_BINARY_DIR}/flutter_embedder_${FLUTTER_ENGINE_SHA}.zip)
-  set(FLUTTER_BUCKET_BASE "https://storage.googleapis.com/flutter_infra/flutter")
-
-  if(NOT EXISTS ${FLUTTER_EMBEDDER_ARTIFACTS_ZIP})
+  # Download and setup the flutter engine library header.
+  if(NOT EXISTS ${FLUTTER_EMBEDDER_HEADER})
     file(DOWNLOAD
-      ${FLUTTER_BUCKET_BASE}/${FLUTTER_ENGINE_SHA}/linux-x64/linux-x64-embedder
-      ${FLUTTER_EMBEDDER_ARTIFACTS_ZIP}
-      SHOW_PROGRESS
-    )
-    execute_process(
-      COMMAND ${CMAKE_COMMAND} -E tar xzf ${FLUTTER_EMBEDDER_ARTIFACTS_ZIP}
-      WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+      https://github.com/flutter/engine/blob/${FLUTTER_ENGINE_SHA}/shell/platform/embedder/embedder.h
+      ${FLUTTER_EMBEDDER_HEADER}
     )
   endif()
-
-  set(FLUTTER_ENGINE_LIBRARY ${CMAKE_BINARY_DIR}/libflutter_engine.so)
 else()
   message(STATUS "Engine ................. ${FLUTTER_ENGINE_LIBRARY}")
 endif()
@@ -95,14 +86,14 @@ set(ENV{PKG_CONFIG_PATH} ${PKG_CONFIG_PATH})
 message(STATUS "PKG_CONFIG_PATH ........ $ENV{PKG_CONFIG_PATH}")
 
 include(FindPkgConfig)
-pkg_check_modules(GBM REQUIRED gbm)
 pkg_check_modules(DRM REQUIRED libdrm)
-pkg_check_modules(GLESV2 REQUIRED glesv2)
+pkg_check_modules(GBM REQUIRED gbm)
 pkg_check_modules(EGL REQUIRED egl)
+pkg_check_modules(GLESV2 REQUIRED glesv2)
 pkg_check_modules(LIBSYSTEMD REQUIRED libsystemd)
+pkg_check_modules(LIBINPUT libinput)
 pkg_check_modules(LIBUDEV libudev)
 pkg_check_modules(GPIOD libgpiod)
-pkg_check_modules(LIBINPUT libinput)
 
 set(FLUTTER_PI_SRC
   src/flutter-pi.c
@@ -137,23 +128,41 @@ endif()
 add_executable(flutter-pi ${FLUTTER_PI_SRC})
 
 target_link_libraries(flutter-pi
-  ${GPIOD_LDFLAGS} ${GBM_LDFLAGS}
-  ${DRM_LDFLAGS} ${GLESV2_LDFLAGS} ${EGL_LDFLAGS}
-  pthread dl
+  ${DRM_LDFLAGS}
+  ${GBM_LDFLAGS}
+  ${EGL_LDFLAGS}
+  ${GLESV2_LDFLAGS}
+  ${LIBSYSTEMD_LDFLAGS}
+  ${LIBINPUT_LDFLAGS}
+  ${LIBUDEV_LDFLAGS}
+  ${GPIOD_LDFLAGS}
+  pthread dl rt m
 )
 
 target_include_directories(flutter-pi PRIVATE
   ${CMAKE_BINARY_DIR}
   ${CMAKE_SOURCE_DIR}/include
   ${CMAKE_SOURCE_DIR}/include/plugins
-  ${GBM_INCLUDE_DIRS} ${DRM_INCLUDE_DIRS}
-  ${GLESV2_INCLUDE_DIRS} ${EGL_INCLUDE_DIRS}
+  ${DRM_INCLUDE_DIRS}
+  ${GBM_INCLUDE_DIRS}
+  ${EGL_INCLUDE_DIRS}
+  ${GLESV2_INCLUDE_DIRS}
+  ${LIBSYSTEMD_INCLUDE_DIRS}
+  ${LIBINPUT_INCLUDE_DIRS}
+  ${LIBUDEV_INCLUDE_DIRS}
+  ${GPIOD_INCLUDE_DIRS}
 )
 
 target_compile_options(flutter-pi PRIVATE
-  ${GBM_CFLAGS} ${DRM_CFLAGS}
-  ${GLESV2_CFLAGS} ${EGL_CFLAGS}
-  ${GPIOD_CFLAGS} -ggdb
+  ${DRM_CFLAGS}  
+  ${GBM_CFLAGS}
+  ${EGL_CFLAGS}
+  ${GLESV2_CFLAGS}
+  ${LIBSYSTEMD_CFLAGS}
+  ${LIBINPUT_CFLAGS}
+  ${LIBUDEV_CFLAGS}
+  ${GPIOD_CFLAGS}
+  -ggdb
   -DBUILD_TEXT_INPUT_PLUGIN
 	-DBUILD_SPIDEV_PLUGIN
 	-DBUILD_TEST_PLUGIN

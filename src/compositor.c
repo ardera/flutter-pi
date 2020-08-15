@@ -937,6 +937,7 @@ static bool on_present_layers(
 	eglMakeCurrent(flutterpi.egl.display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
 
 	drmdev_atomic_req_commit(req, req_flags, NULL);
+	drmdev_destroy_atomic_req(req);
 
 	cpset_unlock(&compositor->cbs);
 }
@@ -995,7 +996,11 @@ int compositor_remove_view_callbacks(int64_t view_id) {
 
 	cpset_remove_locked(&compositor.cbs, entry);
 
-	return cpset_unlock(&compositor.cbs);
+	free(entry);
+
+	cpset_unlock(&compositor.cbs);
+
+	return 0;
 }
 
 /// DRM HARDWARE PLANE RESERVATION
