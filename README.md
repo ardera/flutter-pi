@@ -28,10 +28,9 @@ If you encounter issues running flutter-pi on any of the supported platforms lis
 
 1. **[Running your App on the Raspberry Pi](#running-your-app-on-the-raspberry-pi)**  
 1.1 [Configuring your Raspberry Pi](#configuring-your-raspberry-pi)  
-1.2 [Patching the App](#patching-the-app)  
-1.3 [Building the Asset bundle](#building-the-asset-bundle)  
-1.4 [Building the app.so](#building-the-appso-for-running-your-app-in-releaseprofile-mode)  
-1.5 [Running your App with flutter-pi](#running-your-app-with-flutter-pi)  
+1.2 [Building the Asset bundle](#building-the-asset-bundle)  
+1.3 [Building the `app.so` (for running your app in Release/Profile mode)](#building-the-appso-for-running-your-app-in-releaseprofile-mode)  
+1.4 [Running your App with flutter-pi](#running-your-app-with-flutter-pi)  
 2. **[Dependencies](#dependencies)**
 3. **[Compiling flutter-pi (on the Raspberry Pi)](#compiling-flutter-pi-on-the-raspberry-pi)**  
 4. **[Performance](#performance)**  
@@ -49,7 +48,7 @@ go to `raspi-config -> Boot Options -> Desktop / CLI` and select `Console` or `C
 flutter-pi doesn't support the legacy broadcom-proprietary graphics stack anymore. You need to make sure the V3D driver in raspi-config.
 Go to `raspi-config -> Advanced Options -> GL Driver` and select `GL (Fake-KMS)`.
 
-With this driver, it's best to give the GPU as little RAM as possible in `raspi-config -> Advanced Options -> Memory Split`, which is `16MB`. This is because the V3D driver doesn't need GPU RAM anymore.
+With this driver, it's best to give the GPU as little RAM as possible in `raspi-config -> Advanced Options -> Memory Split`, which is `16MB`. This is because the V3D driver doesn't need GPU RAM anymore. NOTE: If you want to use the [`omxplayer_video_player`](https://pub.dev/packages/omxplayer_video_player) plugin to play back videos in flutter, you need to give the GPU some more RAM, like 64MB.
 
 #### Fixing the GPU permissions
 It seems like with newer versions of Raspbian, the `pi` user doesn't have sufficient permissions to directly access the GPU anymore. IIRC, this is because of some privilege escalation / arbitrary code execution problems of the GPU interface.
@@ -62,40 +61,78 @@ Then, restart your terminal session so the changes take effect. (reconnect if yo
 
 Otherwise, you'll need to run `flutter-pi` with `sudo`.
 
-### Patching the App
-First, you need to override the default target platform in your flutter app, i.e. add the following line to your _main_ method, before the _runApp_ call:
-```dart
-debugDefaultTargetPlatformOverride = TargetPlatform.fuchsia;
-```
-The _debugDefaultTargetPlatformOverride_ property is in the foundation library, so you need to import that.
-
-Your main dart file should probably look similiar to this now:
-```dart
-import 'package:flutter/foundation.dart';
-
-. . .
-
-void main() {
-  debugDefaultTargetPlatformOverride = TargetPlatform.fuchsia;
-  runApp(MyApp());
-}
-
-. . .
-```
-
 ### Building the Asset bundle
-Then to build the asset bundle, run the following commands. You **need** to use a flutter SDK that's compatible to the engine version you're using.
+Then to build the asset bundle, run the following commands on your host machine. You can't build the asset bundle on target (== your Raspberry Pi), since the flutter SDK doesn't support linux on ARM yet.
 
-I'm using `flutter_gallery` in this example. (note that the `flutter_gallery` example **does not work** with flutter-pi, since it includes plugins that have no platform-side implementation for the raspberry pi yet)
+My host machine is actually running Windows. But I'm also using [WSL](https://docs.microsoft.com/de-de/windows/wsl/install-win10) to upload the binaries to the Raspberry Pi, since `rsync` is a linux tool.
+
+**Be careful** to use a flutter SDK that's compatible to the engine version you're using.
+- use flutter stable and keep it up to date. `flutter channel stable` && `flutter upgrade`
+- use the latest engine binaries ([explained later](#flutter-engine)) and keep them up to date
+
+If you encounter error messages like `Invalid kernel binary format version`, `Invalid SDK hash` or `Invalid engine hash`:
+1. Make sure your flutter SDK is on `stable` and up to date and your engine binaries are up to date.
+2. If you made sure that's the case and the error still happens, create a new issue for it.
+
+I'm using [`flutter_gallery`](https://github.com/flutter/gallery) in this example. flutter_gallery is developed against flutter master. So you need to use an older version of flutter_gallery to run it with flutter stable. It seems commit [9b11f12](https://github.com/flutter/gallery/commit/9b11f127fb46cb08e70b2a7cdfe8eaa8de977d5f) is the latest one working with flutter 1.20.
+
 ```bash
-cd flutter/examples/flutter_gallery
+git clone https://github.com/flutter/gallery.git flutter_gallery
+cd flutter_gallery
+git checkout 9b11f127fb46cb08e70b2a7cdfe8eaa8de977d5f
 flutter build bundle
 ```
 
-After that `flutter/examples/flutter_gallery/build/flutter_assets` would be a valid path to pass as an argument to flutter-pi.
+Then just upload the asset bundle to your Raspberry Pi. `pi@raspberrypi` is of course just an example `<username>@<hostname>` combination, your need to substitute your username and hostname there.
+```bash
+$ rsync -a --info=progress2 ./build/flutter_assets pi@raspberrypi:/home/pi/flutter_gallery_assets
+```
 
 ### Building the `app.so` (for running your app in Release/Profile mode)
-** WIP **
+This is done entirely on the host machine as well.
+
+1. First, find out the path to your flutter SDK. For me it's `C:\flutter`. (I'm on Windows)
+2. Open the commandline, `cd` into your app directory.
+```
+git clone https://github.com/flutter/gallery.git flutter_gallery
+cd flutter_gallery
+git checkout 9b11f127fb46cb08e70b2a7cdfe8eaa8de977d5f
+```
+3. Build the kernel snapshot.
+```cmd
+C:\flutter\bin\cache\dart-sdk\bin\dart.exe ^
+  C:\flutter\bin\cache\dart-sdk\bin\snapshots\frontend_server.dart.snapshot ^
+  --sdk-root C:\flutter\bin\cache\artifacts\engine\common\flutter_patched_sdk_product ^
+  --target=flutter ^
+  --aot ^
+  --tfa ^
+  -Ddart.vm.product=true ^
+  --packages .packages ^
+  --output-dill build\kernel_snapshot.dill ^
+  --verbose ^
+  --depfile build\kernel_snapshot.d ^
+  --package:gallery/main.dart
+```
+4. Build the `app.so`. This uses the `gen_snapshot_linux_x64` executable I provide in the engine-binaries branch. It needs to be executed under linux. If you're on Windows, you need to use [WSL](https://docs.microsoft.com/de-de/windows/wsl/install-win10).
+```bash
+$ git clone --branch engine-binaries https://github.com/ardera/flutter-pi ~/engine-binaries
+$ cd /path/to/your/app
+$ ~/engine-binaries/gen_snapshot_linux_x64 \
+  --causal_async_stacks \
+  --deterministic \
+  --snapshot_kind=app-aot-elf \
+  --elf=build/app.so \
+  --strip \
+  --sim_use_hardfp \
+  --no-use-integer-division \
+  build/kernel_snapshot.dill
+```
+5. Upload the asset bundle and the `app.so` to your Raspberry Pi. Flutter-pi expects the `app.so` to be located inside the asset bundle directory.
+```bash
+$ rsync -a --info=progress2 ./build/flutter_assets pi@raspberrypi:/home/pi/flutter_gallery_assets
+$ scp ./build/app.so pi@raspberrypi:/home/pi/flutter_gallery_assets/app.so
+```
+6. When starting your app, make sure you invoke flutter-pi with the `--release` flag.
 
 ### Running your App with flutter-pi
 ```txt
