@@ -111,7 +111,7 @@ C:\flutter\bin\cache\dart-sdk\bin\dart.exe ^
   --output-dill build\kernel_snapshot.dill ^
   --verbose ^
   --depfile build\kernel_snapshot.d ^
-  --package:gallery/main.dart
+  package:gallery/main.dart
 ```
 4. Build the `app.so`. This uses the `gen_snapshot_linux_x64` executable I provide in the engine-binaries branch. It needs to be executed under linux. If you're on Windows, you need to use [WSL](https://docs.microsoft.com/de-de/windows/wsl/install-win10).
 ```bash
