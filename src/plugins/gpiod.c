@@ -5,6 +5,7 @@
 #include <pthread.h>
 #include <sys/epoll.h>
 
+#include <flutter-pi.h>
 #include <pluginregistry.h>
 #include <plugins/gpiod_plugin.h>
 

@@ -132,10 +132,10 @@ SEE ALSO:\n\
 
 struct flutterpi flutterpi;
 
-static int post_platform_task(
+/*static int flutterpi_post_platform_task(
 	int (*callback)(void *userdata),
 	void *userdata
-);
+);*/
 
 static bool runs_platform_tasks_on_current_thread(void *userdata);
 
@@ -442,7 +442,7 @@ static void on_frame_request(
 		}
 
 		if (reply_instantly) {	
-			post_platform_task(
+			flutterpi_post_platform_task(
 				on_execute_frame_request,
 				NULL
 			);
@@ -480,7 +480,7 @@ static int on_execute_platform_task(
 	return 0;
 }
 
-static int post_platform_task(
+int flutterpi_post_platform_task(
 	int (*callback)(void *userdata),
 	void *userdata
 ) {
@@ -558,7 +558,7 @@ static int on_execute_platform_task_with_time(
 	return 0;
 }
 
-static int post_platform_task_with_time(
+int flutterpi_post_platform_task_with_time(
 	int (*callback)(void *userdata),
 	void *userdata,
 	uint64_t target_time_usec
@@ -621,6 +621,54 @@ static int post_platform_task_with_time(
 	return ok;
 }
 
+int flutterpi_sd_event_add_io(
+	sd_event_source **source_out,
+	int fd,
+	uint32_t events,
+	sd_event_io_handler_t callback,
+	void *userdata
+) {
+	int ok;
+
+	if (pthread_self() != flutterpi.event_loop_thread) {
+		pthread_mutex_lock(&flutterpi.event_loop_mutex);
+	}
+
+	ok = sd_event_add_io(
+		flutterpi.event_loop,
+		source_out,
+		fd,
+		events,
+		callback,
+		userdata
+	);
+	if (ok < 0) {
+		fprintf(stderr, "[flutter-pi] Could not add IO callback to event loop. sd_event_add_io: %s\n", strerror(-ok));
+		return -ok;
+	}
+
+	if (pthread_self() != flutterpi.event_loop_thread) {
+		ok = write(flutterpi.wakeup_event_loop_fd, (uint8_t[8]) {0, 0, 0, 0, 0, 0, 0, 1}, 8);
+		if (ok < 0) {
+			perror("[flutter-pi] Error arming main loop for io callback. write");
+			ok = errno;
+			goto fail_unlock_event_loop;
+		}
+	}
+
+	if (pthread_self() != flutterpi.event_loop_thread) {
+		pthread_mutex_unlock(&flutterpi.event_loop_mutex);
+	}
+
+	return 0;
+
+
+	fail_unlock_event_loop:
+	if (pthread_self() != flutterpi.event_loop_thread) {
+		pthread_mutex_unlock(&flutterpi.event_loop_mutex);
+	}
+}
+
 /// flutter tasks
 static int on_execute_flutter_task(
 	void *userdata
@@ -658,7 +706,7 @@ static void on_post_flutter_task(
 	
 	*dup_task = task;
 
-	ok = post_platform_task_with_time(
+	ok = flutterpi_post_platform_task_with_time(
 		on_execute_flutter_task,
 		dup_task,
 		target_time / 1000
@@ -762,7 +810,7 @@ int flutterpi_send_platform_message(
 			msg->message_size = 0;
 		}
 
-		ok = post_platform_task(
+		ok = flutterpi_post_platform_task(
 			on_send_platform_message,
 			msg
 		);
@@ -819,7 +867,7 @@ int flutterpi_respond_to_platform_message(
 			msg->message = 0;
 		}
 
-		ok = post_platform_task(
+		ok = flutterpi_post_platform_task(
 			on_send_platform_message,
 			msg
 		);
@@ -986,6 +1034,8 @@ static void on_pageflip_event(
 	int ok;
 
 	flutterpi.flutter.libflutter_engine.FlutterEngineTraceEventInstant("pageflip");
+
+	printf("[%12.6f] pageflip ocurred at %12.6f\n", flutterpi.flutter.libflutter_engine.FlutterEngineGetCurrentTime() / 1000000000.0, sec + usec / 1000000.0);
 
 	cqueue_lock(&flutterpi.frame_queue);
 	

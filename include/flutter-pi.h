@@ -464,6 +464,25 @@ int flutterpi_fill_view_properties(
 	int rotation
 );
 
+int flutterpi_post_platform_task(
+	int (*callback)(void *userdata),
+	void *userdata
+);
+
+int flutterpi_post_platform_task_with_time(
+	int (*callback)(void *userdata),
+	void *userdata,
+	uint64_t target_time_usec
+);
+
+int flutterpi_sd_event_add_io(
+	sd_event_source **source_out,
+	int fd,
+	uint32_t events,
+	sd_event_io_handler_t callback,
+	void *userdata
+);
+
 int flutterpi_send_platform_message(
 	const char *channel,
 	const uint8_t *restrict message,
