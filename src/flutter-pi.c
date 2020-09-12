@@ -1022,7 +1022,7 @@ static int init_main_loop(void) {
  * DISPLAY INITIALIZATION *
  **************************/
 /// Called on the main thread when a pageflip ocurred.
-static void on_pageflip_event(
+void on_pageflip_event(
 	int fd,
 	unsigned int frame,
 	unsigned int sec,
