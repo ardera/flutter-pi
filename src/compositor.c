@@ -351,6 +351,7 @@ static int rendertarget_gbm_present(
 	struct rendertarget_gbm *gbm_target;
 	struct gbm_bo *next_front_bo;
 	uint32_t next_front_fb_id;
+	bool supported;
 	int ok;
 
 	gbm_target = &target->gbm;
@@ -368,8 +369,41 @@ static int rendertarget_gbm_present(
 	drmdev_atomic_req_put_plane_property(atomic_req, drm_plane_id, "CRTC_Y", 0);
 	drmdev_atomic_req_put_plane_property(atomic_req, drm_plane_id, "CRTC_W", flutterpi.display.width);
 	drmdev_atomic_req_put_plane_property(atomic_req, drm_plane_id, "CRTC_H", flutterpi.display.height);
-	drmdev_atomic_req_put_plane_property(atomic_req, drm_plane_id, "rotation", DRM_MODE_ROTATE_0);
-	drmdev_atomic_req_put_plane_property(atomic_req, drm_plane_id, "zpos", zpos);
+
+	ok = drmdev_plane_supports_rotation_value(atomic_req->drmdev, drm_plane_id, DRM_MODE_ROTATE_0, &supported);
+	if (ok != 0) return ok;
+
+	if (supported) {
+		drmdev_atomic_req_put_plane_property(atomic_req, drm_plane_id, "rotation", DRM_MODE_ROTATE_0);
+	} else {
+		static bool printed = false;
+
+		if (!printed) {
+			fprintf(stderr,
+					"[compositor] GPU does not support reflecting the screen in Y-direction.\n"
+					"             This is required for rendering into hardware overlay planes though.\n"
+					"             Any UI that is drawn in overlay planes will look upside down.\n"
+			);
+			printed = true;
+		}
+	}
+	
+	ok = drmdev_plane_supports_zpos_value(atomic_req->drmdev, drm_plane_id, zpos, &supported);
+	if (ok != 0) return ok;
+
+	if (supported) {
+		drmdev_atomic_req_put_plane_property(atomic_req, drm_plane_id, "zpos", zpos);
+	} else {
+		static bool printed = false;
+
+		if (!printed) { 
+			fprintf(stderr,
+					"[compositor] GPU does not supported the desired HW plane order.\n"
+					"             Some UI layers may be invisible.\n"
+			);
+			printed = true;
+		}
+	}
 
 	// TODO: move this to the page flip handler.
 	// We can only be sure the buffer can be released when the buffer swap
@@ -438,6 +472,7 @@ static int rendertarget_nogbm_present(
 	int zpos
 ) {
 	struct rendertarget_nogbm *nogbm_target;
+	bool supported;
 	int ok;
 
 	nogbm_target = &target->nogbm;
@@ -456,8 +491,38 @@ static int rendertarget_nogbm_present(
 	drmdev_atomic_req_put_plane_property(req, drm_plane_id, "CRTC_Y", 0);
 	drmdev_atomic_req_put_plane_property(req, drm_plane_id, "CRTC_W", flutterpi.display.width);
 	drmdev_atomic_req_put_plane_property(req, drm_plane_id, "CRTC_H", flutterpi.display.height);
-	drmdev_atomic_req_put_plane_property(req, drm_plane_id, "rotation", DRM_MODE_ROTATE_0 | DRM_MODE_REFLECT_Y);
-	drmdev_atomic_req_put_plane_property(req, drm_plane_id, "zpos", zpos);
+	
+	ok = drmdev_plane_supports_rotation_value(req->drmdev, drm_plane_id, DRM_MODE_ROTATE_0 | DRM_MODE_REFLECT_Y, &supported);
+	if (ok != 0) return ok;
+	
+	if (supported) {
+		drmdev_atomic_req_put_plane_property(req, drm_plane_id, "rotation", DRM_MODE_ROTATE_0 | DRM_MODE_REFLECT_Y);
+	} else {
+		static bool printed = false;
+
+		if (!printed) {
+			fprintf(stderr,
+					"[compositor] GPU does not support reflecting the screen in Y-direction.\n"
+					"             This is required for rendering into hardware overlay planes though.\n"
+					"             Any UI that is drawn in overlay planes will look upside down.\n"
+			);
+			printed = true;
+		}
+	}
+	
+	if (supported) {
+		drmdev_atomic_req_put_plane_property(req, drm_plane_id, "zpos", zpos);
+	} else {
+		static bool printed = false;
+
+		if (!printed) { 
+			fprintf(stderr,
+					"[compositor] GPU does not supported the desired HW plane order.\n"
+					"             Some UI layers may be invisible.\n"
+			);
+			printed = true;
+		}
+	}
 
 	return 0;
 }
@@ -1002,8 +1067,6 @@ int compositor_remove_view_callbacks(int64_t view_id) {
 
 	return 0;
 }
-
-/// DRM HARDWARE PLANE RESERVATION
 
 /// COMPOSITOR INITIALIZATION
 int compositor_initialize(struct drmdev *drmdev) {

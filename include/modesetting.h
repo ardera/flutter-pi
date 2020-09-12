@@ -86,6 +86,20 @@ int drmdev_configure(
     const drmModeModeInfo *mode
 );
 
+int drmdev_plane_supports_rotation_value(
+    struct drmdev *drmdev,
+    uint32_t plane_id,
+    int drm_rotation,
+    bool *result
+);
+
+int drmdev_plane_supports_zpos_value(
+    struct drmdev *drmdev,
+    uint32_t plane_id,
+    int zpos,
+    bool *result
+);
+
 int drmdev_new_atomic_req(
     struct drmdev *drmdev,
     struct drmdev_atomic_req **req_out
