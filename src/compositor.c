@@ -773,14 +773,14 @@ static bool on_present_layers(
 	eglSwapBuffers(flutterpi.egl.display, flutterpi.egl.surface);
 
 	req_flags = DRM_MODE_PAGE_FLIP_EVENT | DRM_MODE_ATOMIC_NONBLOCK;
-	if ((compositor->has_applied_modeset == false) && false) {
+	if (compositor->has_applied_modeset == false) {
 		ok = drmdev_atomic_req_put_modeset_props(req, &req_flags);
 		if (ok != 0) return false;
 
 		for_each_unreserved_plane_in_atomic_req(req, plane) {
 			if (plane->type == DRM_PLANE_TYPE_CURSOR) {
 				// make sure the cursor is in front of everything
-				drmdev_atomic_req_put_plane_property(req, plane->plane->plane_id, "zpos", 2);
+				// drmdev_atomic_req_put_plane_property(req, plane->plane->plane_id, "zpos", 2);
 			}
 		}
 		
