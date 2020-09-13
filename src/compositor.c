@@ -393,7 +393,7 @@ static int rendertarget_gbm_present(
 	if (ok != 0) return ok;
 
 	if (supported) {
-		//drmdev_atomic_req_put_plane_property(atomic_req, drm_plane_id, "zpos", zpos);
+		drmdev_atomic_req_put_plane_property(atomic_req, drm_plane_id, "zpos", zpos);
 	} else {
 		static bool printed = false;
 
@@ -512,7 +512,7 @@ static int rendertarget_nogbm_present(
 	}
 	
 	if (supported) {
-		//drmdev_atomic_req_put_plane_property(req, drm_plane_id, "zpos", zpos);
+		drmdev_atomic_req_put_plane_property(req, drm_plane_id, "zpos", zpos);
 	} else {
 		static bool printed = false;
 
