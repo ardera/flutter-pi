@@ -1,3 +1,4 @@
+#include <assert.h>
 #include <stdio.h>
 #include <errno.h>
 #include <sys/mman.h>
@@ -374,7 +375,7 @@ static int rendertarget_gbm_present(
 	if (ok != 0) return ok;
 
 	if (supported) {
-		drmdev_atomic_req_put_plane_property(atomic_req, drm_plane_id, "rotation", DRM_MODE_ROTATE_0);
+		//drmdev_atomic_req_put_plane_property(atomic_req, drm_plane_id, "rotation", DRM_MODE_ROTATE_0);
 	} else {
 		static bool printed = false;
 
@@ -392,7 +393,7 @@ static int rendertarget_gbm_present(
 	if (ok != 0) return ok;
 
 	if (supported) {
-		drmdev_atomic_req_put_plane_property(atomic_req, drm_plane_id, "zpos", zpos);
+		//drmdev_atomic_req_put_plane_property(atomic_req, drm_plane_id, "zpos", zpos);
 	} else {
 		static bool printed = false;
 
@@ -496,7 +497,7 @@ static int rendertarget_nogbm_present(
 	if (ok != 0) return ok;
 	
 	if (supported) {
-		drmdev_atomic_req_put_plane_property(req, drm_plane_id, "rotation", DRM_MODE_ROTATE_0 | DRM_MODE_REFLECT_Y);
+		//drmdev_atomic_req_put_plane_property(req, drm_plane_id, "rotation", DRM_MODE_ROTATE_0 | DRM_MODE_REFLECT_Y);
 	} else {
 		static bool printed = false;
 
@@ -511,7 +512,7 @@ static int rendertarget_nogbm_present(
 	}
 	
 	if (supported) {
-		drmdev_atomic_req_put_plane_property(req, drm_plane_id, "zpos", zpos);
+		//drmdev_atomic_req_put_plane_property(req, drm_plane_id, "zpos", zpos);
 	} else {
 		static bool printed = false;
 
@@ -762,6 +763,8 @@ static bool on_present_layers(
 
 	compositor = userdata;
 
+	assert((layers_count == 1) && "The number of flutter layers must always equal 1 for this test.");
+
 	drmdev_new_atomic_req(compositor->drmdev, &req);
 
 	cpset_lock(&compositor->cbs);
@@ -770,7 +773,7 @@ static bool on_present_layers(
 	eglSwapBuffers(flutterpi.egl.display, flutterpi.egl.surface);
 
 	req_flags = DRM_MODE_PAGE_FLIP_EVENT | DRM_MODE_ATOMIC_NONBLOCK;
-	if (compositor->has_applied_modeset == false) {
+	if ((compositor->has_applied_modeset == false) && false) {
 		ok = drmdev_atomic_req_put_modeset_props(req, &req_flags);
 		if (ok != 0) return false;
 
@@ -994,8 +997,8 @@ static bool on_present_layers(
 
 	for_each_unreserved_plane_in_atomic_req(req, plane) {
 		if ((plane->type == DRM_PLANE_TYPE_PRIMARY) || (plane->type == DRM_PLANE_TYPE_OVERLAY)) {
-			drmdev_atomic_req_put_plane_property(req, plane->plane->plane_id, "FB_ID", 0);
-			drmdev_atomic_req_put_plane_property(req, plane->plane->plane_id, "CRTC_ID", 0);
+			//drmdev_atomic_req_put_plane_property(req, plane->plane->plane_id, "FB_ID", 0);
+			//drmdev_atomic_req_put_plane_property(req, plane->plane->plane_id, "CRTC_ID", 0);
 		}
 	}
 
