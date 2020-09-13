@@ -1014,8 +1014,8 @@ static bool on_present_layers(
 
 	for_each_unreserved_plane_in_atomic_req(req, plane) {
 		if ((plane->type == DRM_PLANE_TYPE_PRIMARY) || (plane->type == DRM_PLANE_TYPE_OVERLAY)) {
-			//drmdev_atomic_req_put_plane_property(req, plane->plane->plane_id, "FB_ID", 0);
-			//drmdev_atomic_req_put_plane_property(req, plane->plane->plane_id, "CRTC_ID", 0);
+			drmdev_atomic_req_put_plane_property(req, plane->plane->plane_id, "FB_ID", 0);
+			drmdev_atomic_req_put_plane_property(req, plane->plane->plane_id, "CRTC_ID", 0);
 		}
 	}
 
