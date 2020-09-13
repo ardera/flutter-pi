@@ -559,6 +559,243 @@ int drmdev_configure(
     return 0;
 }
 
+static struct drm_plane *get_plane_by_id(
+    struct drmdev *drmdev,
+    uint32_t plane_id
+) {
+    struct drm_plane *plane;
+
+    plane = NULL;
+    for (int i = 0; i < drmdev->n_planes; i++) {
+        if (drmdev->planes[i].plane->plane_id == plane_id) {
+            plane = drmdev->planes + i;
+            break;
+        }
+    }
+
+    return plane;
+}
+
+static int get_plane_property_index_by_name(
+    struct drm_plane *plane,
+    const char *property_name
+) {
+    if (plane == NULL) {
+        return -1;
+    }
+
+    int prop_index = -1; 
+    for (int i = 0; i < plane->props->count_props; i++) {
+        if (strcmp(plane->props_info[i]->name, property_name) == 0) {
+            prop_index = i;
+            break;
+        }
+    }
+
+    return prop_index;
+}
+
+int drmdev_plane_supports_setting_rotation_value(
+    struct drmdev *drmdev,
+    uint32_t plane_id,
+    int drm_rotation,
+    bool *result
+) {
+    struct drm_plane *plane = get_plane_by_id(drmdev, plane_id);
+    if (plane == NULL) {
+        return EINVAL;
+    }
+    
+    int prop_index = get_plane_property_index_by_name(plane, "rotation");
+    if (prop_index == -1) {
+        *result = false;
+        return 0;
+    }
+
+    if (plane->props_info[prop_index]->flags & DRM_MODE_PROP_IMMUTABLE) {
+        *result = false;
+        return 0;
+    }
+
+    if (!(plane->props_info[prop_index]->flags & DRM_MODE_PROP_BITMASK)) {
+        *result = false;
+        return 0;
+    }
+
+    uint64_t value = drm_rotation;
+
+    for (int i = 0; i < plane->props_info[prop_index]->count_enums; i++) {
+        value &= ~(1 << plane->props_info[prop_index]->enums[i].value);
+    }
+
+    *result = !value;
+    return 0;
+}
+
+int drmdev_plane_supports_setting_zpos_value(
+    struct drmdev *drmdev,
+    uint32_t plane_id,
+    int64_t zpos,
+    bool *result
+) {
+    struct drm_plane *plane = get_plane_by_id(drmdev, plane_id);
+    if (plane == NULL) {
+        return EINVAL;
+    }
+    
+    int prop_index = get_plane_property_index_by_name(plane, "zpos");
+    if (prop_index == -1) {
+        *result = false;
+        return 0;
+    }
+
+    if (plane->props_info[prop_index]->flags & DRM_MODE_PROP_IMMUTABLE) {
+        *result = false;
+        return 0;
+    }
+
+    if (plane->props_info[prop_index]->count_values != 2) {
+        *result = false;
+        return 0;
+    }
+
+    if (plane->props_info[prop_index]->flags & DRM_MODE_PROP_SIGNED_RANGE) {
+        int64_t min = *((int64_t*) (plane->props_info[prop_index]->values + 0));
+        int64_t max = *((int64_t*) (plane->props_info[prop_index]->values + 1));
+
+        if ((min <= zpos) && (max >= zpos)) {
+            *result = true;
+            return 0;
+        } else {
+            *result = false;
+            return 0;
+        }
+    } else if (plane->props_info[prop_index]->flags & DRM_MODE_PROP_RANGE) {
+        uint64_t min = plane->props_info[prop_index]->values[0];
+        uint64_t max = plane->props_info[prop_index]->values[1];
+
+        if ((min <= zpos) && (max >= zpos)) {
+            *result = true;
+            return 0;
+        } else {
+            *result = false;
+            return 0;
+        }
+    } else {
+        *result = false;
+        return 0;
+    }
+    
+    return 0;
+}
+
+int drmdev_plane_get_min_zpos_value(
+    struct drmdev *drmdev,
+    uint32_t plane_id,
+    int64_t *min_zpos_out
+) {
+    struct drm_plane *plane = get_plane_by_id(drmdev, plane_id);
+    if (plane == NULL) {
+        return EINVAL;
+    }
+    
+    int prop_index = get_plane_property_index_by_name(plane, "zpos");
+    if (prop_index == -1) {
+        return EINVAL;
+    }
+
+    if (plane->props_info[prop_index]->count_values != 2) {
+        return EINVAL;
+    }
+
+    if (plane->props_info[prop_index]->flags & DRM_MODE_PROP_SIGNED_RANGE) {
+        int64_t min = *((int64_t*) (plane->props_info[prop_index]->values + 0));
+        
+        *min_zpos_out = min;
+        return 0;
+    } else if (plane->props_info[prop_index]->flags & DRM_MODE_PROP_RANGE) {
+        uint64_t min = plane->props_info[prop_index]->values[0];
+
+        *min_zpos_out = (int64_t) min;
+        return 0;
+    } else {
+        return EINVAL;
+    }
+    
+    return EINVAL;
+}
+
+int drmdev_plane_get_max_zpos_value(
+    struct drmdev *drmdev,
+    uint32_t plane_id,
+    int64_t *max_zpos_out
+) {
+    struct drm_plane *plane = get_plane_by_id(drmdev, plane_id);
+    if (plane == NULL) {
+        return EINVAL;
+    }
+    
+    int prop_index = get_plane_property_index_by_name(plane, "zpos");
+    if (prop_index == -1) {
+        return EINVAL;
+    }
+
+    if (plane->props_info[prop_index]->count_values != 2) {
+        return EINVAL;
+    }
+
+    if (plane->props_info[prop_index]->flags & DRM_MODE_PROP_SIGNED_RANGE) {
+        int64_t max = *((int64_t*) (plane->props_info[prop_index]->values + 1));
+        
+        *max_zpos_out = max;
+        return 0;
+    } else if (plane->props_info[prop_index]->flags & DRM_MODE_PROP_RANGE) {
+        uint64_t max = plane->props_info[prop_index]->values[1];
+
+        *max_zpos_out = (int64_t) max;
+        return 0;
+    } else {
+        return EINVAL;
+    }
+    
+    return EINVAL;
+}
+
+int drmdev_plane_supports_setting_zpos(
+    struct drmdev *drmdev,
+    uint32_t plane_id,
+    bool *result
+) {
+    struct drm_plane *plane = get_plane_by_id(drmdev, plane_id);
+    if (plane == NULL) {
+        return EINVAL;
+    }
+    
+    int prop_index = get_plane_property_index_by_name(plane, "zpos");
+    if (prop_index == -1) {
+        *result = false;
+        return 0;
+    }
+
+    if (plane->props_info[prop_index]->count_values != 2) {
+        *result = false;
+        return 0;
+    }
+
+    if (plane->props_info[prop_index]->flags & DRM_MODE_PROP_IMMUTABLE) {
+        *result = false;
+        return 0;
+    }
+
+    if (!(plane->props_info[prop_index]->flags & (DRM_MODE_PROP_RANGE | DRM_MODE_PROP_SIGNED_RANGE))) {
+        *result = false;
+        return 0;
+    }
+
+    *result = true;
+    return 0;
+}
+
 int drmdev_new_atomic_req(
     struct drmdev *drmdev,
     struct drmdev_atomic_req **req_out
