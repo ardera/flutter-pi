@@ -370,7 +370,7 @@ static int rendertarget_gbm_present(
 	drmdev_atomic_req_put_plane_property(atomic_req, drm_plane_id, "CRTC_W", flutterpi.display.width);
 	drmdev_atomic_req_put_plane_property(atomic_req, drm_plane_id, "CRTC_H", flutterpi.display.height);
 
-	ok = drmdev_plane_supports_rotation_value(atomic_req->drmdev, drm_plane_id, DRM_MODE_ROTATE_0, &supported);
+	ok = drmdev_plane_supports_setting_rotation_value(atomic_req->drmdev, drm_plane_id, DRM_MODE_ROTATE_0, &supported);
 	if (ok != 0) return ok;
 
 	if (supported) {
@@ -388,7 +388,7 @@ static int rendertarget_gbm_present(
 		}
 	}
 	
-	ok = drmdev_plane_supports_zpos_value(atomic_req->drmdev, drm_plane_id, zpos, &supported);
+	ok = drmdev_plane_supports_setting_zpos_value(atomic_req->drmdev, drm_plane_id, zpos, &supported);
 	if (ok != 0) return ok;
 
 	if (supported) {
@@ -492,7 +492,7 @@ static int rendertarget_nogbm_present(
 	drmdev_atomic_req_put_plane_property(req, drm_plane_id, "CRTC_W", flutterpi.display.width);
 	drmdev_atomic_req_put_plane_property(req, drm_plane_id, "CRTC_H", flutterpi.display.height);
 	
-	ok = drmdev_plane_supports_rotation_value(req->drmdev, drm_plane_id, DRM_MODE_ROTATE_0 | DRM_MODE_REFLECT_Y, &supported);
+	ok = drmdev_plane_supports_setting_rotation_value(req->drmdev, drm_plane_id, DRM_MODE_ROTATE_0 | DRM_MODE_REFLECT_Y, &supported);
 	if (ok != 0) return ok;
 	
 	if (supported) {
@@ -509,6 +509,9 @@ static int rendertarget_nogbm_present(
 			printed = true;
 		}
 	}
+
+	ok = drmdev_plane_supports_setting_zpos_value(req->drmdev, drm_plane_id, zpos, &supported);
+	if (ok != 0) return ok;
 	
 	if (supported) {
 		drmdev_atomic_req_put_plane_property(req, drm_plane_id, "zpos", zpos);
@@ -774,10 +777,32 @@ static bool on_present_layers(
 		ok = drmdev_atomic_req_put_modeset_props(req, &req_flags);
 		if (ok != 0) return false;
 
+		int64_t max_zpos = 0;
+
 		for_each_unreserved_plane_in_atomic_req(req, plane) {
 			if (plane->type == DRM_PLANE_TYPE_CURSOR) {
 				// make sure the cursor is in front of everything
-				drmdev_atomic_req_put_plane_property(req, plane->plane->plane_id, "zpos", 2);
+				int64_t max_zpos;
+				bool supported;
+
+				ok = drmdev_plane_get_max_zpos_value(req->drmdev, plane->plane->plane_id, &max_zpos);
+				if (ok != 0) {
+					printf("[compositor] Could not move cursor to front. Mouse cursor may be invisible. drmdev_plane_get_max_zpos_value: %s\n", strerror(ok));
+					continue;
+				}
+				
+				ok = drmdev_plane_supports_setting_zpos_value(req->drmdev, plane->plane->plane_id, max_zpos, &supported);
+				if (ok != 0) {
+					printf("[compositor] Could not move cursor to front. Mouse cursor may be invisible. drmdev_plane_supports_setting_zpos_value: %s\n", strerror(ok));
+					continue;
+				}
+
+				if (supported) {
+					drmdev_atomic_req_put_plane_property(req, plane->plane->plane_id, "zpos", max_zpos);
+				} else {
+					printf("[compositor] Could not move cursor to front. Mouse cursor may be invisible. drmdev_plane_supports_setting_zpos_value: %s\n", strerror(ok));
+					continue;
+				}
 			}
 		}
 		
@@ -930,6 +955,17 @@ static bool on_present_layers(
 			}
 		}
 	}
+	
+	int64_t min_zpos;
+	for_each_unreserved_plane_in_atomic_req(req, plane) {
+		if (plane->type == DRM_PLANE_TYPE_PRIMARY) {
+			ok = drmdev_plane_get_min_zpos_value(req->drmdev, plane->plane->plane_id, &min_zpos);
+			if (ok != 0) {
+				min_zpos = 0;
+			}
+			break;
+		}
+	}
 
 	for (int i = 0; i < layers_count; i++) {
 		if (layers[i]->type == kFlutterLayerContentTypeBackingStore) {
@@ -964,7 +1000,7 @@ static bool on_present_layers(
 				0,
 				compositor->drmdev->selected_mode->hdisplay,
 				compositor->drmdev->selected_mode->vdisplay,
-				plane->type == DRM_PLANE_TYPE_PRIMARY ? 0 : 1
+				i + min_zpos
 			);
 			if (ok != 0) {
 				fprintf(stderr, "[compositor] Could not present backing store. rendertarget->present: %s\n", strerror(ok));
@@ -982,7 +1018,7 @@ static bool on_present_layers(
 					(int) round(layers[i]->offset.y),
 					(int) round(layers[i]->size.width),
 					(int) round(layers[i]->size.height),
-					i,
+					i + min_zpos,
 					cb_data->userdata
 				);
 				if (ok != 0) {
