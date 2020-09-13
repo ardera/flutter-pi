@@ -780,7 +780,24 @@ static bool on_present_layers(
 		for_each_unreserved_plane_in_atomic_req(req, plane) {
 			if (plane->type == DRM_PLANE_TYPE_CURSOR) {
 				// make sure the cursor is in front of everything
-				// drmdev_atomic_req_put_plane_property(req, plane->plane->plane_id, "zpos", 2);
+				bool supported;
+				ok = drmdev_plane_supports_zpos_value(req->drmdev, plane->plane->plane_id, 2, &supported);
+				if (ok != 0) {
+					fprintf("[compositor] Could not check if zpos value is supported. drmdev_plane_supports_zpos_value: %s\n", strerror(ok));
+					return ok;
+				}
+				
+				if (supported) {
+					drmdev_atomic_req_put_plane_property(req, plane->plane->plane_id, "zpos", 2);
+				} else {
+					static bool printed = false;
+
+					if (!printed) {
+						fprintf(stderr, "[compositor] Cursor plane doesn't support setting the desired zpos value.\n"
+										"  It's possible you won't be able to see your cursor.\n");
+						printed = true;
+					}
+				}
 			}
 		}
 		
