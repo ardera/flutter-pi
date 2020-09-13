@@ -375,7 +375,7 @@ static int rendertarget_gbm_present(
 	if (ok != 0) return ok;
 
 	if (supported) {
-		//drmdev_atomic_req_put_plane_property(atomic_req, drm_plane_id, "rotation", DRM_MODE_ROTATE_0);
+		drmdev_atomic_req_put_plane_property(atomic_req, drm_plane_id, "rotation", DRM_MODE_ROTATE_0);
 	} else {
 		static bool printed = false;
 
@@ -497,7 +497,7 @@ static int rendertarget_nogbm_present(
 	if (ok != 0) return ok;
 	
 	if (supported) {
-		//drmdev_atomic_req_put_plane_property(req, drm_plane_id, "rotation", DRM_MODE_ROTATE_0 | DRM_MODE_REFLECT_Y);
+		drmdev_atomic_req_put_plane_property(req, drm_plane_id, "rotation", DRM_MODE_ROTATE_0 | DRM_MODE_REFLECT_Y);
 	} else {
 		static bool printed = false;
 
