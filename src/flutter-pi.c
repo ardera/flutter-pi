@@ -1035,7 +1035,6 @@ void on_pageflip_event(
 
 	flutterpi.flutter.libflutter_engine.FlutterEngineTraceEventInstant("pageflip");
 
-	printf("[%12.6f] pageflip ocurred at %12.6f\n", flutterpi.flutter.libflutter_engine.FlutterEngineGetCurrentTime() / 1000000000.0, sec + usec / 1000000.0);
 
 	cqueue_lock(&flutterpi.frame_queue);
 	

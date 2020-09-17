@@ -1,7 +1,5 @@
 REAL_CFLAGS = -I./include $(shell pkg-config --cflags gbm libdrm glesv2 egl libsystemd libinput libudev) \
 	-DBUILD_TEXT_INPUT_PLUGIN \
-	-DBUILD_GPIOD_PLUGIN \
-	-DBUILD_SPIDEV_PLUGIN \
 	-DBUILD_TEST_PLUGIN \
 	-DBUILD_OMXPLAYER_VIDEO_PLAYER_PLUGIN \
 	-O0 -ggdb \

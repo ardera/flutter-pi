@@ -559,11 +559,9 @@ int drmdev_configure(
     return 0;
 }
 
-int drmdev_plane_supports_rotation_value(
+static struct drm_plane *get_plane_by_id(
     struct drmdev *drmdev,
-    uint32_t plane_id,
-    int drm_rotation,
-    bool *result
+    uint32_t plane_id
 ) {
     struct drm_plane *plane;
 
@@ -575,18 +573,40 @@ int drmdev_plane_supports_rotation_value(
         }
     }
 
+    return plane;
+}
+
+static int get_plane_property_index_by_name(
+    struct drm_plane *plane,
+    const char *property_name
+) {
     if (plane == NULL) {
-        return EINVAL;
+        return -1;
     }
-    
+
     int prop_index = -1; 
     for (int i = 0; i < plane->props->count_props; i++) {
-        if (strcmp(plane->props_info[i]->name, "rotation") == 0) {
+        if (strcmp(plane->props_info[i]->name, property_name) == 0) {
             prop_index = i;
             break;
         }
     }
 
+    return prop_index;
+}
+
+int drmdev_plane_supports_setting_rotation_value(
+    struct drmdev *drmdev,
+    uint32_t plane_id,
+    int drm_rotation,
+    bool *result
+) {
+    struct drm_plane *plane = get_plane_by_id(drmdev, plane_id);
+    if (plane == NULL) {
+        return EINVAL;
+    }
+    
+    int prop_index = get_plane_property_index_by_name(plane, "rotation");
     if (prop_index == -1) {
         *result = false;
         return 0;
@@ -602,59 +622,28 @@ int drmdev_plane_supports_rotation_value(
         return 0;
     }
 
-    static bool printed = false;
     uint64_t value = drm_rotation;
 
-    if (!printed) {
-        printf("supported \"rotation\" bits: ");
-    }
-
     for (int i = 0; i < plane->props_info[prop_index]->count_enums; i++) {
-        value &= ~plane->props_info[prop_index]->enums[i].value;
-        
-        if (!printed) {
-            printf("%s, ", plane->props_info[prop_index]->enums[i].name);
-        }
+        value &= ~(1 << plane->props_info[prop_index]->enums[i].value);
     }
-
-    if (!printed) {
-        printf("\n");
-        printed = true;
-    }
-
 
     *result = !value;
     return 0;
 }
 
-int drmdev_plane_supports_zpos_value(
+int drmdev_plane_supports_setting_zpos_value(
     struct drmdev *drmdev,
     uint32_t plane_id,
-    int zpos,
+    int64_t zpos,
     bool *result
 ) {
-    struct drm_plane *plane;
-
-    plane = NULL;
-    for (int i = 0; i < drmdev->n_planes; i++) {
-        if (drmdev->planes[i].plane->plane_id == plane_id) {
-            plane = drmdev->planes + i;
-            break;
-        }
-    }
-
+    struct drm_plane *plane = get_plane_by_id(drmdev, plane_id);
     if (plane == NULL) {
         return EINVAL;
     }
     
-    int prop_index = -1; 
-    for (int i = 0; i < plane->props->count_props; i++) {
-        if (strcmp(plane->props_info[i]->name, "zpos") == 0) {
-            prop_index = i;
-            break;
-        }
-    }
-
+    int prop_index = get_plane_property_index_by_name(plane, "zpos");
     if (prop_index == -1) {
         *result = false;
         return 0;
@@ -670,8 +659,6 @@ int drmdev_plane_supports_zpos_value(
         return 0;
     }
 
-    static bool printed = false;
-
     if (plane->props_info[prop_index]->flags & DRM_MODE_PROP_SIGNED_RANGE) {
         int64_t min = *((int64_t*) (plane->props_info[prop_index]->values + 0));
         int64_t max = *((int64_t*) (plane->props_info[prop_index]->values + 1));
@@ -683,19 +670,9 @@ int drmdev_plane_supports_zpos_value(
             *result = false;
             return 0;
         }
-
-        if (!printed) {
-            printf("zpos range: %lld <= zpos <= %lld\n", min, max);
-            printed = true;
-        }
     } else if (plane->props_info[prop_index]->flags & DRM_MODE_PROP_RANGE) {
         uint64_t min = plane->props_info[prop_index]->values[0];
         uint64_t max = plane->props_info[prop_index]->values[1];
-
-        if (!printed) {
-            printf("zpos range: %llu <= zpos <= %llu\n", min, max);
-            printed = true;
-        }
 
         if ((min <= zpos) && (max >= zpos)) {
             *result = true;
@@ -709,6 +686,113 @@ int drmdev_plane_supports_zpos_value(
         return 0;
     }
     
+    return 0;
+}
+
+int drmdev_plane_get_min_zpos_value(
+    struct drmdev *drmdev,
+    uint32_t plane_id,
+    int64_t *min_zpos_out
+) {
+    struct drm_plane *plane = get_plane_by_id(drmdev, plane_id);
+    if (plane == NULL) {
+        return EINVAL;
+    }
+    
+    int prop_index = get_plane_property_index_by_name(plane, "zpos");
+    if (prop_index == -1) {
+        return EINVAL;
+    }
+
+    if (plane->props_info[prop_index]->count_values != 2) {
+        return EINVAL;
+    }
+
+    if (plane->props_info[prop_index]->flags & DRM_MODE_PROP_SIGNED_RANGE) {
+        int64_t min = *((int64_t*) (plane->props_info[prop_index]->values + 0));
+        
+        *min_zpos_out = min;
+        return 0;
+    } else if (plane->props_info[prop_index]->flags & DRM_MODE_PROP_RANGE) {
+        uint64_t min = plane->props_info[prop_index]->values[0];
+
+        *min_zpos_out = (int64_t) min;
+        return 0;
+    } else {
+        return EINVAL;
+    }
+    
+    return EINVAL;
+}
+
+int drmdev_plane_get_max_zpos_value(
+    struct drmdev *drmdev,
+    uint32_t plane_id,
+    int64_t *max_zpos_out
+) {
+    struct drm_plane *plane = get_plane_by_id(drmdev, plane_id);
+    if (plane == NULL) {
+        return EINVAL;
+    }
+    
+    int prop_index = get_plane_property_index_by_name(plane, "zpos");
+    if (prop_index == -1) {
+        return EINVAL;
+    }
+
+    if (plane->props_info[prop_index]->count_values != 2) {
+        return EINVAL;
+    }
+
+    if (plane->props_info[prop_index]->flags & DRM_MODE_PROP_SIGNED_RANGE) {
+        int64_t max = *((int64_t*) (plane->props_info[prop_index]->values + 1));
+        
+        *max_zpos_out = max;
+        return 0;
+    } else if (plane->props_info[prop_index]->flags & DRM_MODE_PROP_RANGE) {
+        uint64_t max = plane->props_info[prop_index]->values[1];
+
+        *max_zpos_out = (int64_t) max;
+        return 0;
+    } else {
+        return EINVAL;
+    }
+    
+    return EINVAL;
+}
+
+int drmdev_plane_supports_setting_zpos(
+    struct drmdev *drmdev,
+    uint32_t plane_id,
+    bool *result
+) {
+    struct drm_plane *plane = get_plane_by_id(drmdev, plane_id);
+    if (plane == NULL) {
+        return EINVAL;
+    }
+    
+    int prop_index = get_plane_property_index_by_name(plane, "zpos");
+    if (prop_index == -1) {
+        *result = false;
+        return 0;
+    }
+
+    if (plane->props_info[prop_index]->count_values != 2) {
+        *result = false;
+        return 0;
+    }
+
+    if (plane->props_info[prop_index]->flags & DRM_MODE_PROP_IMMUTABLE) {
+        *result = false;
+        return 0;
+    }
+
+    if (!(plane->props_info[prop_index]->flags & (DRM_MODE_PROP_RANGE | DRM_MODE_PROP_SIGNED_RANGE))) {
+        *result = false;
+        return 0;
+    }
+
+    *result = true;
     return 0;
 }
 
@@ -763,7 +847,6 @@ int drmdev_atomic_req_put_connector_property(
     for (int i = 0; i < req->drmdev->selected_connector->props->count_props; i++) {
         drmModePropertyRes *prop = req->drmdev->selected_connector->props_info[i];
         if (strcmp(prop->name, name) == 0) {
-            printf("atomic_request %p: conn  %3d: [\"%s\"] = %llu\n", req->atomic_req, req->drmdev->selected_connector->connector->connector_id, name, value);
             ok = drmModeAtomicAddProperty(
                 req->atomic_req,
                 req->drmdev->selected_connector->connector->connector_id,
@@ -797,7 +880,6 @@ int drmdev_atomic_req_put_crtc_property(
     for (int i = 0; i < req->drmdev->selected_crtc->props->count_props; i++) {
         drmModePropertyRes *prop = req->drmdev->selected_crtc->props_info[i];
         if (strcmp(prop->name, name) == 0) {
-            printf("atomic_request %p: crtc  %3d: [\"%s\"] = %llu\n", req->atomic_req, req->drmdev->selected_crtc->crtc->crtc_id, name, value);
             ok = drmModeAtomicAddProperty(
                 req->atomic_req,
                 req->drmdev->selected_crtc->crtc->crtc_id,
@@ -850,7 +932,6 @@ int drmdev_atomic_req_put_plane_property(
         prop = plane->props_info[i];
         
         if (strcmp(prop->name, name) == 0) {
-            printf("atomic_request %p: plane %3d: [\"%s\"] = %llu\n", req->atomic_req, plane_id, name, value);
             ok = drmModeAtomicAddProperty(
                 req->atomic_req,
                 plane_id,
@@ -928,8 +1009,6 @@ int drmdev_atomic_req_commit(
     int ok;
 
     drmdev_lock(req->drmdev);
-
-    printf("committing %p%s\n", req->atomic_req, flags & DRM_MODE_ATOMIC_NONBLOCK ? " nonblocking" : "");
 
     ok = drmModeAtomicCommit(req->drmdev->fd, req->atomic_req, flags, userdata);
     if (ok < 0) {

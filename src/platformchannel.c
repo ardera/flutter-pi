@@ -959,7 +959,8 @@ int platch_encode(struct platch_obj *object, uint8_t **buffer_out, size_t *size_
 			ok = platch_write_value_to_buffer_json(&(object->json_value), &buffer_cursor);
 			if (ok != 0) goto free_buffer_and_return_ok;
 			break;
-		case kJSONMethodCall: ;
+		case kJSONMethodCall:
+		case kJSONMethodCallResponse: ;
 			size -= 1;
 			ok = platch_write_value_to_buffer_json(&jsroot, &buffer_cursor);
 			if (ok != 0) goto free_buffer_and_return_ok;
