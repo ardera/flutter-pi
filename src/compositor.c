@@ -50,6 +50,7 @@ struct compositor compositor = {
 	.has_applied_modeset = false,
 	.should_create_window_surface_backing_store = true,
 	.stale_rendertargets = CPSET_INITIALIZER(CPSET_DEFAULT_MAX_SIZE),
+	.do_blocking_atomic_commits = false
 };
 
 static struct view_cb_data *get_cbs_for_view_id_locked(int64_t view_id) {
@@ -1061,23 +1062,40 @@ static bool on_present_layers(
 	}
 
 	eglMakeCurrent(flutterpi.egl.display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+	
+	do_commit:
+	if (compositor->do_blocking_atomic_commits) {
+		req_flags &= ~(DRM_MODE_ATOMIC_NONBLOCK | DRM_MODE_PAGE_FLIP_EVENT);
+	} else {
+		req_flags |= DRM_MODE_ATOMIC_NONBLOCK | DRM_MODE_PAGE_FLIP_EVENT;
+	}
+	
+	ok = drmdev_atomic_req_commit(req, req_flags, NULL);
+	if ((compositor->do_blocking_atomic_commits == false) && (ok < 0) && (errno == EBUSY)) {
+		printf("[compositor] Non-blocking drmModeAtomicCommit failed with EBUSY.\n"
+		       "             Future drmModeAtomicCommits will be executed blockingly.\n"
+			   "             This may have have an impact on performance.\n");
 
-	drmdev_atomic_req_commit(req, req_flags, NULL);
-	uint64_t time = flutterpi.flutter.libflutter_engine.FlutterEngineGetCurrentTime();
-
-	drmdev_destroy_atomic_req(req);
-
-	cpset_unlock(&compositor->cbs);
-
-	struct simulated_page_flip_event_data *data = malloc(sizeof(struct simulated_page_flip_event_data));
-	if (data == NULL) {
-		return false;
+		compositor->do_blocking_atomic_commits = true;
+		goto do_commit;
 	}
 
-	data->sec = time / 1000000000llu;
-	data->usec = (time % 1000000000llu) / 1000;
+	if (compositor->do_blocking_atomic_commits) {
+		uint64_t time = flutterpi.flutter.libflutter_engine.FlutterEngineGetCurrentTime();
 
-	flutterpi_post_platform_task(execute_simulate_page_flip_event, data);
+		struct simulated_page_flip_event_data *data = malloc(sizeof(struct simulated_page_flip_event_data));
+		if (data == NULL) {
+			return false;
+		}
+
+		data->sec = time / 1000000000llu;
+		data->usec = (time % 1000000000llu) / 1000;
+
+		flutterpi_post_platform_task(execute_simulate_page_flip_event, data);
+	}
+
+	drmdev_destroy_atomic_req(req);
+	cpset_unlock(&compositor->cbs);
 
 	return true;
 }
