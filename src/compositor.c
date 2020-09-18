@@ -50,6 +50,7 @@ struct compositor compositor = {
 	.has_applied_modeset = false,
 	.should_create_window_surface_backing_store = true,
 	.stale_rendertargets = CPSET_INITIALIZER(CPSET_DEFAULT_MAX_SIZE),
+	.do_blocking_atomic_commits = false
 };
 
 static struct view_cb_data *get_cbs_for_view_id_locked(int64_t view_id) {
@@ -750,6 +751,31 @@ static bool on_create_backing_store(
 	return true;
 }
 
+struct simulated_page_flip_event_data {
+	unsigned int sec;
+	unsigned int usec;
+};
+
+extern void on_pageflip_event(
+	int fd,
+	unsigned int frame,
+	unsigned int sec,
+	unsigned int usec,
+	void *userdata
+);
+
+static int execute_simulate_page_flip_event(void *userdata) {
+	struct simulated_page_flip_event_data *data;
+
+	data = userdata;
+
+	on_pageflip_event(flutterpi.drm.drmdev->fd, 0, data->sec, data->usec, NULL);
+
+	free(data);
+
+	return 0;
+}
+
 /// PRESENT FUNCS
 static bool on_present_layers(
 	const FlutterLayer **layers,
@@ -772,7 +798,7 @@ static bool on_present_layers(
 	eglMakeCurrent(flutterpi.egl.display, flutterpi.egl.surface, flutterpi.egl.surface, flutterpi.egl.root_context);
 	eglSwapBuffers(flutterpi.egl.display, flutterpi.egl.surface);
 
-	req_flags = DRM_MODE_PAGE_FLIP_EVENT | DRM_MODE_ATOMIC_NONBLOCK;
+	req_flags =  0 /* DRM_MODE_PAGE_FLIP_EVENT | DRM_MODE_ATOMIC_NONBLOCK*/;
 	if (compositor->has_applied_modeset == false) {
 		ok = drmdev_atomic_req_put_modeset_props(req, &req_flags);
 		if (ok != 0) return false;
@@ -1036,11 +1062,42 @@ static bool on_present_layers(
 	}
 
 	eglMakeCurrent(flutterpi.egl.display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+	
+	do_commit:
+	if (compositor->do_blocking_atomic_commits) {
+		req_flags &= ~(DRM_MODE_ATOMIC_NONBLOCK | DRM_MODE_PAGE_FLIP_EVENT);
+	} else {
+		req_flags |= DRM_MODE_ATOMIC_NONBLOCK | DRM_MODE_PAGE_FLIP_EVENT;
+	}
+	
+	ok = drmdev_atomic_req_commit(req, req_flags, NULL);
+	if ((compositor->do_blocking_atomic_commits == false) && (ok < 0) && (errno == EBUSY)) {
+		printf("[compositor] Non-blocking drmModeAtomicCommit failed with EBUSY.\n"
+		       "             Future drmModeAtomicCommits will be executed blockingly.\n"
+			   "             This may have have an impact on performance.\n");
 
-	drmdev_atomic_req_commit(req, req_flags, NULL);
+		compositor->do_blocking_atomic_commits = true;
+		goto do_commit;
+	}
+
+	if (compositor->do_blocking_atomic_commits) {
+		uint64_t time = flutterpi.flutter.libflutter_engine.FlutterEngineGetCurrentTime();
+
+		struct simulated_page_flip_event_data *data = malloc(sizeof(struct simulated_page_flip_event_data));
+		if (data == NULL) {
+			return false;
+		}
+
+		data->sec = time / 1000000000llu;
+		data->usec = (time % 1000000000llu) / 1000;
+
+		flutterpi_post_platform_task(execute_simulate_page_flip_event, data);
+	}
+
 	drmdev_destroy_atomic_req(req);
-
 	cpset_unlock(&compositor->cbs);
+
+	return true;
 }
 
 int compositor_on_page_flip(
