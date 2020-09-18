@@ -2547,6 +2547,7 @@ static bool parse_cmd_args(int argc, char **argv) {
 				}
 
 				flutterpi.view.rotation = rotation;
+				flutterpi.view.has_rotation = true;
 				break;
 			
 			case 'd': ;
