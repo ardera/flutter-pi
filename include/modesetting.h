@@ -23,6 +23,8 @@ struct drm_crtc {
     drmModeCrtc *crtc;
     drmModeObjectProperties *props;
     drmModePropertyRes **props_info;
+    uint32_t bitmask;
+    uint8_t index;
 };
 
 struct drm_plane {
