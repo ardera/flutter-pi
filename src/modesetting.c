@@ -221,10 +221,13 @@ static int fetch_crtcs(struct drmdev *drmdev, struct drm_crtc **crtcs_out, size_
                 goto fail_free_crtcs;
             }
         }
-
+        
         crtcs[i].crtc = crtc;
         crtcs[i].props = props;
         crtcs[i].props_info = props_info;
+        
+        crtcs[i].index = i;
+        crtcs[i].bitmask = 1 << i;
     }
 
     *crtcs_out = crtcs;
@@ -820,7 +823,9 @@ int drmdev_new_atomic_req(
     req->available_planes = PSET_INITIALIZER_STATIC(req->available_planes_storage, 32);
 
     for_each_plane_in_drmdev(drmdev, plane) {
-        pset_put(&req->available_planes, plane);
+        if (plane->plane->possible_crtcs & drmdev->selected_crtc->bitmask) {
+            pset_put(&req->available_planes, plane);
+        }
     }
 
     *req_out = req;
