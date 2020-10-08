@@ -1327,10 +1327,25 @@ static int init_display(void) {
 			fprintf(stderr, "[flutter-pi] WARNING: display has non-square pixels. Non-square-pixels are not supported by flutter.\n");
 		}
 	}
-
+	
 	for_each_encoder_in_drmdev(flutterpi.drm.drmdev, encoder) {
 		if (encoder->encoder->encoder_id == connector->connector->encoder_id) {
 			break;
+		}
+	}
+	
+	if (encoder == NULL) {
+		for (int i = 0; i < connector->connector->count_encoders; i++, encoder = NULL) {
+			for_each_encoder_in_drmdev(flutterpi.drm.drmdev, encoder) {
+				if (encoder->encoder->encoder_id == connector->connector->encoders[i]) {
+					break;
+				}
+			}
+
+			if (encoder->encoder->possible_crtcs) {
+				// only use this encoder if there's a crtc we can use with it
+				break;
+			}
 		}
 	}
 
@@ -1342,6 +1357,15 @@ static int init_display(void) {
 	for_each_crtc_in_drmdev(flutterpi.drm.drmdev, crtc) {
 		if (crtc->crtc->crtc_id == encoder->encoder->crtc_id) {
 			break;
+		}
+	}
+
+	if (crtc == NULL) {
+		for_each_crtc_in_drmdev(flutterpi.drm.drmdev, crtc) {
+			if (encoder->encoder->possible_crtcs & crtc->bitmask) {
+				// find a CRTC that is possible to use with this encoder
+				break;
+			}
 		}
 	}
 
