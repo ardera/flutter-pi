@@ -598,6 +598,18 @@ static int get_plane_property_index_by_name(
     return prop_index;
 }
 
+int drmdev_plane_get_type(
+    struct drmdev *drmdev,
+    uint32_t plane_id
+) {
+    struct drm_plane *plane = get_plane_by_id(drmdev, plane_id);
+    if (plane == NULL) {
+        return -1;
+    }
+
+    return plane->type;
+}
+
 int drmdev_plane_supports_setting_rotation_value(
     struct drmdev *drmdev,
     uint32_t plane_id,
@@ -1025,4 +1037,222 @@ int drmdev_atomic_req_commit(
 
     drmdev_unlock(req->drmdev);
     return 0;
+}
+
+int drmdev_legacy_set_mode_and_fb(
+    struct drmdev *drmdev,
+    uint32_t fb_id
+) {
+    int ok;
+
+    drmdev_lock(drmdev);
+
+    ok = drmModeSetCrtc(
+        drmdev->fd,
+        drmdev->selected_crtc->crtc->crtc_id,
+        fb_id,
+        0,
+        0,
+        &drmdev->selected_connector->connector->connector_id,
+        1,
+        (drmModeModeInfoPtr) drmdev->selected_mode
+    );
+    if (ok < 0) {
+        ok = errno;
+        perror("[modesetting] Could not set CRTC mode and framebuffer. drmModeSetCrtc");
+        drmdev_unlock(drmdev);
+        return ok;
+    }
+
+    drmdev_unlock(drmdev);
+
+    return 0;
+}
+
+int drmdev_legacy_primary_plane_pageflip(
+    struct drmdev *drmdev,
+    uint32_t fb_id,
+    void *userdata
+) {
+    int ok;
+
+    drmdev_lock(drmdev);
+
+    ok = drmModePageFlip(
+        drmdev->fd,
+        drmdev->selected_crtc->crtc->crtc_id,
+        fb_id,
+        DRM_MODE_PAGE_FLIP_EVENT,
+        userdata
+    );
+    if (ok < 0) {
+        ok = errno;
+        perror("[modesetting] Could not schedule pageflip on primary plane. drmModePageFlip");
+        drmdev_unlock(drmdev);
+        return ok;
+    }
+
+    drmdev_unlock(drmdev);
+
+    return 0;
+}
+
+int drmdev_legacy_overlay_plane_pageflip(
+    struct drmdev *drmdev,
+    uint32_t plane_id,
+    uint32_t fb_id,
+    int32_t crtc_x,
+    int32_t crtc_y,
+    int32_t crtc_w,
+    int32_t crtc_h,
+    uint32_t src_x,
+    uint32_t src_y,
+    uint32_t src_w,
+    uint32_t src_h
+) {
+    int ok;
+
+    drmdev_lock(drmdev);
+
+    ok = drmModeSetPlane(
+        drmdev->fd,
+        plane_id,
+        drmdev->selected_crtc->crtc->crtc_id,
+        fb_id,
+        0,
+        crtc_x, crtc_y, crtc_w, crtc_h,
+        src_x, src_y, src_w, src_h
+    );
+    if (ok < 0) {
+        ok = errno;
+        perror("[modesetting] Could not do blocking pageflip on overlay plane. drmModeSetPlane");
+        drmdev_unlock(drmdev);
+        return ok;
+    }
+
+    drmdev_unlock(drmdev);
+
+    return 0;
+}
+
+int drmdev_legacy_set_connector_property(
+    struct drmdev *drmdev,
+    const char *name,
+    uint64_t value
+) {
+    int ok;
+
+    drmdev_lock(drmdev);
+
+    for (int i = 0; i < drmdev->selected_connector->props->count_props; i++) {
+        drmModePropertyRes *prop = drmdev->selected_connector->props_info[i];
+        if (strcmp(prop->name, name) == 0) {
+            ok = drmModeConnectorSetProperty(
+                drmdev->fd,
+                drmdev->selected_connector->connector->connector_id,
+                prop->prop_id,
+                value
+            );
+            if (ok < 0) {
+                ok = errno;
+                perror("[modesetting] Could not set connector property. drmModeConnectorSetProperty");
+                drmdev_unlock(drmdev);
+                return ok;
+            }
+
+            drmdev_unlock(drmdev);
+            return 0;
+        }
+    }
+
+    drmdev_unlock(drmdev);
+    return EINVAL;
+}
+
+int drmdev_legacy_set_crtc_property(
+    struct drmdev *drmdev,
+    const char *name,
+    uint64_t value
+) {
+    int ok;
+
+    drmdev_lock(drmdev);
+
+    for (int i = 0; i < drmdev->selected_crtc->props->count_props; i++) {
+        drmModePropertyRes *prop = drmdev->selected_crtc->props_info[i];
+        if (strcmp(prop->name, name) == 0) {
+            ok = drmModeObjectSetProperty(
+                drmdev->fd,
+                drmdev->selected_crtc->crtc->crtc_id,
+                DRM_MODE_OBJECT_CRTC,
+                prop->prop_id,
+                value
+            );
+            if (ok < 0) {
+                ok = errno;
+                perror("[modesetting] Could not set CRTC property. drmModeObjectSetProperty");
+                drmdev_unlock(drmdev);
+                return ok;
+            }
+
+            drmdev_unlock(drmdev);
+            return 0;
+        }
+    }
+
+    drmdev_unlock(drmdev);
+    return EINVAL;
+}
+
+int drmdev_legacy_set_plane_property(
+    struct drmdev *drmdev,
+    uint32_t plane_id,
+    const char *name,
+    uint64_t value
+) {
+    struct drm_plane *plane;
+    int ok;
+
+    drmdev_lock(drmdev);
+
+    plane = NULL;
+    for (int i = 0; i < drmdev->n_planes; i++) {
+        if (drmdev->planes[i].plane->plane_id == plane_id) {
+            plane = drmdev->planes + i;
+            break;
+        }
+    }
+
+    if (plane == NULL) {
+        drmdev_unlock(drmdev);
+        return EINVAL;
+    }
+
+    for (int i = 0; i < plane->props->count_props; i++) {
+        drmModePropertyRes *prop;
+        
+        prop = plane->props_info[i];
+        
+        if (strcmp(prop->name, name) == 0) {
+            ok = drmModeObjectSetProperty(
+                drmdev->fd,
+                plane_id,
+                DRM_MODE_OBJECT_PLANE,
+                prop->prop_id,
+                value
+            );
+            if (ok < 0) {
+                ok = errno;
+                perror("[modesetting] Could not set plane property. drmModeObjectSetProperty");
+                drmdev_unlock(drmdev);
+                return ok;
+            }
+            
+            drmdev_unlock(drmdev);
+            return 0;
+        }
+    }
+
+    drmdev_unlock(drmdev);
+    return EINVAL;
 }

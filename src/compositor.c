@@ -50,7 +50,8 @@ struct compositor compositor = {
 	.has_applied_modeset = false,
 	.should_create_window_surface_backing_store = true,
 	.stale_rendertargets = CPSET_INITIALIZER(CPSET_DEFAULT_MAX_SIZE),
-	.do_blocking_atomic_commits = false
+	.do_blocking_atomic_commits = false,
+	.use_atomic_modesetting = false
 };
 
 static struct view_cb_data *get_cbs_for_view_id_locked(int64_t view_id) {
@@ -417,6 +418,105 @@ static int rendertarget_gbm_present(
 	return 0;
 }
 
+static int rendertarget_gbm_present_legacy(
+	struct rendertarget *target,
+	struct drmdev *drmdev,
+	uint32_t drm_plane_id,
+	int offset_x,
+	int offset_y,
+	int width,
+	int height,
+	int zpos,
+	bool set_mode
+) {
+	struct rendertarget_gbm *gbm_target;
+	struct gbm_bo *next_front_bo;
+	uint32_t next_front_fb_id;
+	bool supported, is_primary;
+	int ok;
+
+	gbm_target = &target->gbm;
+
+	is_primary = drmdev_plane_get_type(drmdev, drm_plane_id) == DRM_PLANE_TYPE_PRIMARY;
+
+	next_front_bo = gbm_surface_lock_front_buffer(gbm_target->gbm_surface);
+	next_front_fb_id = gbm_bo_get_drm_fb_id(next_front_bo);
+
+	if (is_primary) {
+		if (set_mode) {
+			drmdev_legacy_set_mode_and_fb(
+				drmdev,
+				next_front_fb_id
+			);
+		} else {
+			drmdev_legacy_primary_plane_pageflip(
+				drmdev,
+				next_front_fb_id,
+				NULL
+			);
+		}
+	} else {
+		drmdev_legacy_overlay_plane_pageflip(
+			drmdev,
+			drm_plane_id,
+			next_front_fb_id,
+			0,
+			0,
+			flutterpi.display.width,
+			flutterpi.display.height,
+			0,
+			0,
+			((uint16_t) flutterpi.display.width) << 16,
+			((uint16_t) flutterpi.display.height) << 16
+		);
+	}
+	
+	ok = drmdev_plane_supports_setting_rotation_value(drmdev, drm_plane_id, DRM_MODE_ROTATE_0, &supported);
+	if (ok != 0) return ok;
+	
+	if (supported) {
+		drmdev_legacy_set_plane_property(drmdev, drm_plane_id, "rotation", DRM_MODE_ROTATE_0);
+	} else {
+		static bool printed = false;
+
+		if (!printed) {
+			fprintf(stderr,
+					"[compositor] GPU does not support reflecting the screen in Y-direction.\n"
+					"             This is required for rendering into hardware overlay planes though.\n"
+					"             Any UI that is drawn in overlay planes will look upside down.\n"
+			);
+			printed = true;
+		}
+	}
+
+	ok = drmdev_plane_supports_setting_zpos_value(drmdev, drm_plane_id, zpos, &supported);
+	if (ok != 0) return ok;
+	
+	if (supported) {
+		drmdev_legacy_set_plane_property(drmdev, drm_plane_id, "zpos", zpos);
+	} else {
+		static bool printed = false;
+
+		if (!printed) { 
+			fprintf(stderr,
+					"[compositor] GPU does not supported the desired HW plane order.\n"
+					"             Some UI layers may be invisible.\n"
+			);
+			printed = true;
+		}
+	}
+
+	// TODO: move this to the page flip handler.
+	// We can only be sure the buffer can be released when the buffer swap
+	// ocurred.
+	if (gbm_target->current_front_bo != NULL) {
+		gbm_surface_release_buffer(gbm_target->gbm_surface, gbm_target->current_front_bo);
+	}
+	gbm_target->current_front_bo = (struct gbm_bo *) next_front_bo;
+
+	return 0;
+}
+
 /**
  * @brief Create a type of rendertarget that is backed by a GBM Surface, used for rendering into the DRM primary plane.
  * 
@@ -447,7 +547,8 @@ static int rendertarget_gbm_new(
 		},
 		.gl_fbo_id = 0,
 		.destroy = rendertarget_gbm_destroy,
-		.present = rendertarget_gbm_present
+		.present = rendertarget_gbm_present,
+		.present_legacy = rendertarget_gbm_present_legacy
 	};
 
 	*out = target;
@@ -531,6 +632,99 @@ static int rendertarget_nogbm_present(
 	return 0;
 }
 
+static int rendertarget_nogbm_present_legacy(
+	struct rendertarget *target,
+	struct drmdev *drmdev,
+	uint32_t drm_plane_id,
+	int offset_x,
+	int offset_y,
+	int width,
+	int height,
+	int zpos,
+	bool set_mode
+) {
+	struct rendertarget_nogbm *nogbm_target;
+	uint32_t fb_id;
+	bool supported, is_primary;
+	int ok;
+
+	nogbm_target = &target->nogbm;
+
+	is_primary = drmdev_plane_get_type(drmdev, drm_plane_id) == DRM_PLANE_TYPE_PRIMARY;
+
+	nogbm_target->current_front_rbo ^= 1;
+	ok = attach_drm_rbo_to_fbo(nogbm_target->gl_fbo_id, nogbm_target->rbos + nogbm_target->current_front_rbo);
+	if (ok != 0) return ok;
+
+	fb_id = nogbm_target->rbos[nogbm_target->current_front_rbo ^ 1].drm_fb_id;
+
+	if (is_primary) {
+		if (set_mode) {
+			drmdev_legacy_set_mode_and_fb(
+				drmdev,
+				fb_id
+			);
+		} else {
+			drmdev_legacy_primary_plane_pageflip(
+				drmdev,
+				fb_id,
+				NULL
+			);
+		}
+	} else {
+		drmdev_legacy_overlay_plane_pageflip(
+			drmdev,
+			drm_plane_id,
+			fb_id,
+			0,
+			0,
+			flutterpi.display.width,
+			flutterpi.display.height,
+			0,
+			0,
+			((uint16_t) flutterpi.display.width) << 16,
+			((uint16_t) flutterpi.display.height) << 16
+		);
+	}
+	
+	ok = drmdev_plane_supports_setting_rotation_value(drmdev, drm_plane_id, DRM_MODE_ROTATE_0 | DRM_MODE_REFLECT_Y, &supported);
+	if (ok != 0) return ok;
+	
+	if (supported) {
+		drmdev_legacy_set_plane_property(drmdev, drm_plane_id, "rotation", DRM_MODE_ROTATE_0 | DRM_MODE_REFLECT_Y);
+	} else {
+		static bool printed = false;
+
+		if (!printed) {
+			fprintf(stderr,
+					"[compositor] GPU does not support reflecting the screen in Y-direction.\n"
+					"             This is required for rendering into hardware overlay planes though.\n"
+					"             Any UI that is drawn in overlay planes will look upside down.\n"
+			);
+			printed = true;
+		}
+	}
+
+	ok = drmdev_plane_supports_setting_zpos_value(drmdev, drm_plane_id, zpos, &supported);
+	if (ok != 0) return ok;
+	
+	if (supported) {
+		drmdev_legacy_set_plane_property(drmdev, drm_plane_id, "zpos", zpos);
+	} else {
+		static bool printed = false;
+
+		if (!printed) { 
+			fprintf(stderr,
+					"[compositor] GPU does not supported the desired HW plane order.\n"
+					"             Some UI layers may be invisible.\n"
+			);
+			printed = true;
+		}
+	}
+
+	return 0;
+}
+
 /**
  * @brief Create a type of rendertarget that is not backed by a GBM-Surface, used for rendering into DRM overlay planes.
  * 
@@ -557,6 +751,7 @@ static int rendertarget_nogbm_new(
 	target->compositor = compositor;
 	target->destroy = rendertarget_nogbm_destroy;
 	target->present = rendertarget_nogbm_present;
+	target->present_legacy = rendertarget_nogbm_present_legacy;
 
 	eglGetError();
 	glGetError();
@@ -784,14 +979,30 @@ static bool on_present_layers(
 ) {
 	struct drmdev_atomic_req *req;
 	struct view_cb_data *cb_data;
+	struct pointer_set planes;
 	struct compositor *compositor;
 	struct drm_plane *plane;
+	struct drmdev *drmdev;
 	uint32_t req_flags;
+	void *planes_storage[32] = {0};
+	bool legacy_rendertarget_set_mode = false;
+	bool schedule_fake_page_flip_event;
 	int ok;
 
 	compositor = userdata;
+	drmdev = compositor->drmdev;
+	schedule_fake_page_flip_event = compositor->do_blocking_atomic_commits;
 
-	drmdev_new_atomic_req(compositor->drmdev, &req);
+	if (compositor->use_atomic_modesetting) {
+		drmdev_new_atomic_req(compositor->drmdev, &req);
+	} else {
+		planes = PSET_INITIALIZER_STATIC(planes_storage, 32);
+		for_each_plane_in_drmdev(drmdev, plane) {
+			if (plane->plane->possible_crtcs & drmdev->selected_crtc->bitmask) {
+				pset_put(&planes, plane);
+			}
+		}
+	}
 
 	cpset_lock(&compositor->cbs);
 
@@ -800,34 +1011,68 @@ static bool on_present_layers(
 
 	req_flags =  0 /* DRM_MODE_PAGE_FLIP_EVENT | DRM_MODE_ATOMIC_NONBLOCK*/;
 	if (compositor->has_applied_modeset == false) {
-		ok = drmdev_atomic_req_put_modeset_props(req, &req_flags);
-		if (ok != 0) return false;
+		if (compositor->use_atomic_modesetting) {
+			ok = drmdev_atomic_req_put_modeset_props(req, &req_flags);
+			if (ok != 0) return false;
+		} else {
+			legacy_rendertarget_set_mode = true;
+			schedule_fake_page_flip_event = true;
+		}
 
 		int64_t max_zpos = 0;
 
-		for_each_unreserved_plane_in_atomic_req(req, plane) {
-			if (plane->type == DRM_PLANE_TYPE_CURSOR) {
-				// make sure the cursor is in front of everything
-				int64_t max_zpos;
-				bool supported;
+		if (compositor->use_atomic_modesetting) {
+			for_each_unreserved_plane_in_atomic_req(req, plane) {
+				if (plane->type == DRM_PLANE_TYPE_CURSOR) {
+					// make sure the cursor is in front of everything
+					int64_t max_zpos;
+					bool supported;
 
-				ok = drmdev_plane_get_max_zpos_value(req->drmdev, plane->plane->plane_id, &max_zpos);
-				if (ok != 0) {
-					printf("[compositor] Could not move cursor to front. Mouse cursor may be invisible. drmdev_plane_get_max_zpos_value: %s\n", strerror(ok));
-					continue;
-				}
-				
-				ok = drmdev_plane_supports_setting_zpos_value(req->drmdev, plane->plane->plane_id, max_zpos, &supported);
-				if (ok != 0) {
-					printf("[compositor] Could not move cursor to front. Mouse cursor may be invisible. drmdev_plane_supports_setting_zpos_value: %s\n", strerror(ok));
-					continue;
-				}
+					ok = drmdev_plane_get_max_zpos_value(req->drmdev, plane->plane->plane_id, &max_zpos);
+					if (ok != 0) {
+						printf("[compositor] Could not move cursor to front. Mouse cursor may be invisible. drmdev_plane_get_max_zpos_value: %s\n", strerror(ok));
+						continue;
+					}
+					
+					ok = drmdev_plane_supports_setting_zpos_value(req->drmdev, plane->plane->plane_id, max_zpos, &supported);
+					if (ok != 0) {
+						printf("[compositor] Could not move cursor to front. Mouse cursor may be invisible. drmdev_plane_supports_setting_zpos_value: %s\n", strerror(ok));
+						continue;
+					}
 
-				if (supported) {
-					drmdev_atomic_req_put_plane_property(req, plane->plane->plane_id, "zpos", max_zpos);
-				} else {
-					printf("[compositor] Could not move cursor to front. Mouse cursor may be invisible. drmdev_plane_supports_setting_zpos_value: %s\n", strerror(ok));
-					continue;
+					if (supported) {
+						drmdev_atomic_req_put_plane_property(req, plane->plane->plane_id, "zpos", max_zpos);
+					} else {
+						printf("[compositor] Could not move cursor to front. Mouse cursor may be invisible. drmdev_plane_supports_setting_zpos_value: %s\n", strerror(ok));
+						continue;
+					}
+				}
+			}
+		} else {
+			for_each_pointer_in_pset(&planes, plane) {
+				if (plane->type == DRM_PLANE_TYPE_CURSOR) {
+					// make sure the cursor is in front of everything
+					int64_t max_zpos;
+					bool supported;
+
+					ok = drmdev_plane_get_max_zpos_value(drmdev, plane->plane->plane_id, &max_zpos);
+					if (ok != 0) {
+						printf("[compositor] Could not move cursor to front. Mouse cursor may be invisible. drmdev_plane_get_max_zpos_value: %s\n", strerror(ok));
+						continue;
+					}
+					
+					ok = drmdev_plane_supports_setting_zpos_value(drmdev, plane->plane->plane_id, max_zpos, &supported);
+					if (ok != 0) {
+						printf("[compositor] Could not move cursor to front. Mouse cursor may be invisible. drmdev_plane_supports_setting_zpos_value: %s\n", strerror(ok));
+						continue;
+					}
+
+					if (supported) {
+						drmdev_legacy_set_plane_property(drmdev, plane->plane->plane_id, "zpos", max_zpos);
+					} else {
+						printf("[compositor] Could not move cursor to front. Mouse cursor may be invisible. drmdev_plane_supports_setting_zpos_value: %s\n", strerror(ok));
+						continue;
+					}
 				}
 			}
 		}
@@ -983,31 +1228,56 @@ static bool on_present_layers(
 	}
 	
 	int64_t min_zpos;
-	for_each_unreserved_plane_in_atomic_req(req, plane) {
-		if (plane->type == DRM_PLANE_TYPE_PRIMARY) {
-			ok = drmdev_plane_get_min_zpos_value(req->drmdev, plane->plane->plane_id, &min_zpos);
-			if (ok != 0) {
-				min_zpos = 0;
+	if (compositor->use_atomic_modesetting) {
+		for_each_unreserved_plane_in_atomic_req(req, plane) {
+			if (plane->type == DRM_PLANE_TYPE_PRIMARY) {
+				ok = drmdev_plane_get_min_zpos_value(req->drmdev, plane->plane->plane_id, &min_zpos);
+				if (ok != 0) {
+					min_zpos = 0;
+				}
+				break;
 			}
-			break;
+		}
+	} else {
+		for_each_pointer_in_pset(&planes, plane) {
+			if (plane->type == DRM_PLANE_TYPE_PRIMARY) {
+				ok = drmdev_plane_get_min_zpos_value(drmdev, plane->plane->plane_id, &min_zpos);
+				if (ok != 0) {
+					min_zpos = 0;
+				}
+				break;
+			}
 		}
 	}
 
 	for (int i = 0; i < layers_count; i++) {
 		if (layers[i]->type == kFlutterLayerContentTypeBackingStore) {
-			for_each_unreserved_plane_in_atomic_req(req, plane) {
-				// choose a plane which has an "intrinsic" zpos that matches
-				// the zpos we want the plane to have.
-				// (Since planes are buggy and we can't rely on the zpos we explicitly
-				// configure the plane to have to be actually applied to the hardware.
-				// In short, assigning a different value to the zpos property won't always
-				// take effect.)
-				if ((i == 0) && (plane->type == DRM_PLANE_TYPE_PRIMARY)) {
-					drmdev_atomic_req_reserve_plane(req, plane);
-					break;
-				} else if ((i != 0) && (plane->type == DRM_PLANE_TYPE_OVERLAY)) {
-					drmdev_atomic_req_reserve_plane(req, plane);
-					break;
+			if (compositor->use_atomic_modesetting) {
+				for_each_unreserved_plane_in_atomic_req(req, plane) {
+					// choose a plane which has an "intrinsic" zpos that matches
+					// the zpos we want the plane to have.
+					// (Since planes are buggy and we can't rely on the zpos we explicitly
+					// configure the plane to have to be actually applied to the hardware.
+					// In short, assigning a different value to the zpos property won't always
+					// take effect.)
+					if ((i == 0) && (plane->type == DRM_PLANE_TYPE_PRIMARY)) {
+						ok = drmdev_atomic_req_reserve_plane(req, plane);
+						break;
+					} else if ((i != 0) && (plane->type == DRM_PLANE_TYPE_OVERLAY)) {
+						ok = drmdev_atomic_req_reserve_plane(req, plane);
+						break;
+					}
+				}
+			} else {
+				for_each_pointer_in_pset(&planes, plane) {
+					if ((i == 0) && (plane->type == DRM_PLANE_TYPE_PRIMARY)) {
+						break;
+					} else if ((i != 0) && (plane->type == DRM_PLANE_TYPE_OVERLAY)) {
+						break;
+					}
+				}
+				if (plane != NULL) {
+					pset_remove(&planes, plane);
 				}
 			}
 			if (plane == NULL) {
@@ -1018,18 +1288,32 @@ static bool on_present_layers(
 			struct flutterpi_backing_store *store = layers[i]->backing_store->user_data;
 			struct rendertarget *target = store->target;
 
-			ok = target->present(
-				target,
-				req,
-				plane->plane->plane_id,
-				0,
-				0,
-				compositor->drmdev->selected_mode->hdisplay,
-				compositor->drmdev->selected_mode->vdisplay,
-				i + min_zpos
-			);
-			if (ok != 0) {
-				fprintf(stderr, "[compositor] Could not present backing store. rendertarget->present: %s\n", strerror(ok));
+			if (compositor->use_atomic_modesetting) {
+				ok = target->present(
+					target,
+					req,
+					plane->plane->plane_id,
+					0,
+					0,
+					compositor->drmdev->selected_mode->hdisplay,
+					compositor->drmdev->selected_mode->vdisplay,
+					i + min_zpos
+				);
+				if (ok != 0) {
+					fprintf(stderr, "[compositor] Could not present backing store. rendertarget->present: %s\n", strerror(ok));
+				}
+			} else {
+				ok = target->present_legacy(
+					target,
+					drmdev,
+					plane->plane->plane_id,
+					0,
+					0,
+					compositor->drmdev->selected_mode->hdisplay,
+					compositor->drmdev->selected_mode->vdisplay,
+					i + min_zpos,
+					legacy_rendertarget_set_mode && (plane->type == DRM_PLANE_TYPE_PRIMARY)
+				);
 			}
 		} else if (layers[i]->type == kFlutterLayerContentTypePlatformView) {
 			cb_data = get_cbs_for_view_id_locked(layers[i]->platform_view->identifier);
@@ -1054,33 +1338,40 @@ static bool on_present_layers(
 		}
 	}
 
-	for_each_unreserved_plane_in_atomic_req(req, plane) {
-		if ((plane->type == DRM_PLANE_TYPE_PRIMARY) || (plane->type == DRM_PLANE_TYPE_OVERLAY)) {
-			drmdev_atomic_req_put_plane_property(req, plane->plane->plane_id, "FB_ID", 0);
-			drmdev_atomic_req_put_plane_property(req, plane->plane->plane_id, "CRTC_ID", 0);
+	if (compositor->use_atomic_modesetting) {
+		for_each_unreserved_plane_in_atomic_req(req, plane) {
+			if ((plane->type == DRM_PLANE_TYPE_PRIMARY) || (plane->type == DRM_PLANE_TYPE_OVERLAY)) {
+				drmdev_atomic_req_put_plane_property(req, plane->plane->plane_id, "FB_ID", 0);
+				drmdev_atomic_req_put_plane_property(req, plane->plane->plane_id, "CRTC_ID", 0);
+			}
 		}
 	}
 
 	eglMakeCurrent(flutterpi.egl.display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
 	
-	do_commit:
-	if (compositor->do_blocking_atomic_commits) {
-		req_flags &= ~(DRM_MODE_ATOMIC_NONBLOCK | DRM_MODE_PAGE_FLIP_EVENT);
-	} else {
-		req_flags |= DRM_MODE_ATOMIC_NONBLOCK | DRM_MODE_PAGE_FLIP_EVENT;
-	}
-	
-	ok = drmdev_atomic_req_commit(req, req_flags, NULL);
-	if ((compositor->do_blocking_atomic_commits == false) && (ok < 0) && (errno == EBUSY)) {
-		printf("[compositor] Non-blocking drmModeAtomicCommit failed with EBUSY.\n"
-		       "             Future drmModeAtomicCommits will be executed blockingly.\n"
-			   "             This may have have an impact on performance.\n");
+	if (compositor->use_atomic_modesetting) {
+		do_commit:
+		if (compositor->do_blocking_atomic_commits) {
+			req_flags &= ~(DRM_MODE_ATOMIC_NONBLOCK | DRM_MODE_PAGE_FLIP_EVENT);
+		} else {
+			req_flags |= DRM_MODE_ATOMIC_NONBLOCK | DRM_MODE_PAGE_FLIP_EVENT;
+		}
+		
+		ok = drmdev_atomic_req_commit(req, req_flags, NULL);
+		if ((compositor->do_blocking_atomic_commits == false) && (ok < 0) && (errno == EBUSY)) {
+			printf("[compositor] Non-blocking drmModeAtomicCommit failed with EBUSY.\n"
+				"             Future drmModeAtomicCommits will be executed blockingly.\n"
+				"             This may have have an impact on performance.\n");
 
-		compositor->do_blocking_atomic_commits = true;
-		goto do_commit;
+			compositor->do_blocking_atomic_commits = true;
+			schedule_fake_page_flip_event = true;
+			goto do_commit;
+		}
+
+		drmdev_destroy_atomic_req(req);	
 	}
 
-	if (compositor->do_blocking_atomic_commits) {
+	if (schedule_fake_page_flip_event) {
 		uint64_t time = flutterpi.flutter.libflutter_engine.FlutterEngineGetCurrentTime();
 
 		struct simulated_page_flip_event_data *data = malloc(sizeof(struct simulated_page_flip_event_data));
@@ -1094,7 +1385,6 @@ static bool on_present_layers(
 		flutterpi_post_platform_task(execute_simulate_page_flip_event, data);
 	}
 
-	drmdev_destroy_atomic_req(req);
 	cpset_unlock(&compositor->cbs);
 
 	return true;

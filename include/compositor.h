@@ -126,6 +126,12 @@ struct compositor {
      * like usual.
      */
     bool do_blocking_atomic_commits;
+
+    /**
+     * @brief Whether atomic modesetting should be used.
+     * If `false`, legacy modesetting is used.
+     */
+    bool use_atomic_modesetting;
 };
 
 /*
@@ -220,6 +226,17 @@ struct rendertarget {
         int width,
         int height,
         int zpos
+    );
+    int (*present_legacy)(
+        struct rendertarget *target,
+        struct drmdev *drmdev,
+        uint32_t drm_plane_id,
+        int offset_x,
+        int offset_y,
+        int width,
+        int height,
+        int zpos,
+        bool set_mode
     );
 };
 
