@@ -50,8 +50,7 @@ struct compositor compositor = {
 	.has_applied_modeset = false,
 	.should_create_window_surface_backing_store = true,
 	.stale_rendertargets = CPSET_INITIALIZER(CPSET_DEFAULT_MAX_SIZE),
-	.do_blocking_atomic_commits = false,
-	.use_atomic_modesetting = false
+	.do_blocking_atomic_commits = false
 };
 
 static struct view_cb_data *get_cbs_for_view_id_locked(int64_t view_id) {
@@ -471,41 +470,6 @@ static int rendertarget_gbm_present_legacy(
 		);
 	}
 	
-	ok = drmdev_plane_supports_setting_rotation_value(drmdev, drm_plane_id, DRM_MODE_ROTATE_0, &supported);
-	if (ok != 0) return ok;
-	
-	if (supported) {
-		drmdev_legacy_set_plane_property(drmdev, drm_plane_id, "rotation", DRM_MODE_ROTATE_0);
-	} else {
-		static bool printed = false;
-
-		if (!printed) {
-			fprintf(stderr,
-					"[compositor] GPU does not support reflecting the screen in Y-direction.\n"
-					"             This is required for rendering into hardware overlay planes though.\n"
-					"             Any UI that is drawn in overlay planes will look upside down.\n"
-			);
-			printed = true;
-		}
-	}
-
-	ok = drmdev_plane_supports_setting_zpos_value(drmdev, drm_plane_id, zpos, &supported);
-	if (ok != 0) return ok;
-	
-	if (supported) {
-		drmdev_legacy_set_plane_property(drmdev, drm_plane_id, "zpos", zpos);
-	} else {
-		static bool printed = false;
-
-		if (!printed) { 
-			fprintf(stderr,
-					"[compositor] GPU does not supported the desired HW plane order.\n"
-					"             Some UI layers may be invisible.\n"
-			);
-			printed = true;
-		}
-	}
-
 	// TODO: move this to the page flip handler.
 	// We can only be sure the buffer can be released when the buffer swap
 	// ocurred.
@@ -987,13 +951,15 @@ static bool on_present_layers(
 	void *planes_storage[32] = {0};
 	bool legacy_rendertarget_set_mode = false;
 	bool schedule_fake_page_flip_event;
+	bool use_atomic_modesetting;
 	int ok;
 
 	compositor = userdata;
 	drmdev = compositor->drmdev;
 	schedule_fake_page_flip_event = compositor->do_blocking_atomic_commits;
+	use_atomic_modesetting = drmdev->supports_atomic_modesetting;
 
-	if (compositor->use_atomic_modesetting) {
+	if (use_atomic_modesetting) {
 		drmdev_new_atomic_req(compositor->drmdev, &req);
 	} else {
 		planes = PSET_INITIALIZER_STATIC(planes_storage, 32);
@@ -1011,7 +977,7 @@ static bool on_present_layers(
 
 	req_flags =  0 /* DRM_MODE_PAGE_FLIP_EVENT | DRM_MODE_ATOMIC_NONBLOCK*/;
 	if (compositor->has_applied_modeset == false) {
-		if (compositor->use_atomic_modesetting) {
+		if (use_atomic_modesetting) {
 			ok = drmdev_atomic_req_put_modeset_props(req, &req_flags);
 			if (ok != 0) return false;
 		} else {
@@ -1021,7 +987,7 @@ static bool on_present_layers(
 
 		int64_t max_zpos = 0;
 
-		if (compositor->use_atomic_modesetting) {
+		if (use_atomic_modesetting) {
 			for_each_unreserved_plane_in_atomic_req(req, plane) {
 				if (plane->type == DRM_PLANE_TYPE_CURSOR) {
 					// make sure the cursor is in front of everything
@@ -1228,7 +1194,7 @@ static bool on_present_layers(
 	}
 	
 	int64_t min_zpos;
-	if (compositor->use_atomic_modesetting) {
+	if (use_atomic_modesetting) {
 		for_each_unreserved_plane_in_atomic_req(req, plane) {
 			if (plane->type == DRM_PLANE_TYPE_PRIMARY) {
 				ok = drmdev_plane_get_min_zpos_value(req->drmdev, plane->plane->plane_id, &min_zpos);
@@ -1252,7 +1218,7 @@ static bool on_present_layers(
 
 	for (int i = 0; i < layers_count; i++) {
 		if (layers[i]->type == kFlutterLayerContentTypeBackingStore) {
-			if (compositor->use_atomic_modesetting) {
+			if (use_atomic_modesetting) {
 				for_each_unreserved_plane_in_atomic_req(req, plane) {
 					// choose a plane which has an "intrinsic" zpos that matches
 					// the zpos we want the plane to have.
@@ -1288,7 +1254,7 @@ static bool on_present_layers(
 			struct flutterpi_backing_store *store = layers[i]->backing_store->user_data;
 			struct rendertarget *target = store->target;
 
-			if (compositor->use_atomic_modesetting) {
+			if (use_atomic_modesetting) {
 				ok = target->present(
 					target,
 					req,
@@ -1338,7 +1304,7 @@ static bool on_present_layers(
 		}
 	}
 
-	if (compositor->use_atomic_modesetting) {
+	if (use_atomic_modesetting) {
 		for_each_unreserved_plane_in_atomic_req(req, plane) {
 			if ((plane->type == DRM_PLANE_TYPE_PRIMARY) || (plane->type == DRM_PLANE_TYPE_OVERLAY)) {
 				drmdev_atomic_req_put_plane_property(req, plane->plane->plane_id, "FB_ID", 0);
@@ -1349,7 +1315,7 @@ static bool on_present_layers(
 
 	eglMakeCurrent(flutterpi.egl.display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
 	
-	if (compositor->use_atomic_modesetting) {
+	if (use_atomic_modesetting) {
 		do_commit:
 		if (compositor->do_blocking_atomic_commits) {
 			req_flags &= ~(DRM_MODE_ATOMIC_NONBLOCK | DRM_MODE_PAGE_FLIP_EVENT);

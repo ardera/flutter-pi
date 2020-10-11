@@ -126,12 +126,6 @@ struct compositor {
      * like usual.
      */
     bool do_blocking_atomic_commits;
-
-    /**
-     * @brief Whether atomic modesetting should be used.
-     * If `false`, legacy modesetting is used.
-     */
-    bool use_atomic_modesetting;
 };
 
 /*

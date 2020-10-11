@@ -1035,8 +1035,6 @@ void on_pageflip_event(
 
 	flutterpi.flutter.libflutter_engine.FlutterEngineTraceEventInstant("pageflip");
 
-	printf("on page flip event\n");
-
 	cqueue_lock(&flutterpi.frame_queue);
 	
 	ok = cqueue_try_dequeue_locked(&flutterpi.frame_queue, &presented_frame);

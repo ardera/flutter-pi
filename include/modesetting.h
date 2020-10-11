@@ -38,6 +38,7 @@ struct drmdev {
     int fd;
 
     pthread_mutex_t mutex;
+    bool supports_atomic_modesetting;
 
     size_t n_connectors;
     struct drm_connector *connectors;

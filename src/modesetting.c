@@ -396,10 +396,14 @@ int drmdev_new_from_fd(
     }
     
     ok = drmSetClientCap(drmdev->fd, DRM_CLIENT_CAP_ATOMIC, 1);
-    if (ok < 0) {
+    if ((ok < 0) && (errno == EOPNOTSUPP)) {
+        drmdev->supports_atomic_modesetting = false;
+    } else if (ok < 0) {
         ok = errno;
         perror("[modesetting] Could not set DRM client atomic capable. drmSetClientCap");
         goto fail_free_drmdev;
+    } else {
+        drmdev->supports_atomic_modesetting = true;
     }
 
     drmdev->res = drmModeGetResources(drmdev->fd);
@@ -818,6 +822,10 @@ int drmdev_new_atomic_req(
     struct drmdev_atomic_req *req;
     struct drm_plane *plane;
     int ok;
+
+    if (drmdev->supports_atomic_modesetting == false) {
+        return EOPNOTSUPP;
+    }
 
     req = calloc(1, sizeof *req);
     if (req == NULL) {
