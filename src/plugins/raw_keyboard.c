@@ -7,36 +7,80 @@
 #include <flutter-pi.h>
 #include <pluginregistry.h>
 #include <console_keyboard.h>
+#include <keyboard.h>
 
 #include <plugins/raw_keyboard.h>
 
-static struct {
-    // same as mods, just that it differentiates between left and right-sided modifiers.
-    uint16_t leftright_mods;
-    glfw_keymod_map mods;
-    bool initialized;
-} raw_keyboard = {0};
-
-static int send_glfw_keyevent(uint32_t code_point, glfw_key key_code, uint32_t scan_code, glfw_keymod_map mods, bool is_down) {
+int rawkb_send_android_keyevent(
+    uint32_t flags,
+    uint32_t code_point,
+    unsigned int key_code,
+    uint32_t plain_code_point,
+    uint32_t scan_code,
+    uint32_t meta_state,
+    uint32_t source,
+    uint16_t vendor_id,
+    uint16_t product_id,
+    uint16_t device_id,
+    int repeat_count,
+    bool is_down,
+    char *character
+) {
+    /**
+     * keymap: android
+     * flags: flags
+     * codePoint: code_point
+     * keyCode: key_code
+     * plainCodePoint: plain_code_point
+     * scanCode: scan_code
+     * metaState: meta_state
+     * source: source
+     * vendorId: vendor_id
+     * productId: product_id
+     * deviceId: device_id
+     * repeatCount: repeatCount,
+     * type: is_down? "keydown" : "keyup"
+     * character: character
+     */
+    
     return platch_send(
         KEY_EVENT_CHANNEL,
         &(struct platch_obj) {
             .codec = kJSONMessageCodec,
             .json_value = {
                 .type = kJsonObject,
-                .size = 7,
-                .keys = (char*[7]) {
-                    "keymap", "toolkit", "unicodeScalarValues", "keyCode", "scanCode",
-                    "modifiers", "type"
+                .size = 14,
+                .keys = (char*[14]) {
+                    "keymap",
+                    "flags",
+                    "codePoint",
+                    "keyCode",
+                    "plainCodePoint",
+                    "scanCode",
+                    "metaState",
+                    "source",
+                    "vendorId",
+                    "productId",
+                    "deviceId",
+                    "repeatCount",
+                    "type",
+                    "character"
                 },
-                .values = (struct json_value[7]) {
-                    {.type = kJsonString, .string_value = "linux"},
-                    {.type = kJsonString, .string_value = "glfw"},
-                    {.type = kJsonNumber, .number_value = code_point},
-                    {.type = kJsonNumber, .number_value = key_code},
-                    {.type = kJsonNumber, .number_value = scan_code},
-                    {.type = kJsonNumber, .number_value = mods},
-                    {.type = kJsonString, .string_value = is_down? "keydown" : "keyup"}
+                .values = (struct json_value[14]) {
+                    /* keymap */            {.type = kJsonString, .string_value = "android"},
+                    /* flags */             {.type = kJsonNumber, .number_value = flags},
+                    /* codePoint */         {.type = kJsonNumber, .number_value = code_point},
+                    /* keyCode */           {.type = kJsonNumber, .number_value = key_code},
+                    /* plainCodePoint */    {.type = kJsonNumber, .number_value = code_point},
+                    /* scanCode */          {.type = kJsonNumber, .number_value = scan_code},
+                    /* metaState */         {.type = kJsonNumber, .number_value = meta_state},
+                    /* source */            {.type = kJsonNumber, .number_value = source},
+                    /* vendorId */          {.type = kJsonNumber, .number_value = vendor_id},
+                    /* productId */         {.type = kJsonNumber, .number_value = product_id},
+                    /* deviceId */          {.type = kJsonNumber, .number_value = device_id},
+                    /* repeatCount */       {.type = kJsonNumber, .number_value = repeat_count},
+                    /* type */              {.type = kJsonString, .string_value = is_down? "keydown" : "keyup"},
+                    /* character */         {.type = character? kJsonString : kJsonNull, .string_value = character}
                 }
             }
         },
@@ -46,88 +90,60 @@ static int send_glfw_keyevent(uint32_t code_point, glfw_key key_code, uint32_t s
     );
 }
 
-int rawkb_on_keyevent(glfw_key key, uint32_t scan_code, glfw_key_action action) {
-    glfw_keymod_map mods_after = raw_keyboard.mods;
-    uint16_t        lrmods_after = raw_keyboard.leftright_mods;
-    glfw_keymod     mod;
-    bool send;
+int rawkb_send_gtk_keyevent(
+    uint32_t unicode_scalar_values,
+    uint32_t key_code,
+    uint32_t scan_code,
+    uint32_t modifiers,
+    bool is_down
+) {
+    /**
+     * keymap: linux
+     * toolkit: glfw
+     * unicodeScalarValues: code_point
+     * keyCode: key_code
+     * scanCode: scan_code
+     * modifiers: mods
+     * type: is_down? "keydown" : "keyup"
+     */
 
-    if (!raw_keyboard.initialized) return 0;
-
-    // flutter's glfw key adapter does not distinguish between left- and right-sided modifier keys.
-    // so we implicitly combine the state of left and right-sided keys
-    mod = GLFW_KEYMOD_FOR_KEY(key);
-    send = !mod;
-
-    if (mod && ((action == GLFW_PRESS) || (action == GLFW_RELEASE))) {
-        lrmods_after = raw_keyboard.leftright_mods;
-        
-        switch (mod) {
-            case GLFW_MOD_SHIFT:
-            case GLFW_MOD_CONTROL:
-            case GLFW_MOD_ALT:
-            case GLFW_MOD_SUPER: ;
-                uint16_t sided_mod = mod;
-
-                if (GLFW_KEY_IS_RIGHTSIDED(key))
-                    sided_mod = sided_mod << 8;
-
-                if (action == GLFW_PRESS) {
-                    lrmods_after |= sided_mod;
-                } else if (action == GLFW_RELEASE) {
-                    lrmods_after &= ~sided_mod;
+    return platch_send(
+        KEY_EVENT_CHANNEL,
+        &(struct platch_obj) {
+            .codec = kJSONMessageCodec,
+            .json_value = {
+                .type = kJsonObject,
+                .size = 7,
+                .keys = (char*[7]) {
+                    "keymap",
+                    "toolkit",
+                    "unicodeScalarValues",
+                    "keyCode",
+                    "scanCode",
+                    "modifiers",
+                    "type"
+                },
+                .values = (struct json_value[7]) {
+                    /* keymap */                {.type = kJsonString, .string_value = "linux"},
+                    /* toolkit */               {.type = kJsonString, .string_value = "gtk"},
+                    /* unicodeScalarValues */   {.type = kJsonNumber, .number_value = unicode_scalar_values},
+                    /* keyCode */               {.type = kJsonNumber, .number_value = key_code},
+                    /* scanCode */              {.type = kJsonNumber, .number_value = scan_code},
+                    /* modifiers */             {.type = kJsonNumber, .number_value = modifiers},
+                    /* type */                  {.type = kJsonString, .string_value = is_down? "keydown" : "keyup"}
                 }
-                break;
-            case GLFW_MOD_CAPS_LOCK:
-            case GLFW_MOD_NUM_LOCK:
-                if (action == GLFW_PRESS)
-                    lrmods_after ^= mod;
-                break;
-            default:
-                break;
-        }
-
-        mods_after = lrmods_after | (lrmods_after >> 8);
-        if (mods_after != raw_keyboard.mods)
-            send = true;
-    }
-
-    switch (key) {
-        case GLFW_KEY_RIGHT_SHIFT:
-            key = GLFW_KEY_LEFT_SHIFT;
-            break;
-        case GLFW_KEY_RIGHT_CONTROL:
-            key = GLFW_KEY_LEFT_CONTROL;
-            break;
-        case GLFW_KEY_RIGHT_ALT:
-            key = GLFW_KEY_LEFT_ALT;
-            break;
-        case GLFW_KEY_RIGHT_SUPER:
-            key = GLFW_KEY_LEFT_SUPER;
-            break;
-        default: break;
-    }
-
-    if (send) {
-        send_glfw_keyevent(0, key, scan_code, raw_keyboard.mods, action != GLFW_RELEASE);
-    }
-
-    raw_keyboard.leftright_mods = lrmods_after;
-    raw_keyboard.mods = mods_after;
-
-    return 0;
+            }
+        },
+        kJSONMessageCodec,
+        NULL,
+        NULL
+    );
 }
 
 int rawkb_init(void) {
-    raw_keyboard.leftright_mods = 0;
-    raw_keyboard.mods = 0;
-    raw_keyboard.initialized = true;
-    
     return 0;
 }
 
 int rawkb_deinit(void) {
-    raw_keyboard.initialized = false;
-
     return 0;
 }
