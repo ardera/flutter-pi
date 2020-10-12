@@ -539,21 +539,24 @@ int drmdev_configure(
         return EINVAL;
     }
 
-    ok = drmModeCreatePropertyBlob(drmdev->fd, mode, sizeof(*mode), &mode_id);
-    if (ok < 0) {
-        perror("[modesetting] Could not create property blob for DRM mode. drmModeCreatePropertyBlob");
-        drmdev_unlock(drmdev);
-        return errno;
-    }
-
-    if (drmdev->selected_mode != NULL) {
-        ok = drmModeDestroyPropertyBlob(drmdev->fd, drmdev->selected_mode_blob_id);
+    mode_id = 0;
+    if (drmdev->supports_atomic_modesetting) {
+        ok = drmModeCreatePropertyBlob(drmdev->fd, mode, sizeof(*mode), &mode_id);
         if (ok < 0) {
-            ok = errno;
-            perror("[modesetting] Could not destroy old DRM mode property blob. drmModeDestroyPropertyBlob");
-            drmModeDestroyPropertyBlob(drmdev->fd, mode_id);
+            perror("[modesetting] Could not create property blob for DRM mode. drmModeCreatePropertyBlob");
             drmdev_unlock(drmdev);
-            return ok;
+            return errno;
+        }
+
+        if (drmdev->selected_mode != NULL) {
+            ok = drmModeDestroyPropertyBlob(drmdev->fd, drmdev->selected_mode_blob_id);
+            if (ok < 0) {
+                ok = errno;
+                perror("[modesetting] Could not destroy old DRM mode property blob. drmModeDestroyPropertyBlob");
+                drmModeDestroyPropertyBlob(drmdev->fd, mode_id);
+                drmdev_unlock(drmdev);
+                return ok;
+            }
         }
     }
 

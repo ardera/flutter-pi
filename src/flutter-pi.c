@@ -1284,6 +1284,7 @@ static int init_display(void) {
 	// Find the preferred mode (GPU drivers _should_ always supply a preferred mode, but of course, they don't)
 	// Alternatively, find the mode with the highest width*height. If there are multiple modes with the same w*h,
 	// prefer higher refresh rates. After that, prefer progressive scanout modes.
+	mode = NULL;
 	for_each_mode_in_connector(connector, mode_iter) {
 		printf("  %s %d (%.2f) %d %d %d %d %d %d %d %d",
 			mode_iter->name,
