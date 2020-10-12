@@ -374,6 +374,10 @@ static int free_planes(struct drm_plane *planes, size_t n_planes) {
 }
 
 
+float mode_get_vrefresh(const drmModeModeInfo *mode) {
+    return mode->clock * 1000.0 / (mode->htotal * mode->vtotal);
+}
+
 int drmdev_new_from_fd(
     struct drmdev **drmdev_out,
     int fd

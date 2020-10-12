@@ -225,7 +225,7 @@ int drmdev_legacy_set_plane_property(
     uint64_t value
 );
 
-
+float mode_get_vrefresh(const drmModeModeInfo *mode);
 
 inline static struct drm_connector *__next_connector(const struct drmdev *drmdev, const struct drm_connector *connector) {
     bool found = connector == NULL;
