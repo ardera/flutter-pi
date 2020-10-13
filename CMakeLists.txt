@@ -94,7 +94,6 @@ pkg_check_modules(LIBSYSTEMD REQUIRED libsystemd)
 pkg_check_modules(LIBINPUT REQUIRED libinput)
 pkg_check_modules(LIBXKBCOMMON REQUIRED xkbcommon)
 pkg_check_modules(LIBUDEV libudev)
-pkg_check_modules(GPIOD libgpiod)
 
 set(FLUTTER_PI_SRC
   src/flutter-pi.c
@@ -110,16 +109,8 @@ set(FLUTTER_PI_SRC
 	src/plugins/testplugin.c
 	src/plugins/text_input.c
 	src/plugins/raw_keyboard.c
-	src/plugins/spidev.c
 	src/plugins/omxplayer_video_player.c
 )
-
-if(GPIOD_FOUND)
-  list(APPEND FLUTTER_PI_SRC src/plugins/gpiod.c)
-  add_compile_options(-DBUILD_GPIOD_PLUGIN)
-else()
-  message(STATUS "Could not find gpiod library and development headers. flutter-pi will be built without gpiod support. To install, execute 'sudo apt install libgpiod-dev'")
-endif()
 
 if (NOT LIBUDEV_FOUND)
   message(STATUS "Could not find libudev.so and libudev development headers. flutter-pi will be built without udev (hotplugging) support. To install, execute 'sudo apt install libudev-dev'")
@@ -136,7 +127,6 @@ target_link_libraries(flutter-pi
   ${LIBSYSTEMD_LDFLAGS}
   ${LIBINPUT_LDFLAGS}
   ${LIBUDEV_LDFLAGS}
-  ${GPIOD_LDFLAGS}
   ${LIBXKBCOMMON_LDFLAGS}
   pthread dl rt m
 )
@@ -152,7 +142,6 @@ target_include_directories(flutter-pi PRIVATE
   ${LIBSYSTEMD_INCLUDE_DIRS}
   ${LIBINPUT_INCLUDE_DIRS}
   ${LIBUDEV_INCLUDE_DIRS}
-  ${GPIOD_INCLUDE_DIRS}
   ${LIBXKBCOMMON_INCLUDE_DIRS}
 )
 
@@ -164,11 +153,9 @@ target_compile_options(flutter-pi PRIVATE
   ${LIBSYSTEMD_CFLAGS}
   ${LIBINPUT_CFLAGS}
   ${LIBUDEV_CFLAGS}
-  ${GPIOD_CFLAGS}
   ${LIBXKBCOMMON_CFLAGS}
   -ggdb
   -DBUILD_TEXT_INPUT_PLUGIN
-	-DBUILD_SPIDEV_PLUGIN
 	-DBUILD_TEST_PLUGIN
 	-DBUILD_OMXPLAYER_VIDEO_PLAYER_PLUGIN
 )
