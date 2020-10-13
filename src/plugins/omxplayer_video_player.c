@@ -1087,7 +1087,11 @@ static int on_create(
 
     player->player_id = omxpvidpp.next_unused_player_id++;
     player->mgr = mgr;
-    strncpy(player->video_uri, uri, sizeof(player->video_uri));
+    if (asset != NULL) {
+        snprintf(player->video_uri, sizeof(player->video_uri), "%s/%s", flutterpi.flutter.asset_bundle_path, asset);
+    } else {
+        strncpy(player->video_uri, uri, sizeof(player->video_uri));
+    }
     
     mgr->player = player;
 

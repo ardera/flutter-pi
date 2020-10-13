@@ -115,6 +115,17 @@ struct compositor {
         uint32_t gem_bo_handle;
         uint32_t *buffer;
     } cursor;
+
+    /**
+     * If true, @ref on_present_layers will commit blockingly.
+     * 
+     * It will also schedule a simulated page flip event on the main thread
+     * afterwards so the frame queue works.
+     * 
+     * If false, @ref on_present_layers will commit nonblocking using page flip events,
+     * like usual.
+     */
+    bool do_blocking_atomic_commits;
 };
 
 /*
@@ -209,6 +220,17 @@ struct rendertarget {
         int width,
         int height,
         int zpos
+    );
+    int (*present_legacy)(
+        struct rendertarget *target,
+        struct drmdev *drmdev,
+        uint32_t drm_plane_id,
+        int offset_x,
+        int offset_y,
+        int width,
+        int height,
+        int zpos,
+        bool set_mode
     );
 };
 

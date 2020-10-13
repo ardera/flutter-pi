@@ -1,10 +1,6 @@
 ## 📰 NEWS
-- the physical dimensions of the screen can now be specified via cmdline, using the `--dimensions` option.
-- the layout of the engine-binaries branch has changed again. The symbolic link from `libflutter_engine.so` to the fitting `libflutter_engine.so.release` or `libflutter_engine.so.debug` is no longer needed, flutter-pi will now dynamically load the engine fitting the the runtime mode that was specified via cmdline. (if `--release` is given, flutter-pi will load `libflutter_engine.so.release`, else `libflutter_engine.so.debug`)
-- flutter-pi now requires `libsystemd-dev`, `libinput-dev` and `libudev-dev` at compile-time. (`libudev-dev` is actually optional. To build without udev support, use cmake.)
-- flutter-pi and the engine binaries updated for flutter 1.20.
-- it's possible to run flutter-pi in AOT mode now. Instructions for that are WIP.
-- `--aot` was renamed to `--release`
+- flutter-pi now requires `libxkbcommon`. Install using `sudo apt install libxkbcommon-dev`
+- keyboard input works better now. You can now use any keyboard connected to the Raspberry Pi for text and raw keyboard input.
 
 # flutter-pi
 A light-weight Flutter Engine Embedder for Raspberry Pi. Inspired by https://github.com/chinmaygarde/flutter_from_scratch.
@@ -236,7 +232,7 @@ sudo fc-cache
 ```
 ### libgpiod (for the included GPIO plugin), libsystemd, libinput, libudev
 ```bash
-sudo apt-get install gpiod libgpiod-dev libsystemd-dev libinput-dev libudev-dev
+sudo apt-get install gpiod libgpiod-dev libsystemd-dev libinput-dev libudev-dev libxkbcommon-dev
 ```
 
 ## Compiling flutter-pi (on the Raspberry Pi)
@@ -249,13 +245,6 @@ The _flutter-pi_ executable will then be located at this path: `/path/to/the/clo
 
 ## Performance
 Performance is actually better than I expected. With most of the apps inside the `flutter SDK -> examples -> catalog` directory I get smooth 50-60fps.
-
-## Keyboard Input
-Keyboard input is supported. **There is one important limitation though**. Text input (i.e. writing any kind of text/symbols to flutter input fields) only works when typing on the keyboard, which is attached to the terminal flutter-pi is running on. So, if you ssh into your Raspberry Pi to run flutter-pi, you have to enter text into your ssh terminal.
-
-Raw Keyboard input (i.e. using tab to iterate through focus nodes) works with any keyboard attached to your Raspberry Pi.
-
-converting raw key-codes to text symbols is not that easy (because of all the different keyboard layouts), so for text input flutter-pi basically uses `stdin`.
 
 ## Touchscreen Latency
 Due to the way the touchscreen driver works in raspbian, there's some delta between an actual touch of the touchscreen and a touch event arriving at userspace. The touchscreen driver in the raspbian kernel actually just repeatedly polls some buffer shared with the firmware running on the VideoCore, and the videocore repeatedly polls the touchscreen. (both at 60Hz) So on average, there's a delay of 17ms (minimum 0ms, maximum 34ms). If I have enough time in the future, I'll try to build a better touchscreen driver to lower the delay.
