@@ -221,6 +221,17 @@ struct rendertarget {
         int height,
         int zpos
     );
+    int (*present_legacy)(
+        struct rendertarget *target,
+        struct drmdev *drmdev,
+        uint32_t drm_plane_id,
+        int offset_x,
+        int offset_y,
+        int width,
+        int height,
+        int zpos,
+        bool set_mode
+    );
 };
 
 struct flutterpi_backing_store {

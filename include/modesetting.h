@@ -38,6 +38,7 @@ struct drmdev {
     int fd;
 
     pthread_mutex_t mutex;
+    bool supports_atomic_modesetting;
 
     size_t n_connectors;
     struct drm_connector *connectors;
@@ -86,6 +87,11 @@ int drmdev_configure(
     uint32_t encoder_id,
     uint32_t crtc_id,
     const drmModeModeInfo *mode
+);
+
+int drmdev_plane_get_type(
+    struct drmdev *drmdev,
+    uint32_t plane_id
 );
 
 int drmdev_plane_supports_setting_rotation_value(
@@ -165,6 +171,61 @@ int drmdev_atomic_req_commit(
     uint32_t flags,
     void *userdata
 );
+
+int drmdev_legacy_set_mode_and_fb(
+    struct drmdev *drmdev,
+    uint32_t fb_id
+);
+
+/**
+ * @brief Do a nonblocking, vblank-synced framebuffer swap.
+ */
+int drmdev_legacy_primary_plane_pageflip(
+    struct drmdev *drmdev,
+    uint32_t fb_id,
+    void *userdata
+);
+
+/**
+ * @brief Do a blocking, vblank-synced framebuffer swap.
+ * Using this in combination with @ref drmdev_legacy_primary_plane_pageflip
+ * is not a good idea, since it will block until the primary plane pageflip is complete,
+ * and then block even longer till the overlay plane pageflip completes the vblank after.
+ */
+int drmdev_legacy_overlay_plane_pageflip(
+    struct drmdev *drmdev,
+    uint32_t plane_id,
+    uint32_t fb_id,
+    int32_t crtc_x,
+    int32_t crtc_y,
+    int32_t crtc_w,
+    int32_t crtc_h,
+    uint32_t src_x,
+    uint32_t src_y,
+    uint32_t src_w,
+    uint32_t src_h
+);
+
+int drmdev_legacy_set_connector_property(
+    struct drmdev *drmdev,
+    const char *name,
+    uint64_t value
+);
+
+int drmdev_legacy_set_crtc_property(
+    struct drmdev *drmdev,
+    const char *name,
+    uint64_t value
+);
+
+int drmdev_legacy_set_plane_property(
+    struct drmdev *drmdev,
+    uint32_t plane_id,
+    const char *name,
+    uint64_t value
+);
+
+float mode_get_vrefresh(const drmModeModeInfo *mode);
 
 inline static struct drm_connector *__next_connector(const struct drmdev *drmdev, const struct drm_connector *connector) {
     bool found = connector == NULL;

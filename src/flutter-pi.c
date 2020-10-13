@@ -1035,7 +1035,6 @@ void on_pageflip_event(
 
 	flutterpi.flutter.libflutter_engine.FlutterEngineTraceEventInstant("pageflip");
 
-
 	cqueue_lock(&flutterpi.frame_queue);
 	
 	ok = cqueue_try_dequeue_locked(&flutterpi.frame_queue, &presented_frame);
@@ -1279,10 +1278,11 @@ static int init_display(void) {
 		fprintf(stderr, "[flutter-pi] Could not find a connected connector!\n");
 		return EINVAL;
 	}
-	
+
 	// Find the preferred mode (GPU drivers _should_ always supply a preferred mode, but of course, they don't)
 	// Alternatively, find the mode with the highest width*height. If there are multiple modes with the same w*h,
 	// prefer higher refresh rates. After that, prefer progressive scanout modes.
+	mode = NULL;
 	for_each_mode_in_connector(connector, mode_iter) {
 		if (mode_iter->type & DRM_MODE_TYPE_PREFERRED) {
 			mode = mode_iter;
