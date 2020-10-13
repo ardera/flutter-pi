@@ -27,8 +27,6 @@ SOURCES = src/flutter-pi.c \
 	src/plugins/testplugin.c \
 	src/plugins/text_input.c \
 	src/plugins/raw_keyboard.c \
-	src/plugins/gpiod.c \
-	src/plugins/spidev.c \
 	src/plugins/omxplayer_video_player.c
 
 OBJECTS = $(patsubst src/%.c,out/obj/%.o,$(SOURCES))

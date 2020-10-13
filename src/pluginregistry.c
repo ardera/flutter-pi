@@ -60,14 +60,6 @@ struct flutterpi_plugin hardcoded_plugins[] = {
 	{.name = "testplugin",   .init = testp_init, .deinit = testp_deinit},
 #endif
 
-#ifdef BUILD_GPIOD_PLUGIN
-	{.name = "flutter_gpiod",  .init = gpiodp_init, .deinit = gpiodp_deinit},
-#endif
-
-#ifdef BUILD_SPIDEV_PLUGIN
-	{.name = "flutter_spidev", .init = spidevp_init, .deinit = spidevp_deinit},
-#endif
-
 #ifdef BUILD_OMXPLAYER_VIDEO_PLAYER_PLUGIN
 	{.name = "omxplayer_video_player", .init = omxpvidpp_init, .deinit = omxpvidpp_deinit},
 #endif
