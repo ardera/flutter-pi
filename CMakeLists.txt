@@ -91,7 +91,8 @@ pkg_check_modules(GBM REQUIRED gbm)
 pkg_check_modules(EGL REQUIRED egl)
 pkg_check_modules(GLESV2 REQUIRED glesv2)
 pkg_check_modules(LIBSYSTEMD REQUIRED libsystemd)
-pkg_check_modules(LIBINPUT libinput)
+pkg_check_modules(LIBINPUT REQUIRED libinput)
+pkg_check_modules(LIBXKBCOMMON REQUIRED xkbcommon)
 pkg_check_modules(LIBUDEV libudev)
 pkg_check_modules(GPIOD libgpiod)
 
@@ -99,12 +100,12 @@ set(FLUTTER_PI_SRC
   src/flutter-pi.c
 	src/platformchannel.c
 	src/pluginregistry.c
-	src/console_keyboard.c
 	src/texture_registry.c
 	src/compositor.c
 	src/modesetting.c
 	src/collection.c
-	src/cursor.c
+  src/cursor.c
+  src/keyboard.c
 	src/plugins/services.c
 	src/plugins/testplugin.c
 	src/plugins/text_input.c
@@ -136,6 +137,7 @@ target_link_libraries(flutter-pi
   ${LIBINPUT_LDFLAGS}
   ${LIBUDEV_LDFLAGS}
   ${GPIOD_LDFLAGS}
+  ${LIBXKBCOMMON_LDFLAGS}
   pthread dl rt m
 )
 
@@ -151,6 +153,7 @@ target_include_directories(flutter-pi PRIVATE
   ${LIBINPUT_INCLUDE_DIRS}
   ${LIBUDEV_INCLUDE_DIRS}
   ${GPIOD_INCLUDE_DIRS}
+  ${LIBXKBCOMMON_INCLUDE_DIRS}
 )
 
 target_compile_options(flutter-pi PRIVATE
@@ -162,6 +165,7 @@ target_compile_options(flutter-pi PRIVATE
   ${LIBINPUT_CFLAGS}
   ${LIBUDEV_CFLAGS}
   ${GPIOD_CFLAGS}
+  ${LIBXKBCOMMON_CFLAGS}
   -ggdb
   -DBUILD_TEXT_INPUT_PLUGIN
 	-DBUILD_SPIDEV_PLUGIN

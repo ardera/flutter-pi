@@ -44,7 +44,7 @@
 
 #include <flutter-pi.h>
 #include <compositor.h>
-#include <console_keyboard.h>
+#include <keyboard.h>
 #include <platformchannel.h>
 #include <pluginregistry.h>
 #include <texture_registry.h>
@@ -1890,6 +1890,12 @@ static void libinput_interface_on_close(int fd, void *userdata) {
 }
 
 static int on_libinput_ready(sd_event_source *s, int fd, uint32_t revents, void *userdata) {
+	struct libinput_event_keyboard *keyboard_event;
+	struct libinput_event_pointer *pointer_event;
+	struct libinput_event_touch *touch_event;
+	struct input_device_data *data;
+	enum libinput_event_type type;
+	struct libinput_device *device;
 	struct libinput_event *event;
 	FlutterPointerEvent pointer_events[64];
 	FlutterEngineResult result;
@@ -1903,12 +1909,12 @@ static int on_libinput_ready(sd_event_source *s, int fd, uint32_t revents, void 
 	}
 
 	while (event = libinput_get_event(flutterpi.input.libinput), event != NULL) {
-		enum libinput_event_type type = libinput_event_get_type(event);
+		type = libinput_event_get_type(event);
 
 		if (type == LIBINPUT_EVENT_DEVICE_ADDED) {
-			struct libinput_device *device = libinput_event_get_device(event);
+			device = libinput_event_get_device(event);
 			
-			struct input_device_data *data = calloc(1, sizeof(*data));
+			data = calloc(1, sizeof(*data));
 			data->flutter_device_id_offset = flutterpi.input.next_unused_flutter_device_id;
 
 			libinput_device_set_user_data(device, data);
@@ -1947,11 +1953,12 @@ static int on_libinput_ready(sd_event_source *s, int fd, uint32_t revents, void 
 						.buttons = 0
 					};
 				}
+			} else if (libinput_device_has_capability(device, LIBINPUT_DEVICE_CAP_KEYBOARD)) {
+				data->keyboard_state = keyboard_state_new(flutterpi.input.keyboard_config, NULL, NULL);
 			}
 		} else if (LIBINPUT_EVENT_IS_TOUCH(type)) {
-			struct libinput_event_touch *touch_event = libinput_event_get_touch_event(event);
-
-			struct input_device_data *data = libinput_device_get_user_data(libinput_event_get_device(event));
+			touch_event = libinput_event_get_touch_event(event);
+			data = libinput_device_get_user_data(libinput_event_get_device(event));
 
 			if ((type == LIBINPUT_EVENT_TOUCH_DOWN) || (type == LIBINPUT_EVENT_TOUCH_MOTION) || (type == LIBINPUT_EVENT_TOUCH_UP)) {
 				int slot = libinput_event_touch_get_slot(touch_event);
@@ -2006,8 +2013,8 @@ static int on_libinput_ready(sd_event_source *s, int fd, uint32_t revents, void 
 				}
 			}
 		} else if (LIBINPUT_EVENT_IS_POINTER(type)) {
-			struct libinput_event_pointer *pointer_event = libinput_event_get_pointer_event(event);
-			struct input_device_data *data = libinput_device_get_user_data(libinput_event_get_device(event));
+			pointer_event = libinput_event_get_pointer_event(event);
+			data = libinput_device_get_user_data(libinput_event_get_device(event));
 
 			if (type == LIBINPUT_EVENT_POINTER_MOTION) {
 				double dx = libinput_event_pointer_get_dx(pointer_event);
@@ -2139,14 +2146,75 @@ static int on_libinput_ready(sd_event_source *s, int fd, uint32_t revents, void 
 
 			}
 		} else if (LIBINPUT_EVENT_IS_KEYBOARD(type)) {
-			struct libinput_event_keyboard *keyboard_event = libinput_event_get_keyboard_event(event);
+			struct keyboard_modifier_state mods;
+			enum libinput_key_state key_state;
+			xkb_keysym_t keysym;
+			uint32_t codepoint, plain_codepoint;
+			uint16_t evdev_keycode;
 			
-			uint32_t keycode = libinput_event_keyboard_get_key(keyboard_event);
-			enum libinput_key_state state = libinput_event_keyboard_get_key_state(keyboard_event);
+			keyboard_event = libinput_event_get_keyboard_event(event);
+			data = libinput_device_get_user_data(libinput_event_get_device(event));
+			evdev_keycode = libinput_event_keyboard_get_key(keyboard_event);
+			key_state = libinput_event_keyboard_get_key_state(keyboard_event);
 
-			glfw_key glfw_key = evdev_code_glfw_key[keycode];
-	
-			rawkb_on_keyevent(glfw_key, keycode, state == LIBINPUT_KEY_STATE_PRESSED ? GLFW_PRESS : GLFW_RELEASE);
+			mods = keyboard_state_get_meta_state(data->keyboard_state);
+
+			ok = keyboard_state_process_key_event(
+				data->keyboard_state,
+				evdev_keycode,
+				(int32_t) key_state,
+				&keysym,
+				&codepoint
+			);
+
+			printf("[key event] keycode: 0x%04X, type: %s, keysym: 0x%08X, codepoint: 0x%08X\n", evdev_keycode, key_state? "down" : " up ", keysym, codepoint);
+
+			plain_codepoint = keyboard_state_get_plain_codepoint(data->keyboard_state, evdev_keycode, 1);
+			
+			rawkb_send_gtk_keyevent(
+				plain_codepoint,
+				(uint32_t) keysym,
+				evdev_keycode + 8,
+				keyboard_state_is_shift_active(data->keyboard_state)
+				| (keyboard_state_is_capslock_active(data->keyboard_state) << 1)
+				| (keyboard_state_is_ctrl_active(data->keyboard_state) << 2)
+				| (keyboard_state_is_alt_active(data->keyboard_state) << 3)
+				| (keyboard_state_is_numlock_active(data->keyboard_state) << 4)
+				| (keyboard_state_is_meta_active(data->keyboard_state) << 28),
+				key_state
+			);
+
+			if (codepoint) {
+				if (codepoint < 0x80) {
+					if (isprint(codepoint)) {
+						textin_on_utf8_char((uint8_t[1]) {codepoint});
+					}
+				} else if (codepoint < 0x800) {
+					textin_on_utf8_char((uint8_t[2]) {
+						0xc0 | (codepoint >> 6),
+						0x80 | (codepoint & 0x3f)
+					});
+				} else if (codepoint < 0x10000) {
+					if (!(codepoint >= 0xD800 && codepoint < 0xE000) && !(codepoint == 0xFFFF)) {
+						textin_on_utf8_char((uint8_t[3]) {
+							0xe0 | (codepoint >> 12),
+							0x80 | ((codepoint >> 6) & 0x3f),
+							0x80 | (codepoint & 0x3f)
+						});
+					}
+				} else if (codepoint < 0x110000) {
+					textin_on_utf8_char((uint8_t[4]) {
+						0xf0 | (codepoint >> 18),
+						0x80 | ((codepoint >> 12) & 0x3f),
+						0x80 | ((codepoint >> 6) & 0x3f),
+						0x80 | (codepoint & 0x3f)
+					});
+				}
+			}
+			
+			if (keysym) {
+				textin_on_xkb_keysym(keysym);
+			}
 		}
 
 		libinput_event_destroy(event);
@@ -2165,38 +2233,6 @@ static int on_libinput_ready(sd_event_source *s, int fd, uint32_t revents, void 
 	}
 
 	return 0;
-}
-
-static int on_stdin_ready(sd_event_source *s, int fd, uint32_t revents, void *userdata) {
-	static char buffer[4096];
-	glfw_key key;
-	char *cursor;
-	char *c;
-	int ok;
-
-	ok = read(STDIN_FILENO, buffer, sizeof(buffer) - 1);
-	if (ok == -1) {
-		perror("[flutter-pi] Could not read from stdin");
-		return errno;
-	} else if (ok == 0) {
-		fprintf(stderr, "[flutter-pi] WARNING: reached EOF for stdin\n");
-		return EBADF;
-	}
-
-	buffer[ok] = '\0';
-
-	cursor = buffer;
-	while (*cursor) {
-		if (key = console_try_get_key(cursor, &cursor), key != GLFW_KEY_UNKNOWN) {
-			textin_on_key(key);
-		} else if (c = console_try_get_utf8char(cursor, &cursor), c != NULL) {
-			textin_on_utf8_char(c);
-		} else {
-			// neither a char nor a (function) key. we don't know when
-			// we can start parsing the buffer again, so just stop here
-			break;
-		}
-	}
 }
 
 static struct libinput *try_create_udev_backed_libinput(void) {
@@ -2385,11 +2421,15 @@ static struct libinput *try_create_path_backed_libinput(void) {
 }
 
 static int init_user_input(void) {
-	sd_event_source *libinput_event_source, *stdin_event_source;
+	sd_event_source *libinput_event_source;
+	struct keyboard_config *kbdcfg;
 	struct libinput *libinput;
 	int ok;
 
+	libinput_event_source = NULL;
+	kbdcfg = NULL;
 	libinput = NULL;
+
 	if (flutterpi.input.use_paths == false) {
 		libinput = try_create_udev_backed_libinput();
 	}
@@ -2398,7 +2438,6 @@ static int init_user_input(void) {
 		libinput = try_create_path_backed_libinput();
 	}
 	
-	libinput_event_source = NULL;
 	if (libinput != NULL) {
 		ok = sd_event_add_io(
 			flutterpi.event_loop,
@@ -2423,36 +2462,20 @@ static int init_user_input(void) {
 #			endif
 			return -ok;
 		}
+		
+		if (flutterpi.input.disable_text_input == false) {
+			kbdcfg = keyboard_config_new();
+			if (kbdcfg == NULL) {
+				fprintf(stderr, "[flutter-pi] Could not initialize keyboard configuration. Flutter-pi will run without text/raw keyboard input.\n");
+			}
+		}
 	} else {
 		fprintf(stderr, "[flutter-pi] Could not initialize input. Flutter-pi will run without user input.\n");
 	}
 
-	stdin_event_source = NULL;
-	if (flutterpi.input.disable_text_input == false) {
-		ok = sd_event_add_io(
-			flutterpi.event_loop,
-			&stdin_event_source,
-			STDIN_FILENO,
-			EPOLLIN,
-			on_stdin_ready,
-			NULL
-		);
-		if (ok < 0) {
-			fprintf(stderr, "[flutter-pi] Could not add callback for console input. sd_event_add_io: %s\n", strerror(-ok));
-		}
-
-		ok = console_make_raw();
-		if (ok == 0) {
-			console_flush_stdin();
-		} else {
-			fprintf(stderr, "[flutter-pi] Could not make stdin raw. Flutter-pi will run without text input support.\n");
-			sd_event_source_unrefp(&stdin_event_source);
-		}
-	}
-
 	flutterpi.input.libinput = libinput;
 	flutterpi.input.libinput_event_source = libinput_event_source;
-	flutterpi.input.stdin_event_source = stdin_event_source;
+	flutterpi.input.keyboard_config = kbdcfg;
 
 	return 0;
 }

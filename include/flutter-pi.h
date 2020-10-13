@@ -26,6 +26,7 @@
 
 #include <modesetting.h>
 #include <collection.h>
+#include <keyboard.h>
 
 #define LOAD_EGL_PROC(flutterpi_struct, name) \
     do { \
@@ -394,13 +395,15 @@ struct flutterpi {
 	struct {
 		bool use_paths;
 		bool disable_text_input;
+
 		glob_t input_devices_glob;
 #		ifndef BUILD_WITHOUT_UDEV_SUPPORT
 		struct libudev libudev;
 #		endif
 		struct libinput *libinput;
 		sd_event_source *libinput_event_source;
-		sd_event_source *stdin_event_source;
+		struct keyboard_config *keyboard_config;
+
 		int64_t next_unused_flutter_device_id;
 		double cursor_x, cursor_y;
 	} input;
@@ -452,6 +455,7 @@ extern struct flutterpi flutterpi;
 
 struct input_device_data {
 	int64_t flutter_device_id_offset;
+	struct keyboard_state *keyboard_state;
 	double x, y;
 	int64_t buttons;
 	uint64_t timestamp;
