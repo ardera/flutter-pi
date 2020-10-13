@@ -1279,89 +1279,11 @@ static int init_display(void) {
 		return EINVAL;
 	}
 
-	printf("  modes: \n"
-			  "        name refresh (calculated) hdisp hss hse htot vdisp vss vse vtot clock\n");
 	// Find the preferred mode (GPU drivers _should_ always supply a preferred mode, but of course, they don't)
 	// Alternatively, find the mode with the highest width*height. If there are multiple modes with the same w*h,
 	// prefer higher refresh rates. After that, prefer progressive scanout modes.
 	mode = NULL;
 	for_each_mode_in_connector(connector, mode_iter) {
-		printf("  %s %d (%.2f) %d %d %d %d %d %d %d %d",
-			mode_iter->name,
-			mode_iter->vrefresh,
-			mode_get_vrefresh(mode_iter),
-			mode_iter->hdisplay,
-			mode_iter->hsync_start,
-			mode_iter->hsync_end,
-			mode_iter->htotal,
-			mode_iter->vdisplay,
-			mode_iter->vsync_start,
-			mode_iter->vsync_end,
-			mode_iter->vtotal
-		);
-		printf(" %d flags: ", mode_iter->clock);
-		
-		{
-			const char *sep = "";
-			for (uint32_t i = 1; i & 0x3FFF; i<<=1) {
-				if (mode_iter->flags & i) {
-					const char *name;
-					switch (i) {
-						case DRM_MODE_FLAG_PHSYNC: name = "phsync"; break;
-						case DRM_MODE_FLAG_NHSYNC: name = "nhsync"; break;
-						case DRM_MODE_FLAG_PVSYNC: name = "pvsync"; break;
-						case DRM_MODE_FLAG_NVSYNC: name = "nvsync"; break;
-						case DRM_MODE_FLAG_INTERLACE: name = "interlace"; break;
-						case DRM_MODE_FLAG_DBLSCAN: name = "dblscan"; break;
-						case DRM_MODE_FLAG_CSYNC: name = "csync"; break;
-						case DRM_MODE_FLAG_PCSYNC: name = "pcsync"; break;
-						case DRM_MODE_FLAG_NCSYNC: name = "ncsync"; break;
-						case DRM_MODE_FLAG_HSKEW: name = "hskew"; break;
-						case DRM_MODE_FLAG_BCAST: name = "bcast"; break;
-						case DRM_MODE_FLAG_PIXMUX: name = "pixmux"; break;
-						case DRM_MODE_FLAG_DBLCLK: name = "dblclk"; break;
-						case DRM_MODE_FLAG_CLKDIV2: name = "clkdiv2"; break;
-						default: name = "?"; break;
-					}
-					printf(
-						"%s%s",
-						sep,
-						name
-					);
-					sep = ", ";
-				}
-			}
-		}
-
-		printf("; type: ");
-
-		{
-			const char *sep = "";
-			for (uint32_t i = 1; i & 0x7F; i<<=1) {
-				if (mode_iter->type & i) {
-					const char *name;
-					switch (i) {
-						case DRM_MODE_TYPE_BUILTIN: name = "builtin"; break;
-						case DRM_MODE_TYPE_CLOCK_C: name = "clock_c"; break;
-						case DRM_MODE_TYPE_CRTC_C: name = "crtc_c"; break;
-						case DRM_MODE_TYPE_PREFERRED: name = "preferred"; break;
-						case DRM_MODE_TYPE_DEFAULT: name = "default"; break;
-						case DRM_MODE_TYPE_USERDEF: name = "userdef"; break;
-						case DRM_MODE_TYPE_DRIVER: name = "driver"; break;
-						default: name = "?"; break;
-					}
-					printf(
-						"%s%s",
-						sep,
-						name
-					);
-					sep = ", ";
-				}
-			}
-		}
-
-		printf("\n");
-
 		if (mode_iter->type & DRM_MODE_TYPE_PREFERRED) {
 			mode = mode_iter;
 			break;
