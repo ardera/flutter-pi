@@ -46,10 +46,10 @@ struct drmdev {
     size_t n_encoders;
     struct drm_encoder *encoders;
 
-    int n_crtcs;
+    size_t n_crtcs;
     struct drm_crtc *crtcs;
 
-    int n_planes;
+    size_t n_planes;
     struct drm_plane *planes;
 
     drmModeRes *res;
