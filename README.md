@@ -82,7 +82,7 @@ flutter build bundle
 
 Then just upload the asset bundle to your Raspberry Pi. `pi@raspberrypi` is of course just an example `<username>@<hostname>` combination, your need to substitute your username and hostname there.
 ```bash
-$ rsync -a --info=progress2 ./build/flutter_assets pi@raspberrypi:/home/pi/flutter_gallery_assets
+$ rsync -a --info=progress2 ./build/flutter_assets/ pi@raspberrypi:/home/pi/flutter_gallery_assets
 ```
 
 ### Building the `app.so` (for running your app in Release/Profile mode)
@@ -126,7 +126,7 @@ $ ~/engine-binaries/gen_snapshot_linux_x64 \
 ```
 5. Upload the asset bundle and the `app.so` to your Raspberry Pi. Flutter-pi expects the `app.so` to be located inside the asset bundle directory.
 ```bash
-$ rsync -a --info=progress2 ./build/flutter_assets pi@raspberrypi:/home/pi/flutter_gallery_assets
+$ rsync -a --info=progress2 ./build/flutter_assets/ pi@raspberrypi:/home/pi/flutter_gallery_assets
 $ scp ./build/app.so pi@raspberrypi:/home/pi/flutter_gallery_assets/app.so
 ```
 6. When starting your app, make sure you invoke flutter-pi with the `--release` flag.
