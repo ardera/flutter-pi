@@ -1959,8 +1959,19 @@ static int on_libinput_ready(sd_event_source *s, int fd, uint32_t revents, void 
 					};
 				}
 			} else if (libinput_device_has_capability(device, LIBINPUT_DEVICE_CAP_KEYBOARD)) {
-				data->keyboard_state = keyboard_state_new(flutterpi.input.keyboard_config, NULL, NULL);
+				if (flutterpi.input.disable_text_input == false) {
+					data->keyboard_state = keyboard_state_new(flutterpi.input.keyboard_config, NULL, NULL);
+				}
 			}
+		} else if (LIBINPUT_EVENT_DEVICE_REMOVED) {
+			device = libinput_event_get_device(event);
+			data = libinput_device_get_user_data(device);
+
+			if (data->keyboard_state) {
+				free(data->keyboard_state);
+			}
+			free(data);
+			libinput_device_set_user_data(device, NULL);
 		} else if (LIBINPUT_EVENT_IS_TOUCH(type)) {
 			touch_event = libinput_event_get_touch_event(event);
 			data = libinput_device_get_user_data(libinput_event_get_device(event));
@@ -2150,7 +2161,7 @@ static int on_libinput_ready(sd_event_source *s, int fd, uint32_t revents, void 
 			} else if (type == LIBINPUT_EVENT_POINTER_AXIS) {
 
 			}
-		} else if (LIBINPUT_EVENT_IS_KEYBOARD(type)) {
+		} else if (LIBINPUT_EVENT_IS_KEYBOARD(type) && !flutterpi.input.disable_text_input) {
 			struct keyboard_modifier_state mods;
 			enum libinput_key_state key_state;
 			xkb_keysym_t keysym;
