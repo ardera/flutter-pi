@@ -1,4 +1,5 @@
 ## 📰 NEWS
+- I created an improved touchscreen driver for Raspberry Pi 4, for lower latency & higher polling rate. See [this repo](https://github.com/ardera/raspberrypi-fast-ts) for details. The difference is noticeable, it looks a lot better and more responsive with this new driver.
 - flutter-pi now requires `libxkbcommon`. Install using `sudo apt install libxkbcommon-dev`
 - keyboard input works better now. You can now use any keyboard connected to the Raspberry Pi for text and raw keyboard input.
 
@@ -81,7 +82,7 @@ flutter build bundle
 
 Then just upload the asset bundle to your Raspberry Pi. `pi@raspberrypi` is of course just an example `<username>@<hostname>` combination, your need to substitute your username and hostname there.
 ```bash
-$ rsync -a --info=progress2 ./build/flutter_assets pi@raspberrypi:/home/pi/flutter_gallery_assets
+$ rsync -a --info=progress2 ./build/flutter_assets/ pi@raspberrypi:/home/pi/flutter_gallery_assets
 ```
 
 ### Building the `app.so` (for running your app in Release/Profile mode)
@@ -125,7 +126,7 @@ $ ~/engine-binaries/gen_snapshot_linux_x64 \
 ```
 5. Upload the asset bundle and the `app.so` to your Raspberry Pi. Flutter-pi expects the `app.so` to be located inside the asset bundle directory.
 ```bash
-$ rsync -a --info=progress2 ./build/flutter_assets pi@raspberrypi:/home/pi/flutter_gallery_assets
+$ rsync -a --info=progress2 ./build/flutter_assets/ pi@raspberrypi:/home/pi/flutter_gallery_assets
 $ scp ./build/app.so pi@raspberrypi:/home/pi/flutter_gallery_assets/app.so
 ```
 6. When starting your app, make sure you invoke flutter-pi with the `--release` flag.
@@ -247,5 +248,6 @@ The _flutter-pi_ executable will then be located at this path: `/path/to/the/clo
 Performance is actually better than I expected. With most of the apps inside the `flutter SDK -> examples -> catalog` directory I get smooth 50-60fps.
 
 ## Touchscreen Latency
-Due to the way the touchscreen driver works in raspbian, there's some delta between an actual touch of the touchscreen and a touch event arriving at userspace. The touchscreen driver in the raspbian kernel actually just repeatedly polls some buffer shared with the firmware running on the VideoCore, and the videocore repeatedly polls the touchscreen. (both at 60Hz) So on average, there's a delay of 17ms (minimum 0ms, maximum 34ms). If I have enough time in the future, I'll try to build a better touchscreen driver to lower the delay.
+Due to the way the touchscreen driver works in raspbian, there's some delta between an actual touch of the touchscreen and a touch event arriving at userspace. The touchscreen driver in the raspbian kernel actually just repeatedly polls some buffer shared with the firmware running on the VideoCore, and the videocore repeatedly polls the touchscreen. (both at 60Hz) So on average, there's a delay of 17ms (minimum 0ms, maximum 34ms). Actually, the firmware is polling correctly at ~60Hz, but the linux driver is not because there's a bug. The linux side actually polls at 25Hz, which makes touch applications look terrible. (When you drag something in a touch application, but the application only gets new touch data at 25Hz, it'll look like the application itself is _redrawing_ at 25Hz, making it look very laggy) The github issue for this raspberry pi kernel bug is [here](https://github.com/raspberrypi/linux/issues/3777). Leave a like on the issue if you'd like to see this fixed in the kernel.
 
+This is why I created my own (userspace) touchscreen driver, for improved latency & polling rate. See [this repo](https://github.com/ardera/raspberrypi-fast-ts) for details. The driver is very easy to use and the difference is noticeable, flutter apps look and feel a lot better with this driver.
