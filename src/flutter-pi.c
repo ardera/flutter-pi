@@ -52,7 +52,7 @@
 #include <plugins/text_input.h>
 #include <plugins/raw_keyboard.h>
 
-const char const* usage ="\
+const char *const usage ="\
 flutter-pi - run flutter apps on your Raspberry Pi.\n\
 \n\
 USAGE:\n\
@@ -421,7 +421,6 @@ static void on_frame_request(
 	void* userdata,
 	intptr_t baton
 ) {
-	sd_event_source *event_source;
 	struct frame *peek;
 	int ok;
 
@@ -667,6 +666,8 @@ int flutterpi_sd_event_add_io(
 	if (pthread_self() != flutterpi.event_loop_thread) {
 		pthread_mutex_unlock(&flutterpi.event_loop_mutex);
 	}
+
+	return ok;
 }
 
 /// flutter tasks
@@ -695,7 +696,6 @@ static void on_post_flutter_task(
 	uint64_t target_time,
 	void *userdata
 ) {
-	sd_event_source *source;
 	FlutterTask *dup_task;
 	int ok;
 
@@ -926,8 +926,8 @@ static int run_main_loop(void) {
 					pthread_mutex_unlock(&flutterpi.event_loop_mutex);
 
 					do {
-						fds = const_fds;
-						ok = select(evloop_fd + 1, &fds, &fds, &fds, NULL);
+						fd_set readfds = const_fds, writefds = const_fds, exceptfds = const_fds;
+						ok = select(evloop_fd + 1, &readfds, &writefds, &exceptfds, NULL);
 						if ((ok < 0) && (errno != EINTR)) {
 							perror("[flutter-pi] Could not wait for event loop events. select");
 							return errno;
@@ -2146,7 +2146,6 @@ static int on_libinput_ready(sd_event_source *s, int fd, uint32_t revents, void 
 
 			}
 		} else if (LIBINPUT_EVENT_IS_KEYBOARD(type)) {
-			struct keyboard_modifier_state mods;
 			enum libinput_key_state key_state;
 			xkb_keysym_t keysym;
 			uint32_t codepoint, plain_codepoint;
@@ -2156,8 +2155,6 @@ static int on_libinput_ready(sd_event_source *s, int fd, uint32_t revents, void 
 			data = libinput_device_get_user_data(libinput_event_get_device(event));
 			evdev_keycode = libinput_event_keyboard_get_key(keyboard_event);
 			key_state = libinput_event_keyboard_get_key_state(keyboard_event);
-
-			mods = keyboard_state_get_meta_state(data->keyboard_state);
 
 			ok = keyboard_state_process_key_event(
 				data->keyboard_state,
