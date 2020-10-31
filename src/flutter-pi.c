@@ -1889,6 +1889,11 @@ static void libinput_interface_on_close(int fd, void *userdata) {
 	close(fd);
 }
 
+const struct libinput_interface flutterpi_libinput_interface = {
+	.open_restricted = libinput_interface_on_open,
+	.close_restricted = libinput_interface_on_close 
+};
+
 static int on_libinput_ready(sd_event_source *s, int fd, uint32_t revents, void *userdata) {
 	struct libinput_event_keyboard *keyboard_event;
 	struct libinput_event_pointer *pointer_event;
@@ -2360,10 +2365,7 @@ static struct libinput *try_create_udev_backed_libinput(void) {
 	}
 
 	libinput = libinput_udev_create_context(
-		&(const struct libinput_interface) {
-			.open_restricted = libinput_interface_on_open,
-			.close_restricted = libinput_interface_on_close 
-		},
+		&flutterpi_libinput_interface,
 		udev,
 		udev
 	);
@@ -2391,10 +2393,7 @@ static struct libinput *try_create_path_backed_libinput(void) {
 	struct libinput *libinput;
 	
 	libinput = libinput_path_create_context(
-		&(const struct libinput_interface) {
-			.open_restricted = libinput_interface_on_open,
-			.close_restricted = libinput_interface_on_close 
-		},
+		&flutterpi_libinput_interface,
 		NULL
 	);
 	if (libinput == NULL) {
