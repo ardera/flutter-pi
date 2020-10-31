@@ -157,12 +157,12 @@ int on_response_json(struct platch_obj *object, void *userdata) {
     }
 
     if (object->success) {
-        printf("on_response_json(dt: %lu)\n"
+        printf("on_response_json(dt: %llu)\n"
                "  success\n"
                "  result:\n", dt);
         printJSON(&object->json_result, 4);
     } else {
-        printf("testp_on_response_json(dt: %lu)\n", dt);
+        printf("testp_on_response_json(dt: %llu)\n", dt);
         printf("  failure\n"
                "  error code: %s\n"
                "  error message: %s\n"
@@ -215,12 +215,12 @@ int on_response_std(struct platch_obj *object, void *userdata) {
     }
 
     if (object->success) {
-        printf("testp_on_response_std(dt: %lu)\n"
+        printf("testp_on_response_std(dt: %llu)\n"
                "  success\n"
                "  result:\n", dt);
         printStd(&object->std_result, 4);
     } else {
-        printf("testp_on_response_std(dt: %lu)\n", dt);
+        printf("testp_on_response_std(dt: %llu)\n", dt);
         printf("  failure\n"
                "  error code: %s\n"
                "  error message: %s\n"

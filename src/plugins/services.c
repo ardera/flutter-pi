@@ -30,7 +30,6 @@ static int on_receive_isolate(char *channel, struct platch_obj *object, FlutterP
 static int on_receive_platform(char *channel, struct platch_obj *object, FlutterPlatformMessageResponseHandle *responsehandle) {
     struct json_value *value;
     struct json_value *arg = &(object->json_arg);
-    int ok;
 
     if (strcmp(object->method, "Clipboard.setData") == 0) {
         /*
@@ -195,8 +194,6 @@ static int on_receive_accessibility(char *channel, struct platch_obj *object, Fl
 }
 
 static int on_receive_platform_views(char *channel, struct platch_obj *object, FlutterPlatformMessageResponseHandle *responsehandle) {
-    struct json_value *value;
-    struct json_value *arg = &(object->json_arg);
     int ok;
     
     if STREQ("create", object->method) {

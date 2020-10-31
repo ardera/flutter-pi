@@ -146,7 +146,7 @@ int cqueue_init(
 	size_t max_queue_size
 );
 
-int cqueue_deinit(
+void cqueue_deinit(
 	struct concurrent_queue *queue
 );
 
@@ -403,5 +403,8 @@ static inline void *memdup(const void *restrict src, const size_t n) {
 #define BMAP_SET(p_bmap, i_bit) ((p_bmap)[(i_bit) / sizeof(*(p_bmap))] |= (1 << ((i_bit) & (sizeof(*(p_bmap)) - 1))))
 #define BMAP_CLEAR(p_bmap, i_bit) ((p_bmap)[(i_bit) / sizeof(*(p_bmap))] &= ~(1 << ((i_bit) & (sizeof(*(p_bmap)) - 1))))
 #define BMAP_ZERO(p_bmap, n_bits) (memset((p_bmap), 0, (((n_bits) - 1) / 8) + 1))
+
+#define min(a, b) (((a) < (b)) ? a : b)
+#define max(a, b) (((a) > (b)) ? a : b)
 
 #endif

@@ -828,7 +828,6 @@ int drmdev_new_atomic_req(
 ) {
     struct drmdev_atomic_req *req;
     struct drm_plane *plane;
-    int ok;
 
     if (drmdev->supports_atomic_modesetting == false) {
         return EOPNOTSUPP;

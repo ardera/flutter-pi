@@ -1,4 +1,5 @@
 ## 📰 NEWS
+- flutter-pi now requires `libprotobuf-c-dev`.
 - flutter-pi now requires `libxkbcommon`. Install using `sudo apt install libxkbcommon-dev`
 - keyboard input works better now. You can now use any keyboard connected to the Raspberry Pi for text and raw keyboard input.
 

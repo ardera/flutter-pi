@@ -22,7 +22,7 @@ struct {
     .last_id = 0
 };
 
-static int add_texture_details(const struct texture_details const *details, int64_t *tex_id_out) {
+static int add_texture_details(const struct texture_details *const details, int64_t *tex_id_out) {
     if (texreg.n_entries == texreg.size_entries) {
         // expand the texture map
         size_t new_size = texreg.size_entries? texreg.size_entries*2 : 1;
@@ -109,9 +109,10 @@ bool texreg_gl_external_texture_frame_callback(
            ");\n",
            userdata, texture_id, width, height, texture_out
     );
-    size_t index;
+
+    int index;
     for (index = 0; index < texreg.size_entries; index++) {
-        printf("texreg.entries[%lu].texture_id = %lu\n", index, texreg.entries[index].texture_id);
+        printf("texreg.entries[%d].texture_id = %lld\n", index, texreg.entries[index].texture_id);
         if (texreg.entries[index].texture_id == texture_id) {
             break;
         }
@@ -237,4 +238,6 @@ int texreg_unregister_texture(int64_t texture_id) {
     if (engine_result != kSuccess) {
         return EINVAL;
     }
+
+    return 0;
 }

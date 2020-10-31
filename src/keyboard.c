@@ -191,8 +191,6 @@ struct keyboard_config *keyboard_config_new(void) {
     struct xkb_compose_table *compose_table;
     struct xkb_context *ctx;
     struct xkb_keymap *keymap;
-    struct xkb_state *plain_state;
-    int ok;
     
     cfg = malloc(sizeof *cfg);
     if (cfg == NULL) {

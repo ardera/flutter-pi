@@ -433,10 +433,7 @@ int platch_write_value_to_buffer_json(struct json_value* value, uint8_t **pbuffe
 }
 int platch_decode_value_std(uint8_t **pbuffer, size_t *premaining, struct std_value *value_out) {
 	enum std_value_type type = 0;
-	int64_t *longArray = 0;
-	int32_t *intArray = 0;
-	uint8_t *byteArray = 0, type_byte = 0;
-	char *c_string = 0; 
+	uint8_t type_byte = 0;
 	uint32_t size = 0;
 	int ok;
 	
@@ -816,7 +813,7 @@ int platch_decode(uint8_t *buffer, size_t size, enum platch_codec codec, struct 
 }
 int platch_encode(struct platch_obj *object, uint8_t **buffer_out, size_t *size_out) {
 	struct std_value stdmethod, stderrcode, stderrmessage;
-	struct json_value jsmethod, jserrcode, jserrmessage, jsroot;
+	struct json_value jsroot;
 	uint8_t *buffer, *buffer_cursor;
 	size_t   size = 0;
 	int		 ok = 0;
@@ -1418,6 +1415,8 @@ bool jsvalue_equals(struct json_value *a, struct json_value *b) {
 
 			return true;
 	}
+
+	return false;
 }
 struct json_value *jsobject_get(struct json_value *object, char *key) {
 	int i;

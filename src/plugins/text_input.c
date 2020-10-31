@@ -18,7 +18,7 @@ struct {
     bool has_allow_decimal;
     bool autocorrect;
     enum text_input_action input_action;
-    char text[TEXT_INPUT_MAX_CHARS];
+    uint8_t text[TEXT_INPUT_MAX_CHARS];
     int  selection_base, selection_extent;
     bool selection_affinity_is_downstream;
     bool selection_is_directional;
@@ -58,7 +58,7 @@ static inline uint8_t *symbol_at(unsigned int symbol_index) {
 }
 
 static inline int to_byte_index(unsigned int symbol_index) {
-    char *cursor = text_input.text;
+    uint8_t *cursor = text_input.text;
 
     while ((*cursor) && (symbol_index--))
         cursor += utf8_symbol_length(*cursor);
@@ -70,8 +70,8 @@ static inline int to_byte_index(unsigned int symbol_index) {
 }
 
 static inline int to_symbol_index(unsigned int byte_index) {
-    char *cursor = text_input.text;
-    char *target_cursor = cursor + byte_index;
+    uint8_t *cursor = text_input.text;
+    uint8_t *target_cursor = cursor + byte_index;
     int symbol_index = 0;
 
     while ((*cursor) && (cursor < target_cursor)) {
@@ -94,7 +94,6 @@ static int on_set_client(
     struct json_value jsvalue, *temp, *temp2, *state, *config;
     int64_t transaction_id;
     bool autocorrect, allow_signs, allow_decimal, has_allow_signs, has_allow_decimal;
-    int ok;
 
     /*
      *  TextInput.setClient(List)
@@ -326,11 +325,10 @@ static int on_set_editing_state(
     struct platch_obj *object,
     FlutterPlatformMessageResponseHandle *responsehandle
 ) {
-    struct json_value jsvalue, *temp, *temp2, *state, *config;
+    struct json_value *temp, *state;
     char *text;
     bool selection_affinity_is_downstream, selection_is_directional;
     int selection_base, selection_extent, composing_base, composing_extent;
-    int ok;
 
     /*
      *  TextInput.setEditingState(Map<String, dynamic> textEditingValue)
@@ -429,7 +427,7 @@ static int on_set_editing_state(
         composing_extent = (int) temp->number_value;
     }
 
-    strncpy(text_input.text, text, TEXT_INPUT_MAX_CHARS);
+    strncpy((char*) text_input.text, text, TEXT_INPUT_MAX_CHARS);
     text_input.selection_base = selection_base;
     text_input.selection_extent = selection_extent;
     text_input.selection_affinity_is_downstream = selection_affinity_is_downstream;
@@ -554,7 +552,7 @@ static int on_receive(
 
 static int client_update_editing_state(
     double connection_id,
-    char *text,
+    uint8_t *text,
     double selection_base,
     double selection_extent,
     bool selection_affinity_is_downstream,
@@ -576,7 +574,7 @@ static int client_update_editing_state(
                         "selectionIsDirectional", "composingBase", "composingExtent"
                     },
                     .values = (struct json_value[7]) {
-                        {.type = kJsonString, .string_value = text},
+                        {.type = kJsonString, .string_value = (char*) text},
                         {.type = kJsonNumber, .number_value = selection_base},
                         {.type = kJsonNumber, .number_value = selection_extent},
                         {
@@ -748,14 +746,6 @@ int client_show_autocorrection_prompt_rect(
  * Text Input Model functions.
  */
 
-static inline int min(int a, int b) {
-    return a < b? a : b;
-}
-
-static inline int max(int a, int b) {
-    return a > b? a : b;
-}
-
 static inline int selection_start(void) {
     return min(text_input.selection_base, text_input.selection_extent);
 }
@@ -771,11 +761,11 @@ static inline int selection_end(void) {
 static int  model_erase(unsigned int start, unsigned int end) {
     // 0 <= start <= end < len
 
-    char *start_str     = symbol_at(start);
-    char *after_end_str = symbol_at(end+1);
+    uint8_t *start_str     = symbol_at(start);
+    uint8_t *after_end_str = symbol_at(end+1);
 
     if (start_str && after_end_str)
-        memmove(start_str, after_end_str, strlen(after_end_str) + 1 /* null byte */);
+        memmove(start_str, after_end_str, strlen((char*) after_end_str) + 1 /* null byte */);
 
     return start;
 }
@@ -805,7 +795,7 @@ static bool model_add_utf8_char(uint8_t *c) {
     // move the string behind the insertion position to
     // make place for the utf8 charactercursor
 
-    memmove(to_move + symbol_length, to_move, strlen(to_move) + 1 /* null byte */);
+    memmove(to_move + symbol_length, to_move, strlen((char*) to_move) + 1 /* null byte */);
 
     // after the move, to_move points to the memory
     // where c should be inserted
@@ -837,7 +827,7 @@ static bool model_delete(void) {
     if (text_input.selection_base != text_input.selection_extent)
         return model_delete_selected();
     
-    if (selection_start() < strlen(text_input.text)) {
+    if (selection_start() < strlen((char*) text_input.text)) {
         text_input.selection_base = model_erase(selection_start(), selection_end());
         text_input.selection_extent = text_input.selection_base;
         return true;
@@ -857,7 +847,7 @@ static bool model_move_cursor_to_beginning(void) {
 }
 
 static bool model_move_cursor_to_end(void) {
-    int end = to_symbol_index(strlen(text_input.text));
+    int end = to_symbol_index(strlen((char*) text_input.text));
 
     if (text_input.selection_base != end) {
         text_input.selection_base = end;
@@ -874,7 +864,7 @@ static bool model_move_cursor_forward(void) {
         return true;
     }
 
-    if (text_input.selection_extent < to_symbol_index(strlen(text_input.text))) {
+    if (text_input.selection_extent < to_symbol_index(strlen((char*) text_input.text))) {
         text_input.selection_extent++;
         text_input.selection_base++;
         return true;
@@ -968,7 +958,7 @@ int textin_on_xkb_keysym(xkb_keysym_t keysym) {
         case XKB_KEY_KP_Enter:
         case XKB_KEY_ISO_Enter:
             if (text_input.input_type == kInputTypeMultiline)
-                needs_sync = model_add_utf8_char("\n");
+                needs_sync = model_add_utf8_char((uint8_t*) "\n");
             
             perform_action = true;
             break;

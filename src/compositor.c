@@ -89,6 +89,8 @@ static int destroy_stale_rendertargets(void) {
 	}
 
 	cpset_unlock(&compositor.stale_rendertargets);
+
+	return 0;
 }
 
 static void destroy_gbm_bo(
@@ -187,31 +189,34 @@ static int create_drm_rbo(
 		EGL_NONE
 	});
 	if ((egl_error = eglGetError()) != EGL_SUCCESS) {
-		fprintf(stderr, "[compositor] error creating DRM EGL Image for flutter backing store, eglCreateDRMImageMESA: %ld\n", egl_error);
+		fprintf(stderr, "[compositor] error creating DRM EGL Image for flutter backing store, eglCreateDRMImageMESA: %u\n", egl_error);
 		return EINVAL;
 	}
 
-	flutterpi.egl.exportDRMImageMESA(flutterpi.egl.display, fbo.egl_image, NULL, &fbo.gem_handle, &fbo.gem_stride);
-	if ((egl_error = eglGetError()) != EGL_SUCCESS) {
-		fprintf(stderr, "[compositor] error getting handle & stride for DRM EGL Image, eglExportDRMImageMESA: %d\n", egl_error);
-		return EINVAL;
+	{
+		EGLint stride = fbo.gem_stride;
+		flutterpi.egl.exportDRMImageMESA(flutterpi.egl.display, fbo.egl_image, NULL, (EGLint*) &fbo.gem_handle, &stride);
+		if ((egl_error = eglGetError()) != EGL_SUCCESS) {
+			fprintf(stderr, "[compositor] error getting handle & stride for DRM EGL Image, eglExportDRMImageMESA: %u\n", egl_error);
+			return EINVAL;
+		}
 	}
 
 	glGenRenderbuffers(1, &fbo.gl_rbo_id);
-	if (gl_error = glGetError()) {
-		fprintf(stderr, "[compositor] error generating renderbuffers for flutter backing store, glGenRenderbuffers: %ld\n", gl_error);
+	if ((gl_error = glGetError())) {
+		fprintf(stderr, "[compositor] error generating renderbuffers for flutter backing store, glGenRenderbuffers: %u\n", gl_error);
 		return EINVAL;
 	}
 
 	glBindRenderbuffer(GL_RENDERBUFFER, fbo.gl_rbo_id);
-	if (gl_error = glGetError()) {
-		fprintf(stderr, "[compositor] error binding renderbuffer, glBindRenderbuffer: %d\n", gl_error);
+	if ((gl_error = glGetError())) {
+		fprintf(stderr, "[compositor] error binding renderbuffer, glBindRenderbuffer: %u\n", gl_error);
 		return EINVAL;
 	}
 
 	flutterpi.gl.EGLImageTargetRenderbufferStorageOES(GL_RENDERBUFFER, fbo.egl_image);
-	if (gl_error = glGetError()) {
-		fprintf(stderr, "[compositor] error binding DRM EGL Image to renderbuffer, glEGLImageTargetRenderbufferStorageOES: %ld\n", gl_error);
+	if ((gl_error = glGetError())) {
+		fprintf(stderr, "[compositor] error binding DRM EGL Image to renderbuffer, glEGLImageTargetRenderbufferStorageOES: %u\n", gl_error);
 		return EINVAL;
 	}
 
@@ -286,19 +291,19 @@ static int attach_drm_rbo_to_fbo(
 	glGetError();
 
 	glBindFramebuffer(GL_FRAMEBUFFER, fbo_id);
-	if (gl_error = glGetError()) {
+	if ((gl_error = glGetError())) {
 		fprintf(stderr, "[compositor] error binding FBO for attaching the renderbuffer, glBindFramebuffer: %d\n", gl_error);
 		return EINVAL;
 	}
 
 	glBindRenderbuffer(GL_RENDERBUFFER, rbo->gl_rbo_id);
-	if (gl_error = glGetError()) {
+	if ((gl_error = glGetError())) {
 		fprintf(stderr, "[compositor] error binding renderbuffer, glBindRenderbuffer: %d\n", gl_error);
 		return EINVAL;
 	}
 
 	glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, rbo->gl_rbo_id);
-	if (gl_error = glGetError()) {
+	if ((gl_error = glGetError())) {
 		fprintf(stderr, "[compositor] error attaching renderbuffer to FBO, glFramebufferRenderbuffer: %d\n", gl_error);
 		return EINVAL;
 	}
@@ -320,7 +325,7 @@ static void destroy_drm_rbo(
 	glGetError();
 
 	glDeleteRenderbuffers(1, &rbo->gl_rbo_id);
-	if (gl_error = glGetError()) {
+	if ((gl_error = glGetError())) {
 		fprintf(stderr, "[compositor] error destroying OpenGL RBO, glDeleteRenderbuffers: 0x%08X\n", gl_error);
 	}
 
@@ -721,7 +726,7 @@ static int rendertarget_nogbm_new(
 	glGetError();
 
 	glGenFramebuffers(1, &target->nogbm.gl_fbo_id);
-	if (gl_error = glGetError()) {
+	if ((gl_error = glGetError())) {
 		fprintf(stderr, "[compositor] error generating FBOs for flutter backing store, glGenFramebuffers: %d\n", gl_error);
 		ok = EINVAL;
 		goto fail_free_target;
@@ -984,8 +989,6 @@ static bool on_present_layers(
 			legacy_rendertarget_set_mode = true;
 			schedule_fake_page_flip_event = true;
 		}
-
-		int64_t max_zpos = 0;
 
 		if (use_atomic_modesetting) {
 			for_each_unreserved_plane_in_atomic_req(req, plane) {
@@ -1672,6 +1675,8 @@ int compositor_apply_cursor_state(
 		compositor.cursor.y = 0;
 		compositor.cursor.is_enabled = false;
 	}
+
+	return 0;
 }
 
 int compositor_set_cursor_pos(int x, int y) {
