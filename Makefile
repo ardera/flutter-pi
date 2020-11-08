@@ -39,7 +39,7 @@ out/obj/%.o: src/%.c
 
 out/flutter-pi: $(OBJECTS)
 	@mkdir -p $(@D)
-	$(CC) $(REAL_CFLAGS) $(REAL_LDFLAGS) $(OBJECTS) -o out/flutter-pi
+	$(CC) $(REAL_CFLAGS) $(OBJECTS) $(REAL_LDFLAGS) -o out/flutter-pi
 
 clean:
 	@mkdir -p out
