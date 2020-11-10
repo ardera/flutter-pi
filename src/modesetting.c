@@ -59,12 +59,12 @@ static int fetch_connectors(struct drmdev *drmdev, struct drm_connector **connec
             goto fail_free_connectors;
         }
 
-        for (int j = 0; j < props->count_props; j++) {
+        for (unsigned int j = 0; j < props->count_props; j++) {
             props_info[j] = drmModeGetProperty(drmdev->fd, props->props[j]);
             if (props_info[j] == NULL) {
                 ok = errno;
                 perror("[modesetting] Could not get DRM device connector properties' info. drmModeGetProperty");
-                for (int k = 0; k < (j-1); k++)
+                for (unsigned int k = 0; k < (j-1); k++)
                     drmModeFreeProperty(props_info[j]);
                 free(props_info);
                 drmModeFreeObjectProperties(props);
@@ -85,7 +85,7 @@ static int fetch_connectors(struct drmdev *drmdev, struct drm_connector **connec
 
     fail_free_connectors:
     for (int i = 0; i < n_allocated_connectors; i++) {
-        for (int j = 0; j < connectors[i].props->count_props; j++)
+        for (unsigned int j = 0; j < connectors[i].props->count_props; j++)
             drmModeFreeProperty(connectors[i].props_info[j]);
         free(connectors[i].props_info);
         drmModeFreeObjectProperties(connectors[i].props);
@@ -101,8 +101,8 @@ static int fetch_connectors(struct drmdev *drmdev, struct drm_connector **connec
 }
 
 static int free_connectors(struct drm_connector *connectors, size_t n_connectors) {
-    for (int i = 0; i < n_connectors; i++) {
-        for (int j = 0; j < connectors[i].props->count_props; j++)
+    for (unsigned int i = 0; i < n_connectors; i++) {
+        for (unsigned int j = 0; j < connectors[i].props->count_props; j++)
             drmModeFreeProperty(connectors[i].props_info[j]);
         free(connectors[i].props_info);
         drmModeFreeObjectProperties(connectors[i].props);
@@ -159,7 +159,7 @@ static int fetch_encoders(struct drmdev *drmdev, struct drm_encoder **encoders_o
 }
 
 static int free_encoders(struct drm_encoder *encoders, size_t n_encoders) {
-    for (int i = 0; i < n_encoders; i++) {
+    for (unsigned int i = 0; i < n_encoders; i++) {
         drmModeFreeEncoder(encoders[i].encoder);
     }
 
@@ -208,12 +208,12 @@ static int fetch_crtcs(struct drmdev *drmdev, struct drm_crtc **crtcs_out, size_
             goto fail_free_crtcs;
         }
 
-        for (int j = 0; j < props->count_props; j++) {
+        for (unsigned int j = 0; j < props->count_props; j++) {
             props_info[j] = drmModeGetProperty(drmdev->fd, props->props[j]);
             if (props_info[j] == NULL) {
                 ok = errno;
                 perror("[modesetting] Could not get DRM device CRTCs properties' info. drmModeGetProperty");
-                for (int k = 0; k < (j-1); k++)
+                for (unsigned int k = 0; k < (j-1); k++)
                     drmModeFreeProperty(props_info[j]);
                 free(props_info);
                 drmModeFreeObjectProperties(props);
@@ -238,7 +238,7 @@ static int fetch_crtcs(struct drmdev *drmdev, struct drm_crtc **crtcs_out, size_
 
     fail_free_crtcs:
     for (int i = 0; i < n_allocated_crtcs; i++) {
-        for (int j = 0; j < crtcs[i].props->count_props; j++)
+        for (unsigned int j = 0; j < crtcs[i].props->count_props; j++)
             drmModeFreeProperty(crtcs[i].props_info[j]);
         free(crtcs[i].props_info);
         drmModeFreeObjectProperties(crtcs[i].props);
@@ -254,8 +254,8 @@ static int fetch_crtcs(struct drmdev *drmdev, struct drm_crtc **crtcs_out, size_
 }
 
 static int free_crtcs(struct drm_crtc *crtcs, size_t n_crtcs) {
-    for (int i = 0; i < n_crtcs; i++) {
-        for (int j = 0; j < crtcs[i].props->count_props; j++)
+    for (unsigned int i = 0; i < n_crtcs; i++) {
+        for (unsigned int j = 0; j < crtcs[i].props->count_props; j++)
             drmModeFreeProperty(crtcs[i].props_info[j]);
         free(crtcs[i].props_info);
         drmModeFreeObjectProperties(crtcs[i].props);
@@ -279,7 +279,7 @@ static int fetch_planes(struct drmdev *drmdev, struct drm_plane **planes_out, si
     }
 
     n_allocated_planes = 0;
-    for (int i = 0; i < drmdev->plane_res->count_planes; i++, n_allocated_planes++) {
+    for (unsigned int i = 0; i < drmdev->plane_res->count_planes; i++, n_allocated_planes++) {
         drmModeObjectProperties *props;
         drmModePropertyRes **props_info;
         drmModePlane *plane;
@@ -307,12 +307,12 @@ static int fetch_planes(struct drmdev *drmdev, struct drm_plane **planes_out, si
             goto fail_free_planes;
         }
 
-        for (int j = 0; j < props->count_props; j++) {
+        for (unsigned int j = 0; j < props->count_props; j++) {
             props_info[j] = drmModeGetProperty(drmdev->fd, props->props[j]);
             if (props_info[j] == NULL) {
                 ok = errno;
                 perror("[modesetting] Could not get DRM device planes' properties' info. drmModeGetProperty");
-                for (int k = 0; k < (j-1); k++)
+                for (unsigned int k = 0; k < (j-1); k++)
                     drmModeFreeProperty(props_info[j]);
                 free(props_info);
                 drmModeFreeObjectProperties(props);
@@ -322,7 +322,7 @@ static int fetch_planes(struct drmdev *drmdev, struct drm_plane **planes_out, si
 
             if (strcmp(props_info[j]->name, "type") == 0) {
                 planes[i].type = 0;
-                for (int k = 0; k < props->count_props; k++) {
+                for (uint32_t k = 0; k < props->count_props; k++) {
                     if (props->props[k] == props_info[j]->prop_id) {
                         planes[i].type = props->prop_values[k];
                         break;
@@ -344,7 +344,7 @@ static int fetch_planes(struct drmdev *drmdev, struct drm_plane **planes_out, si
 
     fail_free_planes:
     for (int i = 0; i < n_allocated_planes; i++) {
-        for (int j = 0; j < planes[i].props->count_props; j++)
+        for (unsigned int j = 0; j < planes[i].props->count_props; j++)
             drmModeFreeProperty(planes[i].props_info[j]);
         free(planes[i].props_info);
         drmModeFreeObjectProperties(planes[i].props);
@@ -360,8 +360,8 @@ static int fetch_planes(struct drmdev *drmdev, struct drm_plane **planes_out, si
 }
 
 static int free_planes(struct drm_plane *planes, size_t n_planes) {
-    for (int i = 0; i < n_planes; i++) {
-        for (int j = 0; j < planes[i].props->count_props; j++)
+    for (size_t i = 0; i < n_planes; i++) {
+        for (uint32_t j = 0; j < planes[i].props->count_props; j++)
             drmModeFreeProperty(planes[i].props_info[j]);
         free(planes[i].props_info);
         drmModeFreeObjectProperties(planes[i].props);
@@ -580,7 +580,7 @@ static struct drm_plane *get_plane_by_id(
     struct drm_plane *plane;
 
     plane = NULL;
-    for (int i = 0; i < drmdev->n_planes; i++) {
+    for (size_t i = 0; i < drmdev->n_planes; i++) {
         if (drmdev->planes[i].plane->plane_id == plane_id) {
             plane = drmdev->planes + i;
             break;
@@ -599,7 +599,7 @@ static int get_plane_property_index_by_name(
     }
 
     int prop_index = -1; 
-    for (int i = 0; i < plane->props->count_props; i++) {
+    for (uint32_t i = 0; i < plane->props->count_props; i++) {
         if (strcmp(plane->props_info[i]->name, property_name) == 0) {
             prop_index = i;
             break;
@@ -700,7 +700,7 @@ int drmdev_plane_supports_setting_zpos_value(
         uint64_t min = plane->props_info[prop_index]->values[0];
         uint64_t max = plane->props_info[prop_index]->values[1];
 
-        if ((min <= zpos) && (max >= zpos)) {
+        if ((min <= (uint64_t) zpos) && (max >= (uint64_t) zpos)) {
             *result = true;
             return 0;
         } else {
@@ -875,7 +875,7 @@ int drmdev_atomic_req_put_connector_property(
 
     drmdev_lock(req->drmdev);
 
-    for (int i = 0; i < req->drmdev->selected_connector->props->count_props; i++) {
+    for (size_t i = 0; i < req->drmdev->selected_connector->props->count_props; i++) {
         drmModePropertyRes *prop = req->drmdev->selected_connector->props_info[i];
         if (strcmp(prop->name, name) == 0) {
             ok = drmModeAtomicAddProperty(
@@ -908,7 +908,7 @@ int drmdev_atomic_req_put_crtc_property(
 
     drmdev_lock(req->drmdev);
 
-    for (int i = 0; i < req->drmdev->selected_crtc->props->count_props; i++) {
+    for (size_t i = 0; i < req->drmdev->selected_crtc->props->count_props; i++) {
         drmModePropertyRes *prop = req->drmdev->selected_crtc->props_info[i];
         if (strcmp(prop->name, name) == 0) {
             ok = drmModeAtomicAddProperty(
@@ -945,7 +945,7 @@ int drmdev_atomic_req_put_plane_property(
     drmdev_lock(req->drmdev);
 
     plane = NULL;
-    for (int i = 0; i < req->drmdev->n_planes; i++) {
+    for (size_t i = 0; i < req->drmdev->n_planes; i++) {
         if (req->drmdev->planes[i].plane->plane_id == plane_id) {
             plane = req->drmdev->planes + i;
             break;
@@ -957,7 +957,7 @@ int drmdev_atomic_req_put_plane_property(
         return EINVAL;
     }
 
-    for (int i = 0; i < plane->props->count_props; i++) {
+    for (size_t i = 0; i < plane->props->count_props; i++) {
         drmModePropertyRes *prop;
         
         prop = plane->props_info[i];
@@ -1158,7 +1158,7 @@ int drmdev_legacy_set_connector_property(
 
     drmdev_lock(drmdev);
 
-    for (int i = 0; i < drmdev->selected_connector->props->count_props; i++) {
+    for (size_t i = 0; i < drmdev->selected_connector->props->count_props; i++) {
         drmModePropertyRes *prop = drmdev->selected_connector->props_info[i];
         if (strcmp(prop->name, name) == 0) {
             ok = drmModeConnectorSetProperty(
@@ -1192,7 +1192,7 @@ int drmdev_legacy_set_crtc_property(
 
     drmdev_lock(drmdev);
 
-    for (int i = 0; i < drmdev->selected_crtc->props->count_props; i++) {
+    for (size_t i = 0; i < drmdev->selected_crtc->props->count_props; i++) {
         drmModePropertyRes *prop = drmdev->selected_crtc->props_info[i];
         if (strcmp(prop->name, name) == 0) {
             ok = drmModeObjectSetProperty(
@@ -1230,7 +1230,7 @@ int drmdev_legacy_set_plane_property(
     drmdev_lock(drmdev);
 
     plane = NULL;
-    for (int i = 0; i < drmdev->n_planes; i++) {
+    for (size_t i = 0; i < drmdev->n_planes; i++) {
         if (drmdev->planes[i].plane->plane_id == plane_id) {
             plane = drmdev->planes + i;
             break;
@@ -1242,7 +1242,7 @@ int drmdev_legacy_set_plane_property(
         return EINVAL;
     }
 
-    for (int i = 0; i < plane->props->count_props; i++) {
+    for (size_t i = 0; i < plane->props->count_props; i++) {
         drmModePropertyRes *prop;
         
         prop = plane->props_info[i];

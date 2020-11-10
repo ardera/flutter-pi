@@ -4,240 +4,356 @@
 #include <errno.h>
 #include <stdio.h>
 #include <inttypes.h>
+#include <semaphore.h>
 
 #include <flutter_embedder.h>
 
+#include <collection.h>
 #include <texture_registry.h>
 #include <flutter-pi.h>
 
-struct {
-    struct texture_map_entry *entries;
-    size_t size_entries;
-    size_t n_entries;
-    int64_t last_id;
-} texreg = {
-    .entries = NULL,
-    .size_entries = 0,
-    .n_entries = 0,
-    .last_id = 0
+struct texture_registry {
+    FlutterEngine engine;
+    flutter_engine_register_external_texture_t register_texture;
+    flutter_engine_mark_external_texture_frame_available_t mark_frame_available;
+    flutter_engine_unregister_external_texture_t unregister_texture;
+    struct concurrent_pointer_set delayed_deletes;
+    struct concurrent_pointer_set textures;
+    int64_t next_texture_id;
 };
 
-static int add_texture_details(const struct texture_details *const details, int64_t *tex_id_out) {
-    if (texreg.n_entries == texreg.size_entries) {
-        // expand the texture map
-        size_t new_size = texreg.size_entries? texreg.size_entries*2 : 1;
-        
-        struct texture_map_entry *new = realloc(texreg.entries, new_size*sizeof(struct texture_map_entry));
+struct flutter_texture_frame {
+    struct texture_registry *reg;
+    FlutterOpenGLTexture gl_texture;
+    bool delay_delete_to_next_page_flip;
+    unsigned int n_refs;
+};
 
-        if (new == NULL) {
-            perror("[texture registry] Could not expand external texture map. realloc");
-            return ENOMEM;
-        }
+struct flutter_texture {
+    int64_t texture_id;
+    struct flutter_texture_frame *frame;
+};
 
-        memset(new + texreg.size_entries, 0, (new_size - texreg.size_entries)*sizeof(struct texture_map_entry));
 
-        texreg.entries = new;
-        texreg.size_entries = new_size;
+static struct flutter_texture_frame *frame_new(
+    struct texture_registry *reg,
+    const FlutterOpenGLTexture *texture,
+    bool delay_delete_to_next_page_flip
+) {
+    struct flutter_texture_frame *frame;
+
+    frame = malloc(sizeof *frame);
+    if (frame == NULL) {
+        return NULL;
     }
 
-    size_t index;
-    for (index = 0; index < texreg.size_entries; index++) {
-        if (texreg.entries[index].texture_id == 0) {
+    frame->reg = reg;
+    frame->gl_texture = *texture;
+    frame->delay_delete_to_next_page_flip = delay_delete_to_next_page_flip;
+    frame->n_refs = 1;
+
+    return frame;
+}
+
+static struct flutter_texture_frame *frame_ref(struct flutter_texture_frame *frame) {
+    frame->n_refs++;
+    return frame;
+}
+
+static void frame_unref(struct flutter_texture_frame *frame) {
+    frame->n_refs--;
+    if (frame->n_refs == 0) {
+        if (frame->delay_delete_to_next_page_flip) {
+            cpset_put(&frame->reg->delayed_deletes, frame);
+        } else {
+            frame->gl_texture.destruction_callback(frame->gl_texture.user_data);
+            free(frame);
+        }
+    }
+}
+
+static void frame_unrefp(struct flutter_texture_frame **pframe) {
+    frame_unref(*pframe);
+    *pframe = NULL;
+}
+
+
+static struct flutter_texture *find_texture_by_id_locked(struct texture_registry *reg, int64_t texture_id) {
+    struct flutter_texture *texture;
+
+    for_each_pointer_in_cpset(&reg->textures, texture) {
+        if (texture->texture_id == texture_id) {
             break;
         }
     }
 
-    texreg.entries[index].texture_id = ++(texreg.last_id);
-    texreg.entries[index].details = *details;
-
-    texreg.n_entries++;
-
-    *tex_id_out = texreg.entries[index].texture_id;
-
-    return 0;
+    return texture;
 }
 
-static int remove_texture_details(int64_t tex_id) {
-    size_t index;
-    for (index = 0; index < texreg.size_entries; index++) {
-        if (texreg.entries[index].texture_id == tex_id) {
-            break;
-        }
+static void destroy_all_delete_delayed_textures(
+    struct texture_registry *reg
+) {
+    struct flutter_texture_frame *frame;
+
+    cpset_lock(&reg->delayed_deletes);
+
+    for_each_pointer_in_cpset(&reg->delayed_deletes, frame) {
+        frame->gl_texture.destruction_callback(frame->gl_texture.user_data);
+        free(frame);
     }
 
-    if (index == texreg.size_entries) {
-        return EINVAL;
-    }
-
-    texreg.entries[index].texture_id = 0;
-
-    texreg.n_entries--;
-
-    return 0;
+    cpset_unlock(&reg->delayed_deletes);
 }
 
-static void on_collect_texture(void *userdata) {
-    struct texture_details *details = (struct texture_details *) userdata;
 
-    if (details->collection_cb) {
-        details->collection_cb(
-            details->gl_texture.target,
-            details->gl_texture.name,
-            details->gl_texture.format,
-            details->collection_cb_userdata,
-            details->gl_texture.width,
-            details->gl_texture.height
-        );
+struct texture_registry *texreg_new(
+    FlutterEngine engine,
+    flutter_engine_register_external_texture_t register_texture,
+    flutter_engine_mark_external_texture_frame_available_t mark_frame_available,
+    flutter_engine_unregister_external_texture_t unregister_texture
+) {
+    struct texture_registry *reg;
+    int ok;
+
+    reg = malloc(sizeof *reg);
+    if (reg == NULL) {
+        return NULL;
     }
 
-    //free(details);
+    reg->engine = engine;
+    reg->register_texture = register_texture;
+    reg->mark_frame_available = mark_frame_available;
+    reg->unregister_texture = unregister_texture;
+    reg->next_texture_id = 1;
+    
+    ok = cpset_init(&reg->textures, CPSET_DEFAULT_MAX_SIZE);
+    if (ok != 0) {
+        free(reg);
+        return NULL;
+    }
+
+    ok = cpset_init(&reg->delayed_deletes, CPSET_DEFAULT_MAX_SIZE);
+    if (ok != 0) {
+        free(reg);
+        return NULL;
+    }
+
+    return reg;
 }
 
-bool texreg_gl_external_texture_frame_callback(
-    void *userdata,
+void texreg_set_engine(
+    struct texture_registry *reg,
+    FlutterEngine engine
+) {
+    reg->engine = engine;
+}
+
+void texreg_set_callbacks(
+    struct texture_registry *reg,
+    flutter_engine_register_external_texture_t register_texture,
+    flutter_engine_mark_external_texture_frame_available_t mark_frame_available,
+    flutter_engine_unregister_external_texture_t unregister_texture
+) {
+    reg->register_texture = register_texture;
+    reg->mark_frame_available = mark_frame_available;
+    reg->unregister_texture = unregister_texture;
+}
+
+int texreg_on_external_texture_frame_callback(
+    struct texture_registry *reg,
     int64_t texture_id,
     size_t width,
     size_t height,
     FlutterOpenGLTexture *texture_out
 ) {
-    printf("[texture registry] gl_external_texture_frame_callback(\n"
-           "  userdata: %p,\n"
-           "  texture_id: %"PRIi64",\n"
-           "  width: %"PRIu32",\n"
-           "  height: %"PRIu32",\n"
-           "  texture_out: %p\n"
-           ");\n",
-           userdata, texture_id, width, height, texture_out
-    );
+    struct flutter_texture *texture;
 
-    int index;
-    for (index = 0; index < texreg.size_entries; index++) {
-        printf("texreg.entries[%d].texture_id = %lld\n", index, texreg.entries[index].texture_id);
-        if (texreg.entries[index].texture_id == texture_id) {
-            break;
-        }
+    cpset_lock(&reg->textures);
+
+    texture = find_texture_by_id_locked(reg, texture_id);
+    if (texture == NULL) {
+        cpset_unlock(&reg->textures);
+        return EINVAL;
     }
 
-    if (index == texreg.size_entries)
-        return false;
-    
-    *texture_out = texreg.entries[index].details.gl_texture;
+    if (texture->frame == NULL) {
+        cpset_unlock(&reg->textures);
+        return EINVAL;
+    }
 
-    printf("texture_out = {\n"
-           "  .target = %"PRIu32",\n"
-           "  .name = %"PRIu32",\n"
-           "  .format = %"PRIu32",\n"
-           "  .user_data = %p,\n"
-           "  .destruction_callback = %p,\n"
-           "  .width = %"PRIu32",\n"
-           "  .height = %"PRIu32",\n"
-           "}\n",
-           texture_out->target,
-           texture_out->name,
-           texture_out->format,
-           texture_out->user_data,
-           texture_out->destruction_callback,
-           texture_out->width,
-           texture_out->height
-    );
+    *texture_out = texture->frame->gl_texture;
+    texture_out->user_data = frame_ref(texture->frame);
+    texture_out->destruction_callback = (VoidCallback) frame_unref;
+
+    printf("[texture registry] fetched gl texture %u from flutter texture %lld\n", texture->frame->gl_texture.name, texture->texture_id);
+
+    cpset_unlock(&reg->textures);
 
     return true;
 }
 
-int texreg_register_texture(
-    GLenum gl_texture_target,
-    GLuint gl_texture_id,
-    GLuint gl_texture_format,
-    void *userdata,
-    texreg_collect_gl_texture_cb collection_cb,
-    size_t width,
-    size_t height,
-    int64_t *texture_id_out
+int texreg_new_texture(
+    struct texture_registry *reg,
+    int64_t *texture_id_out,
+    const FlutterOpenGLTexture *initial_frame,
+    bool delay_delete_to_next_page_flip
 ) {
-    struct texture_details *details;
+    struct flutter_texture_frame *frame;
+    struct flutter_texture *texture;
     FlutterEngineResult engine_result;
-    int64_t tex_id = 0;
+    int64_t texture_id;
     int ok;
 
-    printf("[texture registry] texreg_register_texture(\n"
-           "  gl_texture_target: %"PRIu32 ",\n"
-           "  gl_texture_id: %"PRIu32 ",\n"
-           "  gl_texture_format: %"PRIu32 ",\n"
-           "  userdata: %p,\n"
-           "  collection_cb: %p,\n"
-           "  width: %"PRIu32",\n"
-           "  height: %"PRIu32",\n"
-           ");\n",
-           gl_texture_target,
-           gl_texture_id,
-           gl_texture_format,
-           userdata,
-           collection_cb,
-           width,
-           height
-    );
-    
-    details = malloc(sizeof(struct texture_details));
+    texture = malloc(sizeof *texture);
+    if (texture == NULL) {
+        return ENOMEM;
+    }
 
-    *details = (struct texture_details) {
-        .gl_texture = {
-            .target = (uint32_t) gl_texture_target,
-            .name = (uint32_t) gl_texture_id,
-            .format = (uint32_t) gl_texture_format,
-            .user_data = details,
-            .destruction_callback = on_collect_texture,
-            .width = width,
-            .height = height,
-        },
-        .collection_cb = collection_cb,
-        .collection_cb_userdata = userdata
-    };
+    texture_id = reg->next_texture_id++;
 
-    ok = add_texture_details(
-        details,
-        &tex_id
-    );
+    if (initial_frame == NULL) {
+        frame = NULL;
+    } else {
+        printf("[texture registry] adding  gl texture %u  to  flutter texture %lld\n", initial_frame->name, texture_id);
 
+        frame = frame_new(initial_frame);
+        if (frame == NULL) {
+            free(texture);
+            return ENOMEM;
+        }
+    }
+
+    texture->texture_id = texture_id;
+    texture->frame = frame;
+
+    ok = cpset_put(&reg->textures, texture);
     if (ok != 0) {
-        free(details);
+        if (frame != NULL)
+            frame_unref(frame);
+        free(texture);
         return ok;
     }
 
-    engine_result = flutterpi.flutter.libflutter_engine.FlutterEngineRegisterExternalTexture(flutterpi.flutter.engine, tex_id);
-    if (engine_result != kSuccess) {
-        free(details);
-        return EINVAL;
+    if (texture_id_out != NULL) {
+        *texture_id_out = texture_id;
     }
 
-    *texture_id_out = tex_id;
+    engine_result = flutterpi.flutter.libflutter_engine.FlutterEngineRegisterExternalTexture(flutterpi.flutter.engine, texture_id);
+    if (engine_result != kSuccess) {
+        fprintf(stderr, "[texture registry] Could not register external texture for engine. FlutterEngineRegisterExternalTexture: %s\n", FLUTTER_RESULT_TO_STRING(engine_result));
+        return EINVAL;
+    }
 
     return 0;
 }
 
-int texreg_mark_texture_frame_available(int64_t texture_id) {
+int texreg_update_texture(
+    struct texture_registry *reg,
+    int64_t texture_id,
+    const FlutterOpenGLTexture *new_gl_texture,
+    bool delay_delete_to_next_page_flip
+) {
+    struct flutter_texture *texture;
     FlutterEngineResult engine_result;
+
+    if (new_gl_texture) {
+        printf("[texture registry] adding  gl texture %u  to  flutter texture %lld\n", new_gl_texture->name, texture_id);
+    }
+
+    cpset_lock(&reg->textures);
+
+    texture = find_texture_by_id_locked(reg, texture_id);
+    if (texture == NULL) {
+        cpset_unlock(&reg->textures);
+        return EINVAL;
+    }
 
     engine_result = flutterpi.flutter.libflutter_engine.FlutterEngineMarkExternalTextureFrameAvailable(flutterpi.flutter.engine, texture_id);
     if (engine_result != kSuccess) {
+        fprintf(stderr, "[texture registry] Could not update external texture. FlutterEngineMarkExternalTextureFrameAvailable: %s\n", FLUTTER_RESULT_TO_STRING(engine_result));
+        cpset_unlock(&reg->textures);
         return EINVAL;
     }
+
+    if (texture->frame != NULL) {
+        frame_unrefp(&texture->frame);
+    }
+
+    if (new_gl_texture == NULL) {
+        texture->frame = NULL;
+    } else {
+        texture->frame = frame_new(new_gl_texture);
+    }
+
+    cpset_unlock(&reg->textures);
 
     return 0;
 }
 
-int texreg_unregister_texture(int64_t texture_id) {
+int texreg_delete_texture(
+    struct texture_registry *reg,
+    int64_t texture_id
+) {
+    struct flutter_texture *texture;
     FlutterEngineResult engine_result;
-    int ok;
 
-    ok = remove_texture_details(texture_id);
-    if (ok != 0) {
-        return ok;
-    }
-    
-    engine_result = flutterpi.flutter.libflutter_engine.FlutterEngineUnregisterExternalTexture(flutterpi.flutter.engine, texture_id);
-    if (engine_result != kSuccess) {
+    cpset_lock(&reg->textures);
+
+    texture = find_texture_by_id_locked(reg, texture_id);
+    if (texture == NULL) {
+        cpset_unlock(&reg->textures);
         return EINVAL;
     }
 
+    cpset_remove_locked(&reg->textures, texture);
+
+    if (texture->frame != NULL) {
+        frame_unrefp(&texture->frame);
+    }
+    
+    free(texture);
+
+    engine_result = flutterpi.flutter.libflutter_engine.FlutterEngineUnregisterExternalTexture(flutterpi.flutter.engine, texture_id);
+    if (engine_result != kSuccess) {
+        fprintf(stderr, "[texture registry] Could not unregister external texture. FlutterEngineUnregisterExternalTexture: %s\n", FLUTTER_RESULT_TO_STRING(engine_result));
+    }
+
+    cpset_unlock(&reg->textures);
+
     return 0;
+}
+
+int texreg_on_page_flip(
+    struct texture_registry *reg
+) {
+    texreg_destroy_all_delete_delayed_textures(reg);
+    return 0;
+}
+
+void texreg_destroy(
+    struct texture_registry *reg
+) {
+    struct flutter_texture *texture;
+    
+    cpset_lock(&reg->textures);
+
+    for_each_pointer_in_cpset(&reg->textures, texture) {
+        cpset_remove_locked(&reg->textures, texture);
+
+        if (texture->frame != NULL) {
+            frame_unrefp(&texture->frame);
+        }
+
+        reg->unregister_texture(reg->engine, texture->texture_id);
+
+        free(texture);
+
+        texture = NULL;
+    }
+
+    cpset_unlock(&reg->textures);
+
+    texreg_destroy_all_delete_delayed_textures(reg);
+
+    free(reg);
 }

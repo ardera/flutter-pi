@@ -1,15 +1,20 @@
+PKGCONFIG_DEPS = gbm libdrm glesv2 egl libsystemd libinput libudev xkbcommon libusb-1.0 libssl libcrypto gstreamer-1.0 gstreamer-base-1.0 gstreamer-video-1.0 gstreamer-app-1.0 gstreamer-allocators-1.0 gstreamer-plugins-base-1.0
+
 REAL_CFLAGS = -I./include \
 	-I./third_party/ \
-	$(shell pkg-config --cflags gbm libdrm glesv2 egl libsystemd libinput libudev xkbcommon libusb-1.0 libssl libcrypto) \
+	$(shell pkg-config --cflags $(PKGCONFIG_DEPS)) \
 	-DBUILD_TEXT_INPUT_PLUGIN \
 	-DBUILD_TEST_PLUGIN \
 	-DBUILD_OMXPLAYER_VIDEO_PLAYER_PLUGIN \
 	-DBUILD_ANDROID_AUTO_PLUGIN \
-	-O0 -ggdb -Wall -Wno-unused-label -Wno-unused-variable -Wno-unused-but-set-variable -Wno-unused-function \
+	-O0 -ggdb -Wall -Wextra -Werror \
+	-fsanitize=address -fno-omit-frame-pointer \
+	-Wno-unused-label -Wno-unused-variable -Wno-unused-but-set-variable -Wno-unused-function -Wno-unused-parameter -Wno-missing-field-initializers \
 	$(CFLAGS)
 
 REAL_LDFLAGS = \
-	$(shell pkg-config --libs gbm libdrm glesv2 egl libsystemd libinput libudev xkbcommon libusb-1.0 libssl libcrypto) \
+	-fsanitize=address \
+	$(shell pkg-config --libs $(PKGCONFIG_DEPS)) \
 	-lrt \
 	-lpthread \
 	-ldl \
@@ -33,7 +38,8 @@ SOURCES = src/flutter-pi.c \
 	src/plugins/omxplayer_video_player.c \
 	src/plugins/android_auto/android_auto.c \
 	src/plugins/android_auto/aa_xfer.c \
-	src/plugins/android_auto/aa_device.c
+	src/plugins/android_auto/aa_device.c \
+	src/plugins/android_auto/aa_channel.c
 
 OBJECTS := $(patsubst src/%.c,out/obj/%.o,$(SOURCES))
 

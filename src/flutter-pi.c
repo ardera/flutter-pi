@@ -887,6 +887,16 @@ static bool runs_platform_tasks_on_current_thread(void* userdata) {
 	return pthread_equal(pthread_self(), flutterpi.event_loop_thread) != 0;
 }
 
+bool flutterpi_runs_platform_tasks_on_current_thread(
+	struct flutterpi *flutterpi
+) {
+	if (pthread_equal(pthread_self(), flutterpi->event_loop_thread)) {
+		return true;
+	} else {
+		return false;
+	}
+}
+
 static int run_main_loop(void) {
 	int ok, evloop_fd;
 
@@ -1089,6 +1099,9 @@ void on_pageflip_event(
 static int on_drm_fd_ready(sd_event_source *s, int fd, uint32_t revents, void *userdata) {
 	int ok;
 
+	(void) revents;
+	(void) userdata;
+
 	ok = drmHandleEvent(fd, &flutterpi.drm.evctx);
 	if (ok < 0) {
 		perror("[flutter-pi] Could not handle DRM event. drmHandleEvent");
@@ -1185,14 +1198,73 @@ int flutterpi_fill_view_properties(
 }
 
 static int load_egl_gl_procs(void) {
+	// TODO: Make most of these optional.
 	LOAD_EGL_PROC(flutterpi, getPlatformDisplay);
 	LOAD_EGL_PROC(flutterpi, createPlatformWindowSurface);
 	LOAD_EGL_PROC(flutterpi, createPlatformPixmapSurface);
 	LOAD_EGL_PROC(flutterpi, createDRMImageMESA);
 	LOAD_EGL_PROC(flutterpi, exportDRMImageMESA);
+	LOAD_EGL_PROC(flutterpi, createImageKHR);
+	LOAD_EGL_PROC(flutterpi, destroyImageKHR);
 
 	LOAD_GL_PROC(flutterpi, EGLImageTargetTexture2DOES);
 	LOAD_GL_PROC(flutterpi, EGLImageTargetRenderbufferStorageOES);
+
+	return 0;
+}
+
+int flutterpi_create_egl_context(EGLContext *context_out, EGLint *err_out) {
+	EGLContext context;
+	EGLint egl_error;
+	bool has_current;
+
+	static const EGLint context_attribs[] = {
+		EGL_CONTEXT_CLIENT_VERSION, 2,
+		EGL_NONE
+	};
+
+	has_current = eglGetCurrentContext() != EGL_NO_CONTEXT;
+
+	eglGetError();
+
+	if (!has_current) {
+		eglMakeCurrent(flutterpi.egl.display, flutterpi.egl.surface, flutterpi.egl.surface, flutterpi.egl.root_context);
+		if ((egl_error = eglGetError()) != EGL_SUCCESS) {
+			if (err_out) {
+				*err_out = egl_error;
+			}
+			if (context_out) {
+				*context_out = EGL_NO_CONTEXT;
+			}
+
+			return EINVAL;
+		}
+	}
+
+	context = eglCreateContext(flutterpi.egl.display, flutterpi.egl.config, flutterpi.egl.root_context, context_attribs);
+	if ((egl_error = eglGetError()) != EGL_SUCCESS) {
+		if (err_out) {
+			*err_out = egl_error;
+		}
+		if (context_out) {
+			*context_out = EGL_NO_CONTEXT;
+		}
+
+		eglMakeCurrent(flutterpi.egl.display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+
+		return EINVAL;
+	}
+
+	if (!has_current) {
+		eglMakeCurrent(flutterpi.egl.display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+	}
+
+	if (err_out) {
+		*err_out = EGL_SUCCESS;
+	}
+	if (context_out) {
+		*context_out = context;
+	}
 
 	return 0;
 }
@@ -1549,7 +1621,7 @@ static int init_display(void) {
 			continue;
 		}
 
-		if (native_visual_id == flutterpi.gbm.format) {
+		if ((uint32_t) native_visual_id == flutterpi.gbm.format) {
 			flutterpi.egl.config = configs[i];
 			_found_matching_config = true;
 			break;
@@ -1750,7 +1822,7 @@ static int init_application(void) {
 			.make_resource_current = on_make_resource_current,
 			.gl_proc_resolver = proc_resolver,
 			.surface_transformation = on_get_transformation,
-			.gl_external_texture_frame_callback = texreg_gl_external_texture_frame_callback,
+			.gl_external_texture_frame_callback = texreg_on_frame_callback,
 		}
 	};
 
@@ -1784,7 +1856,8 @@ static int init_application(void) {
 				.user_data = NULL,
 				.runs_task_on_current_thread_callback = runs_platform_tasks_on_current_thread,
 				.post_task_callback = on_post_flutter_task
-			}
+			},
+			.render_task_runner = NULL
 		},
 		.shutdown_dart_vm_when_done = true,
 		.compositor = &flutter_compositor
@@ -1882,10 +1955,12 @@ int flutterpi_schedule_exit(void) {
  * USER INPUT *
  **************/
 static int libinput_interface_on_open(const char *path, int flags, void *userdata) {
+	(void) userdata;
 	return open(path, flags | O_CLOEXEC);
 }
 
 static void libinput_interface_on_close(int fd, void *userdata) {
+	(void) userdata;
 	close(fd);
 }
 
@@ -1901,6 +1976,11 @@ static int on_libinput_ready(sd_event_source *s, int fd, uint32_t revents, void 
 	FlutterEngineResult result;
 	int n_pointer_events = 0;
 	int ok;
+
+	(void) s;
+	(void) fd;
+	(void) revents;
+	(void) userdata;
 	
 	ok = libinput_dispatch(flutterpi.input.libinput);
 	if (ok < 0) {
@@ -2399,7 +2479,7 @@ static struct libinput *try_create_path_backed_libinput(void) {
 		return NULL;
 	}
 
-	for (int i = 0; i < flutterpi.input.input_devices_glob.gl_pathc; i++) {
+	for (unsigned int i = 0; i < flutterpi.input.input_devices_glob.gl_pathc; i++) {
 		dev = libinput_path_add_device(
 			libinput,
 			flutterpi.input.input_devices_glob.gl_pathv[i]

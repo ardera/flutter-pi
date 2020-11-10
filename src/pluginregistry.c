@@ -101,7 +101,7 @@ int plugin_registry_init() {
 	plugin_registry.plugins = hardcoded_plugins;
 	plugin_registry.platch_obj_cbs = CPSET_INITIALIZER(CPSET_DEFAULT_MAX_SIZE);
 
-	for (int i = 0; i < plugin_registry.n_plugins; i++) {
+	for (size_t i = 0; i < plugin_registry.n_plugins; i++) {
 		if (plugin_registry.plugins[i].init != NULL) {
 			ok = plugin_registry.plugins[i].init();
 			if (ok != 0) {
@@ -188,7 +188,7 @@ int plugin_registry_set_receiver(
 bool plugin_registry_is_plugin_present(
 	const char *plugin_name
 ) {
-	for (int i = 0; i < plugin_registry.n_plugins; i++) {
+	for (size_t i = 0; i < plugin_registry.n_plugins; i++) {
 		if (strcmp(plugin_registry.plugins[i].name, plugin_name) == 0) {
 			return true;
 		}
@@ -223,7 +223,7 @@ int plugin_registry_deinit() {
 	int ok;
 	
 	/// call each plugins 'deinit'
-	for (int i = 0; i < plugin_registry.n_plugins; i++) {
+	for (size_t i = 0; i < plugin_registry.n_plugins; i++) {
 		if (plugin_registry.plugins[i].deinit) {
 			ok = plugin_registry.plugins[i].deinit();
 			if (ok != 0) {
@@ -233,7 +233,7 @@ int plugin_registry_deinit() {
 	}
 
 	for_each_pointer_in_cpset(&plugin_registry.platch_obj_cbs, data) {
-		cpset_remove_(&plugin_registry.platch_obj_cbs, data);
+		cpset_remove(&plugin_registry.platch_obj_cbs, data);
 		if (data != NULL) {
 			free(data->channel);
 			free(data);

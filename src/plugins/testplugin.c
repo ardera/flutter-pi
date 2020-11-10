@@ -28,7 +28,7 @@ int __printJSON(struct json_value *value, int indent) {
             break;
         case kJsonArray:
             printf("[\n");
-            for (int i = 0; i < value->size; i++) {
+            for (unsigned int i = 0; i < value->size; i++) {
                 printf("%.*s", indent + 2, INDENT_STRING);
                 __printJSON(&(value->array[i]), indent + 2);
                 if (i+1 != value->size) printf(",\n");
@@ -37,7 +37,7 @@ int __printJSON(struct json_value *value, int indent) {
             break;
         case kJsonObject:
             printf("{\n");
-            for (int i = 0; i < value->size; i++) {
+            for (unsigned int i = 0; i < value->size; i++) {
                 printf("%.*s\"%s\": ", indent + 2, INDENT_STRING, value->keys[i]);
                 __printJSON(&(value->values[i]), indent + 2);
                 if (i+1 != value->size) printf(",\n");
@@ -81,7 +81,7 @@ int __printStd(struct std_value *value, int indent) {
             break;
         case kStdUInt8Array:
             printf("(uint8_t) [");
-            for (int i = 0; i < value->size; i++) {
+            for (unsigned int i = 0; i < value->size; i++) {
                 printf("0x%02X", value->uint8array[i]);
                 if (i + 1 != value->size) printf(", ");
             }
@@ -89,7 +89,7 @@ int __printStd(struct std_value *value, int indent) {
             break;
         case kStdInt32Array:
             printf("(int32_t) [");
-            for (int i = 0; i < value->size; i++) {
+            for (unsigned int i = 0; i < value->size; i++) {
                 printf("%" PRIi32, value->int32array[i]);
                 if (i + 1 != value->size) printf(", ");
             }
@@ -97,7 +97,7 @@ int __printStd(struct std_value *value, int indent) {
             break;
         case kStdInt64Array:
             printf("(int64_t) [");
-            for (int i = 0; i < value->size; i++) {
+            for (unsigned int i = 0; i < value->size; i++) {
                 printf("%" PRIi64, value->int64array[i]);
                 if (i + 1 != value->size) printf(", ");
             }
@@ -105,7 +105,7 @@ int __printStd(struct std_value *value, int indent) {
             break;
         case kStdFloat64Array:
             printf("(double) [");
-            for (int i = 0; i < value->size; i++) {
+            for (unsigned int i = 0; i < value->size; i++) {
                 printf("%f", value->float64array[i]);
                 if (i + 1 != value->size) printf(", ");
             }
@@ -113,7 +113,7 @@ int __printStd(struct std_value *value, int indent) {
             break;
         case kStdList:
             printf("[\n");
-            for (int i = 0; i < value->size; i++) {
+            for (unsigned int i = 0; i < value->size; i++) {
                 printf("%.*s", indent + 2, INDENT_STRING);
                 __printStd(&(value->list[i]), indent + 2);
                 if (i + 1 != value->size) printf(",\n");
@@ -122,7 +122,7 @@ int __printStd(struct std_value *value, int indent) {
             break;
         case kStdMap:
             printf("{\n");
-            for (int i = 0; i < value->size; i++) {
+            for (unsigned int i = 0; i < value->size; i++) {
                 printf("%.*s", indent + 2, INDENT_STRING);
                 __printStd(&(value->keys[i]), indent + 2);
                 printf(": ");

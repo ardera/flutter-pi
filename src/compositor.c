@@ -28,10 +28,10 @@ struct view_cb_data {
 	void *userdata;
 
 	bool was_present_last_frame;
-	int last_zpos;
+	int64_t last_zpos;
 	FlutterSize last_size;
 	FlutterPoint last_offset;
-	int last_num_mutations;
+	size_t last_num_mutations;
 	FlutterPlatformViewMutation last_mutations[16];
 };
 
@@ -790,7 +790,7 @@ static void on_destroy_backing_store_gl_fb(void *userdata) {
 	store = userdata;
 	compositor = store->target->compositor;
 
-	cpset_put_(&compositor->stale_rendertargets, store->target);
+	cpset_put(&compositor->stale_rendertargets, store->target);
 
 	if (store->should_free_on_next_destroy) {
 		free(store);
@@ -817,7 +817,7 @@ static bool on_collect_backing_store(
 	store = backing_store->user_data;
 	compositor = store->target->compositor;
 
-	cpset_put_(&compositor->stale_rendertargets, store->target);
+	cpset_put(&compositor->stale_rendertargets, store->target);
 
 	if (store->should_free_on_next_destroy) {
 		free(store);
@@ -1071,7 +1071,7 @@ static bool on_present_layers(
 			bool is_present = false;
 			int zpos;
 
-			for (int i = 0; i < layers_count; i++) {
+			for (size_t i = 0; i < layers_count; i++) {
 				if (layers[i]->type == kFlutterLayerContentTypePlatformView &&
 					layers[i]->platform_view->identifier == cb_data->view_id) {
 					is_present = true;
@@ -1091,7 +1091,7 @@ static bool on_present_layers(
 					did_update_view = did_update_view || memcmp(&cb_data->last_size, &layer->size, sizeof(FlutterSize));
 					did_update_view = did_update_view || memcmp(&cb_data->last_offset, &layer->offset, sizeof(FlutterPoint));
 					did_update_view = did_update_view || (cb_data->last_num_mutations != layer->platform_view->mutations_count);
-					for (int i = 0; (i < layer->platform_view->mutations_count) && !did_update_view; i++) {
+					for (size_t i = 0; (i < layer->platform_view->mutations_count) && !did_update_view; i++) {
 						did_update_view = did_update_view || memcmp(cb_data->last_mutations + i, layer->platform_view->mutations[i], sizeof(FlutterPlatformViewMutation));
 					}
 
@@ -1121,7 +1121,7 @@ static bool on_present_layers(
 			const FlutterLayer *layer;
 			int zpos;
 
-			for (int i = 0; i < layers_count; i++) {
+			for (size_t i = 0; i < layers_count; i++) {
 				if (layers[i]->type == kFlutterLayerContentTypePlatformView &&
 					layers[i]->platform_view->identifier == cb_data->view_id) {
 					layer = layers[i];
@@ -1150,7 +1150,7 @@ static bool on_present_layers(
 			cb_data->last_size = layer->size;
 			cb_data->last_offset = layer->offset;
 			cb_data->last_num_mutations = layer->platform_view->mutations_count;
-			for (int i = 0; i < layer->platform_view->mutations_count; i++) {
+			for (size_t i = 0; i < layer->platform_view->mutations_count; i++) {
 				memcpy(cb_data->last_mutations + i, layer->platform_view->mutations[i], sizeof(FlutterPlatformViewMutation));
 			}
 		}
@@ -1159,7 +1159,7 @@ static bool on_present_layers(
 			const FlutterLayer *layer;
 			int zpos;
 
-			for (int i = 0; i < layers_count; i++) {
+			for (size_t i = 0; i < layers_count; i++) {
 				if (layers[i]->type == kFlutterLayerContentTypePlatformView &&
 					layers[i]->platform_view->identifier == cb_data->view_id) {
 					layer = layers[i];
@@ -1190,7 +1190,7 @@ static bool on_present_layers(
 			cb_data->last_size = layer->size;
 			cb_data->last_offset = layer->offset;
 			cb_data->last_num_mutations = layer->platform_view->mutations_count;
-			for (int i = 0; i < layer->platform_view->mutations_count; i++) {
+			for (size_t i = 0; i < layer->platform_view->mutations_count; i++) {
 				memcpy(cb_data->last_mutations + i, layer->platform_view->mutations[i], sizeof(FlutterPlatformViewMutation));
 			}
 		}
@@ -1219,7 +1219,7 @@ static bool on_present_layers(
 		}
 	}
 
-	for (int i = 0; i < layers_count; i++) {
+	for (size_t i = 0; i < layers_count; i++) {
 		if (layers[i]->type == kFlutterLayerContentTypeBackingStore) {
 			if (use_atomic_modesetting) {
 				for_each_unreserved_plane_in_atomic_req(req, plane) {

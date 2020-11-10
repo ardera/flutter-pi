@@ -338,7 +338,7 @@ int pset_put(
 	int index;
 
 	index = -1;
-	for (int i = 0; i < set->size; i++) {
+	for (unsigned int i = 0; i < set->size; i++) {
 		if (set->pointers[i] == NULL) {
 			index = i;
 		} else if (pointer == set->pointers[i]) {
@@ -382,7 +382,7 @@ bool pset_contains(
 	const struct pointer_set *set,
 	const void *pointer
 ) {
-	for (int i = 0; i < set->size; i++) {
+	for (unsigned int i = 0; i < set->size; i++) {
 		if ((set->pointers[i] != NULL) && (set->pointers[i] == pointer)) {
 			return true;
 		}
@@ -395,7 +395,7 @@ int pset_remove(
 	struct pointer_set *set,
 	const void *pointer
 ) {
-	for (int i = 0; i < set->size; i++) {
+	for (unsigned int i = 0; i < set->size; i++) {
 		if ((set->pointers[i] != NULL) && (set->pointers[i] == pointer)) {
 			set->pointers[i] = NULL;
 			set->count_pointers--;
@@ -432,7 +432,7 @@ int pset_copy(
 			memset(dest->pointers + src->size, 0, (dest->size - src->size) * sizeof(void*));
 		}
 	} else {
-		for (int i = 0, j = 0; i < src->size; i++) {
+		for (unsigned int i = 0, j = 0; i < src->size; i++) {
 			if (src->pointers[i] != NULL) {
 				dest->pointers[j] = src->pointers[i];
 				j++;
@@ -449,7 +449,7 @@ void pset_intersect(
 	struct pointer_set *src_dest,
 	const struct pointer_set *b
 ) {
-	for (int i = 0, j = 0; (i < src_dest->size) && (j < src_dest->count_pointers); i++) {
+	for (unsigned int i = 0, j = 0; (i < src_dest->size) && (j < src_dest->count_pointers); i++) {
 		if (src_dest->pointers[i] != NULL) {
 			if (pset_contains(b, src_dest->pointers[i]) == false) {
 				src_dest->pointers[i] = NULL;
@@ -467,7 +467,7 @@ int pset_union(
 ) {
 	int ok;
 
-	for (int i = 0, j = 0; (i < b->size) && (j < b->size); i++) {
+	for (unsigned int i = 0, j = 0; (i < b->size) && (j < b->size); i++) {
 		if (b->pointers[i] != NULL) {
 			ok = pset_put(src_dest, b->pointers[i]);
 			if (ok != 0) {
@@ -488,16 +488,16 @@ void *__pset_next_pointer(
 	int i = -1;
 
 	if (pointer != NULL) {
-		for (i = 0; i < set->size; i++) {
+		for (i = 0; i < (int) set->size; i++) {
 			if (set->pointers[i] == pointer) {
 				break;
 			}
 		}
 
-		if (i == set->size) return NULL;
+		if (i == (int) set->size) return NULL;
 	}
 
-	for (i = i+1; i < set->size; i++) {
+	for (i = i + 1; i < (int) set->size; i++) {
 		if (set->pointers[i]) {
 			return set->pointers[i];
 		}

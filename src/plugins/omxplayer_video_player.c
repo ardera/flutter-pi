@@ -53,7 +53,7 @@ static struct {
 
 /// Add a player instance to the player collection.
 int add_player(struct omxplayer_video_player *player) {
-    return cpset_put_(&omxpvidpp.players, player);
+    return cpset_put(&omxpvidpp.players, player);
 }
 
 /// Get a player instance by its id.
@@ -90,7 +90,7 @@ struct omxplayer_video_player *get_player_by_evch(const char *const event_channe
 
 /// Remove a player instance from the player collection.
 static int remove_player(struct omxplayer_video_player *player) {
-    return cpset_remove_(&omxpvidpp.players, player);
+    return cpset_remove(&omxpvidpp.players, player);
 }
 
 /// Get the player id from the given arg, which is a kStdMap.

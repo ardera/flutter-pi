@@ -14,7 +14,7 @@
 #include <plugins/android_auto/android_auto.h>
 #include <aasdk/ControlMessageIdsEnum.pb-c.h>
 
-const static char *certificate_string = "-----BEGIN CERTIFICATE-----\n\
+static const char *certificate_string = "-----BEGIN CERTIFICATE-----\n\
 MIIDKjCCAhICARswDQYJKoZIhvcNAQELBQAwWzELMAkGA1UEBhMCVVMxEzARBgNV\n\
 BAgMCkNhbGlmb3JuaWExFjAUBgNVBAcMDU1vdW50YWluIFZpZXcxHzAdBgNVBAoM\n\
 Fkdvb2dsZSBBdXRvbW90aXZlIExpbmswJhcRMTQwNzA0MDAwMDAwLTA3MDAXETQ1\n\
@@ -34,7 +34,7 @@ YmsbkPVNYZn37FlY7e2Z4FUphh0A7yME2Eh/e57QxWrJ1wubdzGnX8mrABc67ADU\n\
 U5r9tlTRqMs7FGOk6QS2Cxp4pqeVQsrPts4OEwyPUyb3LfFNo3+sP111D9zEow==\n\
 -----END CERTIFICATE-----\n";
 
-const static char *private_key_string = "-----BEGIN RSA PRIVATE KEY-----\n\
+static const char *private_key_string = "-----BEGIN RSA PRIVATE KEY-----\n\
 MIIEowIBAAKCAQEAz3XWY2dR/H5Ym3G6TToY7uRdFb+BdRU1AGRsAVmZV1U28ugR\n\
 A22GLZfxYI7Bfqfqgw/FTYwYme+Jw/fqQGp8eF9DYW+qV/tiOOGAEeHSWopKFU/E\n\
 i91q0GNVDvprKbkfcamSKAsaSZ7KJWhU7yhzdwnVs73rAVGaTuQlthwSNDJqQ4M8\n\
@@ -93,7 +93,7 @@ int get_errno_for_libusb_error(int libusb_error) {
 
     if (libusb_error < 0) {
         int index = -libusb_error;
-        if (index < (sizeof(errors) / sizeof(*errors))) {
+        if (index < (int) (sizeof(errors) / sizeof(*errors))) {
             return errors[index];
         } else {
             return EINVAL;
@@ -101,7 +101,7 @@ int get_errno_for_libusb_error(int libusb_error) {
     } else if (libusb_error == 0) {
         return 0;
     } else {
-        if (libusb_error < (sizeof(transfer_statuses) / sizeof(*transfer_statuses))) {
+        if (libusb_error < (int) (sizeof(transfer_statuses) / sizeof(*transfer_statuses))) {
             return transfer_statuses[libusb_error];
         } else {
             return EINVAL;
@@ -306,9 +306,11 @@ static int init_ssl(struct aaplugin *aaplugin) {
 }
 
 static int on_libusb_fd_ready(sd_event_source *s, int fd, uint32_t revents, void *userdata) {
-    const static struct timeval zerotv = {.tv_sec = 0, .tv_usec = 0};
+    static const struct timeval zerotv = {.tv_sec = 0, .tv_usec = 0};
     struct aaplugin *aaplugin;
     int ok;
+
+    (void) revents;
 
     aaplugin = userdata;
 
@@ -414,6 +416,8 @@ static int send_string(
 ) {
     size_t string_len = strlen(string);
     uint8_t buffer[string_len + 1];
+
+    (void) context;
 
     strcpy((char*) buffer, string);
 
@@ -637,7 +641,7 @@ static void *aoa_dev_mgr_entry(void *arg) {
         goto fail_free_config_descriptor;
     }
 
-    aadev = malloc(sizeof aadev);
+    aadev = malloc(sizeof *aadev);
     if (aadev == NULL) {
         ok = ENOMEM;
         goto fail_free_config_descriptor;
@@ -652,6 +656,9 @@ static void *aoa_dev_mgr_entry(void *arg) {
     aadev->receive_buffer_info[1].length = 0;
     aadev->receive_buffer_info[1].start = 0;
     aadev->receive_buffer_index = 0;
+    aadev->device_name = NULL;
+    aadev->device_brand = NULL;
+    aadev->channels = PSET_INITIALIZER(CPSET_DEFAULT_MAX_SIZE);
 
     if ((face_desc->endpoint[0].bEndpointAddress & LIBUSB_ENDPOINT_DIR_MASK) == LIBUSB_ENDPOINT_IN) {
         aadev->in_endpoint = face_desc->endpoint[0];
@@ -663,12 +670,12 @@ static void *aoa_dev_mgr_entry(void *arg) {
 
     libusb_free_config_descriptor(config);
 
-    ok = aa_xfer_buffer_initialize_for_device(aadev->receive_buffers + 0, aadev, aadev->in_endpoint.wMaxPacketSize);
+    ok = aa_xfer_buffer_initialize_on_stack_for_device(aadev->receive_buffers + 0, aadev, aadev->in_endpoint.wMaxPacketSize);
     if (ok != 0) {
         goto fail_free_aadev;
     }
 
-    ok = aa_xfer_buffer_initialize_for_device(aadev->receive_buffers + 1, aadev, aadev->in_endpoint.wMaxPacketSize);
+    ok = aa_xfer_buffer_initialize_on_stack_for_device(aadev->receive_buffers + 1, aadev, aadev->in_endpoint.wMaxPacketSize);
     if (ok != 0) {
         goto fail_free_receive_buffer_0;
     }
@@ -707,20 +714,17 @@ static void *aoa_dev_mgr_entry(void *arg) {
         goto fail_free_rbio;
     }
 
-    printf("rbio: %p\nwbio: %p\n", rbio, wbio);
-
-    BIO_set_callback(rbio, BIO_debug_callback);
-    BIO_set_callback(wbio, BIO_debug_callback);
+    //BIO_set_callback(rbio, BIO_debug_callback);
+    //BIO_set_callback(wbio, BIO_debug_callback);
 
     SSL_set_bio(ssl, rbio, wbio);
 
     SSL_set_connect_state(ssl);
     SSL_set_verify(ssl, SSL_VERIFY_NONE, NULL);
 
+    aaplugin->aa_device = aadev;
     ok = aa_dev_manage(aadev);
 
-    BIO_free(wbio);
-    BIO_free(rbio);
     SSL_free(ssl);
     aa_xfer_buffer_free(aadev->receive_buffers + 0);
     aa_xfer_buffer_free(aadev->receive_buffers + 1);
@@ -781,6 +785,8 @@ static int on_aoa_device_arrival(struct aaplugin *aaplugin, libusb_device *usbde
         return ok;
     }
 
+    pthread_setname_np(thread, "aoa-dev-mgr");
+
     return 0;
 }
 
@@ -809,6 +815,8 @@ static int on_non_aoa_device_arrival(struct aaplugin *aaplugin, libusb_device *d
         return ok;
     }
 
+    pthread_setname_np(thread, "aoa-switcher");
+
     return 0;
 }
 
@@ -818,6 +826,9 @@ static int on_libusb_device_arrived(libusb_context *ctx, libusb_device *device, 
     struct aoa_device *dev;
     struct aaplugin *aaplugin;
     int ok;
+
+    (void) ctx;
+    (void) event;
 
     aaplugin = user_data;
 
@@ -872,24 +883,102 @@ static int disable_usb(struct aaplugin *aaplugin) {
 }
 
 static int enable_bluetooth(struct aaplugin *aaplugin) {
+    (void) aaplugin;
+
     return ENOTSUP;
 }
 
 static int disable_bluetooth(struct aaplugin *aaplugin) {
+    (void) aaplugin;
+
     return ENOTSUP;
 }
 
 static int enable_wifi(struct aaplugin *aaplugin) {
+    (void) aaplugin;
+
     return ENOTSUP;
 }
 
 static int disable_wifi(struct aaplugin *aaplugin) {
+    (void) aaplugin;
+
     return ENOTSUP;
 }
 
+int send_android_auto_state(
+    struct aaplugin *plugin,
+    bool connected,
+    bool has_interface,
+    enum aa_device_connection interface,
+    char *device_name,
+    char *device_brand,
+    bool has_texture_id,
+    int64_t texture_id,
+    bool has_is_focused,
+    bool is_focused
+) {
+    (void) plugin;
+
+    char *interface_str = interface == kUSB ? "AndroidAutoInterface.usb" :
+        interface == kBluetooth ? "AndroidAutoInterface.bluetooth" :
+        interface == kWifi ? "AndroidAutoInterface.wifi" :
+        NULL;
+    
+    if (interface_str == NULL) {
+        return EINVAL;
+    }
+
+    return platch_send_success_event_std(
+        ANDROID_AUTO_EVENT_CHANNEL,
+        &STDMAP6(
+            STDSTRING("connected"), STDBOOL(connected),
+            STDSTRING("interface"), has_interface? STDSTRING(interface_str) : STDNULL,
+            STDSTRING("deviceName"), device_name? STDSTRING(device_name) : STDNULL,
+            STDSTRING("deviceBrand"), device_brand? STDSTRING(device_brand) : STDNULL,
+            STDSTRING("textureId"), has_texture_id? STDINT64(texture_id) : STDNULL,
+            STDSTRING("isFocused"), has_is_focused? STDBOOL(is_focused) : STDNULL
+        )
+    );
+}
+
+int sync_android_auto_state(
+    struct aaplugin *plugin
+) {
+    int ok;
+
+    if (plugin->aa_device != NULL) {
+        ok = send_android_auto_state(
+            plugin,
+            true,
+            true,
+            plugin->aa_device->connection,
+            plugin->aa_device->device_name,
+            plugin->aa_device->device_brand,
+            plugin->aa_device->has_texture_id,
+            plugin->aa_device->texture_id,
+            true,
+            plugin->aa_device->is_focused
+        );
+    } else {
+        ok = send_android_auto_state(
+            plugin,
+            false,
+            false,
+            kUSB,
+            NULL,
+            NULL,
+            false,
+            -1,
+            false,
+            false
+        );
+    }
+
+    return ok;
+}
 
 static int on_set_enabled_interfaces(
-    char *channel,
     struct std_value *arg,
     FlutterPlatformMessageResponseHandle *responsehandle
 ) {
@@ -899,7 +988,7 @@ static int on_set_enabled_interfaces(
     int ok;
 
     if (STDVALUE_IS_LIST(*arg)) {
-        for (int i = 0; i < arg->size; i++) {
+        for (size_t i = 0; i < arg->size; i++) {
             if (STDVALUE_IS_STRING(arg->list[i]) == false) {
                 return platch_respond_illegal_arg_std(
                     responsehandle,
@@ -914,7 +1003,7 @@ static int on_set_enabled_interfaces(
         );
     }
 
-    for (int i = 0; i < arg->size; i++) {
+    for (size_t i = 0; i < arg->size; i++) {
         if STREQ("AndroidAutoInterface.usb", arg->list[i].string_value) {
             _enable_usb = true;
         } else if STREQ("AndroidAutoInterface.bluetooth", arg->list[i].string_value) {
@@ -982,7 +1071,6 @@ static int on_set_enabled_interfaces(
 }
 
 static int on_set_platform_information(
-    char *channel,
     struct std_value *arg,
     FlutterPlatformMessageResponseHandle *responsehandle
 ) {
@@ -1223,13 +1311,15 @@ static int on_receive_method_channel(
 ) {
     int ok;
 
+    (void) channel;
+
     if STREQ("setEnabledInterfaces", object->method) {
-        ok = on_set_enabled_interfaces(channel, &object->std_arg, responsehandle);
+        ok = on_set_enabled_interfaces(&object->std_arg, responsehandle);
         if (ok != 0) {
             return ok;
         }
     } else if STREQ("setPlatformInformation", object->method) {
-        ok = on_set_platform_information(channel, &object->std_arg, responsehandle);
+        ok = on_set_platform_information(&object->std_arg, responsehandle);
         if (ok != 0) {
             return ok;
         }
@@ -1245,6 +1335,8 @@ static int on_receive_event_channel(
     struct platch_obj *object,
     FlutterPlatformMessageResponseHandle *responsehandle
 ) {
+    (void) channel;
+
     if STREQ("listen", object->method) {
         aaplugin.event_channel_has_listener = true;
     } else if STREQ("cancel", object->method) {
@@ -1259,12 +1351,12 @@ static int on_receive_event_channel(
 int aaplugin_init(void) {
     int ok;
 
-    ok = plugin_registry_set_receiver("flutterpi/android_auto", kStandardMethodCall, on_receive_method_channel);
+    ok = plugin_registry_set_receiver(ANDROID_AUTO_METHOD_CHANNEL, kStandardMethodCall, on_receive_method_channel);
     if (ok != 0) {
         return ok;
     }
 
-    ok = plugin_registry_set_receiver("flutterpi/android_auto/events", kStandardMethodCall, on_receive_event_channel);
+    ok = plugin_registry_set_receiver(ANDROID_AUTO_EVENT_CHANNEL, kStandardMethodCall, on_receive_event_channel);
     if (ok != 0) {
         return ok;
     }
@@ -1277,6 +1369,18 @@ int aaplugin_init(void) {
     ok = init_usb(&aaplugin);
     if (ok != 0) {
         return ok;
+    }
+
+    GError *err = NULL;
+    ok = gst_init_check(NULL, NULL, &err);
+    if (!ok) {
+        if (err) {
+            fprintf(stderr, "[android-auto plugin] Could not initialize gstreamer. gst_init_check: %s\n", err->message);
+            g_error_free(err);
+        } else {
+            fprintf(stderr, "[android-auto plugin] Could not initialize gstreamer. gst_init_check: Unknown error\n");
+        }
+        return EINVAL;
     }
 
     return 0;

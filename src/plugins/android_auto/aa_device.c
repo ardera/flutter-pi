@@ -1,8 +1,10 @@
+#define _XOPEN_SOURCE 500
 #include <stdbool.h>
 #include <errno.h>
 #include <stdio.h>
 #include <memory.h>
 #include <alloca.h>
+#include <string.h>
 
 #include <collection.h>
 #include <plugins/android_auto/android_auto.h>
@@ -11,6 +13,8 @@
 #include <aasdk/AuthCompleteIndicationMessage.pb-c.h>
 #include <aasdk/ServiceDiscoveryRequestMessage.pb-c.h>
 #include <aasdk/ServiceDiscoveryResponseMessage.pb-c.h>
+#include <aasdk/AudioFocusRequestMessage.pb-c.h>
+#include <aasdk/AudioFocusResponseMessage.pb-c.h>
 
 static void aa_device_on_libusb_transfer_completed(struct libusb_transfer *xfer) {
     bool *completed = (bool*) xfer->user_data;
@@ -30,7 +34,7 @@ int aa_device_transfer(
     bool completed;
     int ok;
 
-    /*if (dev->connection == kUSB) {
+    if (dev->connection == kUSB) {
         int actual_length;
 
         ok = libusb_bulk_transfer(
@@ -41,7 +45,7 @@ int aa_device_transfer(
             buffer->pointer + offset,
             length,
             &actual_length,
-            10000
+            TRANSFER_TIMEOUT_MS
         );
 
         if (actually_transferred != NULL) {
@@ -54,59 +58,6 @@ int aa_device_transfer(
         }
         
         return 0;
-    } else */if (dev->connection == kUSB) {
-        xfer = libusb_alloc_transfer(0);
-        if (xfer == NULL) {
-            return ENOMEM;
-        }
-    
-        completed = false;
-        libusb_fill_bulk_transfer(
-            xfer,
-            dev->usb_handle,
-            direction == kTransferDirectionOut ?
-                dev->out_endpoint.bEndpointAddress :
-                dev->in_endpoint.bEndpointAddress,
-            buffer->pointer + offset,
-            length,
-            aa_device_on_libusb_transfer_completed,
-            &completed,
-            60000
-        );
-
-        libusb_lock_event_waiters(dev->aaplugin->libusb_context);
-
-        ok = libusb_submit_transfer(xfer);
-        if (ok != 0) {
-            fprintf(stderr, "[android-auto plugin] Couldn't submit USB bulk transfer. libusb_submit_transfer: %s\n", get_str_for_libusb_error(ok));
-            libusb_free_transfer(xfer);
-            return get_errno_for_libusb_error(ok);
-        }
-
-        while (completed == false) {
-            ok = libusb_wait_for_event(dev->aaplugin->libusb_context, NULL);
-            if (ok == 1) {
-                libusb_unlock_event_waiters(dev->aaplugin->libusb_context);
-                libusb_free_transfer(xfer);
-                fprintf(stderr, "[android-auto plugin] USB bulk transfer timed out.\n");
-                return ETIMEDOUT;
-            }
-        }
-        libusb_unlock_event_waiters(dev->aaplugin->libusb_context);
-
-        if (xfer->status != LIBUSB_TRANSFER_COMPLETED) {
-            fprintf(stderr, "[android-auto plugin] Error ocurred while executing USB bulk transfer. transfer_status = %s\n", get_str_for_libusb_error(xfer->status));
-            libusb_free_transfer(xfer);
-            return get_errno_for_libusb_error(xfer->status);
-        }
-
-        if (actually_transferred != NULL) {
-            *actually_transferred = xfer->actual_length;
-        }
-
-        libusb_free_transfer(xfer);
-
-        return 0;
     } else {
         return ENOTSUP;
     }
@@ -115,18 +66,150 @@ int aa_device_transfer(
 }
 
 /**
+ * Decryption/Encryption
+ */
+
+int aa_device_decrypt_write(struct aa_device *dev, uint8_t *source, size_t length) {
+    size_t n_written;
+    int ok;
+    
+    while (length > 0) {
+        ok = BIO_write_ex(
+            SSL_get_rbio(dev->ssl),
+            source,
+            length,
+            &n_written
+        );
+        if (!ok) {
+            ERR_print_errors_fp(stderr);
+            return EIO;
+        }
+
+        length -= n_written;
+        source += n_written;
+    }
+
+    return 0;
+}
+
+int aa_device_decrypt_pending(struct aa_device *dev) {
+    SSL_read(dev->ssl, NULL, 0);
+    return SSL_pending(dev->ssl);
+}
+
+int aa_device_decrypt_read(struct aa_device *dev, uint8_t *dest, size_t length) {
+    size_t n_read;
+    int ok;
+
+    while (length > 0) {
+        ok = SSL_read_ex(
+            dev->ssl,
+            dest,
+            length,
+            &n_read
+        );
+        if (!ok) {
+            ERR_print_errors_fp(stderr);
+            return EIO;
+        }
+
+        length -= n_read;
+        dest += n_read;
+    }
+
+    return 0;
+}
+
+int aa_device_encrypt_write(struct aa_device *dev, uint8_t *source, size_t length) {
+    size_t n_written;
+    int ok;
+    
+    while (length > 0) {
+        ok = SSL_write_ex(
+            dev->ssl,
+            source,
+            length,
+            &n_written
+        );
+        if (!ok) {
+            ERR_print_errors_fp(stderr);
+            return EIO;
+        }
+
+        length -= n_written;
+        source += n_written;
+    }
+
+    return 0;
+}
+
+int aa_device_encrypt_pending(struct aa_device *dev) {
+    return BIO_ctrl_pending(SSL_get_wbio(dev->ssl));
+}
+
+int aa_device_encrypt_read(struct aa_device *dev, uint8_t *dest, size_t length) {
+    size_t n_read;
+    int ok;
+
+    while (length > 0) {
+        ok = BIO_read_ex(SSL_get_wbio(dev->ssl), dest, length, &n_read);
+        if (!ok) {
+            ERR_print_errors_fp(stderr);
+            return EIO;
+        }
+
+        length -= n_read;
+        dest += n_read;
+    }
+
+    return 0;
+}
+
+/**
  * Sending Messages
+ */
+
+/**
+ * 
  */
 int aa_device_send(
     struct aa_device *dev,
     const struct aa_msg *msg
 ) {
-    bool is_multi_frame;
+    struct aa_xfer_buffer *payload_buffer;
     uint16_t frame_size;
+    bool is_multi_frame;
     int ok;
+
+    if (msg->flags & AA_MSG_FLAG_ENCRYPTED) {
+        ok = aa_device_encrypt_write(dev, msg->payload->pointer, msg->payload->size);
+        if (ok != 0) {
+            return ok;
+        }
+
+        ok = aa_device_encrypt_pending(dev);
+        
+        payload_buffer = aa_xfer_buffer_new_for_device(
+            dev,
+            ok
+        );
+        if (payload_buffer == NULL) {
+            return ENOMEM;
+        }
+
+        ok = aa_device_encrypt_read(dev, payload_buffer->pointer, payload_buffer->size);
+        if (ok != 0) {
+            aa_xfer_buffer_unrefp(&payload_buffer);
+            return ok;
+        }
+    } else {
+        payload_buffer = (struct aa_xfer_buffer *) msg->payload;
+    }
     
-    frame_size = min(msg->payload.size, UINT16_MAX);
-    is_multi_frame = frame_size < msg->payload.size;
+    printf("sending message on channel %hhu...\n", msg->channel);
+
+    frame_size = min(payload_buffer->size, UINT16_MAX);
+    is_multi_frame = frame_size < payload_buffer->size;
 
     define_xfer_buffer_on_stack(frame_header_and_size, 4 + (is_multi_frame? 4 : 0))
 
@@ -139,7 +222,7 @@ int aa_device_send(
     
     // If we have multiple frames, also initialize the total_size value of the frame size
     if (is_multi_frame) {
-        *(uint32_t*) (frame_header_and_size.pointer + 4) = cpu_to_be32(msg->payload.size);
+        *(uint32_t*) (frame_header_and_size.pointer + 4) = cpu_to_be32(payload_buffer->size);
     }
 
     // send over the frame header
@@ -152,14 +235,16 @@ int aa_device_send(
         NULL
     );
     if (ok != 0) {
-        return ok;
+        goto fail_maybe_unref_msg;
     }
 
     size_t offset = 0;
-    size_t remaining = msg->payload.size;
+    size_t remaining = payload_buffer->size;
     while (remaining > 0) {
         size_t length = min(remaining, frame_size);
-
+        // TODO: this is hacky. The continuation frame header should be sent after
+        // [frame_size] bytes were sent. Currently, the continuation frame header after each individual
+        // USB transfer, if the offset is != 0.
         if (offset != 0) {
             define_xfer_buffer_on_stack(continuation_frame_header, 4);
 
@@ -176,29 +261,46 @@ int aa_device_send(
                 NULL
             );
             if (ok != 0) {
-                return ok;
+                goto fail_maybe_unref_msg;
             }
         }
 
         ok = aa_device_transfer(
             dev,
             kTransferDirectionOut,
-            (struct aa_xfer_buffer*) &msg->payload,
+            payload_buffer,
             offset,
             length,
             &length
         );
         if (ok != 0) {
-            return ok;
+            goto fail_maybe_unref_msg;
         }
 
         offset += length;
         remaining -= length;
     }
 
+    if (msg->flags & AA_MSG_FLAG_ENCRYPTED) {
+        aa_xfer_buffer_unrefp(&payload_buffer);
+    }
+
+    printf("done.\n");
+
     return 0;
+
+    fail_maybe_unref_msg:
+    if (msg->flags & AA_MSG_FLAG_ENCRYPTED) {
+        aa_xfer_buffer_unrefp(&payload_buffer);
+    }
+    
+    fail_return_ok:
+    return ok;
 }
 
+/**
+ * Receiving Messages
+ */
 int aa_device_receive_raw(struct aa_device *dev, struct aa_xfer_buffer *buffer, size_t offset, size_t *n_received) {
     int ok;
 
@@ -212,96 +314,6 @@ int aa_device_receive_raw(struct aa_device *dev, struct aa_xfer_buffer *buffer, 
     }
 
     return 0;
-}
-
-
-int aa_device_decrypt_write(struct aa_device *dev, uint8_t *source, size_t length) {
-    size_t remaining, offset, n_written;
-    int ok;
-    
-    remaining = length;
-    offset = 0;
-    while (remaining > 0) {
-        ok = BIO_write_ex(
-            SSL_get_rbio(dev->ssl),
-            source + offset,
-            remaining,
-            &n_written
-        );
-        if (!ok) {
-            ERR_print_errors_fp(stderr);
-            return EIO;
-        }
-
-        remaining -= n_written;
-        offset += n_written;
-    }
-
-    return 0;
-}
-
-int aa_device_decrypt_pending(struct aa_device *dev) {
-    SSL_read(dev->ssl, NULL, 0);
-
-    return SSL_pending(dev->ssl);
-}
-
-int aa_device_decrypt_read(struct aa_device *dev, uint8_t *dest, size_t length) {
-    size_t remaining, offset, n_read;
-    int ok;
-
-    remaining = SSL_pending(dev->ssl);
-    offset = 0;
-    while (remaining > 0) {
-        ok = SSL_read_ex(
-            dev->ssl,
-            dest + offset,
-            remaining,
-            &n_read
-        );
-        if (!ok) {
-            ERR_print_errors_fp(stderr);
-            return EIO;
-        }
-
-        remaining -= n_read;
-        offset += n_read;
-    }
-
-    return 0;
-}
-
-int aa_device_encrypt_write(struct aa_device *dev, uint8_t *source, size_t length) {
-    size_t remaining, offset, n_written;
-    int ok;
-    
-    remaining = length;
-    offset = 0;
-    while (remaining > 0) {
-        ok = BIO_write_ex(
-            SSL_get_rbio(dev->ssl),
-            source + offset,
-            remaining,
-            &n_written
-        );
-        if (!ok) {
-            ERR_print_errors_fp(stderr);
-            return EIO;
-        }
-
-        remaining -= n_written;
-        offset += n_written;
-    }
-
-    return 0;
-}
-
-int aa_device_encrypt_pending(struct aa_device *dev) {
-    return SSL_pending(dev->ssl);
-}
-
-int aa_device_encrypt_read(struct aa_device *dev, uint8_t *dest, size_t length, size_t *n_read) {
-    return SSL_read_ex(dev->ssl, dest, length, n_read);
 }
 
 void aa_device_fill_xfer_buffer(
@@ -326,7 +338,6 @@ void aa_device_fill_xfer_buffer(
         *rbuf_start = 0;
     }
 }
-
 
 int aa_device_receive(
     struct aa_device *dev,
@@ -424,22 +435,18 @@ static int aa_device_receive_frame_payload(struct aa_device *device, struct aa_x
     return 0;
 }
 
-static int aa_device_receive_frame(struct aa_device *device, bool *msg_completed, struct aa_msg *msg_out) {
+static int aa_device_receive_frame(struct aa_device *device, struct aa_msg **msg_out) {
     enum aa_msg_frame_type frame_type;
     enum aa_channel_id channel;
-    struct aa_xfer_buffer buffer;
+    struct aa_msg *msg;
     uint32_t total_size;
     uint32_t offset;
     uint16_t frame_size;
     uint8_t flags;
-    bool should_free;
     int ok;
 
-    should_free = false;
-
-    if (msg_completed) {
-        *msg_completed = false;
-    }
+    msg = NULL;
+    *msg_out = NULL;
 
     ok = aa_device_receive_frame_header(device, &channel, &flags);
     if (ok != 0) {
@@ -458,38 +465,69 @@ static int aa_device_receive_frame(struct aa_device *device, bool *msg_completed
     }
 
     if ((frame_type == kFrameTypeFirst) || (frame_type == kFrameTypeBulk)) {
-        ok = aa_xfer_buffer_initialize_for_device(&buffer, device, total_size);
-        if (ok != 0) {
+        msg = aa_msg_new_with_new_buffer_for_device(channel, flags & ~AA_MSG_FRAME_TYPE_MASK, device, total_size);
+        if (msg == NULL) {
             goto fail_reset_msg_construction_buffer;
         }
 
-        should_free = true;
         offset = 0;
 
         if (frame_type == kFrameTypeFirst) {
             device->msg_assembly_buffers[channel].is_constructing = true;
-            device->msg_assembly_buffers[channel].buffer = buffer;
+            device->msg_assembly_buffers[channel].msg = aa_msg_ref(msg);
             device->msg_assembly_buffers[channel].offset = offset;
-            device->msg_assembly_buffers[channel].total_payload_size = total_size;
         }
     } else {
         if (device->msg_assembly_buffers[channel].is_constructing == false) {
             fprintf(stderr, "[android-auto plugin] ERROR: It appears some of the data frames of an android auto message were missed.\n");
             return EINVAL;
         } else {
-            buffer = device->msg_assembly_buffers[channel].buffer;
+            msg = aa_msg_ref(device->msg_assembly_buffers[channel].msg);
             offset = device->msg_assembly_buffers[channel].offset;
 
-            if (frame_size > (device->msg_assembly_buffers[channel].total_payload_size - device->msg_assembly_buffers[channel].offset)) {
-                fprintf(stderr, "[android-auto plugin] Message buffer has less space remaining than the frame size reported by the android auto device. Limiting frame size to remaining buffer space.\n");
-                frame_size = device->msg_assembly_buffers[channel].total_payload_size - device->msg_assembly_buffers[channel].offset;
+            size_t remaining_space = msg->payload->size - offset;
+
+            if (frame_size > remaining_space) {
+                fprintf(
+                    stderr,
+                    "[android-auto plugin] Message buffer has less space remaining than the frame size reported by the android auto device.\n"
+                    "                      Resizing the transfer buffer so the frame fits in. (This is expensive!)\n"
+                    "                      (frame is %u bytes too large)\n",
+                    frame_size - remaining_space
+                );
+
+                size_t new_total_size = offset + frame_size;
+
+                ok = aa_xfer_buffer_resize(msg->payload, new_total_size, false);
+                if (ok != 0) {
+                    fprintf(stderr, "[android-auto plugin] Could not resize the transfer buffer!\n");
+                    ok = EPROTO;
+                    goto fail_unref_msg;
+                }
+            } else if ((frame_type == kFrameTypeLast) && (frame_size < remaining_space)) {
+                fprintf(
+                    stderr,
+                    "[android-auto plugin] Frame size of the last frame of a message is smaller than the remaining space in the message.\n"
+                    "                      Limit\n"
+                    "                      (frame is %u bytes too large)\n",
+                    frame_size - remaining_space
+                );
+
+                size_t new_total_size = offset + frame_size;
+
+                ok = aa_xfer_buffer_resize(msg->payload, new_total_size, false);
+                if (ok != 0) {
+                    fprintf(stderr, "[android-auto plugin] Could not resize the transfer buffer!\n");
+                    ok = EPROTO;
+                    goto fail_unref_msg;
+                }
             }
         }
     }
 
-    ok = aa_device_receive_frame_payload(device, &buffer, offset, frame_size, flags & AA_MSG_FLAG_ENCRYPTED);
+    ok = aa_device_receive_frame_payload(device, msg->payload, offset, frame_size, flags & AA_MSG_FLAG_ENCRYPTED);
     if (ok != 0) {
-        goto fail_free_msg;
+        goto fail_unref_msg;
     }
 
     offset += frame_size;
@@ -498,41 +536,51 @@ static int aa_device_receive_frame(struct aa_device *device, bool *msg_completed
         device->msg_assembly_buffers[channel].offset = offset;
     } else if ((frame_type == kFrameTypeLast) || (frame_type == kFrameTypeBulk)) {
         if (flags & AA_MSG_FLAG_ENCRYPTED) {
-            ok = aa_device_decrypt_write(device, buffer.pointer, buffer.size);
-            if (ok != 0) return ok;
+            ok = aa_device_decrypt_write(device, msg->payload->pointer, msg->payload->size);
+            if (ok != 0) {
+                goto fail_unref_msg;
+            }
 
             ok = aa_device_decrypt_pending(device);
-            if (ok <= 0) return EIO;
+            if (ok <= 0) {
+                ok = EIO;
+                goto fail_unref_msg;
+            }
 
-            buffer.size = ok;
+            if ((unsigned int) ok > msg->payload->size) {
+                printf("[android-auto plugin] Decrypted message is larger than transfer buffer. The transfer buffer needs to be expanded to the decrypted contents fit in.\n"
+                       "                      (decrypted size: %d, buffer size: %d)\n", ok, msg->payload->size);
+            }
 
-            ok = aa_device_decrypt_read(device, buffer.pointer, ok);
-            if (ok != 0) return ok;
+            ok = aa_xfer_buffer_resize(msg->payload, ok, false);
+            if (ok != 0) {
+                fprintf(stderr, "[android-auto plugin] Could not resize transfer buffer.\n");
+                ok = EIO;
+                goto fail_unref_msg;
+            }
+
+            ok = aa_device_decrypt_read(device, msg->payload->pointer, msg->payload->size);
+            if (ok != 0) {
+                goto fail_unref_msg;
+            }
         }
 
         if (frame_type == kFrameTypeLast) {
+            aa_msg_unrefp(&device->msg_assembly_buffers[channel].msg);
             device->msg_assembly_buffers[channel].is_constructing = false;
         }
 
-        if (msg_completed) {
-            *msg_completed = true;
-        }
-
-        if (msg_out) {
-            *msg_out = (struct aa_msg) {
-                .payload = buffer,
-                .channel = channel,
-                .flags = flags & ~(AA_MSG_FRAME_TYPE_MASK)
-            };
-        }
+        *msg_out = aa_msg_ref(msg);
     }
+
+    aa_msg_unrefp(&msg);
 
     return 0;
 
 
-    fail_free_msg:
-    if (should_free) {
-        aa_xfer_buffer_free(&buffer);
+    fail_unref_msg:
+    if (msg != NULL) {
+        aa_msg_unrefp(&msg);
     }
 
     fail_reset_msg_construction_buffer:
@@ -542,37 +590,32 @@ static int aa_device_receive_frame(struct aa_device *device, bool *msg_completed
     return ok;
 }
 
-
-int aa_device_receive_msg(struct aa_device *device, struct aa_msg *msg_out) {
-    bool completed = false;
+int aa_device_receive_msg(struct aa_device *device, struct aa_msg **msg_out) {
     int ok;
 
-    while (!completed) {
-        ok = aa_device_receive_frame(device, &completed, msg_out);
+    do {
+        ok = aa_device_receive_frame(device, msg_out);
         if (ok != 0) {
             return ok;
         }
-    }
+    } while (*msg_out == NULL);
 
     return 0;
 }
 
-int aa_device_receive_msg_from_channel(struct aa_device *device, enum aa_channel_id channel, struct aa_msg *msg_out) {
+int aa_device_receive_msg_from_channel(struct aa_device *device, enum aa_channel_id channel, struct aa_msg **msg_out) {
     int ok;
-
-    if (msg_out == NULL) {
-        msg_out = alloca(sizeof(struct aa_msg));
-    }
 
     do {
         ok = aa_device_receive_msg(device, msg_out);
         if (ok != 0) {
             return ok;
         }
-    } while (msg_out->channel != channel);
+    } while ((*msg_out) == NULL && (*msg_out)->channel != channel);
 
     return 0;
 }
+
 
 static int do_version_request(struct aa_device *device) {
     int ok;
@@ -581,7 +624,7 @@ static int do_version_request(struct aa_device *device) {
     {
         define_and_setup_aa_msg_on_stack(msg, 6, kAndroidAutoChannelControl, 0);
 
-        uint16_t *msg_payload = (uint16_t*) msg.payload.pointer;
+        uint16_t *msg_payload = (uint16_t*) msg.payload->pointer;
         msg_payload[0] = cpu_to_be16(F1X__AASDK__PROTO__IDS__CONTROL_MESSAGE__ENUM__VERSION_REQUEST);
         msg_payload[1] = cpu_to_be16(1);
         msg_payload[2] = cpu_to_be16(1);
@@ -594,7 +637,7 @@ static int do_version_request(struct aa_device *device) {
     
     // receive version response.
     {
-        struct aa_msg msg;
+        struct aa_msg *msg;
         ok = aa_device_receive_msg_from_channel(
             device,
             kAndroidAutoChannelControl,
@@ -604,7 +647,7 @@ static int do_version_request(struct aa_device *device) {
             return ok;
         }
 
-        uint16_t *payload = (uint16_t*) msg.payload.pointer;
+        uint16_t *payload = (uint16_t*) msg->payload->pointer;
 
         uint16_t msg_id = be16_to_cpu(payload[0]);
 
@@ -613,13 +656,15 @@ static int do_version_request(struct aa_device *device) {
             return EPROTO;
         }
 
-        size_t n_msg_elements = msg.payload.size / sizeof(uint16_t);
+        size_t n_msg_elements = msg->payload->size / sizeof(uint16_t);
         uint16_t *msg_elements = payload + 1;
 
         if (n_msg_elements >= 3) {
             uint16_t major = be16_to_cpu(msg_elements[0]);
             uint16_t minor = be16_to_cpu(msg_elements[1]);
             F1x__Aasdk__Proto__Enums__VersionResponseStatus__Enum status = be16_to_cpu(msg_elements[2]);
+
+            aa_msg_unrefp(&msg);
 
             if (status == F1X__AASDK__PROTO__ENUMS__VERSION_RESPONSE_STATUS__ENUM__MISMATCH) {
                 fprintf(stderr, "[android-auto plugin] Error: android auto device returned a version mismatch.\n");
@@ -628,6 +673,8 @@ static int do_version_request(struct aa_device *device) {
                 printf("[android-auto plugin] Android auto device returned version match.\n");
             }
         } else {
+            aa_msg_unrefp(&msg);
+
             fprintf(stderr, "[android-auto plugin] Error: android auto device returned invalid version response.\n");
             return EINVAL;
         }
@@ -692,12 +739,12 @@ static int do_handshake(struct aa_device *device) {
 
                     define_and_setup_aa_msg_on_stack(msg, pending + 2, kAndroidAutoChannelControl, 0);
 
-                    *(uint16_t*) msg.payload.pointer = cpu_to_be16(F1X__AASDK__PROTO__IDS__CONTROL_MESSAGE__ENUM__SSL_HANDSHAKE);
+                    *(uint16_t*) msg.payload->pointer = cpu_to_be16(F1X__AASDK__PROTO__IDS__CONTROL_MESSAGE__ENUM__SSL_HANDSHAKE);
 
                     size_t offset = 2;
                     size_t remaining = pending;
                     while (remaining > 0) {
-                        ok = BIO_read(SSL_get_wbio(device->ssl), msg.payload.pointer + offset, remaining);
+                        ok = BIO_read(SSL_get_wbio(device->ssl), msg.payload->pointer + offset, remaining);
                         if (ok <= 0) {
                             ERR_print_errors_fp(stderr);
                             return EIO;
@@ -715,24 +762,25 @@ static int do_handshake(struct aa_device *device) {
 
                 {
                     // We should read the data from the android auto device into the rbio.
-                    struct aa_msg msg;
+                    struct aa_msg *msg;
 
                     ok = aa_device_receive_msg_from_channel(device, kAndroidAutoChannelControl, &msg);
                     if (ok != 0) {
                         return ok;
                     }
 
-                    uint16_t message_id = be16_to_cpu(*(uint16_t*) msg.payload.pointer);
+                    uint16_t message_id = be16_to_cpu(*(uint16_t*) msg->payload->pointer);
 
                     if (message_id == F1X__AASDK__PROTO__IDS__CONTROL_MESSAGE__ENUM__SSL_HANDSHAKE) {
-                        size_t remaining = msg.payload.size - 2;
+                        size_t remaining = msg->payload->size - 2;
                         size_t offset = 2;
                         
                         while (remaining > 0) {
                             size_t written;
-                            ok = BIO_write_ex(SSL_get_rbio(device->ssl), msg.payload.pointer + offset, remaining, &written);
+                            ok = BIO_write_ex(SSL_get_rbio(device->ssl), msg->payload->pointer + offset, remaining, &written);
                             if (!ok) {
                                 ERR_print_errors_fp(stderr);
+                                aa_msg_unrefp(&msg);
                                 return EIO;
                             }
 
@@ -749,6 +797,8 @@ static int do_handshake(struct aa_device *device) {
                         );
                         break;
                     }
+
+                    aa_msg_unrefp(&msg);
                 }
                 printf("finished flushing buffers!\n");
             } else {
@@ -779,8 +829,8 @@ static int do_handshake(struct aa_device *device) {
         
         define_and_setup_aa_msg_on_stack(msg, size + 2, kAndroidAutoChannelControl, 0);
 
-        *(uint16_t *) msg.payload.pointer = cpu_to_be16(F1X__AASDK__PROTO__IDS__CONTROL_MESSAGE__ENUM__AUTH_COMPLETE);
-        f1x__aasdk__proto__messages__auth_complete_indication__pack(&auth_complete, msg.payload.pointer + 2);
+        *(uint16_t *) msg.payload->pointer = cpu_to_be16(F1X__AASDK__PROTO__IDS__CONTROL_MESSAGE__ENUM__AUTH_COMPLETE);
+        f1x__aasdk__proto__messages__auth_complete_indication__pack(&auth_complete, msg.payload->pointer + 2);
 
         ok = aa_device_send(device, &msg);
         if (ok != 0) {
@@ -791,9 +841,173 @@ static int do_handshake(struct aa_device *device) {
     return 0;
 }
 
-int aa_dev_manage(struct aa_device *device) {
+static int create_channels(struct aa_device *device) {
+    pset_put(&device->channels, aa_audio_input_channel_new(device));
+
+    /*
+    pset_put(
+        &device->channels,
+        aa_audio_channel_new(
+            device,
+            kAndroidAutoChannelMediaAudio,
+            F1X__AASDK__PROTO__ENUMS__AUDIO_TYPE__ENUM__MEDIA,
+            48000,
+            16,
+            2
+        )
+    );
+
+    pset_put(
+        &device->channels,
+        aa_audio_channel_new(
+            device,
+            kAndroidAutoChannelSpeechAudio,
+            F1X__AASDK__PROTO__ENUMS__AUDIO_TYPE__ENUM__SPEECH,
+            16000,
+            16,
+            1
+        )
+    );
+    */
+
+    pset_put(
+        &device->channels,
+        aa_audio_channel_new(
+            device,
+            kAndroidAutoChannelSpeechAudio,
+            F1X__AASDK__PROTO__ENUMS__AUDIO_TYPE__ENUM__SYSTEM,
+            16000,
+            16,
+            1
+        )
+    );
+    
+    pset_put(&device->channels, aa_sensor_channel_new(device));
+
+    pset_put(&device->channels, aa_video_channel_new(device));
+
+    pset_put(&device->channels, aa_input_channel_new(device));
+
+    pset_put(&device->channels, aa_wifi_channel_new(device));
+
+    return 0;
+}
+
+static int on_service_discovery_request(struct aa_device *device, size_t payload_size, uint8_t *payload) {
+    F1x__Aasdk__Proto__Messages__ServiceDiscoveryResponse sdrep = F1X__AASDK__PROTO__MESSAGES__SERVICE_DISCOVERY_RESPONSE__INIT;
+    F1x__Aasdk__Proto__Messages__ServiceDiscoveryRequest *sdreq;
+    struct aa_channel *channel;
     struct aaplugin *aaplugin;
-    struct aa_msg msg;
+    size_t response_payload_size;
+    int ok, i;
+
+    aaplugin = device->aaplugin;
+
+    sdreq = f1x__aasdk__proto__messages__service_discovery_request__unpack(NULL, payload_size, payload);
+    if (sdreq == NULL) {
+        fprintf(stderr, "[android-auto plugin] [control channel] Could not unpack service discovery request.\n");
+        return EINVAL;
+    }
+    
+    printf("[android-auto plugin] Got Service Discovery Request. device name: %s, device_brand: %s\n", sdreq->device_name, sdreq->device_brand);
+
+    device->device_name = strdup(sdreq->device_name);
+    device->device_brand = strdup(sdreq->device_brand);
+
+    f1x__aasdk__proto__messages__service_discovery_request__free_unpacked(sdreq, NULL);
+    
+    sdrep.head_unit_name = aaplugin->hu_info.headunit_name;
+    sdrep.car_model = aaplugin->hu_info.car_model;
+    sdrep.car_year = aaplugin->hu_info.car_year;
+    sdrep.car_serial = aaplugin->hu_info.car_serial;
+    sdrep.left_hand_drive_vehicle = aaplugin->hu_info.left_hand_drive_vehicle;
+    sdrep.headunit_manufacturer = aaplugin->hu_info.headunit_manufacturer;
+    sdrep.sw_build = aaplugin->hu_info.sw_build;
+    sdrep.sw_version = aaplugin->hu_info.sw_version;
+    sdrep.can_play_native_media_during_vr = aaplugin->hu_info.can_play_native_media_during_vr;
+    sdrep.has_hide_clock = true;
+    sdrep.hide_clock = aaplugin->hu_info.hide_clock;
+
+    
+    F1x__Aasdk__Proto__Data__ChannelDescriptor channels[pset_get_count_pointers(&device->channels)];
+    F1x__Aasdk__Proto__Data__ChannelDescriptor *pchannels[pset_get_count_pointers(&device->channels)];
+
+    i = 0;
+    for_each_pointer_in_pset(&device->channels, channel) {
+        channels[i] = (F1x__Aasdk__Proto__Data__ChannelDescriptor) F1X__AASDK__PROTO__DATA__CHANNEL_DESCRIPTOR__INIT;
+
+        ok = aa_channel_fill_features(channel, channels + i);
+        if (ok != 0) {
+            int j = 0;
+            for_each_pointer_in_pset(&device->channels, channel) {
+                if (j == i) break;
+                aa_channel_after_fill_features(channel, channels + j);
+                j++;
+            }
+
+            return ok;
+        }
+
+        pchannels[i] = channels + i;
+        i++;
+    }
+    
+    sdrep.n_channels = pset_get_count_pointers(&device->channels);
+    sdrep.channels = pchannels;
+
+    response_payload_size = f1x__aasdk__proto__messages__service_discovery_response__get_packed_size(&sdrep);
+    
+    define_and_setup_aa_msg_on_stack(response_msg, response_payload_size + 2, kAndroidAutoChannelControl, AA_MSG_FLAG_ENCRYPTED);
+
+    *(uint16_t *) response_msg.payload->pointer = cpu_to_be16(F1X__AASDK__PROTO__IDS__CONTROL_MESSAGE__ENUM__SERVICE_DISCOVERY_RESPONSE);
+    f1x__aasdk__proto__messages__service_discovery_response__pack(&sdrep, response_msg.payload->pointer + 2);
+    
+    ok = aa_device_send(device, &response_msg);
+
+    i = 0;
+    for_each_pointer_in_pset(&device->channels, channel) {
+        aa_channel_after_fill_features(channel, channels + i);
+        pchannels[i] = channels + i;
+        i++;
+    }
+
+    return ok;
+}
+
+static int on_audio_focus_request(struct aa_device *device, size_t payload_size, uint8_t *payload) {
+    F1x__Aasdk__Proto__Messages__AudioFocusResponse response = F1X__AASDK__PROTO__MESSAGES__AUDIO_FOCUS_RESPONSE__INIT;
+    F1x__Aasdk__Proto__Messages__AudioFocusRequest *request;
+    size_t response_packed_size;
+
+    request = f1x__aasdk__proto__messages__audio_focus_request__unpack(NULL, payload_size, payload);
+    if (request == NULL) {
+        fprintf(stderr, "[android-auto plugin] [control channel] Could not unpack audio focus request.\n");
+        return EPROTO;
+    }
+
+    printf(
+        "[android-auto plugin] [control channel] audio focus request. audio_focus_type: %s\n",
+        protobuf_c_enum_descriptor_get_value(&f1x__aasdk__proto__enums__audio_focus_type__enum__descriptor, request->audio_focus_type)->name
+    );
+
+    response.audio_focus_state = request->audio_focus_type == F1X__AASDK__PROTO__ENUMS__AUDIO_FOCUS_TYPE__ENUM__RELEASE?
+        F1X__AASDK__PROTO__ENUMS__AUDIO_FOCUS_STATE__ENUM__LOSS :
+        F1X__AASDK__PROTO__ENUMS__AUDIO_FOCUS_STATE__ENUM__GAIN;
+
+    f1x__aasdk__proto__messages__audio_focus_request__free_unpacked(request, NULL);
+
+    response_packed_size = f1x__aasdk__proto__messages__audio_focus_response__get_packed_size(&response);
+    define_and_setup_aa_msg_on_stack(response_msg, response_packed_size + 2, kAndroidAutoChannelControl, AA_MSG_FLAG_ENCRYPTED);
+    *(uint16_t *) response_msg.payload->pointer = cpu_to_be16(F1X__AASDK__PROTO__IDS__CONTROL_MESSAGE__ENUM__AUDIO_FOCUS_RESPONSE);
+    f1x__aasdk__proto__messages__audio_focus_response__pack(&response, response_msg.payload->pointer + 2);
+
+    return aa_device_send(device, &response_msg);
+}
+
+int aa_dev_manage(struct aa_device *device) {
+    struct aa_channel *channel;
+    struct aaplugin *aaplugin;
+    struct aa_msg *msg;
     int ok;
 
     aaplugin = device->aaplugin;
@@ -812,6 +1026,11 @@ int aa_dev_manage(struct aa_device *device) {
         return ok;
     }
 
+    ok = create_channels(device);
+    if (ok != 0) {
+        return ok;
+    }
+
     printf("handling messages...\n");
     while (1) {
         ok = aa_device_receive_msg(device, &msg);
@@ -819,62 +1038,45 @@ int aa_dev_manage(struct aa_device *device) {
             return ok;
         }
 
-        printf("received message on channel %hhu, encrypted? %s\n", msg.channel, msg.flags & AA_MSG_FLAG_ENCRYPTED ? "yes" : "no");
+        printf("received message on channel %hhu, encrypted? %s\n", msg->channel, msg->flags & AA_MSG_FLAG_ENCRYPTED ? "yes" : "no");
 
-        if (msg.channel == kAndroidAutoChannelControl) {
-            uint16_t message_id = be16_to_cpu(*(uint16_t*) msg.payload.pointer);
+        if (msg->channel == kAndroidAutoChannelControl) {
+            uint16_t message_id = be16_to_cpu(*(uint16_t*) msg->payload->pointer);
 
-            if (message_id == F1X__AASDK__PROTO__IDS__CONTROL_MESSAGE__ENUM__SERVICE_DISCOVERY_REQUEST) {
-                F1x__Aasdk__Proto__Messages__ServiceDiscoveryRequest *request =
-                    f1x__aasdk__proto__messages__service_discovery_request__unpack(
-                        NULL,
-                        msg.payload.size - 2,
-                        msg.payload.pointer + 2
-                    );
-                
-                printf("[android-auto plugin] Got Service Discovery Request. device name: %s, device_brand: %s\n", request->device_name, request->device_brand);
+            switch (message_id) {
+                case F1X__AASDK__PROTO__IDS__CONTROL_MESSAGE__ENUM__SERVICE_DISCOVERY_REQUEST:
+                    ok = on_service_discovery_request(device, msg->payload->size - 2, msg->payload->pointer + 2);
+                    break;
+                case F1X__AASDK__PROTO__IDS__CONTROL_MESSAGE__ENUM__AUDIO_FOCUS_REQUEST:
+                    ok = on_audio_focus_request(device, msg->payload->size - 2, msg->payload->pointer + 2);
+                    break;
+                default:
+                    fprintf(stderr, "[android-auto plugin] Unhandled control channel message. message_id = %hu\n", message_id);
+                    ok = EINVAL;
+                    break;
+            }
 
-                F1x__Aasdk__Proto__Messages__ServiceDiscoveryResponse response = F1X__AASDK__PROTO__MESSAGES__SERVICE_DISCOVERY_RESPONSE__INIT;
-                
-                response.head_unit_name = aaplugin->hu_info.headunit_name;
-                response.car_model = aaplugin->hu_info.car_model;
-                response.car_year = aaplugin->hu_info.car_year;
-                response.car_serial = aaplugin->hu_info.car_serial;
-                response.left_hand_drive_vehicle = aaplugin->hu_info.left_hand_drive_vehicle;
-                response.headunit_manufacturer = aaplugin->hu_info.headunit_manufacturer;
-                response.sw_build = aaplugin->hu_info.sw_build;
-                response.sw_version = aaplugin->hu_info.sw_version;
-                response.can_play_native_media_during_vr = aaplugin->hu_info.can_play_native_media_during_vr;
-                response.has_hide_clock = true;
-                response.hide_clock = aaplugin->hu_info.hide_clock;
-
-                /*
-                F1x__Aasdk__Proto__Data__ChannelDescriptor channels[256];
-                F1x__Aasdk__Proto__Data__ChannelDescriptor *pchannels[256];
-
-                channels[0].channel_id = kAndroidAutoChannelInput;
-                channels[0].input_channel = 
-
-                for (int i = 0; i < 256; i++) {
-                    channels[i].
-                }
-                
-
-                response.n_channels = 256;
-                response.channels = pchannels;
-                */
-            //} else if (message_id == F1X__AASDK__PROTO__IDS__CONTROL_MESSAGE__ENUM__AUDIO_FOCUS_REQUEST) {
-            //} else if (message_id == F1X__AASDK__PROTO__IDS__CONTROL_MESSAGE__ENUM__SHUTDOWN_REQUEST) {
-            //} else if (message_id == F1X__AASDK__PROTO__IDS__CONTROL_MESSAGE__ENUM__SHUTDOWN_RESPONSE) {
-            //} else if (message_id == F1X__AASDK__PROTO__IDS__CONTROL_MESSAGE__ENUM__NAVIGATION_FOCUS_REQUEST) {
-            //} else if (message_id == F1X__AASDK__PROTO__IDS__CONTROL_MESSAGE__ENUM__PING_RESPONSE) {
-                
-            } else {
-                fprintf(stderr, "[android-auto plugin] Unhandled message on channel %hhu, message_id = %hu\n", msg.channel, message_id);
+            if (ok != 0) {
+                return ok;
             }
         } else {
-            fprintf(stderr, "[android-auto plugin] Unhandled message on channel %hhu\n", msg.channel);
+            for_each_pointer_in_pset(&device->channels, channel) {
+                if (channel->id == msg->channel) {
+                    break;
+                }
+            }
+
+            if (channel != NULL) {
+                ok = aa_channel_on_message(channel, aa_msg_ref(msg));
+                if (ok != 0) {
+                    fprintf(stderr, "[android-auto plugin] Error handling message for channel %hhu: %s\n", msg->channel, strerror(ok));
+                }
+            } else {
+                fprintf(stderr, "[android-auto plugin] Unhandled message on channel %hhu\n", msg->channel);
+            }
         }
+
+        aa_msg_unrefp(&msg);
     }
 
     return 0;

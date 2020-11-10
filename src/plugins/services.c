@@ -78,18 +78,25 @@ static int on_receive_platform(char *channel, struct platch_obj *object, Flutter
 
         bool preferred_orientations[kLandscapeRight+1] = {0};
 
-        for (int i = 0; i < value->size; i++) {
+        for (unsigned int i = 0; i < value->size; i++) {
+            enum device_orientation o;
 
-            if (value->array[i].type != kJsonString) {
+            if (!JSONVALUE_IS_STRING(value->array[i])) {
                 return platch_respond_illegal_arg_json(
                     responsehandle,
                     "Expected `arg` to to only contain strings."
                 );
             }
-            
-            enum device_orientation o = ORIENTATION_FROM_STRING(value->array[i].string_value);
 
-            if (o == -1) {
+            if STREQ("DeviceOrientation.portraitUp", JSONVALUE_AS_STRING(value->array[i])) {
+                o = kPortraitUp;
+            } else if STREQ("DeviceOrientation.landscapeLeft", JSONVALUE_AS_STRING(value->array[i])) {
+                o = kLandscapeLeft;
+            } else if STREQ("DeviceOrientation.portraitDown", JSONVALUE_AS_STRING(value->array[i])) {
+                o = kPortraitDown;
+            } else if STREQ("DeviceOrientation.landscapeRight", JSONVALUE_AS_STRING(value->array[i])) {
+                o = kLandscapeRight;
+            } else {
                 return platch_respond_illegal_arg_json(
                     responsehandle,
                     "Expected `arg` to only contain stringifications of the "

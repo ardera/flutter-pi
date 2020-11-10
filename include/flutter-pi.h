@@ -327,6 +327,8 @@ struct flutterpi {
 		PFNEGLCREATEPLATFORMPIXMAPSURFACEEXTPROC createPlatformPixmapSurface;
 		PFNEGLCREATEDRMIMAGEMESAPROC createDRMImageMESA;
 		PFNEGLEXPORTDRMIMAGEMESAPROC exportDRMImageMESA;
+		PFNEGLCREATEIMAGEKHRPROC createImageKHR;
+		PFNEGLDESTROYIMAGEKHRPROC destroyImageKHR;
 	} egl;
 
 	struct  {
@@ -428,6 +430,8 @@ struct flutterpi {
 	pthread_mutex_t event_loop_mutex;
 	sd_event *event_loop;
 	int wakeup_event_loop_fd;
+	
+	struct texture_registry *texture_registry;
 
 	/// flutter-pi internal stuff
 	struct plugin_registry *plugin_registry;
@@ -461,11 +465,17 @@ struct input_device_data {
 	uint64_t timestamp;
 };
 
+int flutterpi_create_egl_context(EGLContext *context_out, EGLint *err_out);
+
 int flutterpi_fill_view_properties(
 	bool has_orientation,
 	enum device_orientation orientation,
 	bool has_rotation,
 	int rotation
+);
+
+bool flutterpi_runs_platform_tasks_on_current_thread(
+	struct flutterpi *flutterpi
 );
 
 int flutterpi_post_platform_task(

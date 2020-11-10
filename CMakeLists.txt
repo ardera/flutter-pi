@@ -92,8 +92,11 @@ pkg_check_modules(EGL REQUIRED egl)
 pkg_check_modules(GLESV2 REQUIRED glesv2)
 pkg_check_modules(LIBSYSTEMD REQUIRED libsystemd)
 pkg_check_modules(LIBINPUT REQUIRED libinput)
-pkg_check_modules(LIBXKBCOMMON REQUIRED xkbcommon)
 pkg_check_modules(LIBUDEV libudev)
+pkg_check_modules(LIBXKBCOMMON REQUIRED xkbcommon)
+pkg_check_modules(LIBUSB REQURIED libusb-1.0)
+pkg_check_modules(LIBSSL REQUIRED libssl)
+pkg_check_modules(LIBCRYPTO REQUIRED libcrypto)
 
 set(FLUTTER_PI_SRC
   src/flutter-pi.c
@@ -110,6 +113,10 @@ set(FLUTTER_PI_SRC
 	src/plugins/text_input.c
 	src/plugins/raw_keyboard.c
 	src/plugins/omxplayer_video_player.c
+  src/plugins/android_auto/android_auto.c
+  src/plugins/android_auto/aa_channel.c
+  src/plugins/android_auto/aa_xfer.c
+  src/plugins/android_auto/aa_device.c
 )
 
 if (NOT LIBUDEV_FOUND)
@@ -128,6 +135,9 @@ target_link_libraries(flutter-pi
   ${LIBINPUT_LDFLAGS}
   ${LIBUDEV_LDFLAGS}
   ${LIBXKBCOMMON_LDFLAGS}
+  ${LIBUSB_LDFLAGS}
+  ${LIBSSL_LDFLAGS}
+  ${LIBCRYPTO_LDFLAGS}
   pthread dl rt m
 )
 
@@ -143,6 +153,9 @@ target_include_directories(flutter-pi PRIVATE
   ${LIBINPUT_INCLUDE_DIRS}
   ${LIBUDEV_INCLUDE_DIRS}
   ${LIBXKBCOMMON_INCLUDE_DIRS}
+  ${LIBUSB_INCLUDE_DIRS}
+  ${LIBSSL_INCLUDE_DIRS}
+  ${LIBCRYPTO_INCLUDE_DIRS}
 )
 
 target_compile_options(flutter-pi PRIVATE
@@ -154,10 +167,14 @@ target_compile_options(flutter-pi PRIVATE
   ${LIBINPUT_CFLAGS}
   ${LIBUDEV_CFLAGS}
   ${LIBXKBCOMMON_CFLAGS}
+  ${LIBUSB_CFLAGS}
+  ${LIBSSL_CFLAGS}
+  ${LIBCRYPTO_CFLAGS}
   -ggdb
   -DBUILD_TEXT_INPUT_PLUGIN
 	-DBUILD_TEST_PLUGIN
 	-DBUILD_OMXPLAYER_VIDEO_PLAYER_PLUGIN
+  -DBUILD_ANDROID_AUTO_PLUGIN
 )
 
 target_link_options(flutter-pi PRIVATE

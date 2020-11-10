@@ -303,7 +303,7 @@ static inline int cpset_put_locked(
 	return pset_put(&set->set, pointer);
 }
 
-static inline int cpset_put_(
+static inline int cpset_put(
 	struct concurrent_pointer_set *set,
 	void *pointer
 ) {
@@ -323,7 +323,7 @@ static inline bool cpset_contains_locked(
 	return pset_contains(&set->set, pointer);
 }
 
-static inline bool cpset_contains_(
+static inline bool cpset_contains(
 	struct concurrent_pointer_set *set,
 	const void *pointer
 ) {
@@ -343,7 +343,7 @@ static inline int cpset_remove_locked(
 	return pset_remove(&set->set, pointer); 
 }
 
-static inline int cpset_remove_(
+static inline int cpset_remove(
 	struct concurrent_pointer_set *set,
 	const void *pointer
 ) {
