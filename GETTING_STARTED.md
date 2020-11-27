@@ -40,7 +40,7 @@ In each step below with Bash commands, the commands start with a set of `export`
    3. Select `Advanced Options` -> `Memory Split` and set it to `16`.
    4. Exit `raspi-config` and reboot when offered.
 
-4. Download, install, and configure Flutter on a host machine (not the Raspberry Pi), then create an application and compile it.
+4. Download, install, and configure Flutter on a host machine (not the Raspberry Pi), then create an application, compile it, and run it.
    These instructions will put the version of Flutter you will use for the Raspberry Pi into the `~/dev/flutter-for-pi` directory so as to not interfere with your normal Flutter installation.
    For the purposes of these instructions we'll assume this is an x64 Linux workstation.
    ```bash
@@ -77,13 +77,10 @@ In each step below with Bash commands, the commands start with a set of `export`
    # upload the application
    rsync --recursive ~/dev/$APPNAME/build/flutter_assets $TARGETUSER@$TARGET:dev/$APPNAME
    scp ~/dev/$APPNAME/build/app.so $TARGETUSER@$TARGET:dev/$APPNAME/app.so
+   # run the application
+   ssh $TARGETUSER@$TARGET "killall" "flutter-pi"	
+   ssh $TARGETUSER@$TARGET "dev/flutter-pi/out/flutter-pi" "--release" "~/dev/$APPNAME"
    popd
-   ```
-5. Run your application. On your Raspberry Pi:
-   ```bash
-   export APPNAME=hello_pi # same as what you used earlier
-   
-   ~/dev/flutter-pi/out/flutter-pi --release ~/dev/$APPNAME
    ```
 
 That's it!
