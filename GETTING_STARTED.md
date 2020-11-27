@@ -73,7 +73,7 @@ In each step below with Bash commands, the commands start with a set of `export`
      --causal_async_stacks --deterministic --snapshot_kind=app-aot-elf \
      --strip --sim_use_hardfp --no-use-integer-division \
      --elf=build/app.so build/kernel_snapshot.dill
-   ../flutter-for-pi/bin/flutter build bundle --precompiled
+   ../flutter-for-pi/bin/flutter build bundle --no-tree-shake-icons --precompiled
    # upload the application
    rsync --recursive ~/dev/$APPNAME/build/flutter_assets $TARGETUSER@$TARGET:dev/$APPNAME
    scp ~/dev/$APPNAME/build/app.so $TARGETUSER@$TARGET:dev/$APPNAME/app.so
