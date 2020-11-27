@@ -75,7 +75,7 @@ In each step below with Bash commands, the commands start with a set of `export`
      --strip --sim_use_hardfp --no-use-integer-division \
      --elf=build/app.so build/kernel_snapshot.dill
    # upload the application
-   rsync --recursive ~/dev/$APPNAME/build/flutter_assets $TARGETUSER@$TARGET:dev/$APPNAME
+   rsync --recursive ~/dev/$APPNAME/build/flutter_assets/ $TARGETUSER@$TARGET:dev/$APPNAME
    scp ~/dev/$APPNAME/build/app.so $TARGETUSER@$TARGET:dev/$APPNAME/app.so
    # run the application
    ssh $TARGETUSER@$TARGET "killall" "flutter-pi"	
