@@ -62,7 +62,6 @@ In each step below with Bash commands, the commands start with a set of `export`
    # compile the application
    cd $APPNAME
    ../flutter-for-pi/bin/flutter packages get # this might not be necessary
-   ../flutter-for-pi/bin/flutter build bundle
    ../flutter-for-pi/bin/cache/dart-sdk/bin/dart \
      ../flutter-for-pi/bin/cache/dart-sdk/bin/snapshots/frontend_server.dart.snapshot \
      --sdk-root ~/dev/flutter-for-pi/bin/cache/artifacts/engine/common/flutter_patched_sdk_product \
@@ -74,6 +73,7 @@ In each step below with Bash commands, the commands start with a set of `export`
      --causal_async_stacks --deterministic --snapshot_kind=app-aot-elf \
      --strip --sim_use_hardfp --no-use-integer-division \
      --elf=build/app.so build/kernel_snapshot.dill
+   ../flutter-for-pi/bin/flutter build bundle --precompiled
    # upload the application
    rsync --recursive ~/dev/$APPNAME/build/flutter_assets $TARGETUSER@$TARGET:dev/$APPNAME
    scp ~/dev/$APPNAME/build/app.so $TARGETUSER@$TARGET:dev/$APPNAME/app.so
