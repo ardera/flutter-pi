@@ -124,13 +124,17 @@ If you encounter issues running flutter-pi on any of the supported platforms lis
 - The asset bundle must be built on your development machine. Note that you can't use a Raspberry Pi as your development machine.
 
 1. Make sure you've installed the flutter SDK. **You must** use a flutter SDK that's compatible to the installed engine binaries.
-   - for the flutter SDK, use flutter stable and keep it up to date.
-   - always use the latest available [engine binaries](https://github.com/ardera/flutter-pi/tree/engine-binaries)
+   - for the flutter SDK, use flutter stable and keep it up to date.  
+   - always use the latest available [engine binaries](https://github.com/ardera/flutter-pi/tree/engine-binaries)  
+   
    If you encounter error messages like `Invalid kernel binary format version`, `Invalid SDK hash` or `Invalid engine hash`:
    1. Make sure your flutter SDK is on `stable` and up to date and your engine binaries are up to date.
    2. If you made sure that's the case and the error still happens, create a new issue.
+   
 2. Open terminal or commandline and `cd` into your app directory.
+
 3. `flutter build bundle`
+
 4. Deploy the asset bundle to the Raspberry Pi using `rsync` or `scp`.
    - Using `rsync` (available on linux and macOS or on Windows when using [WSL](https://docs.microsoft.com/de-de/windows/wsl/install-win10))
        ```bash
