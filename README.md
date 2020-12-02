@@ -23,15 +23,15 @@ If you encounter issues running flutter-pi on any of the supported platforms lis
 
 ## 📑 Contents
 
-1. **[Running your App on the Raspberry Pi](#running-your-app-on-the-raspberry-pi)**  
+1. **[Running your App on the Raspberry Pi](#-running-your-app-on-the-raspberry-pi)**  
 1.1 [Configuring your Raspberry Pi](#configuring-your-raspberry-pi)  
 1.2 [Building the Asset bundle](#building-the-asset-bundle)  
 1.3 [Building the `app.so` (for running your app in Release/Profile mode)](#building-the-appso-for-running-your-app-in-releaseprofile-mode)  
 1.4 [Running your App with flutter-pi](#running-your-app-with-flutter-pi)  
-2. **[Building flutter-pi on the Raspberry Pi](#building-flutter-pi-on-the-raspberry-pi)**  
+2. **[Building flutter-pi on the Raspberry Pi](#-building-flutter-pi-on-the-raspberry-pi)**  
 2.1 [Dependencies](#dependencies)  
 2.2 [Compiling](#compiling)  
-3. **[Performance](#performance)**  
+3. **[Performance](#-performance)**  
 3.1 [Graphics Performance](#graphics-performance)  
 3.2 [Touchscreen latency](#touchscreen-latency)  
 
