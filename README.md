@@ -23,113 +23,225 @@ If you encounter issues running flutter-pi on any of the supported platforms lis
 
 ## 📑 Contents
 
-1. **[Running your App on the Raspberry Pi](#-running-your-app-on-the-raspberry-pi)**  
-1.1 [Configuring your Raspberry Pi](#configuring-your-raspberry-pi)  
-1.2 [Building the Asset bundle](#building-the-asset-bundle)  
-1.3 [Building the `app.so` (for running your app in Release/Profile mode)](#building-the-appso-for-running-your-app-in-releaseprofile-mode)  
-1.4 [Running your App with flutter-pi](#running-your-app-with-flutter-pi)  
-2. **[Building flutter-pi on the Raspberry Pi](#-building-flutter-pi-on-the-raspberry-pi)**  
-2.1 [Dependencies](#dependencies)  
-2.2 [Compiling](#compiling)  
+1. **[Building flutter-pi on the Raspberry Pi](#-building-flutter-pi-on-the-raspberry-pi)**  
+1.1 [Dependencies](#dependencies)  
+1.2 [Compiling](#compiling)  
+2. **[Running your App on the Raspberry Pi](#-running-your-app-on-the-raspberry-pi)**  
+2.1 [Configuring your Raspberry Pi](#configuring-your-raspberry-pi)  
+2.2 [Building the Asset bundle](#building-the-asset-bundle)  
+2.3 [Building the `app.so` (for running your app in Release/Profile mode)](#building-the-appso-for-running-your-app-in-releaseprofile-mode)  
+2.4 [Running your App with flutter-pi](#running-your-app-with-flutter-pi)  
 3. **[Performance](#-performance)**  
 3.1 [Graphics Performance](#graphics-performance)  
 3.2 [Touchscreen latency](#touchscreen-latency)  
 
+## 🛠 Building flutter-pi on the Raspberry Pi
+- If you want to update flutter-pi, you check out the latest commit using `git pull && git checkout origin/master` and continue with [compiling](#compiling), step 2.
+
+### Dependencies
+1. Install the flutter engine binaries using the instructions in the [in the _engine-binaries_ branch of this project.](https://github.com/ardera/flutter-pi/tree/engine-binaries).
+    <details>
+      <summary>More Info</summary>
+
+      flutter-pi needs flutters `flutter_embedder.h` to compile and `icudtl.dat` at runtime. It also needs `libflutter_engine.so.release` at runtime when invoked with the `--release` flag and `libflutter_engine.so.debug` when invoked without.
+      You actually have two options here:
+
+      - you build the engine yourself. takes a lot of time, and it most probably won't work on the first try. But once you have it set up, you have unlimited freedom on which engine version you want to use. You can find some rough guidelines [here](https://medium.com/flutter/flutter-on-raspberry-pi-mostly-from-scratch-2824c5e7dcb1).
+      - you can use the pre-built engine binaries I am providing [in the _engine-binaries_ branch of this project.](https://github.com/ardera/flutter-pi/tree/engine-binaries). I will only provide binaries for some engine versions though (most likely the stable ones).
+
+    </details>
+
+2. Install graphics & system libraries and fonts:
+    ```bash
+    $ sudo apt install libgl1-mesa-dev libgles2-mesa-dev libegl1-mesa-dev libdrm-dev libgbm-dev ttf-mscorefonts-installer fontconfig libsystemd-dev libinput-dev libudev-dev  libxkbcommon-dev
+    ```
+    <details>
+      <summary>More Info</summary>
+      
+      - flutter-pi needs the mesa OpenGL ES and EGL implementation and libdrm & libgbm. It may work with non-mesa implementations too, but that's untested.
+      - The flutter engine depends on the _Arial_ font. Since that doesn't come included with Raspbian, you need to install it.
+      - `libsystemd` is not systemd, it's just an utility library. It provides the event loop and dbus support for flutter-pi.
+      - `libinput-dev`, `libudev-dev` and `libxkbcommon-dev` are needed for (touch, mouse, raw keyboard and text) input support.
+      - `libudev-dev` is required, but actual udev is not. Flutter-pi will just open all `event` devices inside `/dev/input` (unless overwritten using `-i`) if udev is not present.
+      - `gpiod` and `libgpiod-dev` where required in the past, but aren't anymore since the `flutter_gpiod` plugin will directly access the kernel interface.
+    </details>
+    
+3. Update the system fonts.
+    ```bash
+    $ sudo fc-cache
+    ```
+
+### Compiling
+1. Clone flutter-pi and cd into the cloned directory:
+    ```bash
+    $ git clone https://github.com/ardera/flutter-pi
+    $ cd flutter-pi
+    ```
+2. Compile:
+    ```bash
+    $ make -j`nproc`
+    ```
+3. Install:
+    ```bash
+    $ sudo install -C ./out/flutter-pi /usr/local/bin
+    ```
+
 ## 🚀 Running your App on the Raspberry Pi
 ### Configuring your Raspberry Pi
-#### Switching to Console mode
-flutter-pi only works when Raspbian is in console mode (no X11 or Wayland server running). To switch the Pi into console mode,
-go to `raspi-config -> Boot Options -> Desktop / CLI` and select `Console` or `Console (Autologin)`.
+1. Open raspi-config:
+    ```bash
+    $ sudo raspi-config
+    ```
+    
+2. Switch to console mode:
+   `System Options -> Boot / Auto Login` and select `Console` or `Console (Autologin)`.
 
-#### Enabling the V3D driver
-flutter-pi doesn't support the legacy broadcom-proprietary graphics stack anymore. You need to make sure the V3D driver in raspi-config.
-Go to `raspi-config -> Advanced Options -> GL Driver` and select `GL (Fake-KMS)`.
+3. Enable the V3D graphics driver
+   `Advanced Options -> GL Driver -> GL (Fake KMS)`
 
-With this driver, it's best to give the GPU as little RAM as possible in `raspi-config -> Advanced Options -> Memory Split`, which is `16MB`. This is because the V3D driver doesn't need GPU RAM anymore. NOTE: If you want to use the [`omxplayer_video_player`](https://pub.dev/packages/omxplayer_video_player) plugin to play back videos in flutter, you need to give the GPU some more RAM, like 64MB.
+4. Configure the GPU memory
+   `Performance Options -> GPU Memory` and enter `64`.
 
-#### Fixing the GPU permissions
-It seems like with newer versions of Raspbian, the `pi` user doesn't have sufficient permissions to directly access the GPU anymore. IIRC, this is because of some privilege escalation / arbitrary code execution problems of the GPU interface.
+5. Leave `raspi-config`.
 
-You can fix this by adding the `pi` user to the `render` group, but keep in mind that may be a security hazard:
-```bash
-usermod -a -G render pi
-```
-Then, restart your terminal session so the changes take effect. (reconnect if you're using ssh or else just reboot the Pi)
+6. Give the `pi` permission to use 3D acceleration. (**NOTE:** potential security hazard. If you don't want to do this, launch `flutter-pi` using `sudo` instead.)
+    ```bash
+    usermod -a -G render pi
+    ```
 
-Otherwise, you'll need to run `flutter-pi` with `sudo`.
+5. Finish and reboot.
+
+<details>
+  <summary>More information</summary>
+  
+  - flutter-pi requires that no other process, like a X11- or wayland-server, is using the video output. So to disable the desktop environment, we boot into console instead.
+  - The old broadcom-proprietary GL driver was bugged and not working with flutter, so we have to use the Fake KMS driver.
+  - Actually, you can also configure 16MB of GPU memory if you want to. 64MB are needed when you want to use the [`omxplayer_video_player`](https://pub.dev/packages/omxplayer_video_player) plugin.
+  - `pi` isn't allowed to directly access the GPU because IIRC this has some privilege escalation bugs. Raspberry Pi has quite a lot of system-critical, not graphics-related stuff running on the GPU. I read somewhere it's easily possible to gain control of the GPU by writing malicious shaders. From there you can gain control of the CPU and thus the linux kernel. So basically the `pi` user could escalate privileges and become `root` just by directly accessing the GPU. But maybe this has already been fixed, I'm not sure.
+</details>
 
 ### Building the Asset bundle
-Then to build the asset bundle, run the following commands on your host machine. You can't build the asset bundle on target (== your Raspberry Pi), since the flutter SDK doesn't support linux on ARM yet.
+- The asset bundle must be built on your development machine. Note that you can't use a Raspberry Pi as your development machine.
 
-My host machine is actually running Windows. But I'm also using [WSL](https://docs.microsoft.com/de-de/windows/wsl/install-win10) to upload the binaries to the Raspberry Pi, since `rsync` is a linux tool.
-
-**Be careful** to use a flutter SDK that's compatible to the engine version you're using.
-- use flutter stable and keep it up to date. `flutter channel stable` && `flutter upgrade`
-- use the latest engine binaries ([explained later](#flutter-engine)) and keep them up to date
-
-If you encounter error messages like `Invalid kernel binary format version`, `Invalid SDK hash` or `Invalid engine hash`:
-1. Make sure your flutter SDK is on `stable` and up to date and your engine binaries are up to date.
-2. If you made sure that's the case and the error still happens, create a new issue for it.
-
-I'm using [`flutter_gallery`](https://github.com/flutter/gallery) in this example. flutter_gallery is developed against flutter master. So you need to use an older version of flutter_gallery to run it with flutter stable. It seems commit [9b11f12](https://github.com/flutter/gallery/commit/9b11f127fb46cb08e70b2a7cdfe8eaa8de977d5f) is the latest one working with flutter 1.20.
-
-```bash
-git clone https://github.com/flutter/gallery.git flutter_gallery
-cd flutter_gallery
-git checkout 9b11f127fb46cb08e70b2a7cdfe8eaa8de977d5f
-flutter build bundle
-```
-
-Then just upload the asset bundle to your Raspberry Pi. `pi@raspberrypi` is of course just an example `<username>@<hostname>` combination, your need to substitute your username and hostname there.
-```bash
-rsync -a --info=progress2 ./build/flutter_assets/ pi@raspberrypi:/home/pi/flutter_gallery_assets
-```
+1. Make sure you've installed the flutter SDK. **You must** use a flutter SDK that's compatible to the installed engine binaries.
+   - for the flutter SDK, use flutter stable and keep it up to date.
+   - always use the latest available [engine binaries](https://github.com/ardera/flutter-pi/tree/engine-binaries)
+   If you encounter error messages like `Invalid kernel binary format version`, `Invalid SDK hash` or `Invalid engine hash`:
+   1. Make sure your flutter SDK is on `stable` and up to date and your engine binaries are up to date.
+   2. If you made sure that's the case and the error still happens, create a new issue.
+2. Open terminal or commandline and `cd` into your app directory.
+3. `flutter build bundle`
+4. Deploy the asset bundle to the Raspberry Pi using `rsync` or `scp`.
+   - Using `rsync` (available on linux and macOS or on Windows when using [WSL](https://docs.microsoft.com/de-de/windows/wsl/install-win10))
+       ```bash
+       rsync -a --info=progress2 ./build/flutter_assets/ pi@raspberrypi:/home/pi/my_apps_flutter_assets
+       ```
+   - Using `scp` (available on linux, macOS and Windows)
+       ```bash
+       scp ./build/flutter_assets/ pi@raspberrypi:/home/pi/my_apps_flutter_assets
+       ```
+       
+#### Example
+1. We'll build the asset bundle for `flutter_gallery` and deploy it using `rsync` in this example.
+2. Clone `flutter_gallery` and checkout the latest commit compatible with flutter stable:
+    ```bash
+    git clone https://github.com/flutter/gallery.git flutter_gallery
+    cd flutter_gallery
+    git checkout 9b11f127fb46cb08e70b2a7cdfe8eaa8de977d5f
+    flutter build bundle
+    scp ./build/flutter_assets/ pi@raspberrypi:/home/pi/flutter_gallery_assets
+    ```
+3. Done. You can now run this app in debug-mode using `flutter-pi /home/pi/flutter_gallery_assets`.
 
 ### Building the `app.so` (for running your app in Release/Profile mode)
-This is done entirely on the host machine as well.
+- This is done entirely on your development machine as well.
 
-1. First, find out the path to your flutter SDK. For me it's `C:\flutter`. (I'm on Windows)
-2. Open the commandline, `cd` into your app directory.
-```bash
-git clone https://github.com/flutter/gallery.git flutter_gallery
-cd flutter_gallery
-git checkout 9b11f127fb46cb08e70b2a7cdfe8eaa8de977d5f
-```
-3. Build the kernel snapshot.
-```cmd
-C:\flutter\bin\cache\dart-sdk\bin\dart.exe ^
-  C:\flutter\bin\cache\dart-sdk\bin\snapshots\frontend_server.dart.snapshot ^
-  --sdk-root C:\flutter\bin\cache\artifacts\engine\common\flutter_patched_sdk_product ^
-  --target=flutter ^
-  --aot ^
-  --tfa ^
-  -Ddart.vm.product=true ^
-  --packages .packages ^
-  --output-dill build\kernel_snapshot.dill ^
-  --verbose ^
-  --depfile build\kernel_snapshot.d ^
-  package:gallery/main.dart
-```
-4. Build the `app.so`. This uses the `gen_snapshot_linux_x64` executable I provide in the engine-binaries branch. It needs to be executed under linux. If you're on Windows, you need to use [WSL](https://docs.microsoft.com/de-de/windows/wsl/install-win10).
-```bash
-$ git clone --branch engine-binaries https://github.com/ardera/flutter-pi ~/engine-binaries
-$ cd /path/to/your/app
-$ ~/engine-binaries/gen_snapshot_linux_x64 \
-  --causal_async_stacks \
-  --deterministic \
-  --snapshot_kind=app-aot-elf \
-  --elf=build/app.so \
-  --strip \
-  --sim_use_hardfp \
-  --no-use-integer-division \
-  build/kernel_snapshot.dill
-```
-5. Upload the asset bundle and the `app.so` to your Raspberry Pi. Flutter-pi expects the `app.so` to be located inside the asset bundle directory.
-```bash
-$ rsync -a --info=progress2 ./build/flutter_assets/ pi@raspberrypi:/home/pi/flutter_gallery_assets
-$ scp ./build/app.so pi@raspberrypi:/home/pi/flutter_gallery_assets/app.so
-```
-6. When starting your app, make sure you invoke flutter-pi with the `--release` flag.
+1. Find out the path to your flutter SDK. For me it's `C:\flutter`. (I'm on Windows)
+2. Open terminal or commandline and `cd` into your app directory.
+3. Build the asset bundle.
+   ```
+   flutter build bundle
+   ```
+4. Build the kernel snapshot. (Replace `my_app_name` with the name of your app)
+    ```cmd
+    C:\flutter\bin\cache\dart-sdk\bin\dart.exe ^
+      C:\flutter\bin\cache\dart-sdk\bin\snapshots\frontend_server.dart.snapshot ^
+      --sdk-root C:\flutter\bin\cache\artifacts\engine\common\flutter_patched_sdk_product ^
+      --target=flutter ^
+      --aot ^
+      --tfa ^
+      -Ddart.vm.product=true ^
+      --packages .packages ^
+      --output-dill build\kernel_snapshot.dill ^
+      --verbose ^
+      --depfile build\kernel_snapshot.d ^
+      package:my_app_name/main.dart
+    ```
+
+5. Fetch the latest `gen_snapshot_linux_x64` I provide in the [engine-binaries branch](https://github.com/ardera/flutter-pi/tree/engine-binaries).
+6. The following steps must be executed on a linux x64 machine. If you're on windows, you can use [WSL](https://docs.microsoft.com/de-de/windows/wsl/install-win10). If you're on macOS, you can use a linux VM.
+7. Build the `app.so`.
+    ```bash
+    gen_snapshot_linux_x64 \
+      --causal_async_stacks \
+      --deterministic \
+      --snapshot_kind=app-aot-elf \
+      --elf=build/app.so \
+      --strip \
+      --sim_use_hardfp \
+      --no-use-integer-division \
+      build/kernel_snapshot.dill
+    ```
+8. Move the `app.so` inside the asset bundle directory.
+    ```
+    mv ./build/app.so ./build/flutter_assets/
+    ```
+9. Now you can switch to your normal OS again.
+10. Upload the asset bundle and the `app.so` to your Raspberry Pi.
+    ```bash
+    rsync -a --info=progress2 ./build/flutter_assets/ pi@raspberrypi:/home/pi/my_apps_flutter_assets
+    ```
+    or
+    ```
+    scp ./build/flutter_assets/ pi@raspberrypi:/home/pi/my_apps_flutter_assets
+    ```
+11. You can now launch the app in release mode using `flutter-pi --release /home/pi/my_apps_flutter_assets`
+
+#### Complete example on Windows
+1. We'll build the asset bundle for `flutter_gallery` and deploy it using `rsync` in this example.
+    ```bash
+    git clone https://github.com/flutter/gallery.git flutter_gallery
+    git clone https://github.com/ardera/flutter-pi -b engine-binaries engine-binaries
+    cd flutter_gallery
+    git checkout 9b11f127fb46cb08e70b2a7cdfe8eaa8de977d5f
+    flutter build bundle
+    C:\flutter\bin\cache\dart-sdk\bin\dart.exe ^
+      C:\flutter\bin\cache\dart-sdk\bin\snapshots\frontend_server.dart.snapshot ^
+      --sdk-root C:\flutter\bin\cache\artifacts\engine\common\flutter_patched_sdk_product ^
+      --target=flutter ^
+      --aot ^
+      --tfa ^
+      -Ddart.vm.product=true ^
+      --packages .packages ^
+      --output-dill build\kernel_snapshot.dill ^
+      --verbose ^
+      --depfile build\kernel_snapshot.d ^
+      package:gallery/main.dart
+    wsl
+    ../engine-binaries/arm/gen_snapshot_linux_x64 \
+      --causal_async_stacks \
+      --deterministic \
+      --snapshot_kind=app-aot-elf \
+      --elf=build/app.so \
+      --strip \
+      --sim_use_hardfp \
+      --no-use-integer-division \
+      build/kernel_snapshot.dill
+    mv ./build/app.so ./build/flutter_assets/
+    rsync -a --info=progress2 ./build/flutter_assets/ pi@raspberrypi:/home/pi/flutter_gallery_assets
+    exit
+    ```
+3. Done. You can now run this app in release mode using `flutter-pi --release /home/pi/flutter_gallery_assets`.
 
 ### Running your App with flutter-pi
 ```txt
@@ -210,55 +322,6 @@ SEE ALSO:
 of the flutter app you're trying to run.
 
 `[flutter engine options...]` will be passed as commandline arguments to the flutter engine. You can find a list of commandline options for the flutter engine [Here](https://github.com/flutter/engine/blob/master/shell/common/switches.h).
-
-## 🛠 Building flutter-pi on the Raspberry Pi
-### Dependencies
-1. Install the flutter engine binaries using the instructions in the [in the _engine-binaries_ branch of this project.](https://github.com/ardera/flutter-pi/tree/engine-binaries).
-    <details>
-      <summary>More Info</summary>
-
-      flutter-pi needs flutters `flutter_embedder.h` to compile and `icudtl.dat` at runtime. It also needs `libflutter_engine.so.release` at runtime when invoked with the `--release` flag and `libflutter_engine.so.debug` when invoked without.
-      You actually have two options here:
-
-      - you build the engine yourself. takes a lot of time, and it most probably won't work on the first try. But once you have it set up, you have unlimited freedom on which engine version you want to use. You can find some rough guidelines [here](https://medium.com/flutter/flutter-on-raspberry-pi-mostly-from-scratch-2824c5e7dcb1).
-      - you can use the pre-built engine binaries I am providing [in the _engine-binaries_ branch of this project.](https://github.com/ardera/flutter-pi/tree/engine-binaries). I will only provide binaries for some engine versions though (most likely the stable ones).
-
-    </details>
-
-2. Install graphics & system libraries and fonts:
-    ```bash
-    $ sudo apt install libgl1-mesa-dev libgles2-mesa-dev libegl1-mesa-dev libdrm-dev libgbm-dev ttf-mscorefonts-installer fontconfig libsystemd-dev libinput-dev libudev-dev  libxkbcommon-dev
-    ```
-    <details>
-      <summary>More Info</summary>
-      
-      - flutter-pi needs the mesa OpenGL ES and EGL implementation and libdrm & libgbm. It may work with non-mesa implementations too, but that's untested.
-      - The flutter engine depends on the _Arial_ font. Since that doesn't come included with Raspbian, you need to install it.
-      - `libsystemd` is not systemd, it's just an utility library. It provides the event loop and dbus support for flutter-pi.
-      - `libinput-dev`, `libudev-dev` and `libxkbcommon-dev` are needed for (touch, mouse, raw keyboard and text) input support.
-      - `libudev-dev` is required, but actual udev is not. Flutter-pi will just open all `event` devices inside `/dev/input` (unless overwritten using `-i`) if udev is not present.
-      - `gpiod` and `libgpiod-dev` where required in the past, but aren't anymore since the `flutter_gpiod` plugin will directly access the kernel interface.
-    </details>
-    
-3. Update the system fonts.
-    ```bash
-    $ sudo fc-cache
-    ```
-
-### Compiling
-1. Clone flutter-pi and cd into the cloned directory:
-    ```bash
-    $ git clone https://github.com/ardera/flutter-pi
-    $ cd flutter-pi
-    ```
-2. Compile:
-    ```bash
-    $ make -j`nproc`
-    ```
-3. Install:
-    ```bash
-    $ sudo make install
-    ```
 
 ## 📊 Performance
 ### Graphics Performance
