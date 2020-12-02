@@ -53,7 +53,7 @@ If you encounter issues running flutter-pi on any of the supported platforms lis
 
 2. Install graphics & system libraries and fonts:
     ```bash
-    $ sudo apt install libgl1-mesa-dev libgles2-mesa-dev libegl1-mesa-dev libdrm-dev libgbm-dev ttf-mscorefonts-installer fontconfig libsystemd-dev libinput-dev libudev-dev  libxkbcommon-dev
+    sudo apt install libgl1-mesa-dev libgles2-mesa-dev libegl1-mesa-dev libdrm-dev libgbm-dev ttf-mscorefonts-installer fontconfig libsystemd-dev libinput-dev libudev-dev  libxkbcommon-dev
     ```
     <details>
       <summary>More Info</summary>
@@ -68,29 +68,29 @@ If you encounter issues running flutter-pi on any of the supported platforms lis
     
 3. Update the system fonts.
     ```bash
-    $ sudo fc-cache
+    sudo fc-cache
     ```
 
 ### Compiling
 1. Clone flutter-pi and cd into the cloned directory:
     ```bash
-    $ git clone https://github.com/ardera/flutter-pi
-    $ cd flutter-pi
+    git clone https://github.com/ardera/flutter-pi
+    cd flutter-pi
     ```
 2. Compile:
     ```bash
-    $ make -j`nproc`
+    make -j`nproc`
     ```
 3. Install:
     ```bash
-    $ sudo install -C ./out/flutter-pi /usr/local/bin
+    sudo install -C ./out/flutter-pi /usr/local/bin
     ```
 
 ## 🚀 Running your App on the Raspberry Pi
 ### Configuring your Raspberry Pi
 1. Open raspi-config:
     ```bash
-    $ sudo raspi-config
+    sudo raspi-config
     ```
     
 2. Switch to console mode:
@@ -143,15 +143,21 @@ If you encounter issues running flutter-pi on any of the supported platforms lis
        
 #### Example
 1. We'll build the asset bundle for `flutter_gallery` and deploy it using `rsync` in this example.
-2. Clone `flutter_gallery` and checkout the latest commit compatible with flutter stable:
-    ```bash
-    git clone https://github.com/flutter/gallery.git flutter_gallery
-    cd flutter_gallery
-    git checkout 9b11f127fb46cb08e70b2a7cdfe8eaa8de977d5f
-    flutter build bundle
-    scp ./build/flutter_assets/ pi@raspberrypi:/home/pi/flutter_gallery_assets
-    ```
+```bash
+git clone https://github.com/flutter/gallery.git flutter_gallery
+cd flutter_gallery
+git checkout 9b11f127fb46cb08e70b2a7cdfe8eaa8de977d5f
+flutter build bundle
+scp ./build/flutter_assets/ pi@raspberrypi:/home/pi/flutter_gallery_assets
+```
 3. Done. You can now run this app in debug-mode using `flutter-pi /home/pi/flutter_gallery_assets`.
+
+<details>
+  <summary>More information</summary>
+    
+  - flutter_gallery is developed against flutter master. `9b11f127fb46cb08e70b2a7cdfe8eaa8de977d5f` is currently the latest flutter gallery
+    commit working flutter stable.
+</details>
 
 ### Building the `app.so` (for running your app in Release/Profile mode)
 - This is done entirely on your development machine as well.
