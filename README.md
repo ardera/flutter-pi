@@ -11,7 +11,7 @@ You can now **theoretically** run every flutter app you want using flutter-pi, i
 
 _The difference between packages and plugins is that packages don't include any native code, they are just pure Dart. Plugins (like the [connectivity plugin](https://github.com/flutter/plugins/tree/master/packages/connectivity)) include platform-specific code._
 
-## Supported Platforms
+## 🖥️ Supported Platforms
 Although flutter-pi is only tested on a Rasberry Pi 4 2GB, it should work fine on other linux platforms, with the following conditions:
 
 - support for hardware 3D acceleration. more precisely support for kernel-modesetting (KMS) and the direct rendering infrastructure (DRI) 
@@ -21,21 +21,21 @@ This means flutter-pi won't work on a Pi Zero, Pi 1, or Pi 2. A Pi 3 works fine,
 
 If you encounter issues running flutter-pi on any of the supported platforms listed above, please report them to me and I'll fix them.
 
-## Contents
+## 📑 Contents
 
 1. **[Running your App on the Raspberry Pi](#running-your-app-on-the-raspberry-pi)**  
 1.1 [Configuring your Raspberry Pi](#configuring-your-raspberry-pi)  
 1.2 [Building the Asset bundle](#building-the-asset-bundle)  
 1.3 [Building the `app.so` (for running your app in Release/Profile mode)](#building-the-appso-for-running-your-app-in-releaseprofile-mode)  
 1.4 [Running your App with flutter-pi](#running-your-app-with-flutter-pi)  
-2. **[Dependencies](#dependencies)**
-3. **[Compiling flutter-pi (on the Raspberry Pi)](#compiling-flutter-pi-on-the-raspberry-pi)**  
-4. **[Performance](#performance)**  
-5. **[Keyboard Input](#keyboard-input)**
-6. **[Touchscreen Latency](#touchscreen-latency)**  
+2. **[Building flutter-pi on the Raspberry Pi](#building-flutter-pi-on-the-raspberry-pi)**  
+2.1 [Dependencies](#dependencies)  
+2.2 [Compiling](#compiling)  
+3. **[Performance](#performance)**  
+3.1 [Graphics Performance](#graphics-performance)  
+3.2 [Touchscreen latency](#touchscreen-latency)  
 
-
-## Running your App on the Raspberry Pi
+## 🚀 Running your App on the Raspberry Pi
 ### Configuring your Raspberry Pi
 #### Switching to Console mode
 flutter-pi only works when Raspbian is in console mode (no X11 or Wayland server running). To switch the Pi into console mode,
@@ -82,7 +82,7 @@ flutter build bundle
 
 Then just upload the asset bundle to your Raspberry Pi. `pi@raspberrypi` is of course just an example `<username>@<hostname>` combination, your need to substitute your username and hostname there.
 ```bash
-$ rsync -a --info=progress2 ./build/flutter_assets/ pi@raspberrypi:/home/pi/flutter_gallery_assets
+rsync -a --info=progress2 ./build/flutter_assets/ pi@raspberrypi:/home/pi/flutter_gallery_assets
 ```
 
 ### Building the `app.so` (for running your app in Release/Profile mode)
@@ -90,7 +90,7 @@ This is done entirely on the host machine as well.
 
 1. First, find out the path to your flutter SDK. For me it's `C:\flutter`. (I'm on Windows)
 2. Open the commandline, `cd` into your app directory.
-```
+```bash
 git clone https://github.com/flutter/gallery.git flutter_gallery
 cd flutter_gallery
 git checkout 9b11f127fb46cb08e70b2a7cdfe8eaa8de977d5f
@@ -158,8 +158,8 @@ OPTIONS:
   --release                  Run the app in release mode. The AOT snapshot
                              of the app ("app.so") must be located inside the
                              asset bundle directory.
-                                                         This also requires a libflutter_engine.so that was
-                                                         built with --runtime-mode=release.
+                             This also requires a libflutter_engine.so that was
+                             built with --runtime-mode=release.
 
   -o, --orientation <orientation>  Start the app in this orientation. Valid
                              for <orientation> are: portrait_up, landscape_left,
@@ -178,14 +178,12 @@ OPTIONS:
 
   -d, --dimensions "width_mm,height_mm" The width & height of your display in
                              millimeters. Useful if your GPU doesn't provide
-                                                         valid physical dimensions for your display.
-                                                         The physical dimensions of your display are used
-                                                         to calculate the flutter device-pixel-ratio, which
-                                                         in turn basically "scales" the UI.
+                             valid physical dimensions for your display.
+                             The physical dimensions of your display are used
+                             to calculate the flutter device-pixel-ratio, which
+                             in turn basically "scales" the UI.
 
-  --no-text-input            Disable text input from the console.
-                             This means flutter-pi won't configure the console
-                             to raw/non-canonical mode.
+  --no-text-input            Disable text input.
 
   -h, --help                 Show this help and exit.
 
@@ -213,41 +211,60 @@ of the flutter app you're trying to run.
 
 `[flutter engine options...]` will be passed as commandline arguments to the flutter engine. You can find a list of commandline options for the flutter engine [Here](https://github.com/flutter/engine/blob/master/shell/common/switches.h).
 
-## Dependencies
-### flutter engine
-flutter-pi needs `libflutter_engine.so` and `flutter_embedder.h` to compile. It also needs the flutter engine's `icudtl.dat` at runtime.
-You have two options here:
+## 🛠 Building flutter-pi on the Raspberry Pi
+### Dependencies
+1. Install the flutter engine binaries using the instructions in the [in the _engine-binaries_ branch of this project.](https://github.com/ardera/flutter-pi/tree/engine-binaries).
+    <details>
+      <summary>More Info</summary>
 
-- you build the engine yourself. takes a lot of time, and it most probably won't work on the first try. But once you have it set up, you have unlimited freedom on which engine version you want to use. You can find some rough guidelines [here](https://medium.com/flutter/flutter-on-raspberry-pi-mostly-from-scratch-2824c5e7dcb1).
-- you can use the pre-built engine binaries I am providing [in the _engine-binaries_ branch of this project.](https://github.com/ardera/flutter-pi/tree/engine-binaries). I will only provide binaries for some engine versions though (most likely the stable ones).
+      flutter-pi needs flutters `flutter_embedder.h` to compile and `icudtl.dat` at runtime. It also needs `libflutter_engine.so.release` at runtime when invoked with the `--release` flag and `libflutter_engine.so.debug` when invoked without.
+      You actually have two options here:
 
-### graphics libs
-Additionally, flutter-pi depends on mesa's OpenGL, OpenGL ES, EGL implementation and libdrm & libgbm.
-You can easily install those with `sudo apt install libgl1-mesa-dev libgles2-mesa-dev libegl-mesa0 libdrm-dev libgbm-dev`.
+      - you build the engine yourself. takes a lot of time, and it most probably won't work on the first try. But once you have it set up, you have unlimited freedom on which engine version you want to use. You can find some rough guidelines [here](https://medium.com/flutter/flutter-on-raspberry-pi-mostly-from-scratch-2824c5e7dcb1).
+      - you can use the pre-built engine binaries I am providing [in the _engine-binaries_ branch of this project.](https://github.com/ardera/flutter-pi/tree/engine-binaries). I will only provide binaries for some engine versions though (most likely the stable ones).
 
-### fonts
-The flutter engine, by default, uses the _Arial_ font. Since that doesn't come included with Raspbian, you need to install it using:
-```bash
-sudo apt install ttf-mscorefonts-installer fontconfig
-sudo fc-cache
-```
-### libgpiod (for the included GPIO plugin), libsystemd, libinput, libudev
-```bash
-sudo apt-get install gpiod libgpiod-dev libsystemd-dev libinput-dev libudev-dev libxkbcommon-dev
-```
+    </details>
 
-## Compiling flutter-pi (on the Raspberry Pi)
-fetch all the dependencies, clone this repo and run
-```bash
-cd /path/to/the/cloned/flutter-pi/directory
-make
-```
-The _flutter-pi_ executable will then be located at this path: `/path/to/the/cloned/flutter-pi/directory/out/flutter-pi`
+2. Install graphics & system libraries and fonts:
+    ```bash
+    $ sudo apt install libgl1-mesa-dev libgles2-mesa-dev libegl1-mesa-dev libdrm-dev libgbm-dev ttf-mscorefonts-installer fontconfig libsystemd-dev libinput-dev libudev-dev  libxkbcommon-dev
+    ```
+    <details>
+      <summary>More Info</summary>
+      
+      - flutter-pi needs the mesa OpenGL ES and EGL implementation and libdrm & libgbm. It may work with non-mesa implementations too, but that's untested.
+      - The flutter engine depends on the _Arial_ font. Since that doesn't come included with Raspbian, you need to install it.
+      - `libsystemd` is not systemd, it's just an utility library. It provides the event loop and dbus support for flutter-pi.
+      - `libinput-dev`, `libudev-dev` and `libxkbcommon-dev` are needed for (touch, mouse, raw keyboard and text) input support.
+      - `libudev-dev` is required, but actual udev is not. Flutter-pi will just open all `event` devices inside `/dev/input` (unless overwritten using `-i`) if udev is not present.
+      - `gpiod` and `libgpiod-dev` where required in the past, but aren't anymore since the `flutter_gpiod` plugin will directly access the kernel interface.
+    </details>
+    
+3. Update the system fonts.
+    ```bash
+    $ sudo fc-cache
+    ```
 
-## Performance
-Performance is actually better than I expected. With most of the apps inside the `flutter SDK -> examples -> catalog` directory I get smooth 50-60fps.
+### Compiling
+1. Clone flutter-pi and cd into the cloned directory:
+    ```bash
+    $ git clone https://github.com/ardera/flutter-pi
+    $ cd flutter-pi
+    ```
+2. Compile:
+    ```bash
+    $ make -j`nproc`
+    ```
+3. Install:
+    ```bash
+    $ sudo make install
+    ```
 
-## Touchscreen Latency
+## 📊 Performance
+### Graphics Performance
+Graphics performance is actually pretty good. With most of the apps inside the `flutter SDK -> examples -> catalog` directory I get smooth 50-60fps on the Pi 4 2GB and Pi 3 A+.
+
+### Touchscreen Latency
 Due to the way the touchscreen driver works in raspbian, there's some delta between an actual touch of the touchscreen and a touch event arriving at userspace. The touchscreen driver in the raspbian kernel actually just repeatedly polls some buffer shared with the firmware running on the VideoCore, and the videocore repeatedly polls the touchscreen. (both at 60Hz) So on average, there's a delay of 17ms (minimum 0ms, maximum 34ms). Actually, the firmware is polling correctly at ~60Hz, but the linux driver is not because there's a bug. The linux side actually polls at 25Hz, which makes touch applications look terrible. (When you drag something in a touch application, but the application only gets new touch data at 25Hz, it'll look like the application itself is _redrawing_ at 25Hz, making it look very laggy) The github issue for this raspberry pi kernel bug is [here](https://github.com/raspberrypi/linux/issues/3777). Leave a like on the issue if you'd like to see this fixed in the kernel.
 
 This is why I created my own (userspace) touchscreen driver, for improved latency & polling rate. See [this repo](https://github.com/ardera/raspberrypi-fast-ts) for details. The driver is very easy to use and the difference is noticeable, flutter apps look and feel a lot better with this driver.
