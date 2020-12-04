@@ -1963,7 +1963,7 @@ static int on_libinput_ready(sd_event_source *s, int fd, uint32_t revents, void 
 					data->keyboard_state = keyboard_state_new(flutterpi.input.keyboard_config, NULL, NULL);
 				}
 			}
-		} else if (LIBINPUT_EVENT_DEVICE_REMOVED) {
+		} else if (type == LIBINPUT_EVENT_DEVICE_REMOVED) {
 			device = libinput_event_get_device(event);
 			data = libinput_device_get_user_data(device);
 
