@@ -80,8 +80,8 @@ OPTIONS:\n\
   --release                  Run the app in release mode. The AOT snapshot\n\
                              of the app (\"app.so\") must be located inside the\n\
                              asset bundle directory.\n\
-							 This also requires a libflutter_engine.so that was\n\
-							 built with --runtime-mode=release.\n\
+                             This also requires a libflutter_engine.so that was\n\
+                             built with --runtime-mode=release.\n\
                              \n\
   -o, --orientation <orientation>  Start the app in this orientation. Valid\n\
                              for <orientation> are: portrait_up, landscape_left,\n\
