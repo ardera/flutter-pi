@@ -1324,7 +1324,7 @@ static bool on_present_layers(
 		}
 		
 		ok = drmdev_atomic_req_commit(req, req_flags, NULL);
-		if ((compositor->do_blocking_atomic_commits == false) && (ok < 0) && (errno == EBUSY)) {
+		if ((compositor->do_blocking_atomic_commits == false) && (ok == EBUSY)) {
 			printf("[compositor] Non-blocking drmModeAtomicCommit failed with EBUSY.\n"
 				"             Future drmModeAtomicCommits will be executed blockingly.\n"
 				"             This may have have an impact on performance.\n");
@@ -1332,6 +1332,11 @@ static bool on_present_layers(
 			compositor->do_blocking_atomic_commits = true;
 			schedule_fake_page_flip_event = true;
 			goto do_commit;
+		} else if (ok != 0) {
+			fprintf(stderr, "[compositor] Could not present frame. drmModeAtomicCommit: %s\n", strerror(ok));
+			drmdev_destroy_atomic_req(req);
+			cpset_unlock(&compositor->cbs);
+			return false;
 		}
 
 		drmdev_destroy_atomic_req(req);	
