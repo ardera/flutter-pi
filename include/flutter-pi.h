@@ -17,28 +17,13 @@
 #include <libinput.h>
 #include <systemd/sd-event.h>
 #include <EGL/egl.h>
-//#define  EGL_EGLEXT_PROTOTYPES
 #include <EGL/eglext.h>
 #include <GLES2/gl2.h>
-//#define  GL_GLEXT_PROTOTYPES
 #include <GLES2/gl2ext.h>
 #include <flutter_embedder.h>
 
-#include <modesetting.h>
 #include <collection.h>
 #include <keyboard.h>
-
-#define LOAD_EGL_PROC(flutterpi_struct, name) \
-    do { \
-		char proc[256]; \
-		snprintf(proc, 256, "%s", "egl" #name); \
-		proc[3] = toupper(proc[3]); \
-        (flutterpi_struct).egl.name = (void*) eglGetProcAddress(proc); \
-        if ((flutterpi_struct).egl.name == NULL) { \
-            fprintf(stderr, "[flutter-pi] FATAL: Could not resolve EGL procedure " #name "\n"); \
-            return EINVAL; \
-        } \
-    } while (false)
 
 #define LOAD_GL_PROC(flutterpi_struct, name) \
 	do { \
@@ -51,139 +36,6 @@
 			return EINVAL; \
 		} \
 	} while (false)
-
-enum device_orientation {
-	kPortraitUp, kLandscapeLeft, kPortraitDown, kLandscapeRight
-};
-
-struct libflutter_engine {
-	FlutterEngineResult (*FlutterEngineCreateAOTData)(const FlutterEngineAOTDataSource* source, FlutterEngineAOTData* data_out);
-	FlutterEngineResult (*FlutterEngineCollectAOTData)(FlutterEngineAOTData data);
-	FlutterEngineResult (*FlutterEngineRun)(size_t version, const FlutterRendererConfig* config, const FlutterProjectArgs* args, void* user_data, FlutterEngine *engine_out);
-	FlutterEngineResult (*FlutterEngineShutdown)(FlutterEngine engine);
-	FlutterEngineResult (*FlutterEngineInitialize)(size_t version, const FlutterRendererConfig* config, const FlutterProjectArgs* args, void* user_data, FlutterEngine *engine_out);
-	FlutterEngineResult (*FlutterEngineDeinitialize)(FlutterEngine engine);
-	FlutterEngineResult (*FlutterEngineRunInitialized)(FlutterEngine engine);
-	FlutterEngineResult (*FlutterEngineSendWindowMetricsEvent)(FlutterEngine engine, const FlutterWindowMetricsEvent* event);
-	FlutterEngineResult (*FlutterEngineSendPointerEvent)(FlutterEngine engine, const FlutterPointerEvent* events, size_t events_count);
-	FlutterEngineResult (*FlutterEngineSendPlatformMessage)(FlutterEngine engine, const FlutterPlatformMessage* message);
-	FlutterEngineResult (*FlutterPlatformMessageCreateResponseHandle)(FlutterEngine engine, FlutterDataCallback data_callback, void* user_data, FlutterPlatformMessageResponseHandle** response_out);
-	FlutterEngineResult (*FlutterPlatformMessageReleaseResponseHandle)(FlutterEngine engine, FlutterPlatformMessageResponseHandle* response);
-	FlutterEngineResult (*FlutterEngineSendPlatformMessageResponse)(FlutterEngine engine, const FlutterPlatformMessageResponseHandle* handle, const uint8_t* data, size_t data_length);
-	FlutterEngineResult (*__FlutterEngineFlushPendingTasksNow)();
-	FlutterEngineResult (*FlutterEngineRegisterExternalTexture)(FlutterEngine engine, int64_t texture_identifier);
-	FlutterEngineResult (*FlutterEngineUnregisterExternalTexture)(FlutterEngine engine, int64_t texture_identifier);
-	FlutterEngineResult (*FlutterEngineMarkExternalTextureFrameAvailable)(FlutterEngine engine, int64_t texture_identifier);
-	FlutterEngineResult (*FlutterEngineUpdateSemanticsEnabled)(FlutterEngine engine, bool enabled);
-	FlutterEngineResult (*FlutterEngineUpdateAccessibilityFeatures)(FlutterEngine engine, FlutterAccessibilityFeature features);
-	FlutterEngineResult (*FlutterEngineDispatchSemanticsAction)(FlutterEngine engine, uint64_t id, FlutterSemanticsAction action, const uint8_t* data, size_t data_length);
-	FlutterEngineResult (*FlutterEngineOnVsync)(FlutterEngine engine, intptr_t baton, uint64_t frame_start_time_nanos, uint64_t frame_target_time_nanos);
-	FlutterEngineResult (*FlutterEngineReloadSystemFonts)(FlutterEngine engine);
-	void (*FlutterEngineTraceEventDurationBegin)(const char* name);
-	void (*FlutterEngineTraceEventDurationEnd)(const char* name);
-	void (*FlutterEngineTraceEventInstant)(const char* name);
-	FlutterEngineResult (*FlutterEnginePostRenderThreadTask)(FlutterEngine engine, VoidCallback callback, void* callback_data);
-	uint64_t (*FlutterEngineGetCurrentTime)();
-	FlutterEngineResult (*FlutterEngineRunTask)(FlutterEngine engine, const FlutterTask* task);
-	FlutterEngineResult (*FlutterEngineUpdateLocales)(FlutterEngine engine, const FlutterLocale** locales, size_t locales_count);
-	bool (*FlutterEngineRunsAOTCompiledDartCode)(void);
-	FlutterEngineResult (*FlutterEnginePostDartObject)(FlutterEngine engine, FlutterEngineDartPort port, const FlutterEngineDartObject* object);
-	FlutterEngineResult (*FlutterEngineNotifyLowMemoryWarning)(FlutterEngine engine);
-	FlutterEngineResult (*FlutterEnginePostCallbackOnAllNativeThreads)(FlutterEngine engine, FlutterNativeThreadCallback callback, void* user_data);
-};
-
-struct libudev {
-	struct udev *(*udev_ref)(struct udev *udev);
-	struct udev *(*udev_unref)(struct udev *udev);
-	struct udev *(*udev_new)(void);
-	void *(*udev_get_userdata)(struct udev *udev);
-	void (*udev_set_userdata)(struct udev *udev, void *userdata);
-
-	struct udev_list_entry *(*udev_list_entry_get_next)(struct udev_list_entry *list_entry);
-	struct udev_list_entry *(*udev_list_entry_get_by_name)(struct udev_list_entry *list_entry, const char *name);
-	const char *(*udev_list_entry_get_name)(struct udev_list_entry *list_entry);
-	const char *(*udev_list_entry_get_value)(struct udev_list_entry *list_entry);
-
-	struct udev_device *(*udev_device_ref)(struct udev_device *udev_device);
-	struct udev_device *(*udev_device_unref)(struct udev_device *udev_device);
-	struct udev *(*udev_device_get_udev)(struct udev_device *udev_device);
-	struct udev_device *(*udev_device_new_from_syspath)(struct udev *udev, const char *syspath);
-	struct udev_device *(*udev_device_new_from_devnum)(struct udev *udev, char type, dev_t devnum);
-	struct udev_device *(*udev_device_new_from_subsystem_sysname)(struct udev *udev, const char *subsystem, const char *sysname);
-	struct udev_device *(*udev_device_new_from_device_id)(struct udev *udev, const char *id);
-	struct udev_device *(*udev_device_new_from_environment)(struct udev *udev);
-	struct udev_device *(*udev_device_get_parent)(struct udev_device *udev_device);
-	struct udev_device *(*udev_device_get_parent_with_subsystem_devtype)(struct udev_device *udev_device, const char *subsystem, const char *devtype);
-	const char *(*udev_device_get_devpath)(struct udev_device *udev_device);
-	const char *(*udev_device_get_subsystem)(struct udev_device *udev_device);
-	const char *(*udev_device_get_devtype)(struct udev_device *udev_device);
-	const char *(*udev_device_get_syspath)(struct udev_device *udev_device);
-	const char *(*udev_device_get_sysname)(struct udev_device *udev_device);
-	const char *(*udev_device_get_sysnum)(struct udev_device *udev_device);
-	const char *(*udev_device_get_devnode)(struct udev_device *udev_device);
-	int (*udev_device_get_is_initialized)(struct udev_device *udev_device);
-	struct udev_list_entry *(*udev_device_get_devlinks_list_entry)(struct udev_device *udev_device);
-	struct udev_list_entry *(*udev_device_get_properties_list_entry)(struct udev_device *udev_device);
-	struct udev_list_entry *(*udev_device_get_tags_list_entry)(struct udev_device *udev_device);
-	struct udev_list_entry *(*udev_device_get_sysattr_list_entry)(struct udev_device *udev_device);
-	const char *(*udev_device_get_property_value)(struct udev_device *udev_device, const char *key);
-	const char *(*udev_device_get_driver)(struct udev_device *udev_device);
-	dev_t (*udev_device_get_devnum)(struct udev_device *udev_device);
-	const char *(*udev_device_get_action)(struct udev_device *udev_device);
-	unsigned long long int (*udev_device_get_seqnum)(struct udev_device *udev_device);
-	unsigned long long int (*udev_device_get_usec_since_initialized)(struct udev_device *udev_device);
-	const char *(*udev_device_get_sysattr_value)(struct udev_device *udev_device, const char *sysattr);
-	int (*udev_device_set_sysattr_value)(struct udev_device *udev_device, const char *sysattr, const char *value);
-	int (*udev_device_has_tag)(struct udev_device *udev_device, const char *tag);
-
-	struct udev_monitor *(*udev_monitor_ref)(struct udev_monitor *udev_monitor);
-	struct udev_monitor *(*udev_monitor_unref)(struct udev_monitor *udev_monitor);
-	struct udev *(*udev_monitor_get_udev)(struct udev_monitor *udev_monitor);
-	struct udev_monitor *(*udev_monitor_new_from_netlink)(struct udev *udev, const char *name);
-	int (*udev_monitor_enable_receiving)(struct udev_monitor *udev_monitor);
-	int (*udev_monitor_set_receive_buffer_size)(struct udev_monitor *udev_monitor, int size);
-	int (*udev_monitor_get_fd)(struct udev_monitor *udev_monitor);
-	struct udev_device *(*udev_monitor_receive_device)(struct udev_monitor *udev_monitor);
-	int (*udev_monitor_filter_add_match_subsystem_devtype)(struct udev_monitor *udev_monitor,
-														const char *subsystem, const char *devtype);
-	int (*udev_monitor_filter_add_match_tag)(struct udev_monitor *udev_monitor, const char *tag);
-	int (*udev_monitor_filter_update)(struct udev_monitor *udev_monitor);
-	int (*udev_monitor_filter_remove)(struct udev_monitor *udev_monitor);
-
-	struct udev_enumerate *(*udev_enumerate_ref)(struct udev_enumerate *udev_enumerate);
-	struct udev_enumerate *(*udev_enumerate_unref)(struct udev_enumerate *udev_enumerate);
-	struct udev *(*udev_enumerate_get_udev)(struct udev_enumerate *udev_enumerate);
-	struct udev_enumerate *(*udev_enumerate_new)(struct udev *udev);
-	int (*udev_enumerate_add_match_subsystem)(struct udev_enumerate *udev_enumerate, const char *subsystem);
-	int (*udev_enumerate_add_nomatch_subsystem)(struct udev_enumerate *udev_enumerate, const char *subsystem);
-	int (*udev_enumerate_add_match_sysattr)(struct udev_enumerate *udev_enumerate, const char *sysattr, const char *value);
-	int (*udev_enumerate_add_nomatch_sysattr)(struct udev_enumerate *udev_enumerate, const char *sysattr, const char *value);
-	int (*udev_enumerate_add_match_property)(struct udev_enumerate *udev_enumerate, const char *property, const char *value);
-	int (*udev_enumerate_add_match_sysname)(struct udev_enumerate *udev_enumerate, const char *sysname);
-	int (*udev_enumerate_add_match_tag)(struct udev_enumerate *udev_enumerate, const char *tag);
-	int (*udev_enumerate_add_match_parent)(struct udev_enumerate *udev_enumerate, struct udev_device *parent);
-	int (*udev_enumerate_add_match_is_initialized)(struct udev_enumerate *udev_enumerate);
-	int (*udev_enumerate_add_syspath)(struct udev_enumerate *udev_enumerate, const char *syspath);
-	int (*udev_enumerate_scan_devices)(struct udev_enumerate *udev_enumerate);
-	int (*udev_enumerate_scan_subsystems)(struct udev_enumerate *udev_enumerate);
-	struct udev_list_entry *(*udev_enumerate_get_list_entry)(struct udev_enumerate *udev_enumerate);
-
-	struct udev_queue *(*udev_queue_ref)(struct udev_queue *udev_queue);
-	struct udev_queue *(*udev_queue_unref)(struct udev_queue *udev_queue);
-	struct udev *(*udev_queue_get_udev)(struct udev_queue *udev_queue);
-	struct udev_queue *(*udev_queue_new)(struct udev *udev);
-	int (*udev_queue_get_udev_is_active)(struct udev_queue *udev_queue);
-	int (*udev_queue_get_queue_is_empty)(struct udev_queue *udev_queue);
-	int (*udev_queue_get_fd)(struct udev_queue *udev_queue);
-	int (*udev_queue_flush)(struct udev_queue *udev_queue);
-
-	struct udev_hwdb *(*udev_hwdb_new)(struct udev *udev);
-	struct udev_hwdb *(*udev_hwdb_ref)(struct udev_hwdb *hwdb);
-	struct udev_hwdb *(*udev_hwdb_unref)(struct udev_hwdb *hwdb);
-	struct udev_list_entry *(*udev_hwdb_get_properties_list_entry)(struct udev_hwdb *hwdb, const char *modalias, unsigned flags);
-
-	int (*udev_util_encode_string)(const char *str, char *str_enc, size_t len);
-};
 
 #define ANGLE_FROM_ORIENTATION(o) \
 	((o) == kPortraitUp ? 0 : \
@@ -233,6 +85,10 @@ struct libudev {
 	 .pers0  = a.pers0  + b.pers0,  .pers1  = a.pers1  + b.pers1,  .pers2  = a.pers2  + b.pers2 \
 	})
 
+enum device_orientation {
+	kPortraitUp, kLandscapeLeft, kPortraitDown, kLandscapeRight
+};
+
 static inline void apply_flutter_transformation(
 	const FlutterTransformation t,
 	double *px,
@@ -272,6 +128,16 @@ static inline void apply_flutter_transformation(
 #define LIBINPUT_EVENT_IS_KEYBOARD(event_type) (\
 	((event_type) == LIBINPUT_EVENT_KEYBOARD_KEY))
 
+/*
+struct compositor;
+struct libflutter_engine;
+struct libegl;
+struct egl_client_info;
+struct egl_display_info;
+struct libgl;
+struct keyboard_config;
+*/
+
 enum frame_state {
 	kFramePending,
 	kFrameRendering,
@@ -288,8 +154,6 @@ struct frame {
 	/// The baton to be returned to the flutter engine when the frame can be rendered.
 	intptr_t baton;
 };
-
-struct compositor;
 
 enum flutter_runtime_mode {
 	kDebug, kRelease
@@ -322,6 +186,10 @@ struct flutterpi {
 
 		char      *renderer;
 
+		struct libegl *lib;
+		struct egl_client_info *client_info;
+		struct egl_display_info *display_info;
+
 		PFNEGLGETPLATFORMDISPLAYEXTPROC getPlatformDisplay;
 		PFNEGLCREATEPLATFORMWINDOWSURFACEEXTPROC createPlatformWindowSurface;
 		PFNEGLCREATEPLATFORMPIXMAPSURFACEEXTPROC createPlatformPixmapSurface;
@@ -331,9 +199,20 @@ struct flutterpi {
 		PFNEGLDESTROYIMAGEKHRPROC destroyImageKHR;
 	} egl;
 
-	struct  {
+	struct {
 		PFNGLEGLIMAGETARGETTEXTURE2DOESPROC EGLImageTargetTexture2DOES;
 		PFNGLEGLIMAGETARGETRENDERBUFFERSTORAGEOESPROC EGLImageTargetRenderbufferStorageOES;
+
+		struct libgl *lib;
+		
+		const char *version;
+		const char *shading_language_version;
+		const char *vendor;
+		const char *renderer;
+		const char *extensions;
+
+		bool is_vc4;
+		char *extensions_override;
 	} gl;
 
 	struct {
@@ -399,9 +278,7 @@ struct flutterpi {
 		bool disable_text_input;
 
 		glob_t input_devices_glob;
-#		ifndef BUILD_WITHOUT_UDEV_SUPPORT
-		struct libudev libudev;
-#		endif
+		
 		struct libinput *libinput;
 		sd_event_source *libinput_event_source;
 		struct keyboard_config *keyboard_config;
@@ -421,7 +298,7 @@ struct flutterpi {
 		int engine_argc;
 		char **engine_argv;
 		enum flutter_runtime_mode runtime_mode;
-		struct libflutter_engine libflutter_engine;
+		struct libflutter_engine *libflutter_engine;
 		FlutterEngine engine;
 	} flutter;
 	
@@ -435,27 +312,14 @@ struct flutterpi {
 
 	/// flutter-pi internal stuff
 	struct plugin_registry *plugin_registry;
+
+	struct flutter_messenger *flutter_messenger;
 };
 
 struct platform_task {
 	int (*callback)(void *userdata);
 	void *userdata;
 };
-
-struct platform_message {
-	bool is_response;
-	union {
-		FlutterPlatformMessageResponseHandle *target_handle;
-		struct {
-			char *target_channel;
-			FlutterPlatformMessageResponseHandle *response_handle;
-		};
-	};
-	uint8_t *message;
-	size_t message_size;
-};
-
-extern struct flutterpi flutterpi;
 
 struct input_device_data {
 	int64_t flutter_device_id_offset;
@@ -465,9 +329,14 @@ struct input_device_data {
 	uint64_t timestamp;
 };
 
-int flutterpi_create_egl_context(EGLContext *context_out, EGLint *err_out);
+int flutterpi_create_egl_context(
+	struct flutterpi *flutterpi,
+	EGLContext *context_out,
+	EGLint *err_out
+);
 
 int flutterpi_fill_view_properties(
+	struct flutterpi *flutterpi,
 	bool has_orientation,
 	enum device_orientation orientation,
 	bool has_rotation,
@@ -479,17 +348,20 @@ bool flutterpi_runs_platform_tasks_on_current_thread(
 );
 
 int flutterpi_post_platform_task(
+	struct flutterpi *flutterpi,
 	int (*callback)(void *userdata),
 	void *userdata
 );
 
 int flutterpi_post_platform_task_with_time(
+	struct flutterpi *flutterpi,
 	int (*callback)(void *userdata),
 	void *userdata,
 	uint64_t target_time_usec
 );
 
 int flutterpi_sd_event_add_io(
+	struct flutterpi *flutterpi,
 	sd_event_source **source_out,
 	int fd,
 	uint32_t events,
@@ -497,19 +369,6 @@ int flutterpi_sd_event_add_io(
 	void *userdata
 );
 
-int flutterpi_send_platform_message(
-	const char *channel,
-	const uint8_t *restrict message,
-	size_t message_size,
-	FlutterPlatformMessageResponseHandle *responsehandle
-);
-
-int flutterpi_respond_to_platform_message(
-	FlutterPlatformMessageResponseHandle *handle,
-	const uint8_t *restrict message,
-	size_t message_size
-);
-
-int flutterpi_schedule_exit(void);
+int flutterpi_schedule_exit(struct flutterpi *flutterpi);
 
 #endif

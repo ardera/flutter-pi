@@ -530,3 +530,138 @@ void cpset_deinit(struct concurrent_pointer_set *set) {
 	pthread_mutex_destroy(&set->mutex);
 	pset_deinit(&set->set);
 }
+
+typedef void (*void_callback_t)(void *userdata);
+
+typedef void (*memory_destroy_callback_t)(void *pointer, size_t size, void *userdata);
+
+enum shared_buffer_type {
+	kSharedBufferStack,
+	kSharedBufferHeap,
+	kSharedBufferWrapped,
+	kSharedBufferView
+};
+
+struct shared_buffer {
+	enum shared_buffer_type type;
+	
+	void *pointer;
+	size_t size;
+
+	memory_destroy_callback_t destroy_callback;
+	void *destroy_callback_userdata;
+	struct shared_buffer *base;
+
+	unsigned int n_refs;
+};
+
+
+#define define_shared_buffer_on_stack(__name, __size) \
+	uint64_t __name##__memory[((__size) + 7) / 8]; \
+	struct shared_buffer __name##__buffer = {.type = kSharedBufferStack, .pointer = (__name##__memory), .size = (__size), .n_refs = 0}; \
+	struct shared_buffer *__name = &(__name##__buffer);
+
+struct shared_buffer *sb_new(void) {
+	struct shared_buffer *b;
+
+	b = malloc(sizeof *b);
+	if (b == NULL) {
+		return NULL;
+	}
+
+	b->pointer = NULL;
+	b->size = 0;
+	b->n_refs = 1;
+
+	return b;
+}
+
+struct shared_buffer *sb_new_heap(size_t size) {
+	struct shared_buffer *b;
+	
+	void *mem = malloc(size);
+	if (mem == NULL) {
+		return NULL;
+	}
+
+	b = sb_new();
+	if (b == NULL) {
+		free(mem);
+	}
+
+	b->type = kSharedBufferHeap;
+	b->pointer = mem;
+	b->size = size;
+
+	return b;
+}
+
+struct shared_buffer *sb_new_wrapped(
+	void *pointer,
+	size_t size,
+	memory_destroy_callback_t destroy_callback,
+	void *destroy_callback_userdata
+) {
+	struct shared_buffer *b;
+
+	b = sb_new();
+
+	b->type = kSharedBufferWrapped;
+	b->pointer = pointer;
+	b->size = size;
+	b->destroy_callback = destroy_callback;
+	b->destroy_callback_userdata = destroy_callback_userdata;
+
+	return b;
+}
+
+struct shared_buffer *sb_ref(struct shared_buffer *b) {
+	if (b->type == kSharedBufferStack) {
+		return NULL;
+	} else {
+		b->n_refs++;
+		return b;
+	}
+}
+
+struct shared_buffer *sb_new_view(
+	struct shared_buffer *b,
+	size_t offset,
+	size_t length
+) {
+	struct shared_buffer *view;
+
+	view = sb_new();
+
+	view->type = kSharedBufferView;
+	view->pointer = b->pointer + offset;
+	view->size = length;
+	view->base = sb_ref(b);
+
+	return view;
+}
+
+void sb_unref(struct shared_buffer *b) {
+	if (b->type == kSharedBufferStack) {
+		return;
+	} else {
+		if (b->n_refs <= 1) {
+			if (b->type == kSharedBufferHeap) {
+				free(b->pointer);
+			} else if (b->type == kSharedBufferWrapped) {
+				b->destroy_callback(b->pointer, b->size, b->destroy_callback_userdata);
+			} else if (b->type == kSharedBufferView) {
+				sb_unref(&b->base);
+			}
+
+			free(b);
+		} else {
+			b->n_refs--;
+		}
+	}
+}
+
+void sb_unrefp(struct shared_buffer **b) {
+	sb_unref(*b);
+	*b = NULL;
+}

@@ -10,7 +10,7 @@
      strcmp(str, "DeviceOrientation.portraitDown") == 0 ? kPortraitDown :\
      strcmp(str, "DeviceOrientation.landscapeRight") == 0 ? kLandscapeRight : -1)
 
-int services_init(void);
-int services_deinit(void);
+int services_init(struct flutterpi *flutterpi, void **userdata);
+int services_deinit(struct flutterpi *flutterpi, void **userdata);
 
 #endif

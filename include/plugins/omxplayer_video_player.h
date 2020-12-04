@@ -36,6 +36,7 @@ struct omxplayer_mgr {
 	pthread_t thread;
 	struct omxplayer_video_player *player;
 	struct concurrent_queue task_queue;
+	struct omxpvidpp *plugin;
 };
 
 enum omxplayer_mgr_task_type {
@@ -55,7 +56,7 @@ enum omxplayer_mgr_task_type {
 struct omxplayer_mgr_task {
 	enum omxplayer_mgr_task_type type;
 
-	FlutterPlatformMessageResponseHandle *responsehandle;
+	const struct flutter_message_response_handle *responsehandle;
 	
 	union {
 		struct {
@@ -85,7 +86,7 @@ enum data_source_type {
 	kDataSourceTypeFile
 };
 
-extern int omxpvidpp_init(void);
-extern int omxpvidpp_deinit(void);
+extern int omxpvidpp_init(struct flutterpi *flutterpi, void **userdata);
+extern int omxpvidpp_deinit(struct flutterpi *flutterpi, void **userdata);
 
 #endif

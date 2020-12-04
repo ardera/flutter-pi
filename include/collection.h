@@ -292,6 +292,10 @@ static inline int cpset_lock(struct concurrent_pointer_set *set) {
 	return pthread_mutex_lock(&set->mutex);
 }
 
+static inline int cpset_try_lock(struct concurrent_pointer_set *set) {
+	return pthread_mutex_trylock(&set->mutex);
+}
+
 static inline int cpset_unlock(struct concurrent_pointer_set *set) {
 	return pthread_mutex_unlock(&set->mutex);
 }

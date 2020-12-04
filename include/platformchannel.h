@@ -576,7 +576,7 @@ enum platch_codec {
 ///     - binarydata_size is the size of that byte data in bytes.
 ///   kJSONMessageCodec:
 ///     - json_value
-///   kStdMsgCodecValue:
+///   kStandardMessageCodec:
 ///     - std_value
 ///   kStandardMethodCall:
 ///     - "method" is the method you'd like to call, or the method that was called
@@ -630,10 +630,26 @@ struct platch_obj {
     };
 };
 
+#define PLATCH_OBJ_NOT_IMPLEMENTED ((struct platch_obj) {.codec = kNotImplemented})
+#define PLATCH_OBJ_STRING(string) ((struct platch_obj) {.codec = kStringCodec, .string_value = (string)})
+#define PLATCH_OBJ_BINARY_DATA(data, data_size) ((struct platch_obj) {.codec = kBinaryCodec, .binarydata_size = data_size, .binarydata = data})
+#define PLATCH_OBJ_JSON_MSG(__json_value) ((struct platch_obj) {.codec = kJSONMessageCodec, .json_value = __json_value})
+#define PLATCH_OBJ_STD_MSG(__std_value) ((struct platch_obj) {.codec = kStandardMessageCodec, .std_value = __std_value})
+#define PLATCH_OBJ_STD_CALL(method_name, arg) ((struct platch_obj) {.codec = kStandardMethodCall, .method = method_name, .std_arg = arg})
+#define PLATCH_OBJ_JSON_CALL(method_name, arg) ((struct platch_obj) {.codec = kJSONMethodCall, .method = method_name, .json_arg = arg})
+#define PLATCH_OBJ_STD_CALL_SUCCESS_RESPONSE(result) ((struct platch_obj) {.codec = kStandardMethodCallResponse, .success = true, .std_result = result})
+#define PLATCH_OBJ_STD_CALL_ERROR_RESPONSE(code, msg, details) ((struct platch_obj) {.codec = kStandardMethodCallResponse, .success = false, .error_code = code, .error_msg = msg, .std_error_details = details})
+#define PLATCH_OBJ_JSON_CALL_SUCCESS_RESPONSE(result) ((struct platch_obj) {.codec = kJSONMethodCallResponse, .success = true, .json_result = result})
+#define PLATCH_OBJ_JSON_CALL_ERROR_RESPONSE(code, msg, details) ((struct platch_obj) {.codec = kStandardMethodCallResponse, .success = false, .error_code = code, .error_msg = msg, .json_error_details = details})
+#define PLATCH_OBJ_STD_SUCCESS_EVENT(value) PLATCH_OBJ_STD_CALL_SUCCESS_RESPONSE(value)
+#define PLATCH_OBJ_STD_ERROR_EVENT(code, msg, details) PLATCH_OBJ_STD_CALL_ERROR_RESPONSE(code, msg, details)
+#define PLATCH_OBJ_JSON_SUCCESS_EVENT(value) PLATCH_OBJ_JSON_CALL_SUCCESS_RESPONSE(value)
+#define PLATCH_OBJ_JSON_ERROR_EVENT(code, msg, details) PLATCH_OBJ_JSON_CALL_ERROR_RESPONSE(code, msg, details)
+
 /// A Callback that is called when a response to a platform message you send to flutter
 /// arrives. "object" is the platform message decoded using the "codec" you gave to PlatformChannel_send,
 /// "userdata" is the userdata you gave to PlatformChannel_send.
-typedef int (*platch_msg_resp_callback)(struct platch_obj *object, void *userdata);
+
 
 
 /// decodes a platform message (represented by `buffer` and `size`) as the given codec,
@@ -653,6 +669,7 @@ int platch_decode(uint8_t *buffer, size_t size, enum platch_codec codec, struct 
 ///   can be freed after the object was encoded.
 int platch_encode(struct platch_obj *object, uint8_t **buffer_out, size_t *size_out);
 
+/*
 /// Encodes a generic ChannelObject (anything, string/binary codec or Standard/JSON Method Calls and responses) as a platform message
 /// and sends it to flutter on channel `channel`
 /// If you supply a response callback (i.e. on_response is != NULL):
@@ -663,7 +680,7 @@ int platch_encode(struct platch_obj *object, uint8_t **buffer_out, size_t *size_
 int platch_send(char *channel,
                 struct platch_obj *object,
                 enum platch_codec response_codec,
-                platch_msg_resp_callback on_response,
+                platform_message_response_callback on_response,
                 void *userdata);
 
 /// Encodes a StandardMethodCodec method call as a platform message and sends it to flutter
@@ -673,7 +690,7 @@ int platch_send(char *channel,
 int platch_call_std(char *channel,
                     char *method,
                     struct std_value *argument,
-                    platch_msg_resp_callback on_response,
+                    platform_message_response_callback on_response,
                     void *userdata);
 
 /// Encodes the arguments as a JSON method call and sends it to flutter
@@ -684,7 +701,7 @@ int platch_call_std(char *channel,
 int platch_call_json(char *channel,
                      char *method,
                      struct json_value *argument,
-                     platch_msg_resp_callback on_response,
+                     platform_message_response_callback on_response,
                      void *userdata);
 
 /// Responds to a platform message. You can (of course) only respond once to a platform message,
@@ -773,12 +790,14 @@ int platch_send_error_event_json(char *channel,
 								 char *error_code,
 								 char *error_msg,
 								 struct json_value *error_details);
+*/
 
 /// frees a ChannelObject that was decoded using PlatformChannel_decode.
 /// not freeing ChannelObjects may result in a memory leak.
 int platch_free_obj(struct platch_obj *object);
 
 int platch_free_json_value(struct json_value *value, bool shallow);
+
 
 /// returns true if values a and b are equal.
 /// for JS arrays, the order of the values is relevant
@@ -794,13 +813,13 @@ struct json_value *jsobject_get(struct json_value *object, char *key);
 /// StdMsgCodecValue equivalent of jsvalue_equals.
 /// again, for lists, the order of values is relevant
 /// for maps, it's not.
-bool stdvalue_equals(struct std_value *a, struct std_value *b);
+bool stdvalue_equals(const struct std_value *a, const struct std_value *b);
 
 /// StdMsgCodecValue equivalent of jsobject_get, just that the key can be
 /// any arbitrary StdMsgCodecValue (and must not be a string as for jsobject_get)
-struct std_value *stdmap_get(struct std_value *map, struct std_value *key);
+const struct std_value *stdmap_get_const(const struct std_value *map, const struct std_value *key);
 
-struct std_value *stdmap_get_str(struct std_value *map, char *key);
+const struct std_value *stdmap_get_str_const(const struct std_value *map, const char *key);
 
 static inline int _advance(uintptr_t *value, size_t n_bytes, size_t *remaining) {
     if (remaining != NULL) {

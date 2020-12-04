@@ -53,7 +53,7 @@ enum floating_cursor_drag_state {
 int textin_on_utf8_char(uint8_t *c);
 int textin_on_xkb_keysym(xkb_keysym_t keysym);
 
-int textin_init(void);
-int textin_deinit(void);
+int textin_init(struct flutterpi *flutterpi, void **userdata);
+int textin_deinit(struct flutterpi *flutterpi, void **userdata);
 
 #endif

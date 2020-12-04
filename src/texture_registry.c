@@ -238,7 +238,7 @@ int texreg_new_texture(
         *texture_id_out = texture_id;
     }
 
-    engine_result = flutterpi.flutter.libflutter_engine.FlutterEngineRegisterExternalTexture(flutterpi.flutter.engine, texture_id);
+    engine_result = reg->register_texture(reg->engine, texture_id);
     if (engine_result != kSuccess) {
         fprintf(stderr, "[texture registry] Could not register external texture for engine. FlutterEngineRegisterExternalTexture: %s\n", FLUTTER_RESULT_TO_STRING(engine_result));
         return EINVAL;
@@ -268,7 +268,7 @@ int texreg_update_texture(
         return EINVAL;
     }
 
-    engine_result = flutterpi.flutter.libflutter_engine.FlutterEngineMarkExternalTextureFrameAvailable(flutterpi.flutter.engine, texture_id);
+    engine_result = reg->mark_frame_available(reg->engine, texture_id);
     if (engine_result != kSuccess) {
         fprintf(stderr, "[texture registry] Could not update external texture. FlutterEngineMarkExternalTextureFrameAvailable: %s\n", FLUTTER_RESULT_TO_STRING(engine_result));
         cpset_unlock(&reg->textures);
@@ -313,7 +313,7 @@ int texreg_delete_texture(
     
     free(texture);
 
-    engine_result = flutterpi.flutter.libflutter_engine.FlutterEngineUnregisterExternalTexture(flutterpi.flutter.engine, texture_id);
+    engine_result = reg->unregister_texture(reg->engine, texture_id);
     if (engine_result != kSuccess) {
         fprintf(stderr, "[texture registry] Could not unregister external texture. FlutterEngineUnregisterExternalTexture: %s\n", FLUTTER_RESULT_TO_STRING(engine_result));
     }
@@ -326,7 +326,7 @@ int texreg_delete_texture(
 int texreg_on_page_flip(
     struct texture_registry *reg
 ) {
-    texreg_destroy_all_delete_delayed_textures(reg);
+    destroy_all_delete_delayed_textures(reg);
     return 0;
 }
 
@@ -353,7 +353,7 @@ void texreg_destroy(
 
     cpset_unlock(&reg->textures);
 
-    texreg_destroy_all_delete_delayed_textures(reg);
+    destroy_all_delete_delayed_textures(reg);
 
     free(reg);
 }

@@ -409,9 +409,9 @@ struct aa_channel *aa_wifi_channel_new(struct aa_device *device);
 /**
  * plugin stuff
  */
-int aaplugin_init(void);
+int aaplugin_init(struct flutterpi *flutterpi, void **userdata);
 
-int aaplugin_deinit(void);
+int aaplugin_deinit(struct flutterpi *flutterpi, void **userdata);
 
 int send_android_auto_state(
     struct aaplugin *plugin,

@@ -81,6 +81,10 @@ int drmdev_new_from_path(
     const char *path
 );
 
+void drmdev_destroy(
+    struct drmdev *drmdev
+);
+
 int drmdev_configure(
     struct drmdev *drmdev,
     uint32_t connector_id,

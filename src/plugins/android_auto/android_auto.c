@@ -1095,7 +1095,7 @@ static int on_set_platform_information(
         );
     }
 
-    t = stdmap_get_str(arg, "headunitName");
+    t = stdmap_get_str_const(arg, "headunitName");
     if ((t != NULL) && STDVALUE_IS_STRING(*t)) {
         headunit_name = strdup(t->string_value);
         if (headunit_name == NULL) {
@@ -1111,7 +1111,7 @@ static int on_set_platform_information(
         );
     }
 
-    t = stdmap_get_str(arg, "carModel");
+    t = stdmap_get_str_const(arg, "carModel");
     if ((t != NULL) && STDVALUE_IS_STRING(*t)) {
         car_model = strdup(t->string_value);
         if (car_model == NULL) {
@@ -1129,7 +1129,7 @@ static int on_set_platform_information(
         goto fail_free_strings;
     }
 
-    t = stdmap_get_str(arg, "carYear");
+    t = stdmap_get_str_const(arg, "carYear");
     if ((t != NULL) && STDVALUE_IS_STRING(*t)) {
         car_year = strdup(t->string_value);
         if (car_year == NULL) {
@@ -1147,7 +1147,7 @@ static int on_set_platform_information(
         goto fail_free_strings;
     }
 
-    t = stdmap_get_str(arg, "carSerial");
+    t = stdmap_get_str_const(arg, "carSerial");
     if ((t != NULL) && STDVALUE_IS_STRING(*t)) {
         car_serial = strdup(t->string_value);
         if (car_serial == NULL) {
@@ -1165,7 +1165,7 @@ static int on_set_platform_information(
         goto fail_free_strings;
     }
 
-    t = stdmap_get_str(arg, "leftHandDriveVehicle");
+    t = stdmap_get_str_const(arg, "leftHandDriveVehicle");
     if ((t != NULL) && STDVALUE_IS_BOOL(*t)) {
         left_hand_drive_vehicle = STDVALUE_AS_BOOL(*t);
     } else {
@@ -1176,7 +1176,7 @@ static int on_set_platform_information(
         goto fail_free_strings;
     }
 
-    t = stdmap_get_str(arg, "headunitManufacturer");
+    t = stdmap_get_str_const(arg, "headunitManufacturer");
     if ((t != NULL) && STDVALUE_IS_STRING(*t)) {
         headunit_manufacturer = strdup(t->string_value);
         if (headunit_manufacturer == NULL) {
@@ -1194,7 +1194,7 @@ static int on_set_platform_information(
         goto fail_free_strings;
     }
 
-    t = stdmap_get_str(arg, "headunitModel");
+    t = stdmap_get_str_const(arg, "headunitModel");
     if ((t != NULL) && STDVALUE_IS_STRING(*t)) {
         headunit_model = strdup(t->string_value);
         if (headunit_model == NULL) {
@@ -1212,7 +1212,7 @@ static int on_set_platform_information(
         goto fail_free_strings;
     }
 
-    t = stdmap_get_str(arg, "swBuild");
+    t = stdmap_get_str_const(arg, "swBuild");
     if ((t != NULL) && STDVALUE_IS_STRING(*t)) {
         sw_build = strdup(t->string_value);
         if (sw_build == NULL) {
@@ -1230,7 +1230,7 @@ static int on_set_platform_information(
         goto fail_free_strings;
     }
 
-    t = stdmap_get_str(arg, "swVersion");
+    t = stdmap_get_str_const(arg, "swVersion");
     if ((t != NULL) && STDVALUE_IS_STRING(*t)) {
         sw_version = strdup(t->string_value);
         if (sw_version == NULL) {
@@ -1248,7 +1248,7 @@ static int on_set_platform_information(
         goto fail_free_strings;
     }
 
-    t = stdmap_get_str(arg, "canPlayNativeMediaDuringVR");
+    t = stdmap_get_str_const(arg, "canPlayNativeMediaDuringVR");
     if ((t != NULL) && STDVALUE_IS_BOOL(*t)) {
         can_play_native_media_during_vr = STDVALUE_AS_BOOL(*t);
     } else {
@@ -1259,7 +1259,7 @@ static int on_set_platform_information(
         goto fail_free_strings;
     }
 
-    t = stdmap_get_str(arg, "hideClock");
+    t = stdmap_get_str_const(arg, "hideClock");
     if ((t != NULL) && STDVALUE_IS_BOOL(*t)) {
         hide_clock = STDVALUE_AS_BOOL(*t);
     } else {

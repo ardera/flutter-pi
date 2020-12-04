@@ -390,13 +390,17 @@ int drmdev_new_from_fd(
         return ENOMEM;
     }
 
-    drmdev->fd = fd;
+    drmdev->fd = dup(fd);
+    if (drmdev->fd < 0) {
+        ok = errno;
+        goto fail_free_drmdev;
+    }
 
     ok = drmSetClientCap(drmdev->fd, DRM_CLIENT_CAP_UNIVERSAL_PLANES, 1);
     if (ok < 0) {
         ok = errno;
         perror("[modesetting] Could not set DRM client universal planes capable. drmSetClientCap");
-        goto fail_free_drmdev;
+        goto fail_close_fd;
     }
     
     ok = drmSetClientCap(drmdev->fd, DRM_CLIENT_CAP_ATOMIC, 1);
@@ -464,6 +468,9 @@ int drmdev_new_from_fd(
     fail_free_resources:
     drmModeFreeResources(drmdev->res);
 
+    fail_close_fd:
+    close(drmdev->fd);
+
     fail_free_drmdev:
     free(drmdev);
 
@@ -488,7 +495,26 @@ int drmdev_new_from_path(
         return ok;
     }
 
+    // drmdev_new_from_fd duplicates the fd internally, so we retain ownership of this fd.
+    close(fd);
+
     return 0;
+}
+
+void drmdev_destroy(
+    struct drmdev *drmdev
+) {
+    if (drmdev->selected_mode != NULL) {
+        drmModeDestroyPropertyBlob(drmdev->fd, drmdev->selected_mode_blob_id);
+    }
+    free_planes(drmdev->planes, drmdev->n_planes);
+    free_crtcs(drmdev->crtcs, drmdev->n_crtcs);
+    free_encoders(drmdev->encoders, drmdev->n_encoders);
+    free_connectors(drmdev->connectors, drmdev->n_connectors);
+    drmModeFreePlaneResources(drmdev->plane_res);
+    drmModeFreeResources(drmdev->res);
+    close(drmdev->fd);
+    free(drmdev);
 }
 
 int drmdev_configure(
