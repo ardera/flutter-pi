@@ -1324,6 +1324,7 @@ static int init_display(void) {
 		int vertical_dpi = (int) (flutterpi.display.height / (flutterpi.display.height_mm / 25.4));
 
 		if (horizontal_dpi != vertical_dpi) {
+		        // See https://github.com/flutter/flutter/issues/71865 for current status of this issue.
 			fprintf(stderr, "[flutter-pi] WARNING: display has non-square pixels. Non-square-pixels are not supported by flutter.\n");
 		}
 	}
