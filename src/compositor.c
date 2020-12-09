@@ -954,23 +954,37 @@ static bool on_present_layers(
 	bool use_atomic_modesetting;
 	int ok;
 
+	// TODO: proper error handling
+
 	compositor = userdata;
 	drmdev = compositor->drmdev;
 	schedule_fake_page_flip_event = compositor->do_blocking_atomic_commits;
 	use_atomic_modesetting = drmdev->supports_atomic_modesetting;
 
+	req = NULL;
 	if (use_atomic_modesetting) {
-		drmdev_new_atomic_req(compositor->drmdev, &req);
+		ok = drmdev_new_atomic_req(compositor->drmdev, &req);
+		if (ok != 0) {
+			return false;
+		}
 	} else {
 		planes = PSET_INITIALIZER_STATIC(planes_storage, 32);
 		for_each_plane_in_drmdev(drmdev, plane) {
 			if (plane->plane->possible_crtcs & drmdev->selected_crtc->bitmask) {
-				pset_put(&planes, plane);
+				ok = pset_put(&planes, plane);
+				if (ok != 0) {
+					return false;
+				}
 			}
 		}
 	}
 
 	cpset_lock(&compositor->cbs);
+
+	EGLDisplay stored_display = eglGetCurrentDisplay();
+	EGLSurface stored_read_surface = eglGetCurrentSurface(EGL_READ);
+	EGLSurface stored_write_surface = eglGetCurrentSurface(EGL_DRAW);
+	EGLContext stored_context = eglGetCurrentContext();
 
 	eglMakeCurrent(flutterpi.egl.display, flutterpi.egl.surface, flutterpi.egl.surface, flutterpi.egl.root_context);
 	eglSwapBuffers(flutterpi.egl.display, flutterpi.egl.surface);
@@ -1313,7 +1327,7 @@ static bool on_present_layers(
 		}
 	}
 
-	eglMakeCurrent(flutterpi.egl.display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+	eglMakeCurrent(stored_display, stored_read_surface, stored_write_surface, stored_context);
 	
 	if (use_atomic_modesetting) {
 		do_commit:
