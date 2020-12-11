@@ -12,7 +12,7 @@ In each step below with Bash commands, the commands start with a set of `export`
    # one-time setup
    sudo usermod -a -G render $USER
    sudo apt --yes install libgl1-mesa-dev libgles2-mesa-dev libegl-mesa0 libdrm-dev libgbm-dev
-   sudo apt --yes install gpiod libgpiod-dev libsystemd-dev libinput-dev libudev-dev libxkbcommon-dev
+   sudo apt --yes install libsystemd-dev libinput-dev libudev-dev libxkbcommon-dev
    sudo apt --yes install ttf-mscorefonts-installer fontconfig
    sudo fc-cache
    if [ `uname -m` == 'armv7l' ]; then export ARM=arm; else export ARM=arm64; fi
@@ -23,7 +23,10 @@ In each step below with Bash commands, the commands start with a set of `export`
    sudo cp ~/dev/engine-binaries/$ARM/icudtl.dat /usr/lib
    sudo cp ~/dev/engine-binaries/flutter_embedder.h /usr/include
    git clone https://github.com/ardera/flutter-pi.git
-   cd flutter-pi; make
+   cd flutter-pi
+   mkdir build && cd build
+   cmake ..
+   make -j`nproc`
    # per-application setup
    mkdir -p ~/dev/$APPNAME
    popd
@@ -35,9 +38,9 @@ In each step below with Bash commands, the commands start with a set of `export`
    Take a note of which version of Flutter the binaries were compiled for. This is used to set VERSION below. It should be clear from the commit messages of the latest commit to the repo: https://github.com/ardera/flutter-pi/tree/engine-binaries
 
 3. Configure your target. Run `sudo raspi-config`, and configure the system as follows:
-   1. Select `Boot Options` -> `Desktop / CLI` -> `Console` (or `Console (Autologin)`).
+   1. Select `System Options` -> `Boot / Auto Login` -> `Console` (or `Console (Autologin)`).
    2. Select `Advanced Options` -> `GL Driver` -> `GL (Fake-KMS)`.
-   3. Select `Advanced Options` -> `Memory Split` and set it to `16`.
+   3. Select `Performance Options` -> `GPU Memory` and set it to `64`.
    4. Exit `raspi-config` and reboot when offered.
 
 4. Download, install, and configure Flutter on a host machine (not the Raspberry Pi), then create an application, compile it, and run it.
@@ -73,13 +76,12 @@ In each step below with Bash commands, the commands start with a set of `export`
    ../engine-binaries/$ARM/gen_snapshot_linux_x64 \
      --causal_async_stacks --deterministic --snapshot_kind=app-aot-elf \
      --strip --sim_use_hardfp --no-use-integer-division \
-     --elf=build/app.so build/kernel_snapshot.dill
+     --elf=build/flutter_assets/app.so build/kernel_snapshot.dill
    # upload the application
    rsync --recursive ~/dev/$APPNAME/build/flutter_assets/ $TARGETUSER@$TARGET:dev/$APPNAME
-   scp ~/dev/$APPNAME/build/app.so $TARGETUSER@$TARGET:dev/$APPNAME/app.so
    # run the application
    ssh $TARGETUSER@$TARGET "killall" "flutter-pi"	
-   ssh $TARGETUSER@$TARGET "dev/flutter-pi/out/flutter-pi" "--release" "~/dev/$APPNAME"
+   ssh $TARGETUSER@$TARGET "dev/flutter-pi/build/flutter-pi" "--release" "~/dev/$APPNAME"
    popd
    ```
 
