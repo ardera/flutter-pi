@@ -59,24 +59,6 @@ USAGE:\n\
   flutter-pi [options] <asset bundle path> [flutter engine options]\n\
 \n\
 OPTIONS:\n\
-  -i, --input <glob pattern> Appends all files matching this glob pattern to the\n\
-                             list of input (touchscreen, mouse, touchpad, \n\
-                             keyboard) devices. Brace and tilde expansion is \n\
-                             enabled.\n\
-                             Every file that matches this pattern, but is not\n\
-                             a valid touchscreen / -pad, mouse or keyboard is \n\
-                             silently ignored.\n\
-                             If no -i options are given, flutter-pi will try to\n\
-                             use all input devices assigned to udev seat0.\n\
-                             If that fails, or udev is not installed, flutter-pi\n\
-                             will fallback to using all devices matching \n\
-                             \"/dev/input/event*\" as inputs.\n\
-                             In most cases, there's no need to specify this\n\
-                             option.\n\
-                             Note that you need to properly escape each glob \n\
-                             pattern you use as a parameter so it isn't \n\
-                             implicitly expanded by your shell.\n\
-                             \n\
   --release                  Run the app in release mode. The AOT snapshot\n\
                              of the app (\"app.so\") must be located inside the\n\
                              asset bundle directory.\n\
@@ -105,19 +87,34 @@ OPTIONS:\n\
                              to calculate the flutter device-pixel-ratio, which\n\
                              in turn basically \"scales\" the UI.\n\
                              \n\
-  --no-text-input            Disable text input from the console.\n\
-                             This means flutter-pi won't configure the console\n\
-                             to raw/non-canonical mode.\n\
+  -i, --input <glob pattern> Appends all files matching this glob pattern to the\n\
+                             list of input (touchscreen, mouse, touchpad, \n\
+                             keyboard) devices. Brace and tilde expansion is \n\
+                             enabled.\n\
+                             Every file that matches this pattern, but is not\n\
+                             a valid touchscreen / -pad, mouse or keyboard is \n\
+                             silently ignored.\n\
+                             If no -i options are given, flutter-pi will try to\n\
+                             use all input devices assigned to udev seat0.\n\
+                             If that fails, or udev is not installed, flutter-pi\n\
+                             will fallback to using all devices matching \n\
+                             \"/dev/input/event*\" as inputs.\n\
+                             In most cases, there's no need to specify this\n\
+                             option.\n\
+                             Note that you need to properly escape each glob \n\
+                             pattern you use as a parameter so it isn't \n\
+                             implicitly expanded by your shell.\n\
                              \n\
   -h, --help                 Show this help and exit.\n\
 \n\
 EXAMPLES:\n\
+  flutter-pi ~/hello_world_app\n\
+  flutter-pi --release ~/hello_world_app\n\
+  flutter-pi -o portrait_up ./my_app\n\
+  flutter-pi -r 90 ./my_app\n\
+  flutter-pi -d \"155, 86\" ./my_app\n\
   flutter-pi -i \"/dev/input/event{0,1}\" -i \"/dev/input/event{2,3}\" /home/pi/helloworld_flutterassets\n\
   flutter-pi -i \"/dev/input/mouse*\" /home/pi/helloworld_flutterassets\n\
-  flutter-pi -o portrait_up ./flutter_assets\n\
-  flutter-pi -r 90 ./flutter_assets\n\
-  flutter-pi -d \"155, 86\" ./flutter_assets\n\
-  flutter-pi /home/pi/helloworld_flutterassets\n\
 \n\
 SEE ALSO:\n\
   Author:  Hannes Winkler, a.k.a ardera\n\
@@ -125,7 +122,7 @@ SEE ALSO:\n\
   License: MIT\n\
 \n\
   For instructions on how to build an asset bundle or an AOT snapshot\n\
-    of your app, please see the linked git repository.\n\
+    of your app, please see the linked github repository.\n\
   For a list of options you can pass to the flutter engine, look here:\n\
     https://github.com/flutter/engine/blob/master/shell/common/switches.h\n\
 ";

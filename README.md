@@ -145,7 +145,7 @@ If you encounter issues running flutter-pi on any of the supported platforms lis
        ```
    - Using `scp` (available on linux, macOS and Windows)
        ```bash
-       scp ./build/flutter_assets/ pi@raspberrypi:/home/pi/my_apps_flutter_assets
+       scp -r ./build/flutter_assets/ pi@raspberrypi:/home/pi/my_apps_flutter_assets
        ```
        
 #### Example
@@ -155,9 +155,9 @@ git clone https://github.com/flutter/gallery.git flutter_gallery
 cd flutter_gallery
 git checkout 9b11f127fb46cb08e70b2a7cdfe8eaa8de977d5f
 flutter build bundle
-scp -r ./build/flutter_assets/ pi@raspberrypi:/home/pi/flutter_gallery_assets
+rsync -a ./build/flutter_assets/ pi@raspberrypi:/home/pi/flutter_gallery/
 ```
-3. Done. You can now run this app in debug-mode using `flutter-pi /home/pi/flutter_gallery_assets`.
+3. Done. You can now run this app in debug-mode using `flutter-pi /home/pi/flutter_gallery`.
 
 <details>
   <summary>More information</summary>
@@ -208,13 +208,13 @@ scp -r ./build/flutter_assets/ pi@raspberrypi:/home/pi/flutter_gallery_assets
 8. Now you can switch to your normal OS again.
 9. Upload the asset bundle and the `app.so` to your Raspberry Pi.
     ```bash
-    rsync -a --info=progress2 ./build/flutter_assets/ pi@raspberrypi:/home/pi/my_apps_flutter_assets
+    rsync -a --info=progress2 ./build/flutter_assets/ pi@raspberrypi:/home/pi/my_app
     ```
     or
     ```
-    scp -r ./build/flutter_assets/ pi@raspberrypi:/home/pi/my_apps_flutter_assets
+    scp -r ./build/flutter_assets/ pi@raspberrypi:/home/pi/my_app
     ```
-10. You can now launch the app in release mode using `flutter-pi --release /home/pi/my_apps_flutter_assets`
+10. You can now launch the app in release mode using `flutter-pi --release /home/pi/my_app`
 
 #### Complete example on Windows
 1. We'll build the asset bundle for `flutter_gallery` and deploy it using `rsync` in this example.
@@ -241,16 +241,16 @@ scp -r ./build/flutter_assets/ pi@raspberrypi:/home/pi/flutter_gallery_assets
       --causal_async_stacks \
       --deterministic \
       --snapshot_kind=app-aot-elf \
-      --elf=build/app.so \
+      --elf=build/flutter_assets/app.so \
       --strip \
       --sim_use_hardfp \
       --no-use-integer-division \
       build/kernel_snapshot.dill
     mv ./build/app.so ./build/flutter_assets/
-    rsync -a --info=progress2 ./build/flutter_assets/ pi@raspberrypi:/home/pi/flutter_gallery_assets
+    rsync -a --info=progress2 ./build/flutter_assets/ pi@raspberrypi:/home/pi/flutter_gallery
     exit
     ```
-3. Done. You can now run this app in release mode using `flutter-pi --release /home/pi/flutter_gallery_assets`.
+3. Done. You can now run this app in release mode using `flutter-pi --release /home/pi/flutter_gallery`.
 
 ### Running your App with flutter-pi
 ```txt
@@ -309,12 +309,13 @@ OPTIONS:
   -h, --help                 Show this help and exit.
 
 EXAMPLES:
+  flutter-pi ~/hello_world_app
+  flutter-pi --release ~/hello_world_app
+  flutter-pi -o portrait_up ./my_app
+  flutter-pi -r 90 ./my_app
+  flutter-pi -d "155, 86" ./my_app
   flutter-pi -i "/dev/input/event{0,1}" -i "/dev/input/event{2,3}" /home/pi/helloworld_flutterassets
   flutter-pi -i "/dev/input/mouse*" /home/pi/helloworld_flutterassets
-  flutter-pi -o portrait_up ./flutter_assets
-  flutter-pi -r 90 ./flutter_assets
-  flutter-pi -d "155, 86" ./flutter_assets
-  flutter-pi /home/pi/helloworld_flutterassets
 
 SEE ALSO:
   Author:  Hannes Winkler, a.k.a ardera
