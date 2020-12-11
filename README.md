@@ -1,8 +1,6 @@
 ## 📰 NEWS
 - flutter-pi now uses only CMake for building. See the updated build instructions for more info.
 - I created an improved touchscreen driver for Raspberry Pi 4, for lower latency & higher polling rate. See [this repo](https://github.com/ardera/raspberrypi-fast-ts) for details. The difference is noticeable, it looks a lot better and more responsive with this new driver.
-- flutter-pi now requires `libxkbcommon`. Install using `sudo apt install libxkbcommon-dev`
-- keyboard input works better now. You can now use any keyboard connected to the Raspberry Pi for text and raw keyboard input.
 
 # flutter-pi
 A light-weight Flutter Engine Embedder for Raspberry Pi. Inspired by https://github.com/chinmaygarde/flutter_from_scratch.
