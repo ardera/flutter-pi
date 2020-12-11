@@ -1959,7 +1959,9 @@ static int on_libinput_ready(sd_event_source *s, int fd, uint32_t revents, void 
 					};
 				}
 			} else if (libinput_device_has_capability(device, LIBINPUT_DEVICE_CAP_KEYBOARD)) {
+#if BUILD_TEXT_INPUT_PLUGIN || BUILD_RAW_KEYBOARD_PLUGIN			
 				data->keyboard_state = keyboard_state_new(flutterpi.input.keyboard_config, NULL, NULL);
+#endif
 			}
 		} else if (LIBINPUT_EVENT_IS_TOUCH(type)) {
 			touch_event = libinput_event_get_touch_event(event);
@@ -2151,12 +2153,13 @@ static int on_libinput_ready(sd_event_source *s, int fd, uint32_t revents, void 
 
 			}
 		} else if (LIBINPUT_EVENT_IS_KEYBOARD(type)) {
+#if BUILD_RAW_KEYBOARD_PLUGIN || BUILD_TEXT_INPUT_PLUGIN
 			struct keyboard_modifier_state mods;
 			enum libinput_key_state key_state;
 			xkb_keysym_t keysym;
 			uint32_t codepoint, plain_codepoint;
 			uint16_t evdev_keycode;
-			
+
 			keyboard_event = libinput_event_get_keyboard_event(event);
 			data = libinput_device_get_user_data(libinput_event_get_device(event));
 			evdev_keycode = libinput_event_keyboard_get_key(keyboard_event);
@@ -2172,10 +2175,9 @@ static int on_libinput_ready(sd_event_source *s, int fd, uint32_t revents, void 
 				&codepoint
 			);
 
-			printf("[key event] keycode: 0x%04X, type: %s, keysym: 0x%08X, codepoint: 0x%08X\n", evdev_keycode, key_state? "down" : " up ", keysym, codepoint);
-
 			plain_codepoint = keyboard_state_get_plain_codepoint(data->keyboard_state, evdev_keycode, 1);
-			
+
+#ifdef BUILD_RAW_KEYBOARD_PLUGIN
 			rawkb_send_gtk_keyevent(
 				plain_codepoint,
 				(uint32_t) keysym,
@@ -2188,7 +2190,9 @@ static int on_libinput_ready(sd_event_source *s, int fd, uint32_t revents, void 
 				| (keyboard_state_is_meta_active(data->keyboard_state) << 28),
 				key_state
 			);
+#endif
 
+#ifdef BUILD_TEXT_INPUT_PLUGIN
 			if (codepoint) {
 				if (codepoint < 0x80) {
 					if (isprint(codepoint)) {
@@ -2220,6 +2224,8 @@ static int on_libinput_ready(sd_event_source *s, int fd, uint32_t revents, void 
 			if (keysym) {
 				textin_on_xkb_keysym(keysym);
 			}
+#endif
+#endif
 		}
 
 		libinput_event_destroy(event);
@@ -2461,13 +2467,15 @@ static int init_user_input(void) {
 #			endif
 			return -ok;
 		}
-		
+
+#ifdef BUILD_TEXT_INPUT_PLUGIN
 		if (flutterpi.input.disable_text_input == false) {
 			kbdcfg = keyboard_config_new();
 			if (kbdcfg == NULL) {
 				fprintf(stderr, "[flutter-pi] Could not initialize keyboard configuration. Flutter-pi will run without text/raw keyboard input.\n");
 			}
 		}
+#endif
 	} else {
 		fprintf(stderr, "[flutter-pi] Could not initialize input. Flutter-pi will run without user input.\n");
 	}

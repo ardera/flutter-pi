@@ -41,8 +41,8 @@ if(NOT FLUTTER_EMBEDDER_HEADER)
   if(NOT FLUTTER_ENGINE_SHA)
 
     if(NOT CHANNEL)
-        set(CHANNEL "stable" CACHE STRING "Choose the channel, options are: master, dev, beta, stable" FORCE)
-        message(STATUS "Flutter Channel not set, defaulting to stable")
+      set(CHANNEL "stable" CACHE STRING "The flutter channel to be used for downloading the flutter_embedder.h header file. Choose: master, dev, beta, stable" FORCE)
+      message(STATUS "Flutter Channel not set, defaulting to stable")
     endif()
 
     message(STATUS "Flutter Channel ........ ${CHANNEL}")
@@ -56,11 +56,11 @@ if(NOT FLUTTER_EMBEDDER_HEADER)
 
     FetchContent_GetProperties(engine-version)
     if(NOT engine-version_POPULATED)
-        FetchContent_Populate(engine-version)
-        file(READ ${CMAKE_BINARY_DIR}/engine.version FLUTTER_ENGINE_SHA)
-        string(REPLACE "\n" "" FLUTTER_ENGINE_SHA ${FLUTTER_ENGINE_SHA})
+      FetchContent_Populate(engine-version)
+      file(READ ${CMAKE_BINARY_DIR}/engine.version FLUTTER_ENGINE_SHA)
+      string(REPLACE "\n" "" FLUTTER_ENGINE_SHA ${FLUTTER_ENGINE_SHA})
     else()
-        MESSAGE(FATAL "Unable to determine engine-version, please override FLUTTER_ENGINE_SHA")
+      MESSAGE(FATAL "Unable to determine engine-version, please override FLUTTER_ENGINE_SHA")
     endif()
 
   endif()
@@ -72,12 +72,12 @@ if(NOT FLUTTER_EMBEDDER_HEADER)
   # Download and setup the flutter engine library header.
   if(NOT EXISTS ${FLUTTER_EMBEDDER_HEADER})
     file(DOWNLOAD
-      https://github.com/flutter/engine/blob/${FLUTTER_ENGINE_SHA}/shell/platform/embedder/embedder.h
+      https://raw.githubusercontent.com/flutter/engine/${FLUTTER_ENGINE_SHA}/shell/platform/embedder/embedder.h
       ${FLUTTER_EMBEDDER_HEADER}
     )
   endif()
 else()
-  message(STATUS "Engine ................. ${FLUTTER_ENGINE_LIBRARY}")
+  message(STATUS "Flutter Header ......... ${FLUTTER_EMBEDDER_HEADER}")
 endif()
 
 include(ExternalProject)
@@ -93,7 +93,12 @@ pkg_check_modules(GLESV2 REQUIRED glesv2)
 pkg_check_modules(LIBSYSTEMD REQUIRED libsystemd)
 pkg_check_modules(LIBINPUT REQUIRED libinput)
 pkg_check_modules(LIBXKBCOMMON REQUIRED xkbcommon)
-pkg_check_modules(LIBUDEV libudev)
+pkg_check_modules(LIBUDEV REQUIRED libudev)
+
+set(BUILD_TEXT_INPUT_PLUGIN ON CACHE BOOL "Include the text input plugin in the finished binary. Enables text input (to flutter text fields, for example) via attached keyboards.")
+set(BUILD_RAW_KEYBOARD_PLUGIN ON CACHE BOOL "Include the raw keyboard plugin in the finished binary. Enables raw keycode listening in flutter via the flutter RawKeyboard interface.")
+set(BUILD_TEST_PLUGIN OFF CACHE BOOL "Include the test plugin in the finished binary. Allows testing platform channel communication.")
+set(BUILD_OMXPLAYER_VIDEO_PLAYER_PLUGIN ON CACHE BOOL "Include the omxplayer_video_player plugin in the finished binary. Allows for hardware accelerated video playback in flutter using omxplayer.")
 
 set(FLUTTER_PI_SRC
   src/flutter-pi.c
@@ -106,15 +111,19 @@ set(FLUTTER_PI_SRC
   src/cursor.c
   src/keyboard.c
 	src/plugins/services.c
-	src/plugins/testplugin.c
-	src/plugins/text_input.c
-	src/plugins/raw_keyboard.c
-	src/plugins/omxplayer_video_player.c
 )
 
-if (NOT LIBUDEV_FOUND)
-  message(STATUS "Could not find libudev.so and libudev development headers. flutter-pi will be built without udev (hotplugging) support. To install, execute 'sudo apt install libudev-dev'")
-  add_compile_options(-DBUILD_WITHOUT_UDEV_SUPPORT)
+if (BUILD_TEXT_INPUT_PLUGIN)
+  list(APPEND FLUTTER_PI_SRC src/plugins/text_input.c)
+endif()
+if (BUILD_RAW_KEYBOARD_PLUGIN)
+  list(APPEND FLUTTER_PI_SRC src/plugins/raw_keyboard.c)
+endif()
+if (BUILD_TEST_PLUGIN)
+  list(APPEND FLUTTER_PI_SRC src/plugins/testplugin.c)
+endif()
+if (BUILD_OMXPLAYER_VIDEO_PLAYER_PLUGIN)
+  list(APPEND FLUTTER_PI_SRC src/plugins/omxplayer_video_player.c)
 endif()
 
 add_executable(flutter-pi ${FLUTTER_PI_SRC})
@@ -154,11 +163,21 @@ target_compile_options(flutter-pi PRIVATE
   ${LIBINPUT_CFLAGS}
   ${LIBUDEV_CFLAGS}
   ${LIBXKBCOMMON_CFLAGS}
-  -ggdb
-  -DBUILD_TEXT_INPUT_PLUGIN
-	-DBUILD_TEST_PLUGIN
-	-DBUILD_OMXPLAYER_VIDEO_PLAYER_PLUGIN
+  $<$<CONFIG:DEBUG>:-O0 -ggdb>
 )
+
+if (BUILD_TEXT_INPUT_PLUGIN)
+  target_compile_definitions(flutter-pi PRIVATE "BUILD_TEXT_INPUT_PLUGIN")
+endif()
+if (BUILD_RAW_KEYBOARD_PLUGIN)
+  target_compile_definitions(flutter-pi PRIVATE "BUILD_RAW_KEYBOARD_PLUGIN")
+endif()
+if (BUILD_TEST_PLUGIN)
+  target_compile_definitions(flutter-pi PRIVATE "BUILD_TEST_PLUGIN")
+endif()
+if (BUILD_OMXPLAYER_VIDEO_PLAYER_PLUGIN)
+  target_compile_definitions(flutter-pi PRIVATE "BUILD_OMXPLAYER_VIDEO_PLAYER_PLUGIN")
+endif()
 
 target_link_options(flutter-pi PRIVATE
   -rdynamic

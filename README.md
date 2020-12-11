@@ -1,4 +1,5 @@
 ## 📰 NEWS
+- flutter-pi now uses only CMake for building. See the updated build instructions for more info.
 - I created an improved touchscreen driver for Raspberry Pi 4, for lower latency & higher polling rate. See [this repo](https://github.com/ardera/raspberrypi-fast-ts) for details. The difference is noticeable, it looks a lot better and more responsive with this new driver.
 - flutter-pi now requires `libxkbcommon`. Install using `sudo apt install libxkbcommon-dev`
 - keyboard input works better now. You can now use any keyboard connected to the Raspberry Pi for text and raw keyboard input.
@@ -79,11 +80,13 @@ If you encounter issues running flutter-pi on any of the supported platforms lis
     ```
 2. Compile:
     ```bash
+    mkdir build && cd build
+    cmake ..
     make -j`nproc`
     ```
 3. Install:
     ```bash
-    sudo install -C ./out/flutter-pi /usr/local/bin
+    sudo make install
     ```
 
 ## 🚀 Running your App on the Raspberry Pi
@@ -152,7 +155,7 @@ git clone https://github.com/flutter/gallery.git flutter_gallery
 cd flutter_gallery
 git checkout 9b11f127fb46cb08e70b2a7cdfe8eaa8de977d5f
 flutter build bundle
-scp ./build/flutter_assets/ pi@raspberrypi:/home/pi/flutter_gallery_assets
+scp -r ./build/flutter_assets/ pi@raspberrypi:/home/pi/flutter_gallery_assets
 ```
 3. Done. You can now run this app in debug-mode using `flutter-pi /home/pi/flutter_gallery_assets`.
 
@@ -196,26 +199,22 @@ scp ./build/flutter_assets/ pi@raspberrypi:/home/pi/flutter_gallery_assets
       --causal_async_stacks \
       --deterministic \
       --snapshot_kind=app-aot-elf \
-      --elf=build/app.so \
+      --elf=build/flutter_assets/app.so \
       --strip \
       --sim_use_hardfp \
       --no-use-integer-division \
       build/kernel_snapshot.dill
     ```
-8. Move the `app.so` inside the asset bundle directory.
-    ```
-    mv ./build/app.so ./build/flutter_assets/
-    ```
-9. Now you can switch to your normal OS again.
-10. Upload the asset bundle and the `app.so` to your Raspberry Pi.
+8. Now you can switch to your normal OS again.
+9. Upload the asset bundle and the `app.so` to your Raspberry Pi.
     ```bash
     rsync -a --info=progress2 ./build/flutter_assets/ pi@raspberrypi:/home/pi/my_apps_flutter_assets
     ```
     or
     ```
-    scp ./build/flutter_assets/ pi@raspberrypi:/home/pi/my_apps_flutter_assets
+    scp -r ./build/flutter_assets/ pi@raspberrypi:/home/pi/my_apps_flutter_assets
     ```
-11. You can now launch the app in release mode using `flutter-pi --release /home/pi/my_apps_flutter_assets`
+10. You can now launch the app in release mode using `flutter-pi --release /home/pi/my_apps_flutter_assets`
 
 #### Complete example on Windows
 1. We'll build the asset bundle for `flutter_gallery` and deploy it using `rsync` in this example.
