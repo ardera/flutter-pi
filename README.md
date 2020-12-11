@@ -258,24 +258,6 @@ USAGE:
   flutter-pi [options] <asset bundle path> [flutter engine options]
 
 OPTIONS:
-  -i, --input <glob pattern> Appends all files matching this glob pattern to the
-                             list of input (touchscreen, mouse, touchpad,
-                             keyboard) devices. Brace and tilde expansion is
-                             enabled.
-                             Every file that matches this pattern, but is not
-                             a valid touchscreen / -pad, mouse or keyboard is
-                             silently ignored.
-                             If no -i options are given, flutter-pi will try to
-                             use all input devices assigned to udev seat0.
-                             If that fails, or udev is not installed, flutter-pi
-                             will fallback to using all devices matching
-                             "/dev/input/event*" as inputs.
-                             In most cases, there's no need to specify this
-                             option.
-                             Note that you need to properly escape each glob
-                             pattern you use as a parameter so it isn't
-                             implicitly expanded by your shell.
-
   --release                  Run the app in release mode. The AOT snapshot
                              of the app ("app.so") must be located inside the
                              asset bundle directory.
@@ -304,7 +286,23 @@ OPTIONS:
                              to calculate the flutter device-pixel-ratio, which
                              in turn basically "scales" the UI.
 
-  --no-text-input            Disable text input.
+  -i, --input <glob pattern> Appends all files matching this glob pattern to the
+                             list of input (touchscreen, mouse, touchpad,
+                             keyboard) devices. Brace and tilde expansion is
+                             enabled.
+                             Every file that matches this pattern, but is not
+                             a valid touchscreen / -pad, mouse or keyboard is
+                             silently ignored.
+                             If no -i options are given, flutter-pi will try to
+                             use all input devices assigned to udev seat0.
+                             If that fails, or udev is not installed, flutter-pi
+                             will fallback to using all devices matching
+                             "/dev/input/event*" as inputs.
+                             In most cases, there's no need to specify this
+                             option.
+                             Note that you need to properly escape each glob
+                             pattern you use as a parameter so it isn't
+                             implicitly expanded by your shell.
 
   -h, --help                 Show this help and exit.
 
