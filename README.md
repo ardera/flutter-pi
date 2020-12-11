@@ -14,7 +14,7 @@ _The difference between packages and plugins is that packages don't include any 
 Although flutter-pi is only tested on a Rasberry Pi 4 2GB, it should work fine on other linux platforms, with the following conditions:
 
 - support for hardware 3D acceleration. more precisely support for kernel-modesetting (KMS) and the direct rendering infrastructure (DRI) 
-- CPU architecture is one of ARMv7, ARM64, x86 or x86 64bit.
+- CPU architecture is one of ARMv7, ARMv8, x86 or x86 64bit.
 
 This means flutter-pi won't work on a Pi Zero, Pi 1, or Pi 2. A Pi 3 works fine, even the 512MB A+ model.
 
