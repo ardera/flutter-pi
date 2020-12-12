@@ -60,29 +60,11 @@ USAGE:\n\
   flutter-pi [options] <asset bundle path> [flutter engine options]\n\
 \n\
 OPTIONS:\n\
-  -i, --input <glob pattern> Appends all files matching this glob pattern to the\n\
-                             list of input (touchscreen, mouse, touchpad, \n\
-                             keyboard) devices. Brace and tilde expansion is \n\
-                             enabled.\n\
-                             Every file that matches this pattern, but is not\n\
-                             a valid touchscreen / -pad, mouse or keyboard is \n\
-                             silently ignored.\n\
-                             If no -i options are given, flutter-pi will try to\n\
-                             use all input devices assigned to udev seat0.\n\
-                             If that fails, or udev is not installed, flutter-pi\n\
-                             will fallback to using all devices matching \n\
-                             \"/dev/input/event*\" as inputs.\n\
-                             In most cases, there's no need to specify this\n\
-                             option.\n\
-                             Note that you need to properly escape each glob \n\
-                             pattern you use as a parameter so it isn't \n\
-                             implicitly expanded by your shell.\n\
-                             \n\
   --release                  Run the app in release mode. The AOT snapshot\n\
                              of the app (\"app.so\") must be located inside the\n\
                              asset bundle directory.\n\
-							 This also requires a libflutter_engine.so that was\n\
-							 built with --runtime-mode=release.\n\
+                             This also requires a libflutter_engine.so that was\n\
+                             built with --runtime-mode=release.\n\
                              \n\
   -o, --orientation <orientation>  Start the app in this orientation. Valid\n\
                              for <orientation> are: portrait_up, landscape_left,\n\
@@ -106,19 +88,34 @@ OPTIONS:\n\
                              to calculate the flutter device-pixel-ratio, which\n\
                              in turn basically \"scales\" the UI.\n\
                              \n\
-  --no-text-input            Disable text input from the console.\n\
-                             This means flutter-pi won't configure the console\n\
-                             to raw/non-canonical mode.\n\
+  -i, --input <glob pattern> Appends all files matching this glob pattern to the\n\
+                             list of input (touchscreen, mouse, touchpad, \n\
+                             keyboard) devices. Brace and tilde expansion is \n\
+                             enabled.\n\
+                             Every file that matches this pattern, but is not\n\
+                             a valid touchscreen / -pad, mouse or keyboard is \n\
+                             silently ignored.\n\
+                             If no -i options are given, flutter-pi will try to\n\
+                             use all input devices assigned to udev seat0.\n\
+                             If that fails, or udev is not installed, flutter-pi\n\
+                             will fallback to using all devices matching \n\
+                             \"/dev/input/event*\" as inputs.\n\
+                             In most cases, there's no need to specify this\n\
+                             option.\n\
+                             Note that you need to properly escape each glob \n\
+                             pattern you use as a parameter so it isn't \n\
+                             implicitly expanded by your shell.\n\
                              \n\
   -h, --help                 Show this help and exit.\n\
 \n\
 EXAMPLES:\n\
+  flutter-pi ~/hello_world_app\n\
+  flutter-pi --release ~/hello_world_app\n\
+  flutter-pi -o portrait_up ./my_app\n\
+  flutter-pi -r 90 ./my_app\n\
+  flutter-pi -d \"155, 86\" ./my_app\n\
   flutter-pi -i \"/dev/input/event{0,1}\" -i \"/dev/input/event{2,3}\" /home/pi/helloworld_flutterassets\n\
   flutter-pi -i \"/dev/input/mouse*\" /home/pi/helloworld_flutterassets\n\
-  flutter-pi -o portrait_up ./flutter_assets\n\
-  flutter-pi -r 90 ./flutter_assets\n\
-  flutter-pi -d \"155, 86\" ./flutter_assets\n\
-  flutter-pi /home/pi/helloworld_flutterassets\n\
 \n\
 SEE ALSO:\n\
   Author:  Hannes Winkler, a.k.a ardera\n\
@@ -126,7 +123,7 @@ SEE ALSO:\n\
   License: MIT\n\
 \n\
   For instructions on how to build an asset bundle or an AOT snapshot\n\
-    of your app, please see the linked git repository.\n\
+    of your app, please see the linked github repository.\n\
   For a list of options you can pass to the flutter engine, look here:\n\
     https://github.com/flutter/engine/blob/master/shell/common/switches.h\n\
 ";
@@ -1421,6 +1418,7 @@ static int init_display(struct flutterpi *flutterpi) {
 		int vertical_dpi = (int) (flutterpi->display.height / (flutterpi->display.height_mm / 25.4));
 
 		if (horizontal_dpi != vertical_dpi) {
+		        // See https://github.com/flutter/flutter/issues/71865 for current status of this issue.
 			fprintf(stderr, "[flutter-pi] WARNING: display has non-square pixels. Non-square-pixels are not supported by flutter.\n");
 		}
 	}
@@ -2168,8 +2166,24 @@ static int on_libinput_ready(sd_event_source *s, int fd, uint32_t revents, void 
 					};
 				}
 			} else if (libinput_device_has_capability(device, LIBINPUT_DEVICE_CAP_KEYBOARD)) {
-				data->keyboard_state = keyboard_state_new(flutterpi->input.keyboard_config, NULL, NULL);
+#if BUILD_TEXT_INPUT_PLUGIN || BUILD_RAW_KEYBOARD_PLUGIN
+				if (flutterpi.input.disable_text_input == false) {
+					data->keyboard_state = keyboard_state_new(flutterpi.input.keyboard_config, NULL, NULL);
+				}
+#endif
 			}
+		} else if (type == LIBINPUT_EVENT_DEVICE_REMOVED) {
+			device = libinput_event_get_device(event);
+			data = libinput_device_get_user_data(device);
+
+			if (data) {
+				if (data->keyboard_state) {
+					free(data->keyboard_state);
+				}
+				free(data);
+			}
+			
+			libinput_device_set_user_data(device, NULL);
 		} else if (LIBINPUT_EVENT_IS_TOUCH(type)) {
 			touch_event = libinput_event_get_touch_event(event);
 			data = libinput_device_get_user_data(libinput_event_get_device(event));
@@ -2359,12 +2373,14 @@ static int on_libinput_ready(sd_event_source *s, int fd, uint32_t revents, void 
 			} else if (type == LIBINPUT_EVENT_POINTER_AXIS) {
 
 			}
-		} else if (LIBINPUT_EVENT_IS_KEYBOARD(type)) {
+		} else if (LIBINPUT_EVENT_IS_KEYBOARD(type) && !flutterpi.input.disable_text_input) {
+#if BUILD_RAW_KEYBOARD_PLUGIN || BUILD_TEXT_INPUT_PLUGIN
+			struct keyboard_modifier_state mods;
 			enum libinput_key_state key_state;
 			xkb_keysym_t keysym;
 			uint32_t codepoint, plain_codepoint;
 			uint16_t evdev_keycode;
-			
+
 			keyboard_event = libinput_event_get_keyboard_event(event);
 			data = libinput_device_get_user_data(libinput_event_get_device(event));
 			evdev_keycode = libinput_event_keyboard_get_key(keyboard_event);
@@ -2378,10 +2394,9 @@ static int on_libinput_ready(sd_event_source *s, int fd, uint32_t revents, void 
 				&codepoint
 			);
 
-			printf("[key event] keycode: 0x%04X, type: %s, keysym: 0x%08X, codepoint: 0x%08X\n", evdev_keycode, key_state? "down" : " up ", keysym, codepoint);
-
 			plain_codepoint = keyboard_state_get_plain_codepoint(data->keyboard_state, evdev_keycode, 1);
-			
+
+#ifdef BUILD_RAW_KEYBOARD_PLUGIN
 			rawkb_send_gtk_keyevent(
 				plain_codepoint,
 				(uint32_t) keysym,
@@ -2394,7 +2409,9 @@ static int on_libinput_ready(sd_event_source *s, int fd, uint32_t revents, void 
 				| (keyboard_state_is_meta_active(data->keyboard_state) << 28),
 				key_state
 			);
+#endif
 
+#ifdef BUILD_TEXT_INPUT_PLUGIN
 			if (codepoint) {
 				if (codepoint < 0x80) {
 					if (isprint(codepoint)) {
@@ -2426,6 +2443,8 @@ static int on_libinput_ready(sd_event_source *s, int fd, uint32_t revents, void 
 			if (keysym) {
 				textin_on_xkb_keysym(keysym);
 			}
+#endif
+#endif
 		}
 
 		libinput_event_destroy(event);
@@ -2548,13 +2567,15 @@ static int init_user_input(struct flutterpi *flutterpi) {
 			libinput_unref(libinput);
 			return -ok;
 		}
-		
-		if (flutterpi->input.disable_text_input == false) {
+
+#ifdef BUILD_TEXT_INPUT_PLUGIN
+		if (flutterpi.input.disable_text_input == false) {
 			kbdcfg = keyboard_config_new();
 			if (kbdcfg == NULL) {
 				fprintf(stderr, "[flutter-pi] Could not initialize keyboard configuration. Flutter-pi will run without text/raw keyboard input.\n");
 			}
 		}
+#endif
 	} else {
 		fprintf(stderr, "[flutter-pi] Could not initialize input. Flutter-pi will run without user input.\n");
 	}

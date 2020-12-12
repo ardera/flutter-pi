@@ -18,14 +18,11 @@
 #ifdef BUILD_TEXT_INPUT_PLUGIN
 #	include <plugins/text_input.h>
 #endif
+#ifdef BUILD_RAW_KEYBOARD_PLUGIN
+#	include <plugins/raw_keyboard.h>
+#endif
 #ifdef BUILD_TEST_PLUGIN
 #	include <plugins/testplugin.h>
-#endif
-#ifdef BUILD_GPIOD_PLUGIN
-#	include <plugins/gpiod_plugin.h>
-#endif
-#ifdef BUILD_SPIDEV_PLUGIN
-#	include <plugins/spidev.h>
 #endif
 #ifdef BUILD_OMXPLAYER_VIDEO_PLAYER_PLUGIN
 #	include <plugins/omxplayer_video_player.h>
@@ -57,14 +54,17 @@ struct flutterpi_plugin {
  */
 struct flutterpi_plugin hardcoded_plugins[] = {
 	{.name = "services",     .init = services_init, .deinit = services_deinit},
-	{.name = "raw_keyboard", .init = rawkb_init, .deinit = rawkb_deinit},
-
+	
 #ifdef BUILD_TEXT_INPUT_PLUGIN
 	{.name = "text_input",   .init = textin_init, .deinit = textin_deinit},
 #endif
 
+#ifdef BUILD_RAW_KEYBOARD_PLUGIN
+	{.name = "raw_keyboard", .init = rawkb_init, .deinit = rawkb_deinit},
+#endif
+
 #ifdef BUILD_TEST_PLUGIN
-	{.name = "testplugin",   .init = testp_init, .deinit = testp_deinit},
+	{.name = "testplugin",   .init = testp_init .deinit = testp_deinit},
 #endif
 
 #ifdef BUILD_OMXPLAYER_VIDEO_PLAYER_PLUGIN
