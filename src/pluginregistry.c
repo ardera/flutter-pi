@@ -27,7 +27,7 @@
 #ifdef BUILD_OMXPLAYER_VIDEO_PLAYER_PLUGIN
 #	include <plugins/omxplayer_video_player.h>
 #endif
-#ifdef BUILD_ANDROID_AUTO_PLUGIN
+#ifdef BUILD_ANDROID_AUTO_HEADUNIT_PLUGIN
 #	include <plugins/android_auto/android_auto.h>
 #endif
 
@@ -60,7 +60,7 @@ struct flutterpi_plugin hardcoded_plugins[] = {
 #endif
 
 #ifdef BUILD_RAW_KEYBOARD_PLUGIN
-	{.name = "raw_keyboard", .init = rawkb_init, .deinit = rawkb_deinit},
+	{.name = RAW_KEYBOARD_PLUGIN_NAME, .init = rawkb_init, .deinit = rawkb_deinit},
 #endif
 
 #ifdef BUILD_TEST_PLUGIN
@@ -71,18 +71,11 @@ struct flutterpi_plugin hardcoded_plugins[] = {
 	{.name = "omxplayer_video_player", .init = omxpvidpp_init, .deinit = omxpvidpp_deinit},
 #endif
 
-#ifdef BUILD_ANDROID_AUTO_PLUGIN
+#ifdef BUILD_ANDROID_AUTO_HEADUNIT_PLUGIN
 	{.name = "android_auto", .init = aaplugin_init, .deinit = aaplugin_deinit}
 #endif
 };
 
-struct platch_obj_callback_data {
-	char *channel;
-	enum platch_codec codec;
-	platch_obj_recv_callback callback;
-	void *userdata;
-	int n_refs;
-};
 
 struct plugin_registry {
 	//size_t n_plugins;
@@ -99,30 +92,35 @@ struct plugin_registry {
 } plugin_registry;
 
 
-static struct platch_obj_callback_data *get_callback_data_by_channel_name_locked(const char *channel) {
-	struct platch_obj_callback_data *data;
+static struct flutterpi_plugin *get_plugin_by_name_locked(
+	struct plugin_registry *registry,
+	const char *plugin_name
+) {
+	struct flutterpi_plugin *plugin;
 
-	for_each_pointer_in_cpset(&plugin_registry.callbacks, data) {
-		if (strcmp(data->channel, channel) == 0) {
-			data->n_refs++;
-			return data;
+	for_each_pointer_in_cpset(&registry->plugins, plugin) {
+		if (strcmp(plugin->name, plugin_name) == 0) {
+			break;
 		}
 	}
 
-	return NULL;
+	return plugin;
 }
 
-static struct platch_obj_callback_data *get_callback_data_by_channel_name(const char *channel) {
-	struct platch_obj_callback_data *data;
+static struct flutterpi_plugin *get_plugin_by_name(
+	struct plugin_registry *registry,
+	const char *plugin_name
+) {
+	struct flutterpi_plugin *plugin;
 
-	cpset_lock(&plugin_registry.callbacks);
-	data = get_callback_data_by_channel_name_locked(channel);
-	data->n_refs++;
-	cpset_unlock(&plugin_registry.callbacks);
+	cpset_lock(&registry->plugins);
 
-	return data;
+	plugin = get_plugin_by_name_locked(registry, plugin_name);
+
+	cpset_unlock(&registry->plugins);
+
+	return plugin;
 }
-
 
 struct plugin_registry *plugin_registry_new(struct flutterpi *flutterpi) {
 	struct flutterpi_plugin *plugin;
@@ -268,181 +266,6 @@ void plugin_registry_ensure_plugins_deinitialized(struct plugin_registry *regist
 	cpset_unlock(&registry->plugins);
 }
 
-/*
-int plugin_registry_on_platform_message(
-	struct plugin_registry *registry,
-	const char *channel,
-	const uint8_t *message,
-	size_t message_size,
-	const struct platform_message_response_handle *response_handle
-) {
-	struct platch_obj_callback_data *data;
-	struct platch_obj object;
-	int ok;
-
-	cpset_lock(&registry->callbacks);
-
-	pthread_mutex_lock(&registry->msg_handling_thread_lock);
-	registry->msg_handling_thread = pthread_self();
-	pthread_mutex_unlock(&registry->msg_handling_thread_lock);
-
-	data = get_callback_data_by_channel_name_locked(channel);
-	if (data == NULL) {
-		platch_respond_not_implemented((FlutterPlatformMessageResponseHandle*) response_handle);
-		ok = 0;
-		goto fail_unlock_callbacks;
-	}
-
-	ok = platch_decode((uint8_t*) message, message_size, data->codec, &object);
-	if (ok != 0) {
-		goto fail_unlock_callbacks;
-	}
-	
-	ok = data->callback(
-		(char*) channel,
-		&object,
-		response_handle,
-		data->userdata
-	);
-	if (ok != 0) {
-		fprintf(stderr, "[plugin registry] Error executing platform message callback: %s\n", strerror(ok));
-	}
-
-	platch_free_obj(&object);
-
-	pthread_mutex_lock(&registry->msg_handling_thread_lock);
-	registry->msg_handling_thread = NULL;
-	pthread_mutex_unlock(&registry->msg_handling_thread_lock);
-
-	cpset_unlock(&registry->callbacks);
-
-	return ok;
-
-
-	fail_reset_msg_handling_thread:
-	pthread_mutex_lock(&registry->msg_handling_thread_lock);
-	registry->msg_handling_thread = NULL;
-	pthread_mutex_unlock(&registry->msg_handling_thread_lock);
-
-	fail_unlock_callbacks:
-	cpset_unlock(&registry->callbacks);
-
-	fail_return_ok:
-	return ok;
-}
-
-
-int plugin_registry_set_receiver(
-	struct plugin_registry *registry,
-	const char *channel,
-	enum platch_codec codec,
-	platch_obj_recv_callback callback,
-	void *userdata
-) {
-	struct platch_obj_callback_data *data;
-	pthread_t msg_handling_thread;
-	char *channel_dup;
-	int ok;
-
-	pthread_mutex_lock(&registry->msg_handling_thread_lock);
-	msg_handling_thread = registry->msg_handling_thread;
-	pthread_mutex_unlock(&registry->msg_handling_thread_lock);
-
-	if (msg_handling_thread != pthread_self()) {
-		cpset_lock(&registry->callbacks);
-	}
-
-	data = get_callback_data_by_channel_name_locked(channel);
-	if (data == NULL) {
-		data = malloc(sizeof *data);
-		if (data == NULL) {
-			ok = ENOMEM;
-			goto fail_maybe_unlock;
-		}
-
-		channel_dup = strdup(channel);
-		if (channel_dup == NULL) {
-			ok = ENOMEM;
-			goto fail_free_data;
-		}
-
-		data->n_refs  = 1;
-		data->channel = channel_dup;
-
-		ok = cpset_put_locked(&registry->callbacks, data);
-		if (ok != 0) {
-			goto fail_free_channel_dup;
-		}
-	}
-
-	data->codec    = codec;
-	data->callback = callback;
-	data->userdata = userdata;
-
-	if (msg_handling_thread != pthread_self()) {
-		cpset_unlock(&registry->callbacks);
-	}
-
-	return 0;
-
-
-	fail_free_channel_dup:
-	free(channel_dup);
-
-	fail_free_data:
-	free(data);
-
-	fail_maybe_unlock:
-	if (msg_handling_thread != pthread_self()) {
-		cpset_unlock(&registry->callbacks);
-	}
-
-	return ok;
-}
-
-int plugin_registry_remove_receiver(
-	struct plugin_registry *registry,
-	const char *channel
-) {
-	struct platch_obj_callback_data *data;
-	pthread_t msg_handling_thread;
-	int ok;
-
-	pthread_mutex_lock(&registry->msg_handling_thread_lock);
-	msg_handling_thread = registry->msg_handling_thread;
-	pthread_mutex_unlock(&registry->msg_handling_thread_lock);
-
-	if (msg_handling_thread != pthread_self()) {
-		cpset_lock(&registry->callbacks);
-	}
-
-	data = get_callback_data_by_channel_name_locked(channel);
-	if (data == NULL) {
-		ok = EINVAL;
-		goto fail_maybe_unlock;
-	}
-
-	cpset_remove_locked(&registry->callbacks, data);
-
-	free(data->channel);
-	free(data);
-
-	if (msg_handling_thread != pthread_self()) {
-		cpset_unlock(&registry->callbacks);
-	}
-
-	return 0;
-
-
-	fail_maybe_unlock:
-	if (msg_handling_thread != pthread_self()) {
-		cpset_unlock(&registry->callbacks);
-	}
-
-	return ok;
-}
-*/
-
 bool plugin_registry_is_plugin_present(
 	struct plugin_registry *registry,
 	const char *plugin_name
@@ -466,3 +289,17 @@ bool plugin_registry_is_plugin_present(
 	}
 }
 
+void *plugin_registry_get_plugin_userdata(
+	struct plugin_registry *registry,
+	const char *plugin_name
+) {
+	struct flutterpi_plugin *plugin;
+
+	plugin = get_plugin_by_name(registry, plugin_name);
+
+	if (plugin != NULL) {
+		return plugin->userdata;
+	} else {
+		return NULL;
+	}
+}

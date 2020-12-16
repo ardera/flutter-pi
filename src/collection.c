@@ -651,7 +651,7 @@ void sb_unref(struct shared_buffer *b) {
 			} else if (b->type == kSharedBufferWrapped) {
 				b->destroy_callback(b->pointer, b->size, b->destroy_callback_userdata);
 			} else if (b->type == kSharedBufferView) {
-				sb_unref(&b->base);
+				sb_unref(b->base);
 			}
 
 			free(b);

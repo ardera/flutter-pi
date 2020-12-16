@@ -53,7 +53,7 @@ struct deferred_send_or_respond_data {
 			void *response_callback_userdata;
 		};
 		struct {
-			FlutterPlatformMessageResponseHandle *target_handle;
+			const FlutterPlatformMessageResponseHandle *target_handle;
 		};
 	};
 
@@ -179,21 +179,22 @@ int fm_on_platform_message(
 			);
 			// from this point on, all access to data is invalid.
 		} else {
-			ok = platch_decode(message, message_size, data->codec, &obj);
+			/// FIXME: proper const propagation
+			ok = platch_decode((uint8_t*) message, message_size, data->codec, &obj);
 			if (ok != 0) {
 				if (data->error_callback) {
 					data->error_callback(false, handle, data->channel, &obj, data->userdata);
 					// from this point on, all access to data is invalid.
 				} else {
 					fprintf(stderr, "[flutter messenger] Error decoding platform message on channel \"%s\": platch_decode: %s", data->channel, strerror(ok));
-					fm_respond_blocking(fm, handle, &(struct platch_obj) {.codec = kNotImplemented});
+					fm_respond_blocking(handle, &(struct platch_obj) {.codec = kNotImplemented});
 				}
 			} else {
 				if (data->platch_obj_callback) {
 					data->platch_obj_callback(true, handle, data->channel, &obj, data->userdata);
 					// from this point on, all access to data is invalid.
 				} else {
-					fm_respond_blocking(fm, handle, &(struct platch_obj) {.codec = kNotImplemented});
+					fm_respond_blocking(handle, &(struct platch_obj) {.codec = kNotImplemented});
 				}
 
 				platch_free_obj(&obj);
@@ -375,7 +376,9 @@ int fm_send_raw_zerocopy_nonblocking(
 		);
 		if (ok != 0) {
 			goto fail_return_ok;
-		} else if (shipped_callback != NULL) {
+		}
+		
+		if (shipped_callback != NULL) {
 			shipped_callback(true, shipped_callback_userdata);
 		}
 	} else {
@@ -387,12 +390,12 @@ int fm_send_raw_zerocopy_nonblocking(
 
 		deferred_data->fm = fm;
 		deferred_data->is_response = false;
-		deferred_data->target_channel = channel;
+		deferred_data->target_channel = (char *) channel;
 		deferred_data->response_callback = response_callback;
 		deferred_data->response_callback_userdata = response_callback_userdata;
 		deferred_data->shipped_callback = shipped_callback;
 		deferred_data->shipped_callback_userdata = shipped_callback_userdata;
-		deferred_data->message = message;
+		deferred_data->message = (uint8_t*) message;
 		deferred_data->message_size = message_size;
 
 		ok = fm->post_platform_task(
@@ -427,9 +430,21 @@ int fm_send_raw_zerocopy_nonblocking(
  */
 struct raw_nonblocking_metadata {
 	void *channel, *message;
+	error_or_raw_response_callback_t response_callback;
+	void *response_callback_userdata;
 	error_or_raw_response_callback_t error_callback;
-	void *userdata;
+	void *error_callback_userdata;
 };
+
+static void on_send_raw_nonblocking__raw_response(const uint8_t *data, size_t size, void *userdata) {
+	struct raw_nonblocking_metadata *metadata;
+
+	metadata = userdata;
+
+	metadata->response_callback(true, data, size, metadata->response_callback_userdata);
+
+	free(metadata);
+}
 
 static void on_send_raw_nonblocking__shipped(bool success, void *userdata) {
 	struct raw_nonblocking_metadata *data;
@@ -445,10 +460,14 @@ static void on_send_raw_nonblocking__shipped(bool success, void *userdata) {
 	}
 
 	if ((success == false) && (data->error_callback != NULL)) {
-		data->error_callback(false, NULL, 0, data->userdata);
+		data->error_callback(false, NULL, 0, data->error_callback_userdata);
 	}
 
-	free(data);
+	if ((success == false) || (data->response_callback == NULL)) {
+		// There will be no response_callback called, so noone
+		// else needs the data.
+		free(data);
+	}
 }
 
 int fm_send_raw_nonblocking(
@@ -462,24 +481,15 @@ int fm_send_raw_nonblocking(
 	void *error_callback_userdata
 ) {
 	struct raw_nonblocking_metadata *metadata;
-	const uint8_t *duped_message;
-	const char *duped_channel;
+	uint8_t *duped_message;
+	char *duped_channel;
 	int ok;
 
-	/// are we the on the right thread?
-	if (fm->runs_platform_tasks_on_current_thread(fm->flutterpi)) {
-		ok = send_raw(
-			fm,
-			channel,
-			message,
-			message_size,
-			response_callback,
-			response_callback_userdata
-		);
-		if (ok != 0) {
-			goto fail_return_ok;
-		}
-	} else {
+	metadata = NULL;
+	duped_channel = NULL;
+	duped_message = NULL;
+
+	if (!fm->runs_platform_tasks_on_current_thread(fm->flutterpi) || response_callback != NULL) {
 		metadata = malloc(sizeof *metadata);
 		if (metadata == NULL) {
 			ok = ENOMEM;
@@ -489,14 +499,14 @@ int fm_send_raw_nonblocking(
 		duped_channel = strdup(channel);
 		if (duped_channel == NULL) {
 			ok = ENOMEM;
-			goto fail_free_metadata;
+			goto fail_maybe_free_metadata;
 		}
 
 		if ((message != NULL) && (message_size > 0)) {
 			duped_message = memdup(message, message_size);
 			if (duped_message == NULL) {
 				ok = ENOMEM;
-				goto fail_free_duped_channel;
+				goto fail_maybe_free_duped_channel;
 			}
 		} else {
 			duped_message = NULL;
@@ -504,16 +514,33 @@ int fm_send_raw_nonblocking(
 
 		metadata->channel = duped_channel;
 		metadata->message = duped_message;
+		metadata->response_callback = response_callback;
+		metadata->response_callback_userdata = response_callback_userdata;
 		metadata->error_callback = error_callback;
-		metadata->userdata = error_callback_userdata;
+		metadata->error_callback_userdata = error_callback_userdata;
+	}
 
+	/// are we the on the right thread?
+	if (fm->runs_platform_tasks_on_current_thread(fm->flutterpi)) {
+		ok = send_raw(
+			fm,
+			channel,
+			message,
+			message_size,
+			response_callback != NULL ? on_send_raw_nonblocking__raw_response : NULL,
+			metadata
+		);
+		if (ok != 0) {
+			goto fail_maybe_free_duped_message;
+		}
+	} else {
 		ok = fm_send_raw_zerocopy_nonblocking(
 			fm,
 			duped_channel,
 			duped_message,
 			message_size,
-			response_callback,
-			response_callback_userdata,
+			response_callback != NULL ? on_send_raw_nonblocking__raw_response : NULL,
+			metadata,
 			on_send_raw_nonblocking__shipped,
 			metadata
 		);
@@ -530,11 +557,15 @@ int fm_send_raw_nonblocking(
 		free(duped_message);
 	}
 
-	fail_free_duped_channel:
-	free(duped_channel);
+	fail_maybe_free_duped_channel:
+	if (duped_channel != NULL) {
+		free(duped_channel);
+	}
 
-	fail_free_metadata:
-	free(metadata);
+	fail_maybe_free_metadata:
+	if (metadata != NULL) {
+		free(metadata);
+	}
 
 	fail_return_ok:
 	return ok;
@@ -627,7 +658,6 @@ int fm_send_raw_blocking(
  * RESPOND RAW ZEROCOPY NONBLOCKING
  */
 int fm_respond_raw_zerocopy_nonblocking(
-	struct flutter_messenger *fm,
 	struct flutter_message_response_handle *handle,
 	const uint8_t *message,
 	size_t message_size,
@@ -638,13 +668,20 @@ int fm_respond_raw_zerocopy_nonblocking(
 	int ok;
 
 	/// are we the on the right thread?
-	if (fm->runs_platform_tasks_on_current_thread(fm->flutterpi)) {
-		return respond_raw(
-			fm,
+	if (handle->fm->runs_platform_tasks_on_current_thread(handle->fm->flutterpi)) {
+		ok = respond_raw(
+			handle->fm,
 			handle->flutter_handle,
 			message,
 			message_size
 		);
+		if (ok != 0) {
+			return ok;
+		}
+
+		free(handle);
+
+		return 0;
 	} else {
 		deferred_data = malloc(sizeof *deferred_data);
 		if (deferred_data == NULL) {
@@ -652,22 +689,25 @@ int fm_respond_raw_zerocopy_nonblocking(
 			goto fail_return_ok;
 		}
 
-		deferred_data->fm = fm;
+		deferred_data->fm = handle->fm;
 		deferred_data->is_response = true;
-		deferred_data->target_handle = handle;
+		deferred_data->target_handle = handle->flutter_handle;
 		deferred_data->shipped_callback = shipped_callback;
 		deferred_data->shipped_callback_userdata = userdata;
-		deferred_data->message = message;
+		/// TODO: remove the cast. It's okay though since we know we'll not modify it.
+		deferred_data->message = (uint8_t *) message;
 		deferred_data->message_size = message_size;
 
-		ok = fm->post_platform_task(
-			fm->flutterpi,
+		ok = handle->fm->post_platform_task(
+			handle->fm->flutterpi,
 			on_execute_send_or_respond_raw,
 			deferred_data
 		);
 		if (ok != 0) {
 			goto fail_maybe_free_message;
 		}
+
+		free(handle);
 	}
 
 
@@ -694,7 +734,7 @@ struct respond_raw_nonblocking_metadata {
 	void *userdata;
 };
 
-static int on_respond_raw_nonblocking__shipped(bool success, void *userdata) {
+static void on_respond_raw_nonblocking__shipped(bool success, void *userdata) {
 	struct respond_raw_nonblocking_metadata *metadata;
 
 	metadata = userdata;
@@ -721,7 +761,6 @@ static int on_respond_raw_nonblocking__shipped(bool success, void *userdata) {
  * @param error_callback_userdata The userdata to pass to @ref error_callback.
  */
 int fm_respond_raw_nonblocking(
-	struct flutter_messenger *fm,
 	struct flutter_message_response_handle *handle,
 	const uint8_t *message,
 	size_t message_size,
@@ -729,12 +768,13 @@ int fm_respond_raw_nonblocking(
 	void *error_callback_userdata
 ) {
 	struct respond_raw_nonblocking_metadata *metadata;
+	struct flutter_messenger *fm;
 	uint8_t *duped_message;
 	int ok;
 
-	if (fm->runs_platform_tasks_on_current_thread(fm->flutterpi)) {
+	if (handle->fm->runs_platform_tasks_on_current_thread(handle->fm->flutterpi)) {
 		ok = respond_raw(
-			fm,
+			handle->fm,
 			handle->flutter_handle,
 			message,
 			message_size
@@ -764,7 +804,6 @@ int fm_respond_raw_nonblocking(
 		metadata->userdata = error_callback_userdata;
 
 		ok = fm_respond_raw_zerocopy_nonblocking(
-			fm,
 			handle,
 			duped_message,
 			message_size,
@@ -799,7 +838,7 @@ struct respond_raw_blocking_metadata {
 	sem_t shipped;
 };
 
-static int on_respond_raw_blocking__shipped(bool success, void *userdata) {
+static void on_respond_raw_blocking__shipped(bool success, void *userdata) {
 	struct respond_raw_blocking_metadata *metadata;
 
 	metadata = userdata;
@@ -810,7 +849,6 @@ static int on_respond_raw_blocking__shipped(bool success, void *userdata) {
 }
 
 int fm_respond_raw_blocking(
-	struct flutter_messenger *fm,
 	struct flutter_message_response_handle *handle,
 	const uint8_t *message,
 	size_t message_size
@@ -818,9 +856,9 @@ int fm_respond_raw_blocking(
 	struct respond_raw_blocking_metadata metadata;
 	int ok;
 
-	if (fm->runs_platform_tasks_on_current_thread(fm->flutterpi)) {
+	if (handle->fm->runs_platform_tasks_on_current_thread(handle->fm->flutterpi)) {
 		ok = respond_raw(
-			fm,
+			handle->fm,
 			handle->flutter_handle,
 			message,
 			message_size
@@ -833,7 +871,7 @@ int fm_respond_raw_blocking(
 		sem_init(&metadata.shipped, 0, 0);
 
 		ok = fm_respond_raw_zerocopy_nonblocking(
-			fm,
+			handle,
 			message,
 			message_size,
 			on_respond_raw_blocking__shipped,
@@ -883,13 +921,13 @@ static void on_send_nonblocking__raw_response(const uint8_t *data, size_t data_s
 	metadata = userdata;
 
 	if (metadata->response_callback != NULL) {
-		// TODO: Make the platform channel API usable.
-		ok = platch_decode(data, data_size, metadata->codec, &obj);
+		/// TODO: Make platform channel API const-able
+		ok = platch_decode((uint8_t *) data, data_size, metadata->codec, &obj);
 		if (ok != 0) {
 			if (metadata->error_callback) {
 				metadata->error_callback(false, NULL, metadata->userdata);
 			}
-			return 0;
+			return;
 		}
 
 		metadata->response_callback(true, &obj, metadata->userdata);
@@ -909,12 +947,13 @@ static void on_send_nonblocking__error_or_raw_response(bool success, const uint8
 
 	if (success) {
 		if (metadata->response_callback != NULL) {
-			ok = platch_decode(data, data_size, metadata->codec, &obj);
+			/// TODO: Make platform channel API const-able
+			ok = platch_decode((uint8_t*) data, data_size, metadata->codec, &obj);
 			if (ok != 0) {
 				if (metadata->error_callback) {
 					metadata->error_callback(false, NULL, metadata->userdata);
 				}
-				return 0;
+				return;
 			}
 
 			metadata->response_callback(true, &obj, metadata->userdata);
@@ -936,7 +975,7 @@ static void on_send_nonblocking__error_or_raw_response(bool success, const uint8
 int fm_send_nonblocking(
 	struct flutter_messenger *fm,
 	const char *channel,
-	struct platch_obj *object,
+	const struct platch_obj *object,
 	enum platch_codec response_codec,
 	error_or_response_callback_t response_callback,
 	error_or_response_callback_t error_callback,
@@ -963,7 +1002,8 @@ int fm_send_nonblocking(
 		metadata = NULL;
 	}
 
-	ok = platch_encode(object, &buffer, &size);
+	/// TODO: Make platform channel API const-able
+	ok = platch_encode((struct platch_obj *) object, &buffer, &size);
 	if (ok != 0) {
 		goto fail_maybe_free_metadata;
 	}
@@ -1006,7 +1046,7 @@ int fm_send_nonblocking(
 int fm_send_blocking(
 	struct flutter_messenger *fm,
 	const char *channel,
-	struct platch_obj *object,
+	const struct platch_obj *object,
 	enum platch_codec response_codec,
 	error_or_response_callback_t response_callback,
 	error_or_response_callback_t error_callback,
@@ -1033,7 +1073,8 @@ int fm_send_blocking(
 		metadata = NULL;
 	}
 
-	ok = platch_encode(object, &buffer, &size);
+	/// TODO: Make platform channel API const-able
+	ok = platch_encode((struct platch_obj *) object, &buffer, &size);
 	if (ok != 0) {
 		goto fail_maybe_free_metadata;
 	}
@@ -1067,9 +1108,8 @@ int fm_send_blocking(
 }
 
 int fm_respond_nonblocking(
-	struct flutter_messenger *fm,
 	struct flutter_message_response_handle *handle,
-	struct platch_obj *object,
+	const struct platch_obj *object,
 	void_callback_t error_callback,
 	void *userdata
 ) {
@@ -1077,11 +1117,11 @@ int fm_respond_nonblocking(
 	size_t size;
 	int ok;
 
-	ok = platch_encode(object, &buffer, &size);
+	/// TODO: Make platform channel API const-able
+	ok = platch_encode((struct platch_obj *) object, &buffer, &size);
 	if (ok != 0) return ok;
 
 	ok = fm_respond_raw_nonblocking(
-		fm,
 		handle,
 		buffer,
 		size,
@@ -1097,19 +1137,18 @@ int fm_respond_nonblocking(
 }
 
 int fm_respond_blocking(
-	struct flutter_messenger *fm,
 	struct flutter_message_response_handle *handle,
-	struct platch_obj *object
+	const struct platch_obj *object
 ) {
 	uint8_t *buffer;
 	size_t size;
 	int ok;
 
-	ok = platch_encode(object, &buffer, &size);
+	/// TODO: Make platform channel API const-able
+	ok = platch_encode((struct platch_obj *) object, &buffer, &size);
 	if (ok != 0) return ok;
 
 	ok = fm_respond_raw_blocking(
-		fm,
 		handle,
 		buffer,
 		size
@@ -1280,6 +1319,14 @@ int fm_remove_listener(
 }
 
 
+int fm_respond_not_implemented_ext(
+	struct flutter_message_response_handle *handle,
+	void_callback_t error_callback,
+	void *userdata
+) {
+	return fm_respond_nonblocking(handle, &PLATCH_OBJ_NOT_IMPLEMENTED, error_callback, userdata);
+}
+
 int fm_call_std(
 	struct flutter_messenger *fm,
 	const char *channel,
@@ -1304,14 +1351,12 @@ int fm_call_std(
 }
 
 int fm_respond_success_std_ext(
-	struct flutter_messenger *fm,
-	const struct flutter_message_response_handle *handle,
+	struct flutter_message_response_handle *handle,
 	const struct std_value *return_value,
 	void_callback_t error_callback,
 	void *userdata
 ) {
 	return fm_respond_nonblocking(
-		fm,
 		handle,
 		&PLATCH_OBJ_STD_CALL_SUCCESS_RESPONSE(*return_value),
 		error_callback,
@@ -1320,8 +1365,7 @@ int fm_respond_success_std_ext(
 }
 
 int fm_respond_error_std_ext(
-	struct flutter_messenger *fm,
-	const struct flutter_message_response_handle *handle,
+	struct flutter_message_response_handle *handle,
 	const char *error_code,
 	const char *error_message,
 	const struct std_value *error_details,
@@ -1329,7 +1373,6 @@ int fm_respond_error_std_ext(
 	void *userdata
 ) {
 	return fm_respond_nonblocking(
-		fm,
 		handle,
 		&PLATCH_OBJ_STD_CALL_ERROR_RESPONSE(
 			error_code,
@@ -1342,14 +1385,12 @@ int fm_respond_error_std_ext(
 }
 
 int fm_respond_illegal_arg_std_ext(
-	struct flutter_messenger *fm,
-	const struct flutter_message_response_handle *handle,
+	struct flutter_message_response_handle *handle,
 	const char *error_message,
 	void_callback_t error_callback,
 	void *userdata
 ) {
 	return fm_respond_error_std_ext(
-		fm,
 		handle,
 		"illegalargument",
 		error_message,
@@ -1360,14 +1401,12 @@ int fm_respond_illegal_arg_std_ext(
 }
 
 int fm_respond_native_error_std_ext(
-	struct flutter_messenger *fm,
-	const struct flutter_message_response_handle *handle,
+	struct flutter_message_response_handle *handle,
 	int _errno,
 	void_callback_t error_callback,
 	void *userdata
 ) {
 	return fm_respond_error_std_ext(
-		fm,
 		handle,
 		"nativeerror",
 		strerror(_errno),
@@ -1380,7 +1419,7 @@ int fm_respond_native_error_std_ext(
 int fm_send_success_event_std_ext(
 	struct flutter_messenger *fm,
 	const char *channel,
-	struct std_value *event_value,
+	const struct std_value *event_value,
 	// TODO: change to void_callback_t
 	error_or_response_callback_t error_callback,
 	void *userdata
@@ -1401,7 +1440,7 @@ int fm_send_error_event_std_ext(
 	const char *channel,
 	const char *error_code,
 	const char *error_message,
-	struct std_value *error_details,
+	const struct std_value *error_details,
 	// TODO: change to void_callback_t
 	error_or_response_callback_t error_callback,
 	void *userdata
@@ -1442,14 +1481,12 @@ int fm_call_json(
 }
 
 int fm_respond_success_json_ext(
-	struct flutter_messenger *fm,
-	const struct flutter_message_response_handle *handle,
+	struct flutter_message_response_handle *handle,
 	const struct json_value *return_value,
 	void_callback_t error_callback,
 	void *userdata
 ) {
 	return fm_respond_nonblocking(
-		fm,
 		handle,
 		&PLATCH_OBJ_JSON_CALL_SUCCESS_RESPONSE(*return_value),
 		error_callback,
@@ -1458,8 +1495,7 @@ int fm_respond_success_json_ext(
 }
 
 int fm_respond_error_json_ext(
-	struct flutter_messenger *fm,
-	const struct flutter_message_response_handle *handle,
+	struct flutter_message_response_handle *handle,
 	const char *error_code,
 	const char *error_message,
 	const struct json_value *error_details,
@@ -1467,7 +1503,6 @@ int fm_respond_error_json_ext(
 	void *userdata
 ) {
 	return fm_respond_nonblocking(
-		fm,
 		handle,
 		&PLATCH_OBJ_JSON_CALL_ERROR_RESPONSE(
 			error_code,
@@ -1480,14 +1515,12 @@ int fm_respond_error_json_ext(
 }
 
 int fm_respond_illegal_arg_json_ext(
-	struct flutter_messenger *fm,
-	const struct flutter_message_response_handle *handle,
+	struct flutter_message_response_handle *handle,
 	const char *error_message,
 	void_callback_t error_callback,
 	void *userdata
 ) {
 	return fm_respond_error_json_ext(
-		fm,
 		handle,
 		"illegalargument",
 		error_message,
@@ -1498,14 +1531,12 @@ int fm_respond_illegal_arg_json_ext(
 }
 
 int fm_respond_native_error_json_ext(
-	struct flutter_messenger *fm,
-	const struct flutter_message_response_handle *handle,
+	struct flutter_message_response_handle *handle,
 	int _errno,
 	void_callback_t error_callback,
 	void *userdata
 ) {
 	return fm_respond_error_json_ext(
-		fm,
 		handle,
 		"nativeerror",
 		strerror(_errno),
@@ -1518,7 +1549,7 @@ int fm_respond_native_error_json_ext(
 int fm_send_success_event_json_ext(
 	struct flutter_messenger *fm,
 	const char *channel,
-	struct json_value *event_value,
+	const struct json_value *event_value,
 	// TODO: change to void_callback_t
 	error_or_response_callback_t error_callback,
 	void *userdata
@@ -1539,11 +1570,14 @@ int fm_send_error_event_json_ext(
 	const char *channel,
 	const char *error_code,
 	const char *error_message,
-	struct json_value *error_details,
+	const struct json_value *error_details,
 	// TODO: change to void_callback_t
 	error_or_response_callback_t error_callback,
 	void *userdata
 ) {
+	// we sadly need to cast the const error_code and error_message to non-const
+	// since we can't tell the C compiler we'd like the memory pointed to by the pointers
+	// inside const struct platch_obj to be readonly as well.
 	return fm_send_nonblocking(
 		fm,
 		channel,

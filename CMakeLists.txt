@@ -97,12 +97,15 @@ pkg_check_modules(LIBUDEV REQUIRED libudev)
 pkg_check_modules(LIBUSB REQUIRED libusb-1.0)
 pkg_check_modules(LIBSSL REQUIRED libssl)
 pkg_check_modules(LIBCRYPTO REQUIRED libcrypto)
+pkg_check_modules(LIBGSTREAMER REQUIRED gstreamer-1.0)
+pkg_check_modules(LIBGSTREAMER-APP REQUIRED gstreamer-app-1.0)
+pkg_check_modules(LIBGSTREAMER-PLUGINS-BASE REQUIRED gstreamer-plugins-base-1.0)
 
 set(BUILD_TEXT_INPUT_PLUGIN ON CACHE BOOL "Include the text input plugin in the finished binary. Enables text input (to flutter text fields, for example) via attached keyboards.")
 set(BUILD_RAW_KEYBOARD_PLUGIN ON CACHE BOOL "Include the raw keyboard plugin in the finished binary. Enables raw keycode listening in flutter via the flutter RawKeyboard interface.")
 set(BUILD_TEST_PLUGIN OFF CACHE BOOL "Include the test plugin in the finished binary. Allows testing platform channel communication.")
 set(BUILD_OMXPLAYER_VIDEO_PLAYER_PLUGIN ON CACHE BOOL "Include the omxplayer_video_player plugin in the finished binary. Allows for hardware accelerated video playback in flutter using omxplayer.")
-set(BUILD_ANDROID_AUTO_HEADUNIT_PLUGIN ON CACHE BOOL "Include the android_auto_headunit plugin in the finished binary.")
+set(BUILD_ANDROID_AUTO_HEADUNIT_PLUGIN OFF CACHE BOOL "Include the android_auto_headunit plugin in the finished binary.")
 
 set(FLUTTER_PI_SRC
   src/flutter-pi.c
@@ -114,6 +117,8 @@ set(FLUTTER_PI_SRC
 	src/collection.c
   src/cursor.c
   src/keyboard.c
+  src/messenger.c
+  src/dylib_deps.c
 	src/plugins/services.c
 )
 
@@ -131,7 +136,7 @@ if (BUILD_OMXPLAYER_VIDEO_PLAYER_PLUGIN)
 endif()
 if (BUILD_ANDROID_AUTO_HEADUNIT_PLUGIN)
   list(APPEND FLUTTER_PI_SRC src/plugins/android_auto/android_auto.c)
-  list(APPEND FLUTTER_PI_SRC src/plugins/android_auto/aa_channel.c
+  list(APPEND FLUTTER_PI_SRC src/plugins/android_auto/aa_channel.c)
   list(APPEND FLUTTER_PI_SRC src/plugins/android_auto/aa_xfer.c)
   list(APPEND FLUTTER_PI_SRC src/plugins/android_auto/aa_device.c)
 endif()
@@ -150,6 +155,7 @@ target_link_libraries(flutter-pi
   ${LIBUSB_LDFLAGS}
   ${LIBSSL_LDFLAGS}
   ${LIBCRYPTO_LDFLAGS}
+  ${LIBGSTREAMER_LDFLAGS}
   pthread dl rt m
 )
 
@@ -168,6 +174,7 @@ target_include_directories(flutter-pi PRIVATE
   ${LIBUSB_INCLUDE_DIRS}
   ${LIBSSL_INCLUDE_DIRS}
   ${LIBCRYPTO_INCLUDE_DIRS}
+  ${LIBGSTREAMER_INCLUDE_DIRS}
 )
 
 target_compile_options(flutter-pi PRIVATE
@@ -182,7 +189,8 @@ target_compile_options(flutter-pi PRIVATE
   ${LIBUSB_CFLAGS}
   ${LIBSSL_CFLAGS}
   ${LIBCRYPTO_CFLAGS}
-  $<$<CONFIG:DEBUG>:-O0 -ggdb>
+  ${LIBGSTREAMER_CFLAGS}
+  $<$<CONFIG:DEBUG>:-O0 -ggdb -Werror -fsanitize=address -fno-omit-frame-pointer>
 )
 
 if (BUILD_TEXT_INPUT_PLUGIN)
@@ -203,6 +211,13 @@ endif()
 
 target_link_options(flutter-pi PRIVATE
   -rdynamic
+  $<$<CONFIG:DEBUG>:-fsanitize=address -static-libasan>
 )
+
+if ("${CMAKE_C_COMPILER_ID}" STREQUAL "GNU")
+    target_compile_options(flutter-pi PRIVATE -fdiagnostics-color=always)
+elseif ("${CMAKE_C_COMPILER_ID}" STREQUAL "Clang")
+    target_compile_options(flutter-pi PRIVATE -fcolor-diagnostics)
+endif()
 
 install(TARGETS flutter-pi RUNTIME DESTINATION bin)

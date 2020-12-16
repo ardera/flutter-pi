@@ -9,6 +9,8 @@
 
 #include <collection.h>
 
+#define LOG_MODESETTING_ERROR(...) fprintf(stderr, "[modesetting] " __VA_ARGS__)
+
 struct drm_connector {
     drmModeConnector *connector;
 	drmModeObjectProperties *props;
@@ -71,15 +73,11 @@ struct drmdev_atomic_req {
     struct pointer_set available_planes;
 };
 
-int drmdev_new_from_fd(
-    struct drmdev **drmdev_out,
-    int fd
-);
+struct drmdev *drmdev_new_from_fd(int fd);
 
-int drmdev_new_from_path(
-    struct drmdev **drmdev_out,
-    const char *path
-);
+struct drmdev *drmdev_new_from_path(const char *path);
+
+struct drmdev *drmdev_new_and_configure(void);
 
 void drmdev_destroy(
     struct drmdev *drmdev

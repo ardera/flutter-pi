@@ -216,7 +216,7 @@ int texreg_new_texture(
     } else {
         printf("[texture registry] adding  gl texture %u  to  flutter texture %lld\n", initial_frame->name, texture_id);
 
-        frame = frame_new(initial_frame);
+        frame = frame_new(reg, initial_frame, delay_delete_to_next_page_flip);
         if (frame == NULL) {
             free(texture);
             return ENOMEM;
@@ -282,7 +282,7 @@ int texreg_update_texture(
     if (new_gl_texture == NULL) {
         texture->frame = NULL;
     } else {
-        texture->frame = frame_new(new_gl_texture);
+        texture->frame = frame_new(reg, new_gl_texture, delay_delete_to_next_page_flip);
     }
 
     cpset_unlock(&reg->textures);

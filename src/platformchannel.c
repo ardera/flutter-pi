@@ -1399,7 +1399,7 @@ int platch_send_error_event_json(
 }
 #endif
 
-bool jsvalue_equals(struct json_value *a, struct json_value *b) {
+bool jsvalue_equals(const struct json_value *a, const struct json_value *b) {
 	if (a == b) return true;
 	if ((a == NULL) ^ (b == NULL)) return false;
 	if (a->type != b->type) return false;
@@ -1453,15 +1453,27 @@ bool jsvalue_equals(struct json_value *a, struct json_value *b) {
 
 	return false;
 }
-struct json_value *jsobject_get(struct json_value *object, char *key) {
-	size_t i;
-	for (i = 0; i < object->size; i++)
-		if (strcmp(object->keys[i], key) == 0) break;
 
+struct json_value *jsobject_get(struct json_value *object, const char *key) {
+	for (unsigned int i = 0; i < object->size; i++) {
+		if (STREQ(object->keys[i], key)) {
+			return object->values + i;
+		}
+	}
 
-	if (i != object->size) return &(object->values[i]);
 	return NULL;
 }
+
+const struct json_value *jsobject_get_const(const struct json_value *object, const char *key) {
+	for (unsigned int i = 0; i < object->size; i++) {
+		if (STREQ(object->keys[i], key)) {
+			return object->values + i;
+		}
+	}
+
+	return NULL;
+}
+
 bool stdvalue_equals(const struct std_value *a, const struct std_value *b) {
 	if (a == b) return true;
 	if ((a == NULL) ^  (b == NULL)) return false;
@@ -1560,17 +1572,21 @@ bool stdvalue_equals(const struct std_value *a, const struct std_value *b) {
 }
 
 struct std_value *stdmap_get(struct std_value *map, const struct std_value *key) {
-	for (size_t i = 0; i < map->size; i++)
-		if (stdvalue_equals(&map->keys[i], key))
-			return &map->values[i];
+	for (unsigned int i = 0; i < map->size; i++) {
+		if (stdvalue_equals(map->keys + i, key)) {
+			return map->values + i;
+		}
+	}
 
 	return NULL;
 }
 
 const struct std_value *stdmap_get_const(const struct std_value *map, const struct std_value *key) {
-	for (size_t i = 0; i < map->size; i++)
-		if (stdvalue_equals(&map->keys[i], key))
-			return &map->values[i];
+	for (unsigned int i = 0; i < map->size; i++) {
+		if (stdvalue_equals(map->keys + i, key)) {
+			return map->values + i;
+		}
+	}
 
 	return NULL;
 }

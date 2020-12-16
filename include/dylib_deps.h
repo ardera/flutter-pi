@@ -6,6 +6,9 @@
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
 
+
+typedef uint64_t (*flutter_engine_get_current_time_t)();
+
 struct libflutter_engine {
 	void *handle;
 	FlutterEngineResult (*FlutterEngineCreateAOTData)(const FlutterEngineAOTDataSource* source, FlutterEngineAOTData* data_out);
@@ -595,6 +598,9 @@ struct libgl {
  * @returns NULL on failure, a heap-allocated @ref libudev on success.
  */
 struct libflutter_engine *libflutter_engine_load(char *name);
+
+/// TODO: Document
+struct libflutter_engine *libflutter_engine_load_for_runtime_mode(enum flutter_runtime_mode runtime_mode);
 
 /**
  * @brief Unload a previously loaded libflutter_engine by closing it dynamic library handle and freeing

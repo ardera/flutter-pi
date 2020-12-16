@@ -56,7 +56,7 @@ enum omxplayer_mgr_task_type {
 struct omxplayer_mgr_task {
 	enum omxplayer_mgr_task_type type;
 
-	const struct flutter_message_response_handle *responsehandle;
+	struct flutter_message_response_handle *responsehandle;
 	
 	union {
 		struct {

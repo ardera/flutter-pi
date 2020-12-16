@@ -25,6 +25,8 @@
 #include <collection.h>
 #include <keyboard.h>
 
+#define LOG_FLUTTERPI_ERROR(...) fprintf(stderr, "[flutter-pi] " __VA_ARGS__);
+
 #define LOAD_GL_PROC(flutterpi_struct, name) \
 	do { \
 		char proc_name[256]; \
@@ -159,7 +161,11 @@ enum flutter_runtime_mode {
 	kDebug, kRelease
 };
 
+struct flutterpi_private;
+
 struct flutterpi {
+	struct flutterpi_private *private;
+	
 	/// graphics stuff
 	struct {
 		struct drmdev *drmdev;
@@ -183,8 +189,6 @@ struct flutterpi {
 		EGLContext flutter_resource_uploading_context;
 		EGLContext compositor_context;
 		EGLSurface surface;
-
-		char      *renderer;
 
 		struct libegl *lib;
 		struct egl_client_info *client_info;
@@ -275,9 +279,8 @@ struct flutterpi {
 	/// IO
 	struct {
 		bool use_paths;
-		bool disable_text_input;
 
-		glob_t input_devices_glob;
+		glob_t *input_devices_glob;
 		
 		struct libinput *libinput;
 		sd_event_source *libinput_event_source;
@@ -321,14 +324,6 @@ struct platform_task {
 	void *userdata;
 };
 
-struct input_device_data {
-	int64_t flutter_device_id_offset;
-	struct keyboard_state *keyboard_state;
-	double x, y;
-	int64_t buttons;
-	uint64_t timestamp;
-};
-
 int flutterpi_create_egl_context(
 	struct flutterpi *flutterpi,
 	EGLContext *context_out,
@@ -368,6 +363,10 @@ int flutterpi_sd_event_add_io(
 	sd_event_io_handler_t callback,
 	void *userdata
 );
+
+bool flutterpi_get_cursor_enabled(struct flutterpi *flutterpi);
+
+int flutterpi_set_cursor_enabled(struct flutterpi *flutterpi, bool enabled);
 
 int flutterpi_schedule_exit(struct flutterpi *flutterpi);
 

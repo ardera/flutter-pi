@@ -49,6 +49,7 @@
 #include <pluginregistry.h>
 #include <texture_registry.h>
 #include <dylib_deps.h>
+#include <user_input.h>
 
 #include <plugins/text_input.h>
 #include <plugins/raw_keyboard.h>
@@ -128,16 +129,15 @@ SEE ALSO:\n\
     https://github.com/flutter/engine/blob/master/shell/common/switches.h\n\
 ";
 
-//struct flutterpi flutterpi;
-
-struct platform_message_response_handle {
-	struct flutterpi *flutterpi;
-	const FlutterPlatformMessageResponseHandle *flutter_handle;
-};
-
 struct flutterpi_flutter_task {
 	struct flutterpi *flutterpi;
 	FlutterTask task;
+};
+
+struct flutterpi_private {
+	struct flutterpi *flutterpi;
+	struct text_input_plugin *textin;
+	struct raw_keyboard_plugin *rawkb;
 };
 
 // OpenGL contexts are thread-local. So this needs to be thread-local as well.
@@ -310,26 +310,10 @@ static void flutterpi_on_platform_message(
 
 	fpi = userdata;
 
-	response_handle = malloc(sizeof *response_handle);
-	if (response_handle == NULL) {
-		return;
-	}
-
-	response_handle->flutterpi = fpi;
-	response_handle->flutter_handle = message->response_handle;
-
-	/*
-	ok = plugin_registry_on_platform_message(
-		fpi->plugin_registry,
-		message->channel,
-		message->message,
-		message->message_size,
-		response_handle
-	);
+	ok = fm_on_platform_message(fpi->flutter_messenger, message->response_handle, message->channel, message->message, message->message_size);
 	if (ok != 0) {
-		fprintf(stderr, "[flutter-pi] Error handling platform message. plugin_registry_on_platform_message: %s\n", strerror(ok));
+		fprintf(stderr, "[flutter-pi] Error handling platform message. fm_on_platform_message: %s\n", strerror(ok));
 	}
-	*/
 }
 
 /// Called on the main thread when a new frame request may have arrived.
@@ -1101,7 +1085,7 @@ void on_pageflip_event(
 
 	cqueue_unlock(&flutterpi->frame_queue);
 
-	ok = compositor_on_page_flip(sec, usec);
+	ok = compositor_on_page_flip(flutterpi->compositor, sec, usec);
 	if (ok != 0) {
 		fprintf(stderr, "[flutter-pi] Error notifying compositor about page flip. compositor_on_page_flip: %s\n", strerror(ok));
 	}
@@ -1564,31 +1548,18 @@ static int init_display(struct flutterpi *flutterpi) {
 		EGL_NONE
 	};
 
-	struct libegl *libegl = libegl_load();
-
-	struct egl_client_info *client_info = egl_client_info_new(libegl);
-
-	const char *egl_exts_client, *egl_exts_dpy, *gl_exts;
-
-	egl_exts_client = eglQueryString(EGL_NO_DISPLAY, EGL_EXTENSIONS);
-
-	ok = load_egl_gl_procs();
-	if (ok != 0) {
-		fprintf(stderr, "[flutter-pi] Could not load EGL / GL ES procedure addresses! error: %s\n", strerror(ok));
-		return ok;
-	}
-
-	eglGetError();
+	flutterpi->egl.lib = libegl_load();
+	flutterpi->egl.client_info = egl_client_info_new(flutterpi->egl.lib);
 
 	EGLDisplay display;
-	if (libegl->eglGetPlatformDisplay != NULL) {
-		display = libegl->eglGetPlatformDisplay(EGL_PLATFORM_GBM_KHR, flutterpi->gbm.device, NULL);
+	if (flutterpi->egl.lib->eglGetPlatformDisplay != NULL) {
+		display = flutterpi->egl.lib->eglGetPlatformDisplay(EGL_PLATFORM_GBM_KHR, flutterpi->gbm.device, NULL);
 		if ((egl_error = eglGetError()) != EGL_SUCCESS) {
 			fprintf(stderr, "[flutter-pi] Could not get EGL display! eglGetPlatformDisplay: 0x%08X\n", egl_error);
 			return EIO;
 		}
-	} else if (client_info->supports_ext_platform_base && client_info->supports_khr_platform_gbm) {
-		display = libegl->eglGetPlatformDisplayEXT(EGL_PLATFORM_GBM_KHR, flutterpi->gbm.device, NULL);
+	} else if (flutterpi->egl.client_info->supports_ext_platform_base && flutterpi->egl.client_info->supports_khr_platform_gbm) {
+		display = flutterpi->egl.lib->eglGetPlatformDisplayEXT(EGL_PLATFORM_GBM_KHR, flutterpi->gbm.device, NULL);
 		if ((egl_error = eglGetError()) != EGL_SUCCESS) {
 			fprintf(stderr, "[flutter-pi] Could not get EGL display! eglGetPlatformDisplayEXT: 0x%08X\n", egl_error);
 			return EIO;
@@ -1602,20 +1573,6 @@ static int init_display(struct flutterpi *flutterpi) {
 	}
 
 	flutterpi->egl.display = display;
-
-#ifdef EGL_KHR_platform_gbm
-	flutterpi->egl.display = flutterpi->egl.getPlatformDisplay(EGL_PLATFORM_GBM_KHR, flutterpi->gbm.device, NULL);
-	if ((egl_error = eglGetError()) != EGL_SUCCESS) {
-		fprintf(stderr, "[flutter-pi] Could not get EGL display! eglGetPlatformDisplay: 0x%08X\n", egl_error);
-		return EIO;
-	}
-#else
-	flutterpi->egl.display = eglGetDisplay((void*) flutterpi->gbm.device);
-	if ((egl_error = eglGetError()) != EGL_SUCCESS) {
-		fprintf(stderr, "[flutter-pi] Could not get EGL display! eglGetDisplay: 0x%08X\n", egl_error);
-		return EIO;
-	}
-#endif
 	
 	eglInitialize(flutterpi->egl.display, &major, &minor);
 	if ((egl_error = eglGetError()) != EGL_SUCCESS) {
@@ -1623,14 +1580,18 @@ static int init_display(struct flutterpi *flutterpi) {
 		return EIO;
 	}
 
-	egl_exts_dpy = eglQueryString(flutterpi->egl.display, EGL_EXTENSIONS);
+	flutterpi->egl.display_info = egl_display_info_new(flutterpi->egl.lib, major, minor, flutterpi->egl.display);
 
 	printf("EGL information:\n");
 	printf("  version: %s\n", eglQueryString(flutterpi->egl.display, EGL_VERSION));
 	printf("  vendor: \"%s\"\n", eglQueryString(flutterpi->egl.display, EGL_VENDOR));
-	printf("  client extensions: \"%s\"\n", egl_exts_client);
-	printf("  display extensions: \"%s\"\n", egl_exts_dpy);
+	printf("  client extensions: \"%s\"\n", flutterpi->egl.display_info->client_extensions);
+	printf("  display extensions: \"%s\"\n", flutterpi->egl.display_info->display_extensions);
 	printf("===================================\n");
+
+	if (!flutterpi->egl.display_info->supports_12) {
+		fprintf(stderr, "[flutter-pi] EGL 1.2 or newer is required.\n");
+	}
 
 	eglBindAPI(EGL_OPENGL_ES_API);
 	if ((egl_error = eglGetError()) != EGL_SUCCESS) {
@@ -1731,7 +1692,7 @@ static int init_display(struct flutterpi *flutterpi) {
 	flutterpi->gl.renderer = (char*) glGetString(GL_RENDERER);
 	flutterpi->gl.extensions = (char*) glGetString(GL_EXTENSIONS);
 
-	flutterpi->gl.is_vc4 = strcmp(flutterpi->gl.renderer, "VC4 V3D 2.1") == 0;
+	flutterpi->gl.is_vc4 = strncmp(flutterpi->gl.renderer, "VC4 V3D", strlen("VC4 V3D")) == 0;
 
 	if (flutterpi->gl.is_vc4) {
 		printf(
@@ -1824,7 +1785,7 @@ static int init_display(struct flutterpi *flutterpi) {
 	//   to use the direct-rendering infrastructure; i.e. the open the devices inside /dev/dri/
 	//   as read-write. flutter-pi must be run as root then.
 	// sometimes it works fine without root, sometimes it doesn't.
-	if (strncmp(flutterpi->egl.renderer, "llvmpipe", sizeof("llvmpipe")-1) == 0) {
+	if (strncmp(flutterpi->gl.renderer, "llvmpipe", sizeof("llvmpipe")-1) == 0) {
 		printf("WARNING: Detected llvmpipe (ie. software rendering) as the OpenGL ES renderer.\n"
 			   "         Check that flutter-pi has permission to use the 3D graphics hardware,\n"
 			   "         or try running it as root.\n"
@@ -1840,10 +1801,24 @@ static int init_display(struct flutterpi *flutterpi) {
 
 	/// miscellaneous initialization
 	/// initialize the compositor
-	ok = compositor_initialize(flutterpi->drm.drmdev);
-	if (ok != 0) {
-		return ok;
+	struct compositor *compositor = compositor_new(
+		flutterpi->drm.drmdev,
+		flutterpi->gbm.surface,
+		flutterpi->egl.lib,
+		flutterpi->egl.display,
+		flutterpi->egl.surface,
+		flutterpi->egl.flutter_render_context,
+		flutterpi->egl.display_info,
+		NULL,
+		NULL,
+		NULL,
+		NULL
+	);
+	if (compositor == NULL) {
+		return EINVAL;
 	}
+
+	flutterpi->compositor = compositor;
 
 	/// initialize the frame queue
 	ok = cqueue_init(&flutterpi->frame_queue, sizeof(struct frame), QUEUE_DEFAULT_MAX_SIZE);
@@ -1856,8 +1831,12 @@ static int init_display(struct flutterpi *flutterpi) {
 
 	return 0;
 
+	// TODO: proper error handling
+
 	fail_close_drmdev:
-	drmdev_destroy(drmdev);
+	drmdev_destroy(flutterpi->drm.drmdev);
+
+	return ok;
 }
 
 static bool flutterpi_texture_frame_callback(
@@ -1871,6 +1850,134 @@ static bool flutterpi_texture_frame_callback(
 	return texreg_on_external_texture_frame_callback(flutterpi->texture_registry, texture_id, width, height, texture_out);
 }
 
+/**************
+ * USER INPUT *
+ **************/
+static void on_flutter_pointer_event(void *userdata, const FlutterPointerEvent *events, size_t n_events) {
+	FlutterEngineResult engine_result;
+	struct flutterpi *flutterpi;
+
+	flutterpi = userdata;
+
+	engine_result = flutterpi->flutter.libflutter_engine->FlutterEngineSendPointerEvent(
+		flutterpi->flutter.engine,
+		events,
+		n_events
+	);
+
+	if (engine_result != kSuccess) {
+		LOG_FLUTTERPI_ERROR("Error sending touchscreen / mouse events to flutter. FlutterEngineSendPointerEvent: %s\n", FLUTTER_RESULT_TO_STRING(engine_result));
+		flutterpi_schedule_exit(flutterpi);
+	}
+}
+
+static void on_utf8_character(void *userdata, uint8_t *character) {
+	FlutterEngineResult engine_result;
+	struct flutterpi *flutterpi;
+	int ok;
+
+	flutterpi = userdata;
+
+#ifdef BUILD_TEXT_INPUT_PLUGIN
+	if (flutterpi->private->textin != NULL) {
+		ok = textin_on_utf8_char(flutterpi->private->textin, character);
+		if (ok != 0) {
+			LOG_FLUTTERPI_ERROR("Error handling keyboard event. textin_on_utf8_char: %s\n", strerror(ok));
+			flutterpi_schedule_exit(flutterpi);
+		}
+	}
+#endif
+}
+
+static void on_xkb_keysym(void *userdata, xkb_keysym_t keysym) {
+	FlutterEngineResult engine_result;
+	struct flutterpi *flutterpi;
+	int ok;
+
+	flutterpi = userdata;
+
+#ifdef BUILD_TEXT_INPUT_PLUGIN
+	if (flutterpi->private->textin != NULL) {
+		ok = textin_on_xkb_keysym(flutterpi->private->textin, keysym);
+		if (ok != 0) {
+			LOG_FLUTTERPI_ERROR("Error handling keyboard event. textin_on_xkb_keysym: %s\n", strerror(ok));
+			flutterpi_schedule_exit(flutterpi);
+		}
+	}
+#endif
+}
+
+static void on_gtk_keyevent(
+	void *userdata,
+	uint32_t unicode_scalar_values,
+    uint32_t key_code,
+    uint32_t scan_code,
+    uint32_t modifiers,
+    bool is_down
+) {
+	FlutterEngineResult engine_result;
+	struct flutterpi *flutterpi;
+	int ok;
+
+	flutterpi = userdata;
+
+#ifdef BUILD_RAW_KEYBOARD_PLUGIN
+	if (flutterpi->private->rawkb != NULL) {
+		ok = rawkb_send_gtk_keyevent(
+			flutterpi->private->rawkb,
+			unicode_scalar_values,
+			key_code,
+			scan_code,
+			modifiers,
+			is_down
+		);
+		if (ok != 0) {
+			LOG_FLUTTERPI_ERROR("Error handling keyboard event. rawkb_send_gtk_keyevent: %s\n", strerror(ok));
+			flutterpi_schedule_exit(flutterpi);
+		}
+	}
+#endif
+}
+
+static void on_set_cursor_enabled(void *userdata, bool enabled) {
+	struct flutterpi *flutterpi;
+	int ok;
+
+	flutterpi = userdata;
+
+	ok = compositor_apply_cursor_state(
+		flutterpi->compositor,
+		enabled,
+		flutterpi->view.rotation,
+		flutterpi->display.pixel_ratio
+	);
+	if (ok != 0) {
+		LOG_FLUTTERPI_ERROR("Error enabling / disabling mouse cursor. compositor_apply_cursor_state: %s\n", strerror(ok));
+	}
+}
+
+static void on_move_cursor(void *userdata, unsigned int x, unsigned int y) {
+	struct flutterpi *flutterpi;
+	int ok;
+
+	flutterpi = userdata;
+
+	ok = compositor_set_cursor_pos(flutterpi->compositor, x, y);
+	if (ok != 0) {
+		LOG_FLUTTERPI_ERROR("Error moving mouse cursor. compositor_set_cursor_pos: %s\n", strerror(ok));
+	}
+}
+
+const static struct user_input_interface user_input_interface = {
+    .on_flutter_pointer_event = on_flutter_pointer_event,
+    .on_utf8_character = on_utf8_character,
+    .on_xkb_keysym = on_xkb_keysym,
+    .on_gtk_keyevent = on_gtk_keyevent,
+    .on_set_cursor_enabled = on_set_cursor_enabled,
+    .on_move_cursor = on_move_cursor
+};
+
+
 /**************************
  * FLUTTER INITIALIZATION *
  **************************/
@@ -1880,6 +1987,7 @@ static int init_application(struct flutterpi *fpi) {
 	struct texture_registry *texreg;
 	FlutterEngineAOTData aot_data;
 	FlutterEngineResult engine_result;
+	FlutterCompositor flutter_compositor;
 	int ok;
 
 	engine_lib = NULL;
@@ -1917,6 +2025,11 @@ static int init_application(struct flutterpi *fpi) {
 		fprintf(stderr, "[flutter-pi] Could not create texture registry. texreg_new\n");
 		return EINVAL;
 	}
+
+	compositor_fill_flutter_compositor(
+		fpi->compositor,
+		&flutter_compositor
+	);
 
 	bool engine_is_aot = engine_lib->FlutterEngineRunsAOTCompiledDartCode();
 	if ((engine_is_aot == true) && (fpi->flutter.runtime_mode != kRelease)) {
@@ -1956,7 +2069,7 @@ static int init_application(struct flutterpi *fpi) {
 		}
 	}
 
-	engine_result = FlutterEngineInitialize(
+	engine_result = engine_lib->FlutterEngineInitialize(
 		FLUTTER_ENGINE_VERSION,
 		&(FlutterRendererConfig) {
 			.type = kOpenGL,
@@ -2029,6 +2142,23 @@ static int init_application(struct flutterpi *fpi) {
 	fpi->texture_registry = texreg;
 	texreg_set_engine(texreg, fpi->flutter.engine);
 
+	compositor_set_engine_callbacks(
+		fpi->compositor,
+		engine_lib->FlutterEngineGetCurrentTime,
+		engine_lib->FlutterEngineTraceEventDurationBegin,
+		engine_lib->FlutterEngineTraceEventDurationEnd,
+		engine_lib->FlutterEngineTraceEventInstant
+	);
+
+	fpi->private = malloc(sizeof *fpi->private);
+	if (fpi->private == NULL) {
+		return ENOMEM;
+	}
+
+	fpi->private->flutterpi = fpi;
+	fpi->private->rawkb = rawkb_get_instance_via_plugin_registry(fpi->plugin_registry);
+	fpi->private->textin = textin_get_instance_via_plugin_registry(fpi->plugin_registry);
+
 	// update window size
 	engine_result = engine_lib->FlutterEngineSendWindowMetricsEvent(
 		fpi->flutter.engine,
@@ -2044,7 +2174,7 @@ static int init_application(struct flutterpi *fpi) {
 		return EINVAL;
 	}
 
-	engine_result = FlutterEngineRunInitialized(fpi->flutter.engine);
+	engine_result = engine_lib->FlutterEngineRunInitialized(fpi->flutter.engine);
 	if (engine_result != kSuccess) {
 		fprintf(stderr, "[flutter-pi] Could not run the flutter engine. FlutterEngineRunInitialized: %s\n", FLUTTER_RESULT_TO_STRING(engine_result));
 		return EINVAL;
@@ -2076,604 +2206,641 @@ int flutterpi_schedule_exit(struct flutterpi *flutterpi) {
 	return 0;
 }
 
-/**************
- * USER INPUT *
- **************/
-static int libinput_interface_on_open(const char *path, int flags, void *userdata) {
-	(void) userdata;
-	return open(path, flags | O_CLOEXEC);
-}
-
-static void libinput_interface_on_close(int fd, void *userdata) {
-	(void) userdata;
-	close(fd);
-}
-
-static const struct libinput_interface flutterpi_libinput_interface = {
-	.open_restricted = libinput_interface_on_open,
-	.close_restricted = libinput_interface_on_close 
-};
-
-static int on_libinput_ready(sd_event_source *s, int fd, uint32_t revents, void *userdata) {
-	struct libinput_event_keyboard *keyboard_event;
-	struct libinput_event_pointer *pointer_event;
-	struct libinput_event_touch *touch_event;
-	struct input_device_data *data;
-	enum libinput_event_type type;
-	struct libinput_device *device;
-	struct libinput_event *event;
-	FlutterPointerEvent pointer_events[64];
-	FlutterEngineResult result;
-	struct flutterpi *flutterpi;
-	int n_pointer_events = 0;
+static int setup_paths(
+	const char *asset_bundle_path,
+	enum flutter_runtime_mode runtime_mode,
+	char **kernel_blob_path_out,
+	char **icu_data_path_out,
+	char **app_elf_path_out
+) {
+	char *kernel_blob_path;
+	char *icu_data_path;
+	char *app_elf_path;
 	int ok;
-
-	(void) s;
-	(void) fd;
-	(void) revents;
-
-	flutterpi = userdata;
 	
-	ok = libinput_dispatch(flutterpi->input.libinput);
-	if (ok < 0) {
-		fprintf(stderr, "[flutter-pi] Could not dispatch libinput events. libinput_dispatch: %s\n", strerror(-ok));
-		return -ok;
-	}
+#	define PATH_EXISTS(path) (access((path), R_OK) == 0)
 
-	while (event = libinput_get_event(flutterpi->input.libinput), event != NULL) {
-		type = libinput_event_get_type(event);
-
-		if (type == LIBINPUT_EVENT_DEVICE_ADDED) {
-			device = libinput_event_get_device(event);
-			
-			data = calloc(1, sizeof(*data));
-			data->flutter_device_id_offset = flutterpi->input.next_unused_flutter_device_id;
-
-			libinput_device_set_user_data(device, data);
-
-			if (libinput_device_has_capability(device, LIBINPUT_DEVICE_CAP_POINTER)) {
-				pointer_events[n_pointer_events++] = (FlutterPointerEvent) {
-					.struct_size = sizeof(FlutterPointerEvent),
-					.phase = kAdd,
-					.timestamp = flutterpi->flutter.libflutter_engine->FlutterEngineGetCurrentTime(),
-					.x = 0.0,
-					.y = 0.0,
-					.device = flutterpi->input.next_unused_flutter_device_id++,
-					.signal_kind = kFlutterPointerSignalKindNone,
-					.scroll_delta_x = 0.0,
-					.scroll_delta_y = 0.0,
-					.device_kind = kFlutterPointerDeviceKindMouse,
-					.buttons = 0
-				};
-
-				compositor_apply_cursor_state(true, flutterpi->view.rotation, flutterpi->display.pixel_ratio);
-			} else if (libinput_device_has_capability(device, LIBINPUT_DEVICE_CAP_TOUCH)) {
-				int touch_count = libinput_device_touch_get_touch_count(device);
-
-				for (int i = 0; i < touch_count; i++) {
-					pointer_events[n_pointer_events++] = (FlutterPointerEvent) {
-						.struct_size = sizeof(FlutterPointerEvent),
-						.phase = kAdd,
-						.timestamp = flutterpi->flutter.libflutter_engine->FlutterEngineGetCurrentTime(),
-						.x = 0.0,
-						.y = 0.0,
-						.device = flutterpi->input.next_unused_flutter_device_id++,
-						.signal_kind = kFlutterPointerSignalKindNone,
-						.scroll_delta_x = 0.0,
-						.scroll_delta_y = 0.0,
-						.device_kind = kFlutterPointerDeviceKindTouch,
-						.buttons = 0
-					};
-				}
-			} else if (libinput_device_has_capability(device, LIBINPUT_DEVICE_CAP_KEYBOARD)) {
-#if BUILD_TEXT_INPUT_PLUGIN || BUILD_RAW_KEYBOARD_PLUGIN
-				if (flutterpi.input.disable_text_input == false) {
-					data->keyboard_state = keyboard_state_new(flutterpi.input.keyboard_config, NULL, NULL);
-				}
-#endif
-			}
-		} else if (type == LIBINPUT_EVENT_DEVICE_REMOVED) {
-			device = libinput_event_get_device(event);
-			data = libinput_device_get_user_data(device);
-
-			if (data) {
-				if (data->keyboard_state) {
-					free(data->keyboard_state);
-				}
-				free(data);
-			}
-			
-			libinput_device_set_user_data(device, NULL);
-		} else if (LIBINPUT_EVENT_IS_TOUCH(type)) {
-			touch_event = libinput_event_get_touch_event(event);
-			data = libinput_device_get_user_data(libinput_event_get_device(event));
-
-			if ((type == LIBINPUT_EVENT_TOUCH_DOWN) || (type == LIBINPUT_EVENT_TOUCH_MOTION) || (type == LIBINPUT_EVENT_TOUCH_UP)) {
-				int slot = libinput_event_touch_get_slot(touch_event);
-				if (slot < 0) {
-					slot = 0;
-				}
-
-				if ((type == LIBINPUT_EVENT_TOUCH_DOWN) || (type == LIBINPUT_EVENT_TOUCH_MOTION)) {
-					double x = libinput_event_touch_get_x_transformed(touch_event, flutterpi->display.width);
-					double y = libinput_event_touch_get_y_transformed(touch_event, flutterpi->display.height);
-
-					apply_flutter_transformation(flutterpi->view.display_to_view_transform, &x, &y);
-
-					FlutterPointerPhase phase;
-					if (type == LIBINPUT_EVENT_TOUCH_DOWN) {
-						phase = kDown;
-					} else if (type == LIBINPUT_EVENT_TOUCH_MOTION) {
-						phase = kMove;
-					}
-
-					pointer_events[n_pointer_events++] = (FlutterPointerEvent) {
-						.struct_size = sizeof(FlutterPointerEvent),
-						.phase = phase,
-						.timestamp = libinput_event_touch_get_time_usec(touch_event),
-						.x = x,
-						.y = y,
-						.device = data->flutter_device_id_offset + slot,
-						.signal_kind = kFlutterPointerSignalKindNone,
-						.scroll_delta_x = 0.0,
-						.scroll_delta_y = 0.0,
-						.device_kind = kFlutterPointerDeviceKindTouch,
-						.buttons = 0
-					};
-
-					data->x = x;
-					data->y = y;
-					data->timestamp = libinput_event_touch_get_time_usec(touch_event);
-				} else {
-					pointer_events[n_pointer_events++] = (FlutterPointerEvent) {
-						.struct_size = sizeof(FlutterPointerEvent),
-						.phase = kUp,
-						.timestamp = libinput_event_touch_get_time_usec(touch_event),
-						.x = data->x,
-						.y = data->y,
-						.device = data->flutter_device_id_offset + slot,
-						.signal_kind = kFlutterPointerSignalKindNone,
-						.scroll_delta_x = 0.0,
-						.scroll_delta_y = 0.0,
-						.device_kind = kFlutterPointerDeviceKindTouch,
-						.buttons = 0
-					};
-				}
-			}
-		} else if (LIBINPUT_EVENT_IS_POINTER(type)) {
-			pointer_event = libinput_event_get_pointer_event(event);
-			data = libinput_device_get_user_data(libinput_event_get_device(event));
-
-			if (type == LIBINPUT_EVENT_POINTER_MOTION) {
-				double dx = libinput_event_pointer_get_dx(pointer_event);
-				double dy = libinput_event_pointer_get_dy(pointer_event);
-
-				data->timestamp = libinput_event_pointer_get_time_usec(pointer_event);
-
-				apply_flutter_transformation(FLUTTER_ROTZ_TRANSFORMATION(flutterpi->view.rotation), &dx, &dy);
-
-				double newx = flutterpi->input.cursor_x + dx;
-				double newy = flutterpi->input.cursor_y + dy;
-
-				if (newx < 0) {
-					newx = 0;
-				} else if (newx > flutterpi->display.width - 1) {
-					newx = flutterpi->display.width - 1;
-				}
-
-				if (newy < 0) {
-					newy = 0;
-				} else if (newy > flutterpi->display.height - 1) {
-					newy = flutterpi->display.height - 1;
-				}
-
-				flutterpi->input.cursor_x = newx;
-				flutterpi->input.cursor_y = newy;
-
-				apply_flutter_transformation(flutterpi->view.display_to_view_transform, &newx, &newy);
-
-				pointer_events[n_pointer_events++] = (FlutterPointerEvent) {
-					.struct_size = sizeof(FlutterPointerEvent),
-					.phase = data->buttons & kFlutterPointerButtonMousePrimary ? kMove : kHover,
-					.timestamp = libinput_event_pointer_get_time_usec(pointer_event),
-					.x = newx,
-					.y = newy,
-					.device = data->flutter_device_id_offset,
-					.signal_kind = kFlutterPointerSignalKindNone,
-					.scroll_delta_x = 0.0,
-					.scroll_delta_y = 0.0,
-					.device_kind = kFlutterPointerDeviceKindMouse,
-					.buttons = data->buttons
-				};
-
-				compositor_set_cursor_pos(round(flutterpi->input.cursor_x), round(flutterpi->input.cursor_y));
-			} else if (type == LIBINPUT_EVENT_POINTER_MOTION_ABSOLUTE) {
-				double x = libinput_event_pointer_get_absolute_x_transformed(pointer_event, flutterpi->display.width);
-				double y = libinput_event_pointer_get_absolute_y_transformed(pointer_event, flutterpi->display.height);
-
-				flutterpi->input.cursor_x = x;
-				flutterpi->input.cursor_y = y;
-
-				data->x = x;
-				data->y = y;
-				data->timestamp = libinput_event_pointer_get_time_usec(pointer_event);
-
-				apply_flutter_transformation(flutterpi->view.display_to_view_transform, &x, &y);
-
-				pointer_events[n_pointer_events++] = (FlutterPointerEvent) {
-					.struct_size = sizeof(FlutterPointerEvent),
-					.phase = data->buttons & kFlutterPointerButtonMousePrimary ? kMove : kHover,
-					.timestamp = libinput_event_pointer_get_time_usec(pointer_event),
-					.x = x,
-					.y = y,
-					.device = data->flutter_device_id_offset,
-					.signal_kind = kFlutterPointerSignalKindNone,
-					.scroll_delta_x = 0.0,
-					.scroll_delta_y = 0.0,
-					.device_kind = kFlutterPointerDeviceKindMouse,
-					.buttons = data->buttons
-				};
-
-				compositor_set_cursor_pos((int) round(x), (int) round(y));
-			} else if (type == LIBINPUT_EVENT_POINTER_BUTTON) {
-				uint32_t button = libinput_event_pointer_get_button(pointer_event);
-				enum libinput_button_state button_state = libinput_event_pointer_get_button_state(pointer_event);
-
-				int64_t flutter_button = 0;
-				if (button == BTN_LEFT) {
-					flutter_button = kFlutterPointerButtonMousePrimary;
-				} else if (button == BTN_RIGHT) {
-					flutter_button = kFlutterPointerButtonMouseSecondary;
-				} else if (button == BTN_MIDDLE) {
-					flutter_button = kFlutterPointerButtonMouseMiddle;
-				} else if (button == BTN_BACK) {
-					flutter_button = kFlutterPointerButtonMouseBack;
-				} else if (button == BTN_FORWARD) {
-					flutter_button = kFlutterPointerButtonMouseForward;
-				}
-
-				int64_t new_flutter_button_state = data->buttons;
-				if (button_state == LIBINPUT_BUTTON_STATE_RELEASED) {
-					new_flutter_button_state &= ~flutter_button;
-				} else {
-					new_flutter_button_state |= flutter_button;
-				}
-
-				if (new_flutter_button_state != data->buttons) {
-					FlutterPointerPhase phase;
-					if (new_flutter_button_state == 0) {
-						phase = kUp;
-					} else if (data->buttons == 0) {
-						phase = kDown;
-					} else {
-						phase = kMove;
-					}
-
-					double x = flutterpi->input.cursor_x;
-					double y = flutterpi->input.cursor_y;
-
-					apply_flutter_transformation(flutterpi->view.display_to_view_transform, &x, &y);
-
-					pointer_events[n_pointer_events++] = (FlutterPointerEvent) {
-						.struct_size = sizeof(FlutterPointerEvent),
-						.phase = phase,
-						.timestamp = libinput_event_pointer_get_time_usec(pointer_event),
-						.x = x,
-						.y = y,
-						.device = data->flutter_device_id_offset,
-						.signal_kind = kFlutterPointerSignalKindNone,
-						.scroll_delta_x = 0.0,
-						.scroll_delta_y = 0.0,
-						.device_kind = kFlutterPointerDeviceKindMouse,
-						.buttons = new_flutter_button_state
-					};
-
-					data->buttons = new_flutter_button_state;
-				}
-			} else if (type == LIBINPUT_EVENT_POINTER_AXIS) {
-
-			}
-		} else if (LIBINPUT_EVENT_IS_KEYBOARD(type) && !flutterpi.input.disable_text_input) {
-#if BUILD_RAW_KEYBOARD_PLUGIN || BUILD_TEXT_INPUT_PLUGIN
-			struct keyboard_modifier_state mods;
-			enum libinput_key_state key_state;
-			xkb_keysym_t keysym;
-			uint32_t codepoint, plain_codepoint;
-			uint16_t evdev_keycode;
-
-			keyboard_event = libinput_event_get_keyboard_event(event);
-			data = libinput_device_get_user_data(libinput_event_get_device(event));
-			evdev_keycode = libinput_event_keyboard_get_key(keyboard_event);
-			key_state = libinput_event_keyboard_get_key_state(keyboard_event);
-
-			ok = keyboard_state_process_key_event(
-				data->keyboard_state,
-				evdev_keycode,
-				(int32_t) key_state,
-				&keysym,
-				&codepoint
-			);
-
-			plain_codepoint = keyboard_state_get_plain_codepoint(data->keyboard_state, evdev_keycode, 1);
-
-#ifdef BUILD_RAW_KEYBOARD_PLUGIN
-			rawkb_send_gtk_keyevent(
-				plain_codepoint,
-				(uint32_t) keysym,
-				evdev_keycode + 8,
-				keyboard_state_is_shift_active(data->keyboard_state)
-				| (keyboard_state_is_capslock_active(data->keyboard_state) << 1)
-				| (keyboard_state_is_ctrl_active(data->keyboard_state) << 2)
-				| (keyboard_state_is_alt_active(data->keyboard_state) << 3)
-				| (keyboard_state_is_numlock_active(data->keyboard_state) << 4)
-				| (keyboard_state_is_meta_active(data->keyboard_state) << 28),
-				key_state
-			);
-#endif
-
-#ifdef BUILD_TEXT_INPUT_PLUGIN
-			if (codepoint) {
-				if (codepoint < 0x80) {
-					if (isprint(codepoint)) {
-						textin_on_utf8_char((uint8_t[1]) {codepoint});
-					}
-				} else if (codepoint < 0x800) {
-					textin_on_utf8_char((uint8_t[2]) {
-						0xc0 | (codepoint >> 6),
-						0x80 | (codepoint & 0x3f)
-					});
-				} else if (codepoint < 0x10000) {
-					if (!(codepoint >= 0xD800 && codepoint < 0xE000) && !(codepoint == 0xFFFF)) {
-						textin_on_utf8_char((uint8_t[3]) {
-							0xe0 | (codepoint >> 12),
-							0x80 | ((codepoint >> 6) & 0x3f),
-							0x80 | (codepoint & 0x3f)
-						});
-					}
-				} else if (codepoint < 0x110000) {
-					textin_on_utf8_char((uint8_t[4]) {
-						0xf0 | (codepoint >> 18),
-						0x80 | ((codepoint >> 12) & 0x3f),
-						0x80 | ((codepoint >> 6) & 0x3f),
-						0x80 | (codepoint & 0x3f)
-					});
-				}
-			}
-			
-			if (keysym) {
-				textin_on_xkb_keysym(keysym);
-			}
-#endif
-#endif
-		}
-
-		libinput_event_destroy(event);
-		event = NULL;
-	}
-
-	if (n_pointer_events > 0) {
-		result = flutterpi->flutter.libflutter_engine->FlutterEngineSendPointerEvent(
-			flutterpi->flutter.engine,
-			pointer_events,
-			n_pointer_events
-		);
-		if (result != kSuccess) {
-			fprintf(stderr, "[flutter-pi] Could not add mouse as flutter input device. FlutterEngineSendPointerEvent: %s\n", FLUTTER_RESULT_TO_STRING(result));
-		}
-	}
-
-	return 0;
-}
-
-static struct libinput *try_create_udev_backed_libinput(struct flutterpi *flutterpi) {
-#ifdef BUILD_WITHOUT_UDEV_SUPPORT
-	return NULL;
-#else
-	struct libinput *libinput;
-	struct udev *udev;
-	int ok;
-
-	udev = udev_new();
-	if (udev == NULL) {
-		perror("[flutter-pi] Could not create udev instance. udev_new");
-		return NULL;
-	}
-
-	libinput = libinput_udev_create_context(
-		&flutterpi_libinput_interface,
-		flutterpi,
-		udev
-	);
-	if (libinput == NULL) {
-		perror("[flutter-pi] Could not create libinput instance. libinput_udev_create_context");
-		udev_unref(udev);
-		return NULL;
-	}
-
-	udev_unref(udev);
-
-	ok = libinput_udev_assign_seat(libinput, "seat0");
-	if (ok < 0) {
-		fprintf(stderr, "[flutter-pi] Could not assign udev seat to libinput instance. libinput_udev_assign_seat: %s\n", strerror(-ok));
-		libinput_unref(libinput);
-		return NULL;
-	}
-
-	return libinput;
-
-#endif
-}
-
-static struct libinput *try_create_path_backed_libinput(struct flutterpi *flutterpi) {
-	struct libinput_device *dev;
-	struct libinput *libinput;
-	
-	libinput = libinput_path_create_context(
-		&flutterpi_libinput_interface,
-		flutterpi
-	);
-	if (libinput == NULL) {
-		perror("[flutter-pi] Could not create path-backed libinput instance. libinput_path_create_context");
-		return NULL;
-	}
-
-	for (unsigned int i = 0; i < flutterpi->input.input_devices_glob.gl_pathc; i++) {
-		dev = libinput_path_add_device(
-			libinput,
-			flutterpi->input.input_devices_glob.gl_pathv[i]
-		);
-		if (dev == NULL) {
-			fprintf(
-				stderr,
-				"[flutter-pi] Could not add input device \"%s\" to libinput. libinput_path_add_device: %s\n",
-				flutterpi->input.input_devices_glob.gl_pathv[i],
-				strerror(errno)
-			);
-		}
-	}
-
-	return libinput;
-}
-
-static int init_user_input(struct flutterpi *flutterpi) {
-	sd_event_source *libinput_event_source;
-	struct keyboard_config *kbdcfg;
-	struct libinput *libinput;
-	int ok;
-
-	libinput_event_source = NULL;
-	kbdcfg = NULL;
-	libinput = NULL;
-
-	if (flutterpi->input.use_paths == false) {
-		libinput = try_create_udev_backed_libinput(flutterpi);
-	}
-
-	if (libinput == NULL) {
-		libinput = try_create_path_backed_libinput(flutterpi);
+	if (!PATH_EXISTS(asset_bundle_path)) {
+		fprintf(stderr, "Asset Bundle Directory \"%s\" does not exist\n", asset_bundle_path);
+		return ENOENT;
 	}
 	
-	if (libinput != NULL) {
-		ok = sd_event_add_io(
-			flutterpi->event_loop,
-			&libinput_event_source,
-			libinput_get_fd(libinput),
-			EPOLLIN | EPOLLRDHUP | EPOLLPRI,
-			on_libinput_ready,
-			flutterpi
-		);
-		if (ok < 0) {
-			fprintf(stderr, "[flutter-pi] Could not add libinput callback to main loop. sd_event_add_io: %s\n", strerror(-ok));
-			libinput_unref(libinput);
-			return -ok;
-		}
-
-#ifdef BUILD_TEXT_INPUT_PLUGIN
-		if (flutterpi.input.disable_text_input == false) {
-			kbdcfg = keyboard_config_new();
-			if (kbdcfg == NULL) {
-				fprintf(stderr, "[flutter-pi] Could not initialize keyboard configuration. Flutter-pi will run without text/raw keyboard input.\n");
-			}
-		}
-#endif
-	} else {
-		fprintf(stderr, "[flutter-pi] Could not initialize input. Flutter-pi will run without user input.\n");
-	}
-
-	flutterpi->input.libinput = libinput;
-	flutterpi->input.libinput_event_source = libinput_event_source;
-	flutterpi->input.keyboard_config = kbdcfg;
-
-	return 0;
-}
-
-
-static bool setup_paths(struct flutterpi *flutterpi) {
-	char *kernel_blob_path, *icu_data_path, *app_elf_path;
-	#define PATH_EXISTS(path) (access((path),R_OK)==0)
-
-	if (!PATH_EXISTS(flutterpi->flutter.asset_bundle_path)) {
-		fprintf(stderr, "Asset Bundle Directory \"%s\" does not exist\n", flutterpi->flutter.asset_bundle_path);
-		return false;
+	ok = asprintf(&kernel_blob_path, "%s/kernel_blob.bin", asset_bundle_path);
+	if (ok == -1) {
+		return ENOMEM;
 	}
 	
-	asprintf(&kernel_blob_path, "%s/kernel_blob.bin", flutterpi->flutter.asset_bundle_path);
-	asprintf(&app_elf_path, "%s/app.so", flutterpi->flutter.asset_bundle_path);
+	ok = asprintf(&app_elf_path, "%s/app.so", asset_bundle_path);
+	if (ok == -1) {
+		return ENOMEM;
+	}
 
-	if (flutterpi->flutter.runtime_mode == kDebug) {
+	if (runtime_mode == kDebug) {
 		if (!PATH_EXISTS(kernel_blob_path)) {
-			fprintf(stderr, "[flutter-pi] Could not find \"kernel.blob\" file inside \"%s\", which is required for debug mode.\n", flutterpi->flutter.asset_bundle_path);
-			return false;
+			fprintf(stderr, "[flutter-pi] Could not find \"kernel.blob\" file inside \"%s\", which is required for debug mode.\n", asset_bundle_path);
+			free(kernel_blob_path);
+			free(app_elf_path);
+			return ENOENT;
 		}
-	} else if (flutterpi->flutter.runtime_mode == kRelease) {
+	} else if (runtime_mode == kRelease) {
 		if (!PATH_EXISTS(app_elf_path)) {
-			fprintf(stderr, "[flutter-pi] Could not find \"app.so\" file inside \"%s\", which is required for release and profile mode.\n", flutterpi->flutter.asset_bundle_path);
-			return false;
+			fprintf(stderr, "[flutter-pi] Could not find \"app.so\" file inside \"%s\", which is required for release and profile mode.\n", asset_bundle_path);
+			free(kernel_blob_path);
+			free(app_elf_path);
+			return ENOENT;
 		}
 	}
 
-	asprintf(&icu_data_path, "/usr/lib/icudtl.dat");
+	ok = asprintf(&icu_data_path, "/usr/lib/icudtl.dat");
+	if (ok == -1) {
+		return ENOMEM;
+	}
+
 	if (!PATH_EXISTS(icu_data_path)) {
 		fprintf(stderr, "[flutter-pi] Could not find \"icudtl.dat\" file inside \"/usr/lib/\".\n");
-		return false;
+		free(kernel_blob_path);
+		free(app_elf_path);
+		free(icu_data_path);
+		return ENOENT;
 	}
 
-	flutterpi->flutter.kernel_blob_path = kernel_blob_path;
-	flutterpi->flutter.icu_data_path = icu_data_path;
-	flutterpi->flutter.app_elf_path = app_elf_path;
+	*kernel_blob_path_out = kernel_blob_path;
+	*icu_data_path_out = icu_data_path;
+	*app_elf_path_out = app_elf_path;
 
-	return true;
+	return 0;
 
-	#undef PATH_EXISTS
+#	undef PATH_EXISTS
 }
 
-static bool parse_cmd_args(struct flutterpi *flutterpi, int argc, char **argv) {
-	glob_t input_devices_glob = {0};
-	bool input_specified = false;
-	int opt;
-	int longopt_index = 0;
-	int runtime_mode_int = kDebug;
-	int disable_text_input_int = false;
+static int create_drmdev_egl_output(
+	struct drmdev *drmdev,
+	struct libegl *libegl,
+	struct egl_client_info *egl_client_info,
+	struct gbm_device **gbm_device_out,
+	struct gbm_surface **gbm_surface_out,
+	EGLDisplay *egl_display_out,
+	struct egl_display_info **egl_display_info_out,
+	EGLConfig *egl_config_out,
+	EGLSurface *egl_surface_out,
+	EGLContext *egl_context_out
+) {
+	struct egl_display_info *egl_display_info;
+	struct gbm_surface *gbm_surface;
+	struct gbm_device *gbm_device;
+	EGLDisplay egl_display;
+	EGLSurface egl_surface;
+	EGLContext egl_context;
+	EGLBoolean egl_ok;
+	EGLConfig egl_config;
+	EGLint major, minor, egl_error, n_matched;
 	int ok;
+
+	static const EGLint config_attribs[] = {
+		EGL_SURFACE_TYPE, EGL_WINDOW_BIT,
+		EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
+		EGL_NATIVE_VISUAL_ID, DRM_FORMAT_ARGB8888,
+		EGL_NONE
+	};
+
+	static const EGLint context_attribs[] = {
+		EGL_CONTEXT_CLIENT_VERSION, 2,
+		EGL_NONE
+	};
+	
+	gbm_device = gbm_create_device(drmdev->fd);
+	if (gbm_device == NULL) {
+		LOG_FLUTTERPI_ERROR("Could not create GBM device. gbm_create_device: %s\n", strerror(errno));
+		ok = errno;
+		goto fail_return_ok;
+	}
+
+	gbm_surface = gbm_surface_create_with_modifiers(
+		gbm_device,
+		drmdev->selected_mode->hdisplay,
+		drmdev->selected_mode->vdisplay,
+		DRM_FORMAT_ARGB8888,
+		(uint64_t[1]) {DRM_FORMAT_MOD_LINEAR},
+		1
+	);
+	if (gbm_surface == NULL) {
+		LOG_FLUTTERPI_ERROR("Could not create GBM Surface. gbm_surface_create_with_modifiers: %s\n", strerror(errno));
+		ok = errno;
+		goto fail_destroy_gbm_device;
+	}
+
+	if (libegl->eglGetPlatformDisplay != NULL) {
+		egl_display = libegl->eglGetPlatformDisplay(EGL_PLATFORM_GBM_KHR, gbm_device, NULL);
+		if (egl_error = eglGetError(), egl_display == EGL_NO_DISPLAY || egl_error != EGL_SUCCESS) {
+			LOG_FLUTTERPI_ERROR("Could not get EGL display! eglGetPlatformDisplay: 0x%08X\n", egl_error);
+			ok = EIO;
+			goto fail_destroy_gbm_surface;
+		}
+	} else if (egl_client_info->supports_ext_platform_base && egl_client_info->supports_khr_platform_gbm) {
+		egl_display = libegl->eglGetPlatformDisplayEXT(EGL_PLATFORM_GBM_KHR, gbm_device, NULL);
+		if (egl_error = eglGetError(), egl_display == EGL_NO_DISPLAY || egl_error != EGL_SUCCESS) {
+			LOG_FLUTTERPI_ERROR("Could not get EGL display! eglGetPlatformDisplayEXT: 0x%08X\n", egl_error);
+			ok = EIO;
+			goto fail_destroy_gbm_surface;
+		}
+	} else {
+		egl_display = eglGetDisplay((void*) gbm_device);
+		if (egl_error = eglGetError(), egl_display == EGL_NO_DISPLAY || egl_error != EGL_SUCCESS) {
+			LOG_FLUTTERPI_ERROR("Could not get EGL display! eglGetDisplay: 0x%08X\n", egl_error);
+			ok = EIO;
+			goto fail_destroy_gbm_surface;
+		}
+	}
+
+	egl_ok = eglInitialize(egl_display, &major, &minor);
+	if (egl_error = eglGetError(), egl_ok == EGL_FALSE || egl_error != EGL_SUCCESS) {
+		LOG_FLUTTERPI_ERROR("Could not initialize EGL display! eglInitialize: 0x%08X\n", egl_error);
+		ok = EIO;
+		goto fail_destroy_gbm_surface;
+	}
+
+	egl_display_info = egl_display_info_new(libegl, major, minor, egl_display);
+	if (egl_display_info == NULL) {
+		LOG_FLUTTERPI_ERROR("Could not create EGL display info!\n");
+		ok = EIO;
+		goto fail_terminate_display;
+	}
+
+	// We take the first config with ARGB8888. EGL orders all matching configs
+	// so the top ones are most "desirable", so we should be fine
+	// with just fetching the first config.
+	egl_ok = eglChooseConfig(egl_display, config_attribs, &egl_config, 1, &n_matched);
+	if (egl_error = eglGetError(), egl_ok == EGL_FALSE || egl_error != EGL_SUCCESS) {
+		LOG_FLUTTERPI_ERROR("Error finding a hardware accelerated EGL framebuffer configuration. eglChooseConfig: 0x%08X\n", egl_error);
+		ok = EIO;
+		goto fail_destroy_egl_display_info;
+	}
+
+	if (n_matched == 0) {
+		LOG_FLUTTERPI_ERROR("Couldn't configure a hardware accelerated EGL framebuffer configuration.\n");
+		ok = EIO;
+		goto fail_destroy_egl_display_info;
+	}
+
+	egl_ok = eglBindAPI(EGL_OPENGL_ES_API);
+	if (egl_error = eglGetError(), egl_ok == EGL_FALSE || egl_error != EGL_SUCCESS) {
+		LOG_FLUTTERPI_ERROR("Failed to bind OpenGL ES API! eglBindAPI: 0x%08X\n", egl_error);
+		ok = EIO;
+		goto fail_destroy_egl_display_info;
+	}
+
+	egl_context = eglCreateContext(egl_display, egl_config, EGL_NO_CONTEXT, context_attribs);
+	if (egl_error = eglGetError(), egl_context == EGL_NO_CONTEXT || egl_error != EGL_SUCCESS) {
+		LOG_FLUTTERPI_ERROR("Could not create OpenGL ES context. eglCreateContext: 0x%08X\n", egl_error);
+		ok = EIO;
+		goto fail_destroy_egl_display_info;
+	}
+
+	egl_surface = eglCreateWindowSurface(egl_display, egl_config, (EGLNativeWindowType) gbm_surface, NULL);
+	if (egl_error = eglGetError(), egl_surface == EGL_NO_SURFACE || egl_error != EGL_SUCCESS) {
+		LOG_FLUTTERPI_ERROR("Could not create EGL window surface. eglCreateWindowSurface: 0x%08X\n", egl_error);
+		ok = EIO;
+		goto fail_destroy_egl_context;
+	}
+
+	*gbm_device_out = gbm_device;
+	*gbm_surface_out = gbm_surface;
+	*egl_display_out = egl_display;
+	*egl_display_info_out = egl_display_info;
+	*egl_config_out = egl_config;
+	*egl_surface_out = egl_surface;
+	*egl_context_out = egl_context;
+	
+	return 0;
+
+	fail_destroy_egl_context:
+	eglDestroyContext(egl_display, egl_context);
+
+	fail_destroy_egl_display_info:
+	egl_display_info_destroy(egl_display_info);
+
+	fail_terminate_display:
+	eglTerminate(egl_display);
+
+	fail_destroy_gbm_surface:
+	gbm_surface_destroy(gbm_surface);
+
+	fail_destroy_gbm_device:
+	gbm_device_destroy(gbm_device);
+
+	fail_return_ok:
+	return ok;
+}
+
+struct flutterpi *flutterpi_new_from_args(
+	enum flutter_runtime_mode runtime_mode,
+	bool has_rotation,
+	int rotation,
+	bool has_orientation,
+	enum device_orientation orientation,
+	bool has_explicit_dimensions,
+	unsigned int width_mm, unsigned int height_mm,
+	char *asset_bundle_path,
+	int n_engine_args,
+	const char **engine_args
+) {
+	struct flutterpi_private *private;
+	struct flutter_messenger *messenger;
+	struct libflutter_engine *engine_lib;
+	struct texture_registry *texture_registry;
+	struct egl_display_info *egl_display_info;
+	struct plugin_registry *plugin_registry;
+	struct egl_client_info *egl_client_info;
+	FlutterEngineResult engine_result;
+	struct gbm_surface *gbm_surface;
+	struct gbm_device *gbm_device;
+	struct compositor *compositor;
+	struct user_input *input;
+	struct flutterpi *flutterpi;
+	struct libegl *libegl;
+	struct drmdev *drmdev;
+	EGLDisplay egl_display;
+	EGLSurface egl_surface;
+	EGLContext egl_context;
+	EGLConfig egl_config;
+	char **engine_argv_dup;
+	char *kernel_blob_path, *app_elf_path, *icu_data_path;
+	int ok;
+	
+	// allocate memory for our flutterpi instance
+	flutterpi = malloc(sizeof *flutterpi);
+	if (flutterpi == NULL) {
+		goto fail_return_null;
+	}
+
+	private = malloc(sizeof *private);
+	if (private == NULL) {
+		goto fail_free_flutterpi;
+	}
+
+	// copy the asset bundle path and engine options,
+	// so the caller doesn't need to pass the ownership
+	asset_bundle_path = strdup(asset_bundle_path);
+	if (asset_bundle_path == NULL) {
+		goto fail_free_private;
+	}
+
+	engine_argv_dup = calloc(n_engine_args + 1, sizeof engine_args);
+	if (engine_argv_dup == NULL) {
+		goto fail_free_asset_bundle_path;
+	}
+
+	engine_argv_dup[0] = strdup("flutter-pi");
+	if (engine_argv_dup[0] == NULL) {
+		goto fail_free_engine_args;
+	}
+	
+	for (int i = 0; i < n_engine_args; i++) {
+		engine_args[i + 1] = strdup(engine_args[i]);
+		if (engine_args[i + 1] == NULL) {
+			goto fail_free_engine_args;
+		}
+	}
+
+	ok = setup_paths(
+		asset_bundle_path,
+		runtime_mode,
+		&kernel_blob_path,
+		&icu_data_path,
+		&app_elf_path
+	);
+	if (ok != 0) {
+		goto fail_free_engine_args;
+	}
+
+	// initialize the display
+	drmdev = drmdev_new_and_configure();
+	if (drmdev == NULL) {
+		goto fail_free_paths;
+	}
+
+	libegl = libegl_load();
+	if (libegl == NULL) {
+		goto fail_destroy_gbm_device_and_surface;
+	}
+
+	egl_client_info = egl_client_info_new(libegl);
+	if (egl_client_info == NULL) {
+		goto fail_unload_libegl;
+	}
+
+	ok = create_drmdev_egl_output(
+		drmdev,
+		libegl,
+		egl_client_info,
+		&gbm_device,
+		&gbm_surface,
+		&egl_display,
+		&egl_display_info,
+		&egl_config,
+		&egl_surface,
+		&egl_context
+	);
+	if (ok != 0) {
+		goto fail_destroy_egl_client_info;
+	}
+
+	compositor = compositor_new(
+		drmdev,
+		gbm_surface,
+		libegl,
+		egl_display,
+		egl_surface,
+		egl_context,
+		egl_display_info,
+		NULL,
+		NULL,
+		NULL,
+		NULL
+	);
+	if (compositor == NULL) {
+		goto fail_destroy_egl_output;
+	}
+
+	engine_lib = libflutter_engine_load_for_runtime_mode(runtime_mode);
+	if (engine_lib == NULL) {
+		goto fail_destroy_compositor;
+	}
+	
+	bool engine_is_aot = engine_lib->FlutterEngineRunsAOTCompiledDartCode();
+	if ((engine_is_aot == true) && (fpi->flutter.runtime_mode != kRelease)) {
+		fprintf(
+			stderr,
+			"[flutter-pi] The flutter engine was built for release (AOT) mode,\n"
+			"             but flutter-pi was not started up in release mode. \n"
+			"             Either you swap out the libflutter_engine.so \n"
+			"             with one that was built for debug mode, or you start\n"
+			"             flutter-pi with the --release flag and make sure\n"
+			"             a valid \"app.so\" is located inside the asset bundle\n"
+			"             directory.\n"
+		);
+		return EINVAL;
+	} else if ((engine_is_aot == false) && (fpi->flutter.runtime_mode != kDebug)) {
+		fprintf(
+			stderr,
+			"[flutter-pi] The flutter engine was built for debug mode,\n"
+			"             but flutter-pi was started up in release mode.\n"
+			"             Either you swap out the libflutter_engine.so\n"
+			"             with one that was built for release mode, or you\n"
+			"             start flutter-pi without the --release flag.\n"
+		);
+		return EINVAL;
+	}
+
+	if (fpi->flutter.runtime_mode == kRelease) {
+		aot_source = (FlutterEngineAOTDataSource) {
+			.elf_path = fpi->flutter.app_elf_path,
+			.type = kFlutterEngineAOTDataSourceTypeElfPath
+		};
+
+		engine_result = engine_lib->FlutterEngineCreateAOTData(&aot_source, &aot_data);
+		if (engine_result != kSuccess) {
+			fprintf(stderr, "[flutter-pi] Could not load AOT data. FlutterEngineCreateAOTData: %s\n", FLUTTER_RESULT_TO_STRING(engine_result));
+			return EIO;
+		}
+	}
+
+	engine_result = engine_lib->FlutterEngineInitialize(
+		FLUTTER_ENGINE_VERSION,
+		&(FlutterRendererConfig) {
+			.type = kOpenGL,
+			.open_gl = {
+				.struct_size = sizeof(FlutterOpenGLRendererConfig),
+				.make_current = flutterpi_on_make_current,
+				.clear_current = flutterpi_on_clear_current,
+				.present = flutterpi_on_present,
+				.fbo_callback = flutterpi_on_fbo_callback,
+				.make_resource_current = flutterpi_on_make_resource_context_current,
+				.gl_proc_resolver = flutterpi_on_resolve_gl_proc,
+				.surface_transformation = flutterpi_on_get_transformation,
+				.gl_external_texture_frame_callback = flutterpi_texture_frame_callback,
+			}
+		},
+		&(FlutterProjectArgs) {
+			.struct_size = sizeof(FlutterProjectArgs),
+			.assets_path = asset_bundle_path,
+			.main_path__unused__ = NULL,
+			.packages_path__unused__ = NULL,
+			.icu_data_path = icu_data_path,
+			.command_line_argc = n_engine_args,
+			.command_line_argv = (const char * const*) engine_args,
+			.platform_message_callback = flutterpi_on_platform_message,
+			.vm_snapshot_data = NULL,
+			.vm_snapshot_data_size = 0,
+			.vm_snapshot_instructions = NULL,
+			.vm_snapshot_instructions_size = 0,
+			.isolate_snapshot_data = NULL,
+			.isolate_snapshot_data_size = 0,
+			.isolate_snapshot_instructions = NULL,
+			.isolate_snapshot_instructions_size = 0,
+			.root_isolate_create_callback = NULL,
+			.update_semantics_node_callback = NULL,
+			.update_semantics_custom_action_callback = NULL,
+			.persistent_cache_path = NULL,
+			.is_persistent_cache_read_only = false,
+			.vsync_callback = flutterpi_on_frame_request,
+			.custom_dart_entrypoint = NULL,
+			.custom_task_runners = &(FlutterCustomTaskRunners) {
+				.struct_size = sizeof(FlutterCustomTaskRunners),
+				.platform_task_runner = &(FlutterTaskRunnerDescription) {
+					.struct_size = sizeof(FlutterTaskRunnerDescription),
+					.user_data = flutterpi,
+					.runs_task_on_current_thread_callback = runs_platform_tasks_on_current_thread,
+					.post_task_callback = on_post_flutter_task
+				},
+				.render_task_runner = NULL
+			},
+			.shutdown_dart_vm_when_done = true,
+			.compositor = &flutter_compositor,
+			.dart_old_gen_heap_size = -1,
+			.aot_data = aot_data,
+			.compute_platform_resolved_locale_callback = NULL
+		},
+		flutterpi,
+		&engine
+	);
+	if (engine_result != kSuccess) {
+		fprintf(stderr, "[flutter-pi] Could not run the flutter engine. FlutterEngineInitialize: %s\n", FLUTTER_RESULT_TO_STRING(engine_result));
+		return EINVAL;
+	}
+	// engine = create_engine();
+
+	// create the user input "subsystem".
+	// display needs to be initialized before this so we can set
+	// the correct view here.
+	input = user_input_new(
+		&user_input_interface, flutterpi,
+		&FLUTTER_TRANSLATION_TRANSFORMATION(0, 0),
+		0, 0
+	);
+	if (input == NULL) {
+		LOG_FLUTTERPI_ERROR("ERROR: Couldn't initialize user input.\n");
+		goto fail_free_paths;
+	}
+
+	// initialize the plugin registry
+	plugin_registry = plugin_registry_new(flutterpi);
+	if (plugin_registry == NULL) {
+		LOG_FLUTTERPI_ERROR("ERROR: Couldn't initialize plugin registry.\n");
+		goto fail_free_paths;
+	}
+
+
+
+
+	private->flutterpi = flutterpi;
+	private->rawkb = NULL;
+	private->textin = NULL;
+
+	memset(flutterpi, 0, sizeof *flutterpi);
+
+	/// TODO: Add more initializers in case the struct changes.
+	flutterpi->private = private;
+	flutterpi->input.cursor_x = 0.0;
+	flutterpi->input.cursor_y = 0.0;
+
+	if (has_explicit_dimensions) {
+		flutterpi->display.width_mm = width_mm;
+		flutterpi->display.height_mm = height_mm;
+	}
+
+	flutterpi->view.has_rotation = has_rotation;
+	flutterpi->view.rotation = rotation;
+	flutterpi->view.has_orientation = has_orientation;
+	flutterpi->view.orientation = orientation;
+
+	flutterpi->flutter.runtime_mode = runtime_mode;
+	flutterpi->flutter.asset_bundle_path = asset_bundle_path;
+	flutterpi->flutter.engine_argc = n_engine_args + 1;
+	flutterpi->flutter.engine_argv = engine_argv_dup;
+
+	return flutterpi;
+
+	fail_free_input:
+	//user_input_destroy(input);
+
+	fail_destroy_compositor:
+	compositor_destroy(compositor);
+
+	fail_destroy_egl_output:
+	eglDestroyContext(egl_display, egl_context);
+	eglDestroySurface(egl_display, egl_surface);
+	egl_display_info_destroy(egl_display_info);
+	eglTerminate(egl_display);
+	gbm_surface_destroy(gbm_surface);
+	gbm_device_destroy(gbm_device);
+
+	fail_destroy_egl_client_info:
+	egl_client_info_destroy(egl_client_info);
+
+	fail_unload_libegl:
+	libegl_unload(libegl);
+
+	fail_destroy_gbm_device_and_surface:
+	gbm_surface_destroy(gbm_surface);
+	gbm_device_destroy(gbm_device);
+
+	fail_destroy_drmdev:
+	drmdev_destroy(drmdev);
+
+	fail_free_paths:
+	if (kernel_blob_path != NULL) {
+		free(kernel_blob_path);
+	}
+	if (app_elf_path != NULL) {
+		free(app_elf_path);
+	}
+	if (icu_data_path != NULL) {
+		free(icu_data_path);
+	}
+
+	fail_free_engine_args:
+	for (int i = 0; i < (n_engine_args + 1); i++) {
+		if (engine_argv_dup[i] != NULL) {
+			free(engine_argv_dup[i]);
+		} else {
+			break;
+		}
+	}
+	free(engine_argv_dup);
+
+	fail_free_asset_bundle_path:
+	free(asset_bundle_path);	
+
+	fail_free_private:
+	free(private);
+
+	fail_free_flutterpi:
+	free(flutterpi);
+
+	fail_return_null:
+	return NULL;
+}
+
+struct flutterpi *flutterpi_new_from_cmdline(
+	int argc,
+	char **argv
+) {
+	enum device_orientation orientation;
+	unsigned int width_mm, height_mm;
+	glob_t *input_devices_glob = {0};
+	bool has_orientation, has_rotation, has_explicit_dimensions, input_specified, finished_parsing_options;
+	int runtime_mode_int, rotation, ok, opt;
 
 	struct option long_options[] = {
 		{"release", no_argument, &runtime_mode_int, kRelease},
 		{"input", required_argument, NULL, 'i'},
 		{"orientation", required_argument, NULL, 'o'},
 		{"rotation", required_argument, NULL, 'r'},
-		{"no-text-input", no_argument, &disable_text_input_int, true},
 		{"dimensions", required_argument, NULL, 'd'},
 		{"help", no_argument, 0, 'h'},
 		{0, 0, 0, 0}
 	};
 
-	bool finished_parsing_options = false;
+	runtime_mode_int = kDebug;
+	has_orientation = false;
+	has_rotation = false;
+	input_specified = false;
+	finished_parsing_options = false;
+
 	while (!finished_parsing_options) {
-		longopt_index = 0;
-		opt = getopt_long(argc, argv, "+i:o:r:d:h", long_options, &longopt_index);
+		opt = getopt_long(argc, argv, "+i:o:r:d:h", long_options, NULL);
 
 		switch (opt) {
 			case 0:
 				// flag was encountered. just continue
 				break;
 			case 'i':
-				glob(optarg, GLOB_BRACE | GLOB_TILDE | (input_specified ? GLOB_APPEND : 0), NULL, &input_devices_glob);
+				if (input_devices_glob == NULL) {
+					input_devices_glob = calloc(1, sizeof *input_devices_glob);
+					if (input_devices_glob == NULL) {
+						fprintf(stderr, "Out of memory\n");
+						return NULL;
+					}
+				}
+
+				glob(optarg, GLOB_BRACE | GLOB_TILDE | (input_specified ? GLOB_APPEND : 0), NULL, input_devices_glob);
 				input_specified = true;
 				break;
 
 			case 'o':
 				if (STREQ(optarg, "portrait_up")) {
-					flutterpi->view.orientation = kPortraitUp;
-					flutterpi->view.has_orientation = true;
+					orientation = kPortraitUp;
+					has_orientation = true;
 				} else if (STREQ(optarg, "landscape_left")) {
-					flutterpi->view.orientation = kLandscapeLeft;
-					flutterpi->view.has_orientation = true;
+					orientation = kLandscapeLeft;
+					has_orientation = true;
 				} else if (STREQ(optarg, "portrait_down")) {
-					flutterpi->view.orientation = kPortraitDown;
-					flutterpi->view.has_orientation = true;
+					orientation = kPortraitDown;
+					has_orientation = true;
 				} else if (STREQ(optarg, "landscape_right")) {
-					flutterpi->view.orientation = kLandscapeRight;
-					flutterpi->view.has_orientation = true;
+					orientation = kLandscapeRight;
+					has_orientation = true;
 				} else {
 					fprintf(
 						stderr, 
@@ -2682,14 +2849,15 @@ static bool parse_cmd_args(struct flutterpi *flutterpi, int argc, char **argv) {
 						"%s", 
 						usage
 					);
-					return false;
+					return NULL;
 				}
+
 				break;
 			
 			case 'r':
 				errno = 0;
-				long rotation = strtol(optarg, NULL, 0);
-				if ((errno != 0) || ((rotation != 0) && (rotation != 90) && (rotation != 180) && (rotation != 270))) {
+				long rotation_long = strtol(optarg, NULL, 0);
+				if ((errno != 0) || ((rotation_long != 0) && (rotation_long != 90) && (rotation_long != 180) && (rotation_long != 270))) {
 					fprintf(
 						stderr,
 						"ERROR: Invalid argument for --rotation passed.\n"
@@ -2697,35 +2865,32 @@ static bool parse_cmd_args(struct flutterpi *flutterpi, int argc, char **argv) {
 						"%s",
 						usage
 					);
-					return false;
+					return NULL;
 				}
 
-				flutterpi->view.rotation = rotation;
-				flutterpi->view.has_rotation = true;
+				rotation = rotation_long;
+				has_rotation = true;
 				break;
 			
 			case 'd': ;
-				unsigned int width_mm, height_mm;
-
 				ok = sscanf(optarg, "%u,%u", &width_mm, &height_mm);
 				if ((ok == 0) || (ok == EOF)) {
 					fprintf(stderr, "ERROR: Invalid argument for --dimensions passed.\n%s", usage);
-					return false;
+					return NULL;
 				}
 
-				flutterpi->display.width_mm = width_mm;
-				flutterpi->display.height_mm = height_mm;
-				
+				has_explicit_dimensions = true;
+
 				break;
 			
 			case 'h':
 				printf("%s", usage);
-				return false;
+				return NULL;
 
 			case '?':
 			case ':':
-				printf("Invalid option specified.\n%s", usage);
-				return false;
+				fprintf(stderr, "Invalid option specified.\n%s", usage);
+				return NULL;
 			
 			case -1:
 				finished_parsing_options = true;
@@ -2735,44 +2900,35 @@ static bool parse_cmd_args(struct flutterpi *flutterpi, int argc, char **argv) {
 				break;
 		}
 	}
-	
-	if (!input_specified) {
-		// user specified no input devices. use "/dev/input/event*"".
-		glob("/dev/input/event*", GLOB_BRACE | GLOB_TILDE, NULL, &input_devices_glob);
-	}
 
 	if (optind >= argc) {
 		fprintf(stderr, "error: expected asset bundle path after options.\n");
 		printf("%s", usage);
-		return false;
+		return NULL;
 	}
 
-	flutterpi->input.use_paths = input_specified;
-	flutterpi->flutter.asset_bundle_path = strdup(argv[optind]);
-	flutterpi->flutter.runtime_mode = runtime_mode_int;
-	flutterpi->input.disable_text_input = disable_text_input_int;
-	flutterpi->input.input_devices_glob = input_devices_glob;
-
-	argv[optind] = argv[0];
-	flutterpi->flutter.engine_argc = argc - optind;
-	flutterpi->flutter.engine_argv = argv + optind;
-
-	return true;
+	return flutterpi_new_from_args(
+		(enum flutter_runtime_mode) runtime_mode_int,
+		has_rotation, rotation,
+		has_orientation, orientation,
+		has_explicit_dimensions, width_mm, height_mm,
+		input_devices_glob,
+		argv[optind],
+		argc - (optind + 1),
+		(const char **) &argv[optind + 1]
+	);
 }
 
-struct flutterpi *flutterpi_new(void) {
-	return malloc(sizeof(struct flutterpi));
-}
-
-int init(struct flutterpi *flutterpi, int argc, char **argv) {
+int flutterpi_init(struct flutterpi *flutterpi) {
 	int ok;
 
-	ok = parse_cmd_args(flutterpi, argc, argv);
-	if (ok == false) {
-		return EINVAL;
-	}
-
-	ok = setup_paths(flutterpi);
+	ok = setup_paths(
+		flutterpi->flutter.asset_bundle_path,
+		flutterpi->flutter.runtime_mode,
+		&flutterpi->flutter.kernel_blob_path,
+		&flutterpi->flutter.icu_data_path,
+		&flutterpi->flutter.app_elf_path
+	);
 	if (ok == false) {
 		return EINVAL;
 	}
@@ -2800,11 +2956,11 @@ int init(struct flutterpi *flutterpi, int argc, char **argv) {
 	return 0;
 }
 
-int run(struct flutterpi *flutterpi) {
+int flutterpi_run(struct flutterpi *flutterpi) {
 	return run_main_loop(flutterpi);
 }
 
-void deinit(struct flutterpi *flutterpi) {
+void flutterpi_deinit(struct flutterpi *flutterpi) {
 	return;
 }
 
@@ -2813,19 +2969,22 @@ int main(int argc, char **argv) {
 	struct flutterpi *flutterpi;
 	int ok;
 
-	flutterpi = flutterpi_new();
+	flutterpi = flutterpi_new_from_cmdline(argc, argv);
+	if (flutterpi == NULL) {
+		return EXIT_FAILURE;
+	}
 
-	ok = init(flutterpi, argc, argv);
+	ok = flutterpi_init(flutterpi);
 	if (ok != 0) {
 		return EXIT_FAILURE;
 	}
 
-	ok = run(flutterpi);
+	ok = flutterpi_run(flutterpi);
 	if (ok != 0) {
 		return EXIT_FAILURE;
 	}
 
-	deinit(flutterpi);
+	flutterpi_deinit(flutterpi);
 
 	return EXIT_SUCCESS;
 }

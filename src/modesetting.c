@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <errno.h>
 #include <unistd.h>
+#include <alloca.h>
 
 #include <xf86drm.h>
 #include <xf86drmMode.h>
@@ -378,16 +379,13 @@ float mode_get_vrefresh(const drmModeModeInfo *mode) {
     return mode->clock * 1000.0 / (mode->htotal * mode->vtotal);
 }
 
-int drmdev_new_from_fd(
-    struct drmdev **drmdev_out,
-    int fd
-) {
+struct drmdev *drmdev_new_from_fd(int fd) {
     struct drmdev *drmdev;
     int ok;
 
     drmdev = calloc(1, sizeof *drmdev);
     if (drmdev == NULL) {
-        return ENOMEM;
+        return NULL;
     }
 
     drmdev->fd = dup(fd);
@@ -448,9 +446,7 @@ int drmdev_new_from_fd(
         goto fail_free_crtcs;
     }
 
-    *drmdev_out = drmdev;
-
-    return 0;
+    return drmdev;
 
 
     fail_free_crtcs:
@@ -474,31 +470,236 @@ int drmdev_new_from_fd(
     fail_free_drmdev:
     free(drmdev);
 
-    return ok;
+    return NULL;
 }
 
-int drmdev_new_from_path(
-    struct drmdev **drmdev_out,
-    const char *path
-) {
+struct drmdev *drmdev_new_from_path(const char *path) {
+    struct drmdev *drmdev;
     int ok, fd;
 
-    fd = open(path, O_RDWR);
-    if (fd < 0) {
+    ok = open(path, O_RDWR);
+    if (ok < 0) {
         perror("[modesetting] Could not open DRM device. open");
-        return errno;
+        return NULL;
     }
 
-    ok = drmdev_new_from_fd(drmdev_out, fd);
-    if (ok != 0) {
+    fd = ok;
+
+    drmdev = drmdev_new_from_fd(fd);
+    if (drmdev == NULL) {
         close(fd);
-        return ok;
+        return NULL;
     }
 
     // drmdev_new_from_fd duplicates the fd internally, so we retain ownership of this fd.
     close(fd);
 
-    return 0;
+    return drmdev;
+}
+
+struct drmdev *drmdev_new_and_configure(void) {
+    const struct drm_connector *connector;
+	const struct drm_encoder *encoder;
+	const struct drm_crtc *crtc;
+	const drmModeModeInfo *mode, *mode_iter;
+    struct drmdev *drmdev;
+    drmDevice **devices;
+	int ok, n_devices;
+
+    // first, find out how many devices are attached
+    ok = drmGetDevices2(0, NULL, 0);
+    if (ok < 0) {
+		LOG_MODESETTING_ERROR("Could not query connected GPUs. drmGetDevices2: %s\n", strerror(-ok));
+		return NULL;
+	}
+
+    n_devices = ok;
+    devices = alloca((sizeof *devices) * n_devices);
+
+    // then actually query the attached devices
+    ok = drmGetDevices2(0, devices, n_devices);
+	if (ok < 0) {
+		LOG_MODESETTING_ERROR("Could not query connected GPUs. drmGetDevices2: %s\n", strerror(-ok));
+		return NULL;
+	}
+
+    n_devices = ok;
+	
+	// find a GPU that has a primary node
+	for (int i = 0; i < n_devices; i++) {
+		drmDevice *device = devices[i];
+
+        // we need a primary node for video output.
+        if (device->available_nodes & (1 << DRM_NODE_PRIMARY)) {
+            drmdev = drmdev_new_from_path(device->nodes[DRM_NODE_PRIMARY]);
+            if (ok != 0) {
+                LOG_MODESETTING_ERROR("Could not open GPU at path \"%s\". Continuing.\n", device->nodes[DRM_NODE_PRIMARY]);
+                continue;
+            }
+
+            break;
+        }
+	}
+
+    drmFreeDevices(devices, n_devices);
+
+	if (drmdev == NULL) {
+		fprintf(stderr, "flutter-pi couldn't find a usable DRM device.\n"
+						"Please make sure you've enabled the Fake-KMS driver in raspi-config.\n"
+						"If you're not using a Raspberry Pi, please make sure there's KMS support for your graphics chip.\n");
+		goto fail_return_null;
+	}
+
+	// find a connected connector
+	for_each_connector_in_drmdev(drmdev, connector) {
+		if (connector->connector->connection == DRM_MODE_CONNECTED) {
+			// only update the physical size of the display if the values
+			//   are not yet initialized / not set with a commandline option
+
+            /// TODO: Move this to flutter-pi
+            /*
+			if ((flutterpi->display.width_mm == 0) || (flutterpi->display.height_mm == 0)) {
+				if ((connector->connector->connector_type == DRM_MODE_CONNECTOR_DSI) &&
+					(connector->connector->mmWidth == 0) &&
+					(connector->connector->mmHeight == 0))
+				{
+					// if it's connected via DSI, and the width & height are 0,
+					//   it's probably the official 7 inch touchscreen.
+					flutterpi->display.width_mm = 155;
+					flutterpi->display.height_mm = 86;
+				} else if ((connector->connector->mmHeight % 10 == 0) &&
+							(connector->connector->mmWidth % 10 == 0)) {
+					// don't change anything.
+				} else {
+					flutterpi->display.width_mm = connector->connector->mmWidth;
+					flutterpi->display.height_mm = connector->connector->mmHeight;
+				}
+			}
+            */
+
+			break;
+		}
+	}
+
+	if (connector == NULL) {
+        LOG_MODESETTING_ERROR("Could not find a connected display!\n");
+		goto fail_free_drmdev;
+	}
+
+	// Find the preferred mode (GPU drivers _should_ always supply a preferred mode, but of course, they don't)
+	// Alternatively, find the mode with the highest width*height. If there are multiple modes with the same w*h,
+	// prefer higher refresh rates. After that, prefer progressive scanout modes.
+	mode = NULL;
+	for_each_mode_in_connector(connector, mode_iter) {
+		if (mode_iter->type & DRM_MODE_TYPE_PREFERRED) {
+			mode = mode_iter;
+			break;
+		} else if (mode == NULL) {
+			mode = mode_iter;
+		} else {
+			int area = mode_iter->hdisplay * mode_iter->vdisplay;
+			int old_area = mode->hdisplay * mode->vdisplay;
+
+			if ((area > old_area) ||
+				((area == old_area) && (mode_iter->vrefresh > mode->vrefresh)) ||
+				((area == old_area) && (mode_iter->vrefresh == mode->vrefresh) && ((mode->flags & DRM_MODE_FLAG_INTERLACE) == 0))) {
+				mode = mode_iter;
+			}
+		}
+	}
+
+	if (mode == NULL) {
+        LOG_MODESETTING_ERROR("Could not find a suitable video output mode!\n");
+		goto fail_free_drmdev;
+	}
+
+    /*
+	flutterpi->display.width = mode->hdisplay;
+	flutterpi->display.height = mode->vdisplay;
+	flutterpi->display.refresh_rate = mode->vrefresh;
+    */
+    
+    /// TODO: Move this to flutterpi
+    /*
+	if ((flutterpi->display.width_mm == 0) || (flutterpi->display.height_mm == 0)) {
+		fprintf(
+			stderr,
+			"[flutter-pi] WARNING: display didn't provide valid physical dimensions.\n"
+			"             The device-pixel ratio will default to 1.0, which may not be the fitting device-pixel ratio for your display.\n"
+		);
+		flutterpi->display.pixel_ratio = 1.0;
+	} else {
+		flutterpi->display.pixel_ratio = (10.0 * flutterpi->display.width) / (flutterpi->display.width_mm * 38.0);
+		
+		int horizontal_dpi = (int) (flutterpi->display.width / (flutterpi->display.width_mm / 25.4));
+		int vertical_dpi = (int) (flutterpi->display.height / (flutterpi->display.height_mm / 25.4));
+
+		if (horizontal_dpi != vertical_dpi) {
+		        // See https://github.com/flutter/flutter/issues/71865 for current status of this issue.
+			fprintf(stderr, "[flutter-pi] WARNING: display has non-square pixels. Non-square-pixels are not supported by flutter.\n");
+		}
+	}
+    */
+	
+	for_each_encoder_in_drmdev(drmdev, encoder) {
+		if (encoder->encoder->encoder_id == connector->connector->encoder_id) {
+			break;
+		}
+	}
+	
+	if (encoder == NULL) {
+		for (int i = 0; i < connector->connector->count_encoders; i++, encoder = NULL) {
+			for_each_encoder_in_drmdev(drmdev, encoder) {
+				if (encoder->encoder->encoder_id == connector->connector->encoders[i]) {
+					break;
+				}
+			}
+
+			if (encoder->encoder->possible_crtcs) {
+				// only use this encoder if there's a crtc we can use with it
+				break;
+			}
+		}
+	}
+
+	if (encoder == NULL) {
+        LOG_MODESETTING_ERROR("Could not find a suitable DRM encoder.\n");
+		goto fail_free_drmdev;
+	}
+
+	for_each_crtc_in_drmdev(drmdev, crtc) {
+		if (crtc->crtc->crtc_id == encoder->encoder->crtc_id) {
+			break;
+		}
+	}
+
+	if (crtc == NULL) {
+		for_each_crtc_in_drmdev(drmdev, crtc) {
+			if (encoder->encoder->possible_crtcs & crtc->bitmask) {
+				// find a CRTC that is possible to use with this encoder
+				break;
+			}
+		}
+	}
+
+	if (crtc == NULL) {
+        LOG_MODESETTING_ERROR("Could not find a suitable DRM CRTC.\n");
+		goto fail_free_drmdev;
+	}
+
+	ok = drmdev_configure(drmdev, connector->connector->connector_id, encoder->encoder->encoder_id, crtc->crtc->crtc_id, mode);
+	if (ok != 0) {
+        goto fail_free_drmdev;
+    }
+
+    return drmdev;
+
+
+    fail_free_drmdev:
+    drmdev_destroy(drmdev);
+
+    fail_return_null:
+    return NULL;
 }
 
 void drmdev_destroy(

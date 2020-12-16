@@ -56,9 +56,9 @@ typedef void (*error_or_response_callback_t)(bool success, struct platch_obj *ob
 
 typedef void (*response_callback_t)(struct platch_obj *object, void *userdata);
 
-typedef void (*platch_message_callback_t)(const struct flutter_message_response_handle *responsehandle, const char *channel, const uint8_t *data, size_t size, void *userdata);
+typedef void (*platch_message_callback_t)(struct flutter_message_response_handle *responsehandle, const char *channel, const uint8_t *data, size_t size, void *userdata);
 
-typedef void (*error_or_platch_obj_callback_t)(bool success, const struct flutter_message_response_handle *responsehandle, const char *channel, const struct platch_obj *object, void *userdata);
+typedef void (*error_or_platch_obj_callback_t)(bool success, struct flutter_message_response_handle *responsehandle, const char *channel, const struct platch_obj *object, void *userdata);
 
 /**
  * @brief Create a new flutter messenger instance.
@@ -240,7 +240,6 @@ int fm_send_raw_blocking(
  * @param error_callback_userdata The userdata to pass to @ref error_callback.
  */
 int fm_respond_raw_zerocopy_nonblocking(
-    struct flutter_messenger *fm,
     struct flutter_message_response_handle *handle,
     const uint8_t *message,
     size_t message_size,
@@ -261,7 +260,6 @@ int fm_respond_raw_zerocopy_nonblocking(
  * @param error_callback_userdata The userdata to pass to @ref error_callback.
  */
 int fm_respond_raw_nonblocking(
-    struct flutter_messenger *fm,
     struct flutter_message_response_handle *handle,
     const uint8_t *message,
     size_t message_size,
@@ -280,10 +278,41 @@ int fm_respond_raw_nonblocking(
  * @param message_size The size of the message in bytes. Must be `0` when `message == NULL`.
  */
 int fm_respond_raw_blocking(
-    struct flutter_messenger *fm,
     struct flutter_message_response_handle *handle,
     const uint8_t *message,
     size_t message_size
+);
+
+int fm_send_nonblocking(
+	struct flutter_messenger *fm,
+	const char *channel,
+	const struct platch_obj *object,
+	enum platch_codec response_codec,
+	error_or_response_callback_t response_callback,
+	error_or_response_callback_t error_callback,
+	void *userdata
+);
+
+int fm_send_blocking(
+	struct flutter_messenger *fm,
+	const char *channel,
+	const struct platch_obj *object,
+	enum platch_codec response_codec,
+	error_or_response_callback_t response_callback,
+	error_or_response_callback_t error_callback,
+	void *userdata
+);
+
+int fm_respond_nonblocking(
+	struct flutter_message_response_handle *handle,
+	const struct platch_obj *object,
+	void_callback_t error_callback,
+	void *userdata
+);
+
+int fm_respond_blocking(
+	struct flutter_message_response_handle *handle,
+	const struct platch_obj *object
 );
 
 int fm_remove_listener(
@@ -302,27 +331,20 @@ int fm_call_std(
 );
 
 int fm_respond_not_implemented_ext(
-	struct flutter_messenger *fm,
-	const struct flutter_message_response_handle *handle,
+	struct flutter_message_response_handle *handle,
 	void_callback_t error_callback,
 	void *userdata
 );
 
-#define fm_respond_not_implemented(fm, handle) fm_respond_not_implemented_ext(fm, handle, NULL, NULL)
-
 int fm_respond_success_std_ext(
-	struct flutter_messenger *fm,
-	const struct flutter_message_response_handle *handle,
+	struct flutter_message_response_handle *handle,
 	const struct std_value *return_value,
 	void_callback_t error_callback,
 	void *userdata
 );
 
-#define fm_respond_success_std(fm, handle, return_value) fm_respond_success_std_ext(fm, handle, return_value, NULL, NULL)
-
 int fm_respond_error_std_ext(
-	struct flutter_messenger *fm,
-	const struct flutter_message_response_handle *handle,
+	struct flutter_message_response_handle *handle,
 	const char *error_code,
 	const char *error_message,
 	const struct std_value *error_details,
@@ -330,51 +352,39 @@ int fm_respond_error_std_ext(
 	void *userdata
 );
 
-#define fm_respond_error_std(fm, handle, error_code, error_message, error_details) fm_respond_error_std_ext(fm, handle, error_code, error_message, error_details, NULL, NULL)
-
 int fm_respond_illegal_arg_std_ext(
-	struct flutter_messenger *fm,
-	const struct flutter_message_response_handle *handle,
+	struct flutter_message_response_handle *handle,
 	const char *error_message,
 	void_callback_t error_callback,
 	void *userdata
 );
 
-#define fm_respond_illegal_arg_std(fm, handle, error_message) fm_respond_illegal_arg_std_ext(fm, handle, error_message, NULL, NULL)
-
 int fm_respond_native_error_std_ext(
-	struct flutter_messenger *fm,
-	const struct flutter_message_response_handle *handle,
+	struct flutter_message_response_handle *handle,
 	int _errno,
 	void_callback_t error_callback,
 	void *userdata
 );
 
-#define fm_respond_native_error_std(fm, handle, _errno) fm_respond_native_error_std_ext(fm, handle, _errno, NULL, NULL)
-
 int fm_send_success_event_std_ext(
 	struct flutter_messenger *fm,
 	const char *channel,
-	struct std_value *event_value,
-	// TODO: change to void_callback_t
+	const struct std_value *event_value,
+	/// TODO: change to void_callback_t
 	error_or_response_callback_t error_callback,
 	void *userdata
 );
-
-#define fm_send_success_event_std(fm, channel, event_value) fm_send_success_event_std_ext(fm, channel, event_value, NULL, NULL)
 
 int fm_send_error_event_std_ext(
 	struct flutter_messenger *fm,
 	const char *channel,
 	const char *error_code,
 	const char *error_message,
-	struct std_value *error_details,
-	// TODO: change to void_callback_t
+	const struct std_value *error_details,
+	/// TODO: change to void_callback_t
 	error_or_response_callback_t error_callback,
 	void *userdata
 );
-
-#define fm_send_error_event_std(fm, channel, error_code, error_message, error_details) fm_send_error_event_std_ext(fm, channel, error_code, error_message, error_details, NULL, NULL)
 
 int fm_call_json(
 	struct flutter_messenger *fm,
@@ -387,18 +397,14 @@ int fm_call_json(
 );
 
 int fm_respond_success_json_ext(
-	struct flutter_messenger *fm,
-	const struct flutter_message_response_handle *handle,
+	struct flutter_message_response_handle *handle,
 	const struct json_value *return_value,
 	void_callback_t error_callback,
 	void *userdata
 );
 
-#define fm_respond_success_json(fm, handle, return_value) fm_respond_success_json_ext(fm, handle, return_value, NULL, NULL)
-
 int fm_respond_error_json_ext(
-	struct flutter_messenger *fm,
-	const struct flutter_message_response_handle *handle,
+	struct flutter_message_response_handle *handle,
 	const char *error_code,
 	const char *error_message,
 	const struct json_value *error_details,
@@ -406,50 +412,106 @@ int fm_respond_error_json_ext(
 	void *userdata
 );
 
-#define fm_respond_error_json(fm, handle, error_code, error_message, error_details) fm_respond_error_json_ext(fm, handle, error_code, error_message, error_details, NULL, NULL)
-
 int fm_respond_illegal_arg_json_ext(
-	struct flutter_messenger *fm,
-	const struct flutter_message_response_handle *handle,
+	struct flutter_message_response_handle *handle,
 	const char *error_message,
 	void_callback_t error_callback,
 	void *userdata
 );
 
-#define fm_respond_illegal_arg_json(fm, handle, error_message) fm_respond_error_json_ext(fm, handle, error_message, NULL, NULL)
-
 int fm_respond_native_error_json_ext(
-	struct flutter_messenger *fm,
-	const struct flutter_message_response_handle *handle,
+	struct flutter_message_response_handle *handle,
 	int _errno,
 	void_callback_t error_callback,
 	void *userdata
 );
 
-#define fm_respond_native_error_json(fm, handle, _errno) fm_respond_native_error_json_ext(fm, handle, _errno, NULL, NULL)
-
 int fm_send_success_event_json_ext(
 	struct flutter_messenger *fm,
 	const char *channel,
-	struct json_value *event_value,
+	const struct json_value *event_value,
 	// TODO: change to void_callback_t
 	error_or_response_callback_t error_callback,
 	void *userdata
 );
-
-#define fm_send_success_event_json(fm, channel, event_value) fm_send_success_event_json(fm, handle, event_value, NULL, NULL)
 
 int fm_send_error_event_json_ext(
 	struct flutter_messenger *fm,
 	const char *channel,
 	const char *error_code,
 	const char *error_message,
-	struct json_value *error_details,
+	const struct json_value *error_details,
 	// TODO: change to void_callback_t
 	error_or_response_callback_t error_callback,
 	void *userdata
 );
 
-#define fm_send_error_event_json(fm, channel, error_code, error_message, error_details) fm_send_error_event_json_ext(fm, channel, error_code, error_message, error_details, NULL, NULL)
+#define define_fm_send_simple1(name, arg1_type, arg1_name) \
+static inline int fm_send_##name( \
+	struct flutter_messenger *fm, \
+	const char *channel, \
+	arg1_type arg1_name \
+) { \
+	return fm_send_##name##_ext(fm, channel, arg1_name, NULL, NULL); \
+}
+
+#define define_fm_send_simple3(name, arg1_type, arg1_name, arg2_type, arg2_name, arg3_type, arg3_name) \
+static inline int fm_send_##name( \
+	struct flutter_messenger *fm, \
+	const char *channel, \
+	arg1_type arg1_name, \
+	arg2_type arg2_name, \
+	arg3_type arg3_name \
+) { \
+	return fm_send_##name##_ext(fm, channel, arg1_name, arg2_name, arg3_name, NULL, NULL); \
+}
+
+#define define_fm_respond_simple0(name) \
+static inline int fm_respond_##name(\
+	struct flutter_message_response_handle *handle \
+) { \
+	return fm_respond_##name##_ext(handle, NULL, NULL); \
+}
+
+#define define_fm_respond_simple1(name, arg1_type, arg1_name) \
+static inline int fm_respond_##name(\
+	struct flutter_message_response_handle *handle, \
+	arg1_type arg1_name\
+) { \
+	return fm_respond_##name##_ext(handle, arg1_name, NULL, NULL); \
+}
+
+#define define_fm_respond_simple2(name, arg1_type, arg1_name, arg2_type, arg2_name) \
+static inline int fm_respond_##name(\
+	struct flutter_message_response_handle *handle, \
+	arg1_type arg1_name, \
+	arg2_type arg2_name, \
+) { \
+	return fm_respond_##name##_ext(handle, arg1_name, arg2_name, NULL, NULL); \
+}
+
+#define define_fm_respond_simple3(name, arg1_type, arg1_name, arg2_type, arg2_name, arg3_type, arg3_name) \
+static inline int fm_respond_##name(\
+	struct flutter_message_response_handle *handle, \
+	arg1_type arg1_name, \
+	arg2_type arg2_name, \
+	arg3_type arg3_name \
+) { \
+	return fm_respond_##name##_ext(handle, arg1_name, arg2_name, arg3_name, NULL, NULL); \
+}
+
+define_fm_respond_simple0(not_implemented)
+define_fm_respond_simple1(success_std, const struct std_value *, return_value)
+define_fm_respond_simple3(error_std, const char *, error_code, const char *, error_message, const struct std_value *, error_details)
+define_fm_respond_simple1(illegal_arg_std, const char *, error_message)
+define_fm_respond_simple1(native_error_std, int, _errno);
+define_fm_send_simple1(success_event_std, const struct std_value *, event_value)
+define_fm_send_simple3(error_event_std, const char *, error_code, const char *, error_message, const struct std_value *, error_details)
+define_fm_respond_simple1(success_json, const struct json_value *, return_value)
+define_fm_respond_simple3(error_json, const char *, error_code, const char *, error_message, const struct json_value *, error_details)
+define_fm_respond_simple1(illegal_arg_json, const char *, error_message)
+define_fm_respond_simple1(native_error_json, int, _errno);
+define_fm_send_simple1(success_event_json, const struct json_value *, event_value)
+define_fm_send_simple3(error_event_json, const char *, error_code, const char *, error_message, const struct json_value *, error_details)
 
 #endif

@@ -2,7 +2,11 @@
 #include <stdio.h>
 #include <dlfcn.h>
 #include <errno.h>
+#include <string.h>
+#include <flutter-pi.h>
+
 #include <dylib_deps.h>
+
 
 static void *try_open_dylib(const char *file, int mode) {
 	void *handle = dlopen(file, mode);
@@ -81,140 +85,27 @@ struct libflutter_engine *libflutter_engine_load(char *name) {
 	return lib;
 }
 
+struct libflutter_engine *libflutter_engine_load_for_runtime_mode(enum flutter_runtime_mode runtime_mode) {
+	struct libflutter_engine *engine_lib;
+	
+	if (runtime_mode == kRelease) {
+		engine_lib = libflutter_engine_load("libflutter_engine.so.debug");
+	} else if (runtime_mode == kDebug) {
+		engine_lib = libflutter_engine_load("libflutter_engine.so.release");
+	}
+
+	if (engine_lib == NULL) {
+		engine_lib = libflutter_engine_load("libflutter_engine.so");
+	}
+	
+	return engine_lib;
+}
+
 void libflutter_engine_unload(struct libflutter_engine *lib) {
 	dlclose(lib);
 	free(lib);
 }
 
-
-/*
-struct libudev *libudev_load(void) {
-	struct libudev *lib;
-
-	lib = malloc(sizeof *lib);
-	if (lib == NULL) {
-		return NULL;
-	}
-
-	lib->handle = try_open_dylib("libudev.so", RTLD_NOW | RTLD_GLOBAL);
-	if (lib->handle == NULL) {
-		free(lib);
-		return NULL;
-	}
-	
-#	define LOAD_LIBUDEV_PROC(name) \
-		do { \
-			char *__errorstr; \
-			dlerror(); \
-			lib->name = dlsym(lib->handle, #name); \
-			if ((__errorstr = dlerror()) != NULL) { \
-				fprintf(stderr, "[flutter-pi] Could not resolve libudev procedure \"%s\". dlsym: %s\n", #name, __errorstr); \
-				dlclose(lib->handle); \
-				free(lib); \
-				return NULL; \
-			} \
-		} while (false)
-
-	LOAD_LIBUDEV_PROC(udev_ref);
-	LOAD_LIBUDEV_PROC(udev_unref);
-	LOAD_LIBUDEV_PROC(udev_new);
-	LOAD_LIBUDEV_PROC(udev_get_userdata);
-	LOAD_LIBUDEV_PROC(udev_set_userdata);
-
-	LOAD_LIBUDEV_PROC(udev_list_entry_get_next);
-	LOAD_LIBUDEV_PROC(udev_list_entry_get_by_name);
-	LOAD_LIBUDEV_PROC(udev_list_entry_get_name);
-	LOAD_LIBUDEV_PROC(udev_list_entry_get_value);
-
-	LOAD_LIBUDEV_PROC(udev_device_ref);
-	LOAD_LIBUDEV_PROC(udev_device_unref);
-	LOAD_LIBUDEV_PROC(udev_device_get_udev);
-	LOAD_LIBUDEV_PROC(udev_device_new_from_syspath);
-	LOAD_LIBUDEV_PROC(udev_device_new_from_devnum);
-	LOAD_LIBUDEV_PROC(udev_device_new_from_subsystem_sysname);
-	LOAD_LIBUDEV_PROC(udev_device_new_from_device_id);
-	LOAD_LIBUDEV_PROC(udev_device_new_from_environment);
-	LOAD_LIBUDEV_PROC(udev_device_get_parent);
-	LOAD_LIBUDEV_PROC(udev_device_get_parent_with_subsystem_devtype);
-	LOAD_LIBUDEV_PROC(udev_device_get_devpath);
-	LOAD_LIBUDEV_PROC(udev_device_get_subsystem);
-	LOAD_LIBUDEV_PROC(udev_device_get_devtype);
-	LOAD_LIBUDEV_PROC(udev_device_get_syspath);
-	LOAD_LIBUDEV_PROC(udev_device_get_sysname);
-	LOAD_LIBUDEV_PROC(udev_device_get_sysnum);
-	LOAD_LIBUDEV_PROC(udev_device_get_devnode);
-	LOAD_LIBUDEV_PROC(udev_device_get_is_initialized);
-	LOAD_LIBUDEV_PROC(udev_device_get_devlinks_list_entry);
-	LOAD_LIBUDEV_PROC(udev_device_get_properties_list_entry);
-	LOAD_LIBUDEV_PROC(udev_device_get_tags_list_entry);
-	LOAD_LIBUDEV_PROC(udev_device_get_sysattr_list_entry);
-	LOAD_LIBUDEV_PROC(udev_device_get_property_value);
-	LOAD_LIBUDEV_PROC(udev_device_get_driver);
-	LOAD_LIBUDEV_PROC(udev_device_get_devnum);
-	LOAD_LIBUDEV_PROC(udev_device_get_action);
-	LOAD_LIBUDEV_PROC(udev_device_get_seqnum);
-	LOAD_LIBUDEV_PROC(udev_device_get_usec_since_initialized);
-	LOAD_LIBUDEV_PROC(udev_device_get_sysattr_value);
-	LOAD_LIBUDEV_PROC(udev_device_set_sysattr_value);
-	LOAD_LIBUDEV_PROC(udev_device_has_tag);
-
-	LOAD_LIBUDEV_PROC(udev_monitor_ref);
-	LOAD_LIBUDEV_PROC(udev_monitor_unref);
-	LOAD_LIBUDEV_PROC(udev_monitor_get_udev);
-	LOAD_LIBUDEV_PROC(udev_monitor_new_from_netlink);
-	LOAD_LIBUDEV_PROC(udev_monitor_enable_receiving);
-	LOAD_LIBUDEV_PROC(udev_monitor_set_receive_buffer_size);
-	LOAD_LIBUDEV_PROC(udev_monitor_get_fd);
-	LOAD_LIBUDEV_PROC(udev_monitor_receive_device);
-	LOAD_LIBUDEV_PROC(udev_monitor_filter_add_match_subsystem_devtype);
-	LOAD_LIBUDEV_PROC(udev_monitor_filter_add_match_tag);
-	LOAD_LIBUDEV_PROC(udev_monitor_filter_update);
-	LOAD_LIBUDEV_PROC(udev_monitor_filter_remove);
-
-	LOAD_LIBUDEV_PROC(udev_enumerate_ref);
-	LOAD_LIBUDEV_PROC(udev_enumerate_unref);
-	LOAD_LIBUDEV_PROC(udev_enumerate_get_udev);
-	LOAD_LIBUDEV_PROC(udev_enumerate_new);
-	LOAD_LIBUDEV_PROC(udev_enumerate_add_match_subsystem);
-	LOAD_LIBUDEV_PROC(udev_enumerate_add_nomatch_subsystem);
-	LOAD_LIBUDEV_PROC(udev_enumerate_add_match_sysattr);
-	LOAD_LIBUDEV_PROC(udev_enumerate_add_nomatch_sysattr);
-	LOAD_LIBUDEV_PROC(udev_enumerate_add_match_property);
-	LOAD_LIBUDEV_PROC(udev_enumerate_add_match_sysname);
-	LOAD_LIBUDEV_PROC(udev_enumerate_add_match_tag);
-	LOAD_LIBUDEV_PROC(udev_enumerate_add_match_parent);
-	LOAD_LIBUDEV_PROC(udev_enumerate_add_match_is_initialized);
-	LOAD_LIBUDEV_PROC(udev_enumerate_add_syspath);
-	LOAD_LIBUDEV_PROC(udev_enumerate_scan_devices);
-	LOAD_LIBUDEV_PROC(udev_enumerate_scan_subsystems);
-	LOAD_LIBUDEV_PROC(udev_enumerate_get_list_entry);
-
-	LOAD_LIBUDEV_PROC(udev_queue_ref);
-	LOAD_LIBUDEV_PROC(udev_queue_unref);
-	LOAD_LIBUDEV_PROC(udev_queue_get_udev);
-	LOAD_LIBUDEV_PROC(udev_queue_new);
-	LOAD_LIBUDEV_PROC(udev_queue_get_udev_is_active);
-	LOAD_LIBUDEV_PROC(udev_queue_get_queue_is_empty);
-	LOAD_LIBUDEV_PROC(udev_queue_get_fd);
-	LOAD_LIBUDEV_PROC(udev_queue_flush);
-
-	LOAD_LIBUDEV_PROC(udev_hwdb_new);
-	LOAD_LIBUDEV_PROC(udev_hwdb_ref);
-	LOAD_LIBUDEV_PROC(udev_hwdb_unref);
-	LOAD_LIBUDEV_PROC(udev_hwdb_get_properties_list_entry);
-
-	LOAD_LIBUDEV_PROC(udev_util_encode_string);
-
-#	undef LOAD_LIBUDEV_PROC
-
-	return lib;
-}
-
-void libudev_unload(struct libudev *lib) {
-	dlclose(lib->handle);
-	free(lib);
-}
-*/
 
 struct libegl *libegl_load(void) {
 	struct libegl *lib;
@@ -246,7 +137,7 @@ struct libegl *libegl_load(void) {
 		} while (false)
 
 #	define LOAD_LIBEGL_PROC_OPT(name) lib->name = dlsym(NULL, #name)
-#	define LOAD_LIBEGL_EXT_PROC_OPT(name) lib->name = eglGetProcAddress(#name)
+#	define LOAD_LIBEGL_EXT_PROC_OPT(name) lib->name = (void*) eglGetProcAddress(#name)
 
 	// 1.0
 	/*
@@ -415,7 +306,7 @@ void libegl_unload(struct libegl *lib) {
 
 
 struct egl_client_info *egl_client_info_new(struct libegl *lib) {
-	struct egl_display_info *info;
+	struct egl_client_info *info;
 
 	info = malloc(sizeof *info);
 	if (info == NULL) {

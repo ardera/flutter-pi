@@ -98,13 +98,12 @@ static int get_player_id_from_map_arg(
     struct omxpvidpp *plugin,
     const struct std_value *arg,
     int64_t *player_id_out,
-    const struct flutter_message_response_handle *responsehandle
+    struct flutter_message_response_handle *responsehandle
 ) {
     int ok;
 
     if (arg->type != kStdMap) {
         ok = fm_respond_illegal_arg_std(
-            plugin->flutterpi->flutter_messenger,
             responsehandle,
             "Expected `arg` to be a Map"
         );
@@ -116,7 +115,6 @@ static int get_player_id_from_map_arg(
     const struct std_value *id = stdmap_get_str_const(arg, "playerId");
     if (id == NULL || !STDVALUE_IS_INT(*id)) {
         ok = fm_respond_illegal_arg_std(
-            plugin->flutterpi->flutter_messenger,
             responsehandle,
             "Expected `arg['playerId']` to be an integer"
         );
@@ -137,7 +135,7 @@ static int get_player_from_map_arg(
     struct omxpvidpp *plugin,
     const struct std_value *arg,
     struct omxplayer_video_player **player_out,
-    const struct flutter_message_response_handle *responsehandle
+    struct flutter_message_response_handle *responsehandle
 ) {
     struct omxplayer_video_player *player;
     int64_t player_id;
@@ -152,7 +150,6 @@ static int get_player_from_map_arg(
     player = get_player_by_id(player_id);
     if (player == NULL) {
         ok = fm_respond_illegal_arg_std(
-            plugin->flutterpi->flutter_messenger,
             responsehandle,
             "Expected `arg['playerId']` to be a valid player id."
         );
@@ -258,7 +255,7 @@ static int on_update_view(
 
 static int respond_sd_bus_error(
     struct omxpvidpp *plugin,
-    const struct flutter_message_response_handle *handle,
+    struct flutter_message_response_handle *handle,
     sd_bus_error *err
 ) {
     char str[256];
@@ -266,7 +263,6 @@ static int respond_sd_bus_error(
     snprintf(str, sizeof(str), "%s: %s", err->name, err->message);
 
     return fm_respond_error_std(
-        plugin->flutterpi->flutter_messenger,
         handle,
         "dbus-error",
         str,
@@ -383,7 +379,6 @@ static void *mgr_entry(void *userdata) {
     if (ok != 0) {
         fprintf(stderr, "[omxplayer_video_player plugin] Could not dequeue creation task in manager thread. cqueue_dequeue: %s\n", strerror(ok));
         fm_respond_error_std(
-            fm,
             task.responsehandle,
             "internal-error",
             "Could not dequeue creation task in manager thread.",
@@ -396,7 +391,6 @@ static void *mgr_entry(void *userdata) {
     if (task.type != kCreate || task.responsehandle == NULL) {
         fprintf(stderr, "[omxplayer_video_player plugin] First task of manager thread is not a creation task.\n");
         fm_respond_error_std(
-            fm,
             task.responsehandle,
             "internal-error",
             "First task of manager thread is not a creation task.",
@@ -427,7 +421,7 @@ static void *mgr_entry(void *userdata) {
     ok = sd_bus_open_user(&bus);
     if (ok < 0) {
         fprintf(stderr, "[omxplayer_video_player plugin] Could not open DBus in manager thread. sd_bus_open_user: %s\n", strerror(-ok));
-        fm_respond_native_error_std(fm, task.responsehandle, -ok);
+        fm_respond_native_error_std(task.responsehandle, -ok);
         goto fail_remove_evch_listener;
     }
 
@@ -447,7 +441,7 @@ static void *mgr_entry(void *userdata) {
     );
     if (ok < 0) {
         fprintf(stderr, "[omxplayer_video_player plugin] Could not wait for omxplayer DBus registration in manager thread. sd_bus_match_signal: %s\n", strerror(-ok));
-        fm_respond_native_error_std(fm, task.responsehandle, -ok);
+        fm_respond_native_error_std(task.responsehandle, -ok);
         goto fail_close_dbus;
     }
 
@@ -488,7 +482,7 @@ static void *mgr_entry(void *userdata) {
         // something went wrong.
         ok = errno;
         perror("[omxplayer_video_player plugin] Could not spawn omxplayer subprocess. fork");
-        fm_respond_native_error_std(fm, task.responsehandle, ok);
+        fm_respond_native_error_std(task.responsehandle, ok);
         goto fail_unref_slot;
     }
 
@@ -497,7 +491,7 @@ static void *mgr_entry(void *userdata) {
         if (ok < 0) {
             ok = -ok;
             fprintf(stderr, "[omxplayer_video_player plugin] Could not wait for sd bus messages on manager thread: %s\n", strerror(ok));
-            fm_respond_native_error_std(fm, task.responsehandle, ok);
+            fm_respond_native_error_std(task.responsehandle, ok);
             goto fail_kill_unregistered_player;
         }
 
@@ -505,7 +499,7 @@ static void *mgr_entry(void *userdata) {
         if (ok < 0) {
             ok = -ok;
             fprintf(stderr, "[omxplayer_video_player plugin] Could not wait for sd bus messages on manager thread: %s\n", strerror(ok));
-            fm_respond_native_error_std(fm, task.responsehandle, ok);
+            fm_respond_native_error_std(task.responsehandle, ok);
             goto fail_kill_unregistered_player;
         }
     }
@@ -610,7 +604,7 @@ static void *mgr_entry(void *userdata) {
     }
 
     // creation was a success! respond to the dart-side with our player id.
-    fm_respond_success_std(fm, task.responsehandle, &STDINT64(mgr->player->player_id));
+    fm_respond_success_std(task.responsehandle, &STDINT64(mgr->player->player_id));
 
     has_sent_initialized_event = false;
     pause_on_end = is_stream ? false : true;
@@ -638,7 +632,7 @@ static void *mgr_entry(void *userdata) {
             if (mgr->player->has_view) {
                 fprintf(stderr, "[omxplayer_video_player plugin] flutter attempted to dispose the video player before its view was disposed.\n");
 
-                compositor_remove_view_callbacks(mgr->player->view_id);
+                compositor_remove_view_callbacks(mgr->plugin->flutterpi->compositor, mgr->player->view_id);
 
                 mgr->player->has_view = false;
                 mgr->player->view_id = -1;
@@ -680,11 +674,11 @@ static void *mgr_entry(void *userdata) {
             free(mgr);
             mgr = NULL;
 
-            fm_respond_success_std(fm, task.responsehandle, NULL);
+            fm_respond_success_std(task.responsehandle, NULL);
 
             break;
         } else if (task.type == kListen) {
-            fm_respond_success_std(fm, task.responsehandle, NULL);
+            fm_respond_success_std(task.responsehandle, NULL);
 
             if (!has_sent_initialized_event) {
                 fm_send_success_event_std(
@@ -701,7 +695,7 @@ static void *mgr_entry(void *userdata) {
                 has_sent_initialized_event = true;
             }
         } else if (task.type == kUnlisten) {
-            fm_respond_success_std(fm, task.responsehandle, NULL);
+            fm_respond_success_std(task.responsehandle, NULL);
         } else if (task.type == kPlay) {
             ok = sd_bus_call_method(
                 bus,
@@ -719,7 +713,7 @@ static void *mgr_entry(void *userdata) {
                 continue;
             }
 
-            fm_respond_success_std(fm, task.responsehandle, NULL);
+            fm_respond_success_std(task.responsehandle, NULL);
         } else if (task.type == kPause) {
             has_scheduled_pause_time = false;
 
@@ -741,7 +735,7 @@ static void *mgr_entry(void *userdata) {
 
             msg = NULL;
 
-            fm_respond_success_std(fm, task.responsehandle, NULL);   
+            fm_respond_success_std(task.responsehandle, NULL);   
         } else if (task.type == kUpdateView) {
             char video_pos_str[256];
             snprintf(
@@ -811,23 +805,18 @@ static void *mgr_entry(void *userdata) {
             
             position = position / 1000;
 
-            fm_respond_success_std(fm, task.responsehandle, &STDINT64(position));
+            fm_respond_success_std(task.responsehandle, &STDINT64(position));
         } else if (task.type == kSetPosition) {
             if (is_stream) {
                 if (task.position == -1) {
-                    // TODO: implement seek-to-end
+                    /// TODO: implement seek-to-end
 
-                    fm_respond_success_std(
-                        fm,
-                        task.responsehandle,
-                        NULL
-                    );
+                    fm_respond_success_std(task.responsehandle, NULL);
                 } else {
                     // Don't allow flutter to seek to anything other than the end on a stream.
                     fprintf(stderr, "[omxplayer_video_player plugin] Flutter attempted to seek on non-seekable video (a stream).\n");
 
                     fm_respond_error_std(
-                        fm,
                         task.responsehandle,
                         "state-error",
                         "Attempted to seek on non-seekable video (a stream)",
@@ -853,11 +842,11 @@ static void *mgr_entry(void *userdata) {
                     continue;
                 }
 
-                fm_respond_success_std(fm, task.responsehandle, NULL);
+                fm_respond_success_std(task.responsehandle, NULL);
             }
         } else if (task.type == kSetLooping) {
             pause_on_end = false;
-            fm_respond_success_std(fm, task.responsehandle, NULL);
+            fm_respond_success_std(task.responsehandle, NULL);
         } else if (task.type == kSetVolume) {
             ok = sd_bus_call_method(
                 bus,
@@ -878,7 +867,7 @@ static void *mgr_entry(void *userdata) {
                 continue;
             }
 
-            fm_respond_success_std(fm, task.responsehandle, NULL);
+            fm_respond_success_std(task.responsehandle, NULL);
         }
     }
     
@@ -933,10 +922,9 @@ static int ensure_binding_initialized(void) {
 /// Respond to the handle with a "initialization failed" message.
 static int respond_init_failed(
     struct omxpvidpp *plugin,
-    const struct flutter_message_response_handle *handle
+    struct flutter_message_response_handle *handle
 ) {
     return fm_respond_error_std(
-        plugin->flutterpi->flutter_messenger,
         handle,
         "couldnotinit",
         "omxplayer_video_player plugin failed to initialize libsystemd bindings. See flutter-pi log for details.",
@@ -950,7 +938,7 @@ static int respond_init_failed(
  *******************************************************/
 static void on_receive_evch(
     bool success,
-    const struct flutter_message_response_handle *responsehandle,
+    struct flutter_message_response_handle *responsehandle,
     const char *channel,
     const struct platch_obj *object,
     void *userdata
@@ -963,7 +951,7 @@ static void on_receive_evch(
 
     player = get_player_by_evch(channel);
     if (player == NULL) {
-        fm_respond_not_implemented(plugin->flutterpi->flutter_messenger, responsehandle);
+        fm_respond_not_implemented(responsehandle);
     }
 
     if STREQ("listen", object->method) {
@@ -977,14 +965,14 @@ static void on_receive_evch(
             .responsehandle = responsehandle
         });
     } else {
-        fm_respond_not_implemented(plugin->flutterpi->flutter_messenger, responsehandle);
+        fm_respond_not_implemented(responsehandle);
     }
 }
 
 static int on_initialize(
     struct omxpvidpp *plugin,
     const struct std_value *arg,
-    const struct flutter_message_response_handle* responsehandle
+    struct flutter_message_response_handle* responsehandle
 ) {
     int ok;
 
@@ -993,7 +981,7 @@ static int on_initialize(
         return respond_init_failed(plugin, responsehandle);
     }
 
-    return fm_respond_success_std(plugin->flutterpi->flutter_messenger, responsehandle, NULL);
+    return fm_respond_success_std(responsehandle, NULL);
 }
 
 /// Creates a new video player.
@@ -1001,7 +989,7 @@ static int on_initialize(
 static int on_create(
     struct omxpvidpp *plugin,
     const struct std_value *arg,
-    const struct flutter_message_response_handle* responsehandle
+    struct flutter_message_response_handle* responsehandle
 ) {
     struct omxplayer_video_player *player;
     struct omxplayer_mgr *mgr;
@@ -1032,7 +1020,6 @@ static int on_create(
         invalid_source_type:
 
         return fm_respond_illegal_arg_std(
-            plugin->flutterpi->flutter_messenger,
             responsehandle,
             "Expected `arg['sourceType']` to be a stringification of the [DataSourceType] enum."
         );
@@ -1045,7 +1032,6 @@ static int on_create(
         asset = temp->string_value;
     } else {
         return fm_respond_illegal_arg_std(
-            plugin->flutterpi->flutter_messenger,
             responsehandle,
             "Expected `arg['asset']` to be a String or null."
         );
@@ -1058,7 +1044,6 @@ static int on_create(
         uri = temp->string_value;
     } else {
         return fm_respond_illegal_arg_std(
-            plugin->flutterpi->flutter_messenger,
             responsehandle,
             "Expected `arg['uri']` to be a String or null."
         );
@@ -1071,7 +1056,6 @@ static int on_create(
         package_name = temp->string_value;
     } else {
         return fm_respond_illegal_arg_std(
-            plugin->flutterpi->flutter_messenger,
             responsehandle,
             "Expected `arg['packageName']` to be a String or null."
         );
@@ -1084,7 +1068,6 @@ static int on_create(
         format_hint = temp->string_value;
     } else {
         return fm_respond_illegal_arg_std(
-            plugin->flutterpi->flutter_messenger,
             responsehandle,
             "Expected `arg['formatHint']` to be a String or null."
         );
@@ -1092,7 +1075,7 @@ static int on_create(
 
     mgr = calloc(1, sizeof *mgr);
     if (mgr == NULL) {
-        return fm_respond_native_error_std(plugin->flutterpi->flutter_messenger, responsehandle, ENOMEM);
+        return fm_respond_native_error_std(responsehandle, ENOMEM);
     }
 
     mgr->plugin = plugin;
@@ -1179,13 +1162,13 @@ static int on_create(
     free(mgr);
     mgr = NULL;
 
-    return fm_respond_native_error_std(plugin->flutterpi->flutter_messenger, responsehandle, ok);
+    return fm_respond_native_error_std(responsehandle, ok);
 }
 
 static int on_dispose(
     struct omxpvidpp *plugin,
     const struct std_value *arg,
-    const struct flutter_message_response_handle* responsehandle
+    struct flutter_message_response_handle* responsehandle
 ) {
     struct omxplayer_video_player *player;
     int ok;
@@ -1204,7 +1187,7 @@ static int on_dispose(
 static int on_set_looping(
     struct omxpvidpp *plugin,
     const struct std_value *arg,
-    const struct flutter_message_response_handle* responsehandle
+    struct flutter_message_response_handle* responsehandle
 ) {
     struct omxplayer_video_player *player;
     const struct std_value *temp;
@@ -1219,7 +1202,6 @@ static int on_set_looping(
         loop = STDVALUE_AS_BOOL(*temp);
     } else {
         return fm_respond_illegal_arg_std(
-            plugin->flutterpi->flutter_messenger,
             responsehandle,
             "Expected `arg['looping']` to be a boolean."
         );
@@ -1235,7 +1217,7 @@ static int on_set_looping(
 static int on_set_volume(
     struct omxpvidpp *plugin,
     const struct std_value *arg,
-    const struct flutter_message_response_handle* responsehandle
+    struct flutter_message_response_handle* responsehandle
 ) {
     struct omxplayer_video_player *player;
     const struct std_value *temp;
@@ -1250,7 +1232,6 @@ static int on_set_volume(
         volume = STDVALUE_AS_FLOAT(*temp);
     } else {
         return fm_respond_illegal_arg_std(
-            plugin->flutterpi->flutter_messenger,
             responsehandle,
             "Expected `arg['volume']` to be a float/double."
         );
@@ -1266,7 +1247,7 @@ static int on_set_volume(
 static int on_play(
     struct omxpvidpp *plugin,
     const struct std_value *arg,
-    const struct flutter_message_response_handle* responsehandle
+    struct flutter_message_response_handle* responsehandle
 ) {
     struct omxplayer_video_player *player;
     int ok;
@@ -1283,7 +1264,7 @@ static int on_play(
 static int on_get_position(
     struct omxpvidpp *plugin,
     const struct std_value *arg,
-    const struct flutter_message_response_handle* responsehandle
+    struct flutter_message_response_handle* responsehandle
 ) {
     struct omxplayer_video_player *player;
     int ok;
@@ -1300,7 +1281,7 @@ static int on_get_position(
 static int on_seek_to(
     struct omxpvidpp *plugin,
     const struct std_value *arg,
-    const struct flutter_message_response_handle* responsehandle
+    struct flutter_message_response_handle* responsehandle
 ) {
     struct omxplayer_video_player *player;
     const struct std_value *temp;
@@ -1315,7 +1296,6 @@ static int on_seek_to(
         position = STDVALUE_AS_INT(*temp);
     } else {
         return fm_respond_illegal_arg_std(
-            plugin->flutterpi->flutter_messenger,
             responsehandle,
             "Expected `arg['position']` to be an integer."
         );
@@ -1331,7 +1311,7 @@ static int on_seek_to(
 static int on_pause(
     struct omxpvidpp *plugin,
     const struct std_value *arg,
-    const struct flutter_message_response_handle* responsehandle
+    struct flutter_message_response_handle* responsehandle
 ) {
     struct omxplayer_video_player *player;
     int ok;
@@ -1348,7 +1328,7 @@ static int on_pause(
 static int on_create_platform_view(
     struct omxpvidpp *plugin,
     const struct std_value *arg,
-    const struct flutter_message_response_handle* responsehandle
+    struct flutter_message_response_handle* responsehandle
 ) {
     struct omxplayer_video_player *player;
     const struct std_value *temp;
@@ -1363,7 +1343,6 @@ static int on_create_platform_view(
         view_id = STDVALUE_AS_INT(*temp);
     } else {
         return fm_respond_illegal_arg_std(
-            plugin->flutterpi->flutter_messenger,
             responsehandle,
             "Expected `arg['platformViewId']` to be an integer."
         );
@@ -1373,12 +1352,12 @@ static int on_create_platform_view(
         fprintf(stderr, "[omxplayer_video_player plugin] Flutter attempted to register more than one platform view for one player instance.\n");
         
         return fm_respond_illegal_arg_std(
-            plugin->flutterpi->flutter_messenger,
             responsehandle,
             "Attempted to register more than one platform view for this player instance."
         );
     } else {
-        ok = compositor_set_view_callbacks(
+        ok = compositor_put_view_callbacks(
+            plugin->flutterpi->compositor,
             view_id,
             on_mount,
             on_unmount,
@@ -1387,20 +1366,20 @@ static int on_create_platform_view(
             player
         );
         if (ok != 0) {
-            return fm_respond_native_error_std(plugin->flutterpi->flutter_messenger, responsehandle, ok);
+            return fm_respond_native_error_std(responsehandle, ok);
         }
         
         player->has_view = true;
         player->view_id = view_id;
 
-        return fm_respond_success_std(plugin->flutterpi->flutter_messenger, responsehandle, NULL);
+        return fm_respond_success_std(responsehandle, NULL);
     }
 }
 
 static int on_dispose_platform_view(
     struct omxpvidpp *plugin,
     const struct std_value *arg,
-    const struct flutter_message_response_handle* responsehandle
+    struct flutter_message_response_handle* responsehandle
 ) {
     struct omxplayer_video_player *player;
     const struct std_value *temp;
@@ -1415,7 +1394,6 @@ static int on_dispose_platform_view(
         view_id = STDVALUE_AS_INT(*temp);
     } else {
         return fm_respond_illegal_arg_std(
-            plugin->flutterpi->flutter_messenger,
             responsehandle,
             "Expected `arg['platformViewId']` to be an integer."
         );
@@ -1428,12 +1406,11 @@ static int on_dispose_platform_view(
         );
 
         return fm_respond_illegal_arg_std(
-            plugin->flutterpi->flutter_messenger,
             responsehandle,
             "Attempted to dispose on omxplayer view that is not associated with `arg['playerId']`."
         );
     } else {
-        ok = compositor_remove_view_callbacks(view_id);
+        ok = compositor_remove_view_callbacks(plugin->flutterpi->compositor, view_id);
         if (ok != 0) {
             fprintf(
                 stderr,
@@ -1442,7 +1419,6 @@ static int on_dispose_platform_view(
                 strerror(ok)
             );
             return fm_respond_native_error_std(
-                plugin->flutterpi->flutter_messenger,
                 responsehandle,
                 ok
             );
@@ -1462,7 +1438,6 @@ static int on_dispose_platform_view(
         });
 
         return fm_respond_success_std(
-            plugin->flutterpi->flutter_messenger,
             responsehandle,
             NULL
         );
@@ -1474,7 +1449,7 @@ static int on_dispose_platform_view(
 /// or else responds with not implemented.
 static void on_receive_mch(
     bool success,
-    const struct flutter_message_response_handle *responsehandle,
+    struct flutter_message_response_handle *responsehandle,
     const char *channel,
     const struct platch_obj *object,
     void *userdata
@@ -1485,7 +1460,6 @@ static void on_receive_mch(
 
     if (success == false) {
         fm_respond_error_std(
-            plugin->flutterpi->flutter_messenger,
             responsehandle,
             "formaterror",
             "Expected a valid standard method codec method call.",
@@ -1518,7 +1492,7 @@ static void on_receive_mch(
     } else if STREQ("disposePlatformView", object->method) {
         on_dispose_platform_view(plugin, &object->std_arg, responsehandle);
     } else {
-        fm_respond_not_implemented(plugin->flutterpi->flutter_messenger, responsehandle);
+        fm_respond_not_implemented(responsehandle);
     }
 }
 

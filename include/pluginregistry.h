@@ -7,8 +7,6 @@
 
 #include <platformchannel.h>
 
-#define STREQ(a, b) (strcmp(a, b) == 0)
-
 struct flutterpi;
 struct platform_message_response_handle;
 struct plugin_registry;
@@ -65,6 +63,11 @@ int plugin_registry_on_platform_message(
 	const uint8_t *message,
 	size_t message_size,
 	const struct platform_message_response_handle *responsehandle
+);
+
+void *plugin_registry_get_plugin_userdata(
+	struct plugin_registry *registry,
+	const char *plugin_name
 );
 
 /**

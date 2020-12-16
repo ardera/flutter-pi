@@ -332,7 +332,7 @@ struct std_value {
 #define JSONVALUE_AS_BOOL(value) ((value).type == kJsonTrue)
 #define JSONBOOL(bool_value) ((struct json_value) {.type = (bool_value) ? kJsonTrue : kJsonFalse})
 
-#define JSONVALUE_IS_NUM(value) ((value).type == kJsonNumber))
+#define JSONVALUE_IS_NUM(value) ((value).type == kJsonNumber)
 #define JSONVALUE_AS_NUM(value) ((value).number_value)
 #define JSONNUM(_number_value) ((struct json_value) {.type = kJsonNumber, .number_value = (_number_value)})
 
@@ -632,25 +632,37 @@ struct platch_obj {
 
 #define PLATCH_OBJ_NOT_IMPLEMENTED ((struct platch_obj) {.codec = kNotImplemented})
 #define PLATCH_OBJ_STRING(string) ((struct platch_obj) {.codec = kStringCodec, .string_value = (string)})
-#define PLATCH_OBJ_BINARY_DATA(data, data_size) ((struct platch_obj) {.codec = kBinaryCodec, .binarydata_size = data_size, .binarydata = data})
-#define PLATCH_OBJ_JSON_MSG(__json_value) ((struct platch_obj) {.codec = kJSONMessageCodec, .json_value = __json_value})
-#define PLATCH_OBJ_STD_MSG(__std_value) ((struct platch_obj) {.codec = kStandardMessageCodec, .std_value = __std_value})
-#define PLATCH_OBJ_STD_CALL(method_name, arg) ((struct platch_obj) {.codec = kStandardMethodCall, .method = method_name, .std_arg = arg})
-#define PLATCH_OBJ_JSON_CALL(method_name, arg) ((struct platch_obj) {.codec = kJSONMethodCall, .method = method_name, .json_arg = arg})
-#define PLATCH_OBJ_STD_CALL_SUCCESS_RESPONSE(result) ((struct platch_obj) {.codec = kStandardMethodCallResponse, .success = true, .std_result = result})
-#define PLATCH_OBJ_STD_CALL_ERROR_RESPONSE(code, msg, details) ((struct platch_obj) {.codec = kStandardMethodCallResponse, .success = false, .error_code = code, .error_msg = msg, .std_error_details = details})
-#define PLATCH_OBJ_JSON_CALL_SUCCESS_RESPONSE(result) ((struct platch_obj) {.codec = kJSONMethodCallResponse, .success = true, .json_result = result})
-#define PLATCH_OBJ_JSON_CALL_ERROR_RESPONSE(code, msg, details) ((struct platch_obj) {.codec = kStandardMethodCallResponse, .success = false, .error_code = code, .error_msg = msg, .json_error_details = details})
+#define PLATCH_OBJ_BINARY_DATA(data, data_size) ((struct platch_obj) {.codec = kBinaryCodec, .binarydata_size = (data_size), .binarydata = (data)})
+#define PLATCH_OBJ_JSON_MSG(__json_value) ((struct platch_obj) {.codec = kJSONMessageCodec, .json_value = (__json_value)})
+#define PLATCH_OBJ_STD_MSG(__std_value) ((struct platch_obj) {.codec = kStandardMessageCodec, .std_value = (__std_value)})
+#define PLATCH_OBJ_STD_CALL(method_name, arg) ((struct platch_obj) {.codec = kStandardMethodCall, .method = (char*) (method_name), .std_arg = (arg)})
+#define PLATCH_OBJ_JSON_CALL(method_name, arg) ((struct platch_obj) {.codec = kJSONMethodCall, .method = (char*) (method_name), .json_arg = (arg)})
+#define PLATCH_OBJ_STD_CALL_SUCCESS_RESPONSE(result) ((struct platch_obj) {.codec = kStandardMethodCallResponse, .success = true, .std_result = (result)})
+#define PLATCH_OBJ_STD_CALL_ERROR_RESPONSE(code, msg, details) ((struct platch_obj) {.codec = kStandardMethodCallResponse, .success = false, .error_code = (char*) (code), .error_msg = (char*) (msg), .std_error_details = (details)})
+#define PLATCH_OBJ_JSON_CALL_SUCCESS_RESPONSE(result) ((struct platch_obj) {.codec = kJSONMethodCallResponse, .success = true, .json_result = (result)})
+#define PLATCH_OBJ_JSON_CALL_ERROR_RESPONSE(code, msg, details) ((struct platch_obj) {.codec = kStandardMethodCallResponse, .success = false, .error_code = (char*) (code), .error_msg = (char*) (msg), .json_error_details = (details)})
 #define PLATCH_OBJ_STD_SUCCESS_EVENT(value) PLATCH_OBJ_STD_CALL_SUCCESS_RESPONSE(value)
 #define PLATCH_OBJ_STD_ERROR_EVENT(code, msg, details) PLATCH_OBJ_STD_CALL_ERROR_RESPONSE(code, msg, details)
 #define PLATCH_OBJ_JSON_SUCCESS_EVENT(value) PLATCH_OBJ_JSON_CALL_SUCCESS_RESPONSE(value)
 #define PLATCH_OBJ_JSON_ERROR_EVENT(code, msg, details) PLATCH_OBJ_JSON_CALL_ERROR_RESPONSE(code, msg, details)
 
-/// A Callback that is called when a response to a platform message you send to flutter
-/// arrives. "object" is the platform message decoded using the "codec" you gave to PlatformChannel_send,
-/// "userdata" is the userdata you gave to PlatformChannel_send.
-
-
+/*
+#define PLATCH_OBJ_NOT_IMPLEMENTED_CONST ((const struct platch_obj) {.codec = kNotImplemented})
+#define PLATCH_OBJ_STRING_CONST(string) ((const struct platch_obj) {.codec = kStringCodec, .string_value = (char*) (string)})
+#define PLATCH_OBJ_BINARY_DATA_CONST(data, data_size) ((const struct platch_obj) {.codec = kBinaryCodec, .binarydata_size = data_size, .binarydata = data})
+#define PLATCH_OBJ_JSON_MSG_CONST(__json_value) ((const struct platch_obj) {.codec = kJSONMessageCodec, .json_value = __json_value})
+#define PLATCH_OBJ_STD_MSG_CONST(__std_value) ((const struct platch_obj) {.codec = kStandardMessageCodec, .std_value = __std_value})
+#define PLATCH_OBJ_STD_CALL_CONST(method_name, arg) ((const struct platch_obj) {.codec = kStandardMethodCall, .method = (char*) method_name, .std_arg = arg})
+#define PLATCH_OBJ_JSON_CALL_CONST(method_name, arg) ((const struct platch_obj) {.codec = kJSONMethodCall, .method = (char*) method_name, .json_arg = arg})
+#define PLATCH_OBJ_STD_CALL_SUCCESS_RESPONSE_CONST(result) ((const struct platch_obj) {.codec = kStandardMethodCallResponse, .success = true, .std_result = result})
+#define PLATCH_OBJ_STD_CALL_ERROR_RESPONSE_CONST(code, msg, details) ((const struct platch_obj) {.codec = kStandardMethodCallResponse, .success = false, .error_code = (char *) (code), .error_msg = (char *) (msg), .std_error_details = details})
+#define PLATCH_OBJ_JSON_CALL_SUCCESS_RESPONSE_CONST(result) ((const struct platch_obj) {.codec = kJSONMethodCallResponse, .success = true, .json_result = result})
+#define PLATCH_OBJ_JSON_CALL_ERROR_RESPONSE_CONST(code, msg, details) ((const struct platch_obj) {.codec = kJSONMethodCallResponse, .success = false, .error_code = (char*) (code), .error_msg = (char *) (msg), .json_error_details = details})
+#define PLATCH_OBJ_STD_SUCCESS_EVENT_CONST(value) PLATCH_OBJ_STD_CALL_SUCCESS_RESPONSE_CONST(value)
+#define PLATCH_OBJ_STD_ERROR_EVENT_CONST(code, msg, details) PLATCH_OBJ_STD_CALL_ERROR_RESPONSE_CONST(code, msg, details)
+#define PLATCH_OBJ_JSON_SUCCESS_EVENT_CONST(value) PLATCH_OBJ_JSON_CALL_SUCCESS_RESPONSE_CONST(value)
+#define PLATCH_OBJ_JSON_ERROR_EVENT_CONST(code, msg, details) PLATCH_OBJ_JSON_CALL_ERROR_RESPONSE_CONST(code, msg, details)
+*/
 
 /// decodes a platform message (represented by `buffer` and `size`) as the given codec,
 /// and puts the result into object_out.
@@ -799,26 +811,78 @@ int platch_free_obj(struct platch_obj *object);
 int platch_free_json_value(struct json_value *value, bool shallow);
 
 
-/// returns true if values a and b are equal.
-/// for JS arrays, the order of the values is relevant
-/// (so two arrays are only equal if the same values appear in exactly same order)
-/// for objects, the order of the entries is irrelevant.
-bool jsvalue_equals(struct json_value *a, struct json_value *b);
+/**
+ * @brief Returns true if @ref a and @ref b are equivalent, false otherwise.
+ * 
+ * Two values a and b are equivalent if:
+ *   - they have the same type
+ *   - are have equal value for simple types (int64, int32, double)
+ *   - their string values are equal for string json_values (checked using strcmp == 0)
+ *   - their size is equivalent for map and list json_values
+ *   - their elements are the equal and in the same order for list json_values (checked using jsvalue_equals)
+ *   - they contain the same entries (each entry in a must have an entry in b with equal key and equal value, checked using jsvalue_equals)
+ */
+bool jsvalue_equals(const struct json_value *a, const struct json_value *b);
 
-/// given a JS object as an argument, it searches for an entry with key "key"
-/// and returns the value associated with it.
-/// if the key is not found, returns NULL.
-struct json_value *jsobject_get(struct json_value *object, char *key);
+/**
+ * @brief If there's a value for string @ref key in @ref map, return it.
+ * This is the non-const version, for cases where you want to modify the return value.
+ * 
+ * @returns The value for @ref key in @ref map, NULL if no value for @ref key is found.
+ */
+struct json_value *jsobject_get(struct json_value *object, const char *key);
 
-/// StdMsgCodecValue equivalent of jsvalue_equals.
-/// again, for lists, the order of values is relevant
-/// for maps, it's not.
+/**
+ * @brief If there's a value for string @ref key in @ref map, return it.
+ * This is the const version, for cases where you don't plan on modifying the return value.
+ * 
+ * @returns The value for @ref key in @ref map, NULL if no value for @ref key is found.
+ */
+const struct json_value *jsobject_get_const(const struct json_value *object, const char *key);
+
+/**
+ * @brief Returns true if @ref a and @ref b are equivalent, false otherwise.
+ * 
+ * Two values a and b are equivalent if:
+ *   - they have the same type
+ *   - are have equal value for simple types (int64, int32, double)
+ *   - their string values are equal for string std_values (checked using strcmp == 0)
+ *   - their size is equivalent for map and list std_values
+ *   - their elements are the equal and in the same order for list std_values (checked using stdvalue_equals)
+ *   - they contain the same entries (each entry in a must have an entry in b with equal key and equal value, checked using stdvalue_equals)
+ */ 
 bool stdvalue_equals(const struct std_value *a, const struct std_value *b);
 
-/// StdMsgCodecValue equivalent of jsobject_get, just that the key can be
-/// any arbitrary StdMsgCodecValue (and must not be a string as for jsobject_get)
+/**
+ * @brief If there's a value for key @ref key in @ref map, return it.
+ * This is the non-const version, for cases where you want to modify the return value.
+ * 
+ * @returns The value for @ref key in @ref map, NULL if no value for @ref key is found.
+ */
+struct std_value *stdmap_get(struct std_value *map, const struct std_value *key);
+
+/**
+ * @brief If there's a value for key @ref key in @ref map, return it.
+ * This is the const version, for cases where you don't plan on modifying the return value.
+ * 
+ * @returns The value for @ref key in @ref map, NULL if no value for @ref key is found.
+ */
 const struct std_value *stdmap_get_const(const struct std_value *map, const struct std_value *key);
 
+/**
+ * @brief If there's a value for string @ref key in @ref map, return it.
+ * This is the non-const version, for cases where you want to modify the return value.
+ * 
+ * @returns The value for @ref key in @ref map, NULL if no value for @ref key is found.
+ */
+struct std_value *stdmap_get_str(struct std_value *map, const char *key);
+
+/**
+ * @brief If there's a value for string @ref key in @ref map, return it.
+ * This is the const version, for cases where you don't plan on modifying the return value.
+ * 
+ * @returns The value for @ref key in @ref map, NULL if no value for @ref key is found.
+ */
 const struct std_value *stdmap_get_str_const(const struct std_value *map, const char *key);
 
 static inline int _advance(uintptr_t *value, size_t n_bytes, size_t *remaining) {

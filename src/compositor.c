@@ -18,6 +18,7 @@
 #include <collection.h>
 #include <compositor.h>
 #include <cursor.h>
+#include <dylib_deps.h>
 
 struct view_cb_data {
 	int64_t view_id;
@@ -35,28 +36,113 @@ struct view_cb_data {
 	FlutterPlatformViewMutation last_mutations[16];
 };
 
-/*
-struct plane_data {
-	int type;
-	const struct drm_plane *plane;
-	bool is_reserved;
-	int zpos;
-};
-*/
+struct compositor {
+    struct drmdev *drmdev;
 
-struct compositor compositor = {
-	.drmdev = NULL,
-	.cbs = CPSET_INITIALIZER(CPSET_DEFAULT_MAX_SIZE),
-	.has_applied_modeset = false,
-	.should_create_window_surface_backing_store = true,
-	.stale_rendertargets = CPSET_INITIALIZER(CPSET_DEFAULT_MAX_SIZE),
-	.do_blocking_atomic_commits = false
+	struct gbm_surface *gbm_surface;
+
+    /**
+     * @brief The EGL interface to for swapping buffers, creating EGL images, etc.
+     */
+    struct libegl *libegl;
+
+    EGLDisplay display;
+	EGLSurface surface;
+	EGLContext context;
+
+    /**
+     * @brief Information about the EGL Display, like supported extensions / EGL versions.
+     */
+    struct egl_display_info *display_info;
+
+    /**
+     * @brief Flutter engine function for getting the current system time (uses monotonic clock)
+     */
+    flutter_engine_get_current_time_t get_current_time;
+
+    /*
+     * Flutter engine profiling functions 
+     */
+	flutter_engine_trace_event_duration_begin_t trace_event_begin;
+	flutter_engine_trace_event_duration_end_t trace_event_end;
+	flutter_engine_trace_event_instant_t trace_event_instant;
+
+    /**
+     * @brief Contains a struct for each existing platform view, containing the view id
+     * and platform view callbacks.
+     * 
+     * @see compositor_set_view_callbacks compositor_remove_view_callbacks
+     */
+    struct concurrent_pointer_set cbs;
+
+    /**
+     * @brief Whether the compositor should invoke @ref rendertarget_gbm_new the next time
+     * flutter creates a backing store. Otherwise @ref rendertarget_nogbm_new is invoked.
+     * 
+     * It's only possible to have at most one GBM-Surface backed backing store (== @ref rendertarget_gbm). So the first
+     * time @ref on_create_backing_store is invoked, a GBM-Surface backed backing store is returned and after that,
+     * only backing stores with @ref rendertarget_nogbm.
+     */
+    bool should_create_window_surface_backing_store;
+
+    /**
+     * @brief Whether the display mode was already applied. (Resolution, Refresh rate, etc)
+     * If it wasn't already applied, it will be the first time @ref on_present_layers
+     * is invoked.
+     */
+    bool has_applied_modeset;
+
+    /**
+     * @brief A cache of rendertargets that are not currently in use for
+     * any flutter layers and can be reused.
+     * 
+     * Make sure to destroy all stale rendertargets before presentation so all the DRM planes
+     * that are reserved by any stale rendertargets get freed.
+     */
+    struct concurrent_pointer_set stale_rendertargets;
+
+    /**
+     * @brief Whether the mouse cursor is currently enabled and visible.
+     */
+
+    struct {
+        bool is_enabled;
+        int cursor_size;
+        const struct cursor_icon *current_cursor;
+        int current_rotation;
+        int hot_x, hot_y;
+        int x, y;
+
+        bool has_buffer;
+        int buffer_depth;
+        int buffer_pitch;
+        int buffer_width;
+        int buffer_height;
+        int buffer_size;
+        uint32_t drm_fb_id;
+        uint32_t gem_bo_handle;
+        uint32_t *buffer;
+    } cursor;
+
+    /**
+     * If true, @ref on_present_layers will commit blockingly.
+     * 
+     * It will also schedule a simulated page flip event on the main thread
+     * afterwards so the frame queue works.
+     * 
+     * If false, @ref on_present_layers will commit nonblocking using page flip events,
+     * like usual.
+     */
+    bool do_blocking_atomic_commits;
 };
 
-static struct view_cb_data *get_cbs_for_view_id_locked(int64_t view_id) {
+static struct view_cb_data *get_cbs_for_view_id_locked(
+	struct compositor *compositor,
+	int64_t view_id
+) {
 	struct view_cb_data *data;
 	
-	for_each_pointer_in_cpset(&compositor.cbs, data) {
+	for_each_pointer_in_cpset(&compositor->cbs, data) {
 		if (data->view_id == view_id) {
 			return data;
 		}
@@ -65,12 +151,15 @@ static struct view_cb_data *get_cbs_for_view_id_locked(int64_t view_id) {
 	return NULL;
 }
 
-static struct view_cb_data *get_cbs_for_view_id(int64_t view_id) {
+static struct view_cb_data *get_cbs_for_view_id(
+	struct compositor *compositor,
+	int64_t view_id
+) {
 	struct view_cb_data *data;
 	
-	cpset_lock(&compositor.cbs);
-	data = get_cbs_for_view_id_locked(view_id);
-	cpset_unlock(&compositor.cbs);
+	cpset_lock(&compositor->cbs);
+	data = get_cbs_for_view_id_locked(compositor, view_id);
+	cpset_unlock(&compositor->cbs);
 	
 	return data;
 }
@@ -78,19 +167,20 @@ static struct view_cb_data *get_cbs_for_view_id(int64_t view_id) {
 /**
  * @brief Destroy all the rendertargets in the stale rendertarget cache.
  */
-static int destroy_stale_rendertargets(void) {
+static void destroy_stale_rendertargets(
+	struct compositor *compositor
+) {
 	struct rendertarget *target;
 
-	cpset_lock(&compositor.stale_rendertargets);
+	cpset_lock(&compositor->stale_rendertargets);
 
-	for_each_pointer_in_cpset(&compositor.stale_rendertargets, target) {
+	for_each_pointer_in_cpset(&compositor->stale_rendertargets, target) {
 		target->destroy(target);
+		cpset_remove_locked(&compositor->stale_rendertargets, target);
 		target = NULL;
 	}
 
-	cpset_unlock(&compositor.stale_rendertargets);
-
-	return 0;
+	cpset_unlock(&compositor->stale_rendertargets);
 }
 
 static void destroy_gbm_bo(
@@ -100,7 +190,7 @@ static void destroy_gbm_bo(
 	struct drm_fb *fb = userdata;
 
 	if (fb && fb->fb_id)
-		drmModeRmFB(flutterpi.drm.drmdev->fd, fb->fb_id);
+		drmModeRmFB(fb->drmdev->fd, fb->fb_id);
 	
 	free(fb);
 }
@@ -108,26 +198,41 @@ static void destroy_gbm_bo(
 /**
  * @brief Get a DRM FB id for this GBM BO, so we can display it.
  */
-static uint32_t gbm_bo_get_drm_fb_id(struct gbm_bo *bo) {
-	uint32_t width, height, format, strides[4] = {0}, handles[4] = {0}, offsets[4] = {0}, flags = 0;
+static uint32_t gbm_bo_get_drm_fb_id(struct drmdev *drmdev, struct gbm_bo *bo) {
+	struct drm_fb *fb;
+	uint64_t modifiers[4] = {0};
+	uint32_t width, height, format;
+	uint32_t strides[4] = {0};
+	uint32_t handles[4] = {0};
+	uint32_t offsets[4] = {0};
+	uint32_t flags = 0;
+	int num_planes;
 	int ok = -1;
 
-	// if the buffer object already has some userdata associated with it,
-	//   it's the framebuffer we allocated.
-	struct drm_fb *fb = gbm_bo_get_user_data(bo);
-	if (fb) return fb->fb_id;
+	
+	fb = gbm_bo_get_user_data(bo);
+	/// TODO: Invalidate the drm_fb in the case that the drmdev changed (although that should never happen)
+	// If the buffer object already has some userdata associated with it,
+	// it's the drm_fb we allocated.
+	if (fb != NULL) {
+		return fb->fb_id;
+	}
 
-	// if there's no framebuffer for the bo, we need to create one.
+	// If there's no framebuffer for the BO, we need to create one.
 	fb = calloc(1, sizeof(struct drm_fb));
+	if (fb == NULL) {
+		return (uint32_t) -1;
+	}
+
 	fb->bo = bo;
+	fb->drmdev = drmdev;
 
 	width = gbm_bo_get_width(bo);
 	height = gbm_bo_get_height(bo);
 	format = gbm_bo_get_format(bo);
 
-	uint64_t modifiers[4] = {0};
 	modifiers[0] = gbm_bo_get_modifier(bo);
-	const int num_planes = gbm_bo_get_plane_count(bo);
+	num_planes = gbm_bo_get_plane_count(bo);
 
 	for (int i = 0; i < num_planes; i++) {
 		strides[i] = gbm_bo_get_stride_for_plane(bo, i);
@@ -140,7 +245,7 @@ static uint32_t gbm_bo_get_drm_fb_id(struct gbm_bo *bo) {
 		flags = DRM_MODE_FB_MODIFIERS;
 	}
 
-	ok = drmModeAddFB2WithModifiers(flutterpi.drm.drmdev->fd, width, height, format, handles, strides, offsets, modifiers, &fb->fb_id, flags);
+	ok = drmModeAddFB2WithModifiers(drmdev->fd, width, height, format, handles, strides, offsets, modifiers, &fb->fb_id, flags);
 
 	if (ok) {
 		if (flags)
@@ -150,7 +255,7 @@ static uint32_t gbm_bo_get_drm_fb_id(struct gbm_bo *bo) {
 		memcpy(strides, (uint32_t [4]){gbm_bo_get_stride(bo),0,0,0}, 16);
 		memset(offsets, 0, 16);
 
-		ok = drmModeAddFB2(flutterpi.drm.drmdev->fd, width, height, format, handles, strides, offsets, &fb->fb_id, 0);
+		ok = drmModeAddFB2(drmdev->fd, width, height, format, handles, strides, offsets, &fb->fb_id, 0);
 	}
 
 	if (ok) {
@@ -169,11 +274,16 @@ static uint32_t gbm_bo_get_drm_fb_id(struct gbm_bo *bo) {
  * @brief Create a GL renderbuffer that is backed by a DRM buffer-object and registered as a DRM framebuffer
  */
 static int create_drm_rbo(
+	struct drmdev *drmdev,
+	struct libegl *libegl,
+	EGLDisplay display,
+	struct egl_display_info *display_info,
 	size_t width,
 	size_t height,
 	struct drm_rbo *out
 ) {
 	struct drm_rbo fbo;
+	EGLBoolean egl_ok;
 	EGLint egl_error;
 	GLenum gl_error;
 	int ok;
@@ -181,74 +291,60 @@ static int create_drm_rbo(
 	eglGetError();
 	glGetError();
 
-	fbo.egl_image = flutterpi.egl.createDRMImageMESA(flutterpi.egl.display, (const EGLint[]) {
+	if (!display_info->supports_mesa_drm_image) {
+		LOG_COMPOSITOR_ERROR("EGL doesn't support MESA_drm_image. Can't create DRM image backed OpenGL renderbuffer.\n");
+		return ENOTSUP;
+	}
+
+	fbo.egl_image = libegl->eglCreateDRMImageMESA(display, (const EGLint[]) {
 		EGL_WIDTH, width,
 		EGL_HEIGHT, height,
 		EGL_DRM_BUFFER_FORMAT_MESA, EGL_DRM_BUFFER_FORMAT_ARGB32_MESA,
 		EGL_DRM_BUFFER_USE_MESA, EGL_DRM_BUFFER_USE_SCANOUT_MESA,
 		EGL_NONE
 	});
-	if ((egl_error = eglGetError()) != EGL_SUCCESS) {
-		fprintf(stderr, "[compositor] error creating DRM EGL Image for flutter backing store, eglCreateDRMImageMESA: %u\n", egl_error);
-		return EINVAL;
+	if ((fbo.egl_image == EGL_NO_IMAGE) || (egl_error = eglGetError()) != EGL_SUCCESS) {
+		LOG_COMPOSITOR_ERROR("Error creating DRM EGL Image for flutter backing store. eglCreateDRMImageMESA: %u\n", egl_error);
+		ok = EIO;
+		goto fail_return_ok;
 	}
 
 	{
 		EGLint stride = fbo.gem_stride;
-		flutterpi.egl.exportDRMImageMESA(flutterpi.egl.display, fbo.egl_image, NULL, (EGLint*) &fbo.gem_handle, &stride);
-		if ((egl_error = eglGetError()) != EGL_SUCCESS) {
-			fprintf(stderr, "[compositor] error getting handle & stride for DRM EGL Image, eglExportDRMImageMESA: %u\n", egl_error);
-			return EINVAL;
+		egl_ok = libegl->eglExportDRMImageMESA(display, fbo.egl_image, NULL, (EGLint*) &fbo.gem_handle, &stride);
+		if (egl_ok == false || (egl_error = eglGetError()) != EGL_SUCCESS) {
+			LOG_COMPOSITOR_ERROR("Error getting handle & stride for DRM EGL Image. eglExportDRMImageMESA: %u\n", egl_error);
+			ok = EIO;
+			goto fail_destroy_egl_image;
 		}
 	}
 
 	glGenRenderbuffers(1, &fbo.gl_rbo_id);
 	if ((gl_error = glGetError())) {
-		fprintf(stderr, "[compositor] error generating renderbuffers for flutter backing store, glGenRenderbuffers: %u\n", gl_error);
-		return EINVAL;
+		LOG_COMPOSITOR_ERROR("Error generating renderbuffers for flutter backing store. glGenRenderbuffers: %u\n", gl_error);
+		ok = EIO;
+		goto fail_destroy_egl_image;
 	}
 
 	glBindRenderbuffer(GL_RENDERBUFFER, fbo.gl_rbo_id);
 	if ((gl_error = glGetError())) {
-		fprintf(stderr, "[compositor] error binding renderbuffer, glBindRenderbuffer: %u\n", gl_error);
-		return EINVAL;
+		LOG_COMPOSITOR_ERROR("Error binding renderbuffer, glBindRenderbuffer: %u\n", gl_error);
+		ok = EIO;
+		goto fail_delete_rbo;
 	}
 
-	flutterpi.gl.EGLImageTargetRenderbufferStorageOES(GL_RENDERBUFFER, fbo.egl_image);
+	/// FIXME: Use libgl here
+	//flutterpi.gl.EGLImageTargetRenderbufferStorageOES(GL_RENDERBUFFER, fbo.egl_image);
 	if ((gl_error = glGetError())) {
-		fprintf(stderr, "[compositor] error binding DRM EGL Image to renderbuffer, glEGLImageTargetRenderbufferStorageOES: %u\n", gl_error);
-		return EINVAL;
+		LOG_COMPOSITOR_ERROR("Error binding DRM EGL Image to renderbuffer, glEGLImageTargetRenderbufferStorageOES: %u\n", gl_error);
+		ok = EIO;
+		goto fail_unbind_rbo;
 	}
-
-	/*
-	glGenFramebuffers(1, &fbo.gl_fbo_id);
-	if (gl_error = glGetError()) {
-		fprintf(stderr, "[compositor] error generating FBOs for flutter backing store, glGenFramebuffers: %d\n", gl_error);
-		return EINVAL;
-	}
-
-	glBindFramebuffer(GL_FRAMEBUFFER, fbo.gl_fbo_id);
-	if (gl_error = glGetError()) {
-		fprintf(stderr, "[compositor] error binding FBO for attaching the renderbuffer, glBindFramebuffer: %d\n", gl_error);
-		return EINVAL;
-	}
-
-	glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, fbo.gl_rbo_id);
-	if (gl_error = glGetError()) {
-		fprintf(stderr, "[compositor] error attaching renderbuffer to FBO, glFramebufferRenderbuffer: %d\n", gl_error);
-		return EINVAL;
-	}
-
-	GLenum fb_status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
-
-	*/
 
 	glBindRenderbuffer(GL_RENDERBUFFER, 0);
 	
-	// glBindFramebuffer(GL_FRAMEBUFFER, 0);
-
 	ok = drmModeAddFB2(
-		flutterpi.drm.drmdev->fd,
+		drmdev->fd,
 		width,
 		height,
 		DRM_FORMAT_ARGB8888,
@@ -268,13 +364,30 @@ static int create_drm_rbo(
 		0
 	);
 	if (ok == -1) {
-		perror("[compositor] Could not make DRM fb from EGL Image, drmModeAddFB2");
-		return errno;
+		LOG_COMPOSITOR_ERROR("Could not make DRM fb from EGL Image. drmModeAddFB2: %s", strerror(errno));
+		ok = errno;
+		goto fail_delete_rbo;
 	}
+
+	fbo.drmdev = drmdev;
+	fbo.libegl = libegl;
+	fbo.display = display;
 
 	*out = fbo;
 
 	return 0;
+
+	fail_unbind_rbo:
+	glBindRenderbuffer(GL_RENDERBUFFER, 0);
+
+	fail_delete_rbo:
+	glDeleteRenderbuffers(1, &fbo.gl_rbo_id);
+
+	fail_destroy_egl_image:
+	libegl->eglDestroyImage(display, fbo.egl_image);
+
+	fail_return_ok:
+	return ok;
 }
 
 /**
@@ -317,6 +430,7 @@ static int attach_drm_rbo_to_fbo(
 static void destroy_drm_rbo(
 	struct drm_rbo *rbo
 ) {
+	EGLBoolean egl_ok;
 	EGLint egl_error;
 	GLenum gl_error;
 	int ok;
@@ -326,17 +440,17 @@ static void destroy_drm_rbo(
 
 	glDeleteRenderbuffers(1, &rbo->gl_rbo_id);
 	if ((gl_error = glGetError())) {
-		fprintf(stderr, "[compositor] error destroying OpenGL RBO, glDeleteRenderbuffers: 0x%08X\n", gl_error);
+		LOG_COMPOSITOR_ERROR("Error destroying OpenGL RBO, glDeleteRenderbuffers: 0x%08X\n", gl_error);
 	}
 
-	ok = drmModeRmFB(flutterpi.drm.drmdev->fd, rbo->drm_fb_id);
+	ok = drmModeRmFB(rbo->drmdev->fd, rbo->drm_fb_id);
 	if (ok < 0) {
-		fprintf(stderr, "[compositor] error removing DRM FB, drmModeRmFB: %s\n", strerror(errno));
+		LOG_COMPOSITOR_ERROR("Error removing DRM FB, drmModeRmFB: %s\n", strerror(errno));
 	}
 
-	eglDestroyImage(flutterpi.egl.display, rbo->egl_image);
-	if (egl_error = eglGetError(), egl_error != EGL_SUCCESS) {
-		fprintf(stderr, "[compositor] error destroying EGL image, eglDestroyImage: 0x%08X\n", egl_error);
+	egl_ok = eglDestroyImage(rbo->display, rbo->egl_image);
+	if ((egl_ok == false) || (egl_error = eglGetError()) != EGL_SUCCESS) {
+		LOG_COMPOSITOR_ERROR("Error destroying EGL image, eglDestroyImage: 0x%08X\n", egl_error);
 	}
 }
 
@@ -363,18 +477,18 @@ static int rendertarget_gbm_present(
 	gbm_target = &target->gbm;
 
 	next_front_bo = gbm_surface_lock_front_buffer(gbm_target->gbm_surface);
-	next_front_fb_id = gbm_bo_get_drm_fb_id(next_front_bo);
+	next_front_fb_id = gbm_bo_get_drm_fb_id(atomic_req->drmdev, next_front_bo);
 
 	drmdev_atomic_req_put_plane_property(atomic_req, drm_plane_id, "FB_ID", next_front_fb_id);
-	drmdev_atomic_req_put_plane_property(atomic_req, drm_plane_id, "CRTC_ID", target->compositor->drmdev->selected_crtc->crtc->crtc_id);
+	drmdev_atomic_req_put_plane_property(atomic_req, drm_plane_id, "CRTC_ID", atomic_req->drmdev->selected_crtc->crtc->crtc_id);
 	drmdev_atomic_req_put_plane_property(atomic_req, drm_plane_id, "SRC_X", 0);
 	drmdev_atomic_req_put_plane_property(atomic_req, drm_plane_id, "SRC_Y", 0);
-	drmdev_atomic_req_put_plane_property(atomic_req, drm_plane_id, "SRC_W", ((uint16_t) flutterpi.display.width) << 16);
-	drmdev_atomic_req_put_plane_property(atomic_req, drm_plane_id, "SRC_H", ((uint16_t) flutterpi.display.height) << 16);
+	drmdev_atomic_req_put_plane_property(atomic_req, drm_plane_id, "SRC_W", ((uint16_t) atomic_req->drmdev->selected_mode->hdisplay) << 16);
+	drmdev_atomic_req_put_plane_property(atomic_req, drm_plane_id, "SRC_H", ((uint16_t) atomic_req->drmdev->selected_mode->vdisplay) << 16);
 	drmdev_atomic_req_put_plane_property(atomic_req, drm_plane_id, "CRTC_X", 0);
 	drmdev_atomic_req_put_plane_property(atomic_req, drm_plane_id, "CRTC_Y", 0);
-	drmdev_atomic_req_put_plane_property(atomic_req, drm_plane_id, "CRTC_W", flutterpi.display.width);
-	drmdev_atomic_req_put_plane_property(atomic_req, drm_plane_id, "CRTC_H", flutterpi.display.height);
+	drmdev_atomic_req_put_plane_property(atomic_req, drm_plane_id, "CRTC_W", atomic_req->drmdev->selected_mode->hdisplay);
+	drmdev_atomic_req_put_plane_property(atomic_req, drm_plane_id, "CRTC_H", atomic_req->drmdev->selected_mode->vdisplay);
 
 	ok = drmdev_plane_supports_setting_rotation_value(atomic_req->drmdev, drm_plane_id, DRM_MODE_ROTATE_0, &supported);
 	if (ok != 0) return ok;
@@ -444,7 +558,7 @@ static int rendertarget_gbm_present_legacy(
 	is_primary = drmdev_plane_get_type(drmdev, drm_plane_id) == DRM_PLANE_TYPE_PRIMARY;
 
 	next_front_bo = gbm_surface_lock_front_buffer(gbm_target->gbm_surface);
-	next_front_fb_id = gbm_bo_get_drm_fb_id(next_front_bo);
+	next_front_fb_id = gbm_bo_get_drm_fb_id(drmdev, next_front_bo);
 
 	if (is_primary) {
 		if (set_mode) {
@@ -466,12 +580,12 @@ static int rendertarget_gbm_present_legacy(
 			next_front_fb_id,
 			0,
 			0,
-			flutterpi.display.width,
-			flutterpi.display.height,
+			drmdev->selected_mode->hdisplay,
+			drmdev->selected_mode->vdisplay,
 			0,
 			0,
-			((uint16_t) flutterpi.display.width) << 16,
-			((uint16_t) flutterpi.display.height) << 16
+			((uint16_t) drmdev->selected_mode->hdisplay) << 16,
+			((uint16_t) drmdev->selected_mode->vdisplay) << 16
 		);
 	}
 	
@@ -511,7 +625,7 @@ static int rendertarget_gbm_new(
 		.is_gbm = true,
 		.compositor = compositor,
 		.gbm = {
-			.gbm_surface = flutterpi.gbm.surface,
+			.gbm_surface = compositor->gbm_surface,
 			.current_front_bo = NULL
 		},
 		.gl_fbo_id = 0,
@@ -553,15 +667,15 @@ static int rendertarget_nogbm_present(
 	if (ok != 0) return ok;
 
 	drmdev_atomic_req_put_plane_property(req, drm_plane_id, "FB_ID", nogbm_target->rbos[nogbm_target->current_front_rbo ^ 1].drm_fb_id);
-	drmdev_atomic_req_put_plane_property(req, drm_plane_id, "CRTC_ID", target->compositor->drmdev->selected_crtc->crtc->crtc_id);
+	drmdev_atomic_req_put_plane_property(req, drm_plane_id, "CRTC_ID", req->drmdev->selected_crtc->crtc->crtc_id);
 	drmdev_atomic_req_put_plane_property(req, drm_plane_id, "SRC_X", 0);
 	drmdev_atomic_req_put_plane_property(req, drm_plane_id, "SRC_Y", 0);
-	drmdev_atomic_req_put_plane_property(req, drm_plane_id, "SRC_W", ((uint16_t) flutterpi.display.width) << 16);
-	drmdev_atomic_req_put_plane_property(req, drm_plane_id, "SRC_H", ((uint16_t) flutterpi.display.height) << 16);
+	drmdev_atomic_req_put_plane_property(req, drm_plane_id, "SRC_W", ((uint16_t) req->drmdev->selected_mode->hdisplay) << 16);
+	drmdev_atomic_req_put_plane_property(req, drm_plane_id, "SRC_H", ((uint16_t) req->drmdev->selected_mode->vdisplay) << 16);
 	drmdev_atomic_req_put_plane_property(req, drm_plane_id, "CRTC_X", 0);
 	drmdev_atomic_req_put_plane_property(req, drm_plane_id, "CRTC_Y", 0);
-	drmdev_atomic_req_put_plane_property(req, drm_plane_id, "CRTC_W", flutterpi.display.width);
-	drmdev_atomic_req_put_plane_property(req, drm_plane_id, "CRTC_H", flutterpi.display.height);
+	drmdev_atomic_req_put_plane_property(req, drm_plane_id, "CRTC_W", req->drmdev->selected_mode->hdisplay);
+	drmdev_atomic_req_put_plane_property(req, drm_plane_id, "CRTC_H", req->drmdev->selected_mode->vdisplay);
 	
 	ok = drmdev_plane_supports_setting_rotation_value(req->drmdev, drm_plane_id, DRM_MODE_ROTATE_0 | DRM_MODE_REFLECT_Y, &supported);
 	if (ok != 0) return ok;
@@ -647,12 +761,12 @@ static int rendertarget_nogbm_present_legacy(
 			fb_id,
 			0,
 			0,
-			flutterpi.display.width,
-			flutterpi.display.height,
+			drmdev->selected_mode->hdisplay,
+			drmdev->selected_mode->vdisplay,
 			0,
 			0,
-			((uint16_t) flutterpi.display.width) << 16,
-			((uint16_t) flutterpi.display.height) << 16
+			((uint16_t) drmdev->selected_mode->hdisplay) << 16,
+			((uint16_t) drmdev->selected_mode->vdisplay) << 16
 		);
 	}
 	
@@ -733,8 +847,12 @@ static int rendertarget_nogbm_new(
 	}
 
 	ok = create_drm_rbo(
-		flutterpi.display.width,
-		flutterpi.display.height,
+		compositor->drmdev,
+		compositor->libegl,
+		compositor->display,
+		compositor->display_info,
+		compositor->drmdev->selected_mode->hdisplay,
+		compositor->drmdev->selected_mode->vdisplay,
 		target->nogbm.rbos + 0
 	);
 	if (ok != 0) {
@@ -742,8 +860,12 @@ static int rendertarget_nogbm_new(
 	}
 
 	ok = create_drm_rbo(
-		flutterpi.display.width,
-		flutterpi.display.height,
+		compositor->drmdev,
+		compositor->libegl,
+		compositor->display,
+		compositor->display_info,
+		compositor->drmdev->selected_mode->hdisplay,
+		compositor->drmdev->selected_mode->vdisplay,
 		target->nogbm.rbos + 1
 	);
 	if (ok != 0) {
@@ -933,14 +1055,155 @@ static int execute_simulate_page_flip_event(void *userdata) {
 
 	data = userdata;
 
-	on_pageflip_event(flutterpi.drm.drmdev->fd, 0, data->sec, data->usec, NULL);
+	/// TODO: Reimplement simulate page flip
+	//on_pageflip_event(flutterpi.drm.drmdev->fd, 0, data->sec, data->usec, NULL);
 
 	free(data);
 
 	return 0;
 }
 
-/// PRESENT FUNCS
+struct compositor *compositor_new(
+	struct drmdev *drmdev,
+	struct gbm_surface *gbm_surface,
+	struct libegl *libegl,
+	EGLDisplay display,
+	EGLSurface surface,
+	EGLContext context,
+	struct egl_display_info *display_info,
+	flutter_engine_get_current_time_t get_current_time,
+	flutter_engine_trace_event_duration_begin_t trace_event_begin,
+	flutter_engine_trace_event_duration_end_t trace_event_end,
+	flutter_engine_trace_event_instant_t trace_event_instant
+) {
+	struct compositor *compositor;
+	int ok;
+
+	if (drmdev == NULL) {
+		LOG_COMPOSITOR_ERROR("In compositor_new: drmdev can't be NULL.\n");
+		return NULL;
+	}
+	if (gbm_surface == NULL) {
+		LOG_COMPOSITOR_ERROR("In compositor_new: gbm_surface can't be NULL.\n");
+		return NULL;
+	}
+	if (libegl == NULL) {
+		LOG_COMPOSITOR_ERROR("In compositor_new: libegl can't be NULL.\n");
+		return NULL;
+	}
+	if (display == EGL_NO_DISPLAY) {
+		LOG_COMPOSITOR_ERROR("In compositor_new: display can't be EGL_NO_DISPLAY.\n");
+		return NULL;
+	}
+	if (surface == EGL_NO_SURFACE) {
+		LOG_COMPOSITOR_ERROR("In compositor_new: surface can't be EGL_NO_SURFACE.\n");
+		return NULL;
+	}
+	if (context == EGL_NO_CONTEXT) {
+		LOG_COMPOSITOR_ERROR("In compositor_new: context can't be EGL_NO_CONTEXT.\n");
+		return NULL;
+	}
+	if (display_info == NULL) {
+		LOG_COMPOSITOR_ERROR("In compositor_new: display_info can't be NULL.\n");
+		return NULL;
+	}
+	
+	compositor = malloc(sizeof *compositor);
+	if (compositor == NULL) {
+		LOG_COMPOSITOR_ERROR("In compositor_new: Out of memory\n");
+		return NULL;
+	}
+
+	ok = cpset_init(&compositor->cbs, CPSET_DEFAULT_MAX_SIZE);
+	if (ok != 0) {
+		goto fail_free_compositor;
+	}
+
+	ok = cpset_init(&compositor->stale_rendertargets, CPSET_DEFAULT_MAX_SIZE);
+	if (ok != 0) {
+		goto fail_deinit_cbs;
+	}
+
+	compositor->drmdev = drmdev;
+	compositor->gbm_surface = gbm_surface;
+	compositor->libegl = libegl;
+	compositor->display = display;
+	compositor->surface = surface;
+	compositor->context = context;
+	compositor->display_info = display_info;
+	compositor->get_current_time = get_current_time;
+	compositor->trace_event_begin = trace_event_begin;
+	compositor->trace_event_end = trace_event_end;
+	compositor->trace_event_instant = trace_event_instant;
+	compositor->should_create_window_surface_backing_store = true;
+	compositor->has_applied_modeset = false;
+	compositor->cursor.is_enabled = false;
+	compositor->cursor.cursor_size = 0;
+	compositor->cursor.current_cursor = NULL;
+	compositor->cursor.current_rotation = 0;
+	compositor->cursor.hot_x = 0;
+	compositor->cursor.hot_y = 0;
+	compositor->cursor.x = 0;
+	compositor->cursor.y = 0;
+	compositor->cursor.has_buffer = false;
+	compositor->cursor.buffer_depth = 0;
+	compositor->cursor.buffer_pitch = 0;
+	compositor->cursor.buffer_width = 0;
+	compositor->cursor.buffer_height = 0;
+	compositor->cursor.buffer_size = 0;
+	compositor->cursor.drm_fb_id = (uint32_t) -1;
+	compositor->cursor.gem_bo_handle = (uint32_t) -1;
+	compositor->cursor.buffer = NULL;
+	compositor->do_blocking_atomic_commits = false;
+
+	return compositor;
+
+
+	fail_deinit_cbs:
+	cpset_deinit(&compositor->cbs);
+
+	fail_free_compositor:
+	free(compositor);
+
+	return NULL;
+}
+
+void compositor_set_engine_callbacks(
+    struct compositor *compositor,
+    flutter_engine_get_current_time_t get_current_time,
+	flutter_engine_trace_event_duration_begin_t trace_event_begin,
+	flutter_engine_trace_event_duration_end_t trace_event_end,
+	flutter_engine_trace_event_instant_t trace_event_instant
+) {
+	if (get_current_time == NULL) {
+		LOG_COMPOSITOR_ERROR("In compositor_new: get_current_time can't be NULL.");
+		return;
+	}
+	if (trace_event_begin == NULL) {
+		LOG_COMPOSITOR_ERROR("In compositor_new: trace_event_begin can't be NULL.");
+		return;
+	}
+	if (trace_event_end == NULL) {
+		LOG_COMPOSITOR_ERROR("In compositor_new: trace_event_end can't be NULL.");
+		return;
+	}
+	if (trace_event_instant == NULL) {
+		LOG_COMPOSITOR_ERROR("In compositor_new: trace_event_instant can't be NULL.");
+		return;
+	}
+
+	compositor->get_current_time = get_current_time;
+	compositor->trace_event_begin = trace_event_begin;
+	compositor->trace_event_end = trace_event_end;
+	compositor->trace_event_instant = trace_event_instant;
+}
+
+void compositor_destroy(
+	struct compositor *compositor
+) {
+	
+}
+
 static bool on_present_layers(
 	const FlutterLayer **layers,
 	size_t layers_count,
@@ -952,14 +1215,20 @@ static bool on_present_layers(
 	struct compositor *compositor;
 	struct drm_plane *plane;
 	struct drmdev *drmdev;
+	EGLDisplay stored_display;
+	EGLSurface stored_read_surface;
+	EGLSurface stored_write_surface;
+	EGLContext stored_context;
+	EGLBoolean egl_ok;
 	uint32_t req_flags;
+	EGLenum egl_error;
 	void *planes_storage[32] = {0};
 	bool legacy_rendertarget_set_mode = false;
 	bool schedule_fake_page_flip_event;
 	bool use_atomic_modesetting;
 	int ok;
 
-	// TODO: proper error handling
+	/// TODO: proper error handling
 
 	compositor = userdata;
 	drmdev = compositor->drmdev;
@@ -968,11 +1237,14 @@ static bool on_present_layers(
 
 	req = NULL;
 	if (use_atomic_modesetting) {
+		// create a new atomic request
 		ok = drmdev_new_atomic_req(compositor->drmdev, &req);
 		if (ok != 0) {
 			return false;
 		}
 	} else {
+		// create a new pointer set so we can track what planes are in use / free to use
+		// (since we don't have drmdev_atomic_req_reserve_plane)
 		planes = PSET_INITIALIZER_STATIC(planes_storage, 32);
 		for_each_plane_in_drmdev(drmdev, plane) {
 			if (plane->plane->possible_crtcs & drmdev->selected_crtc->bitmask) {
@@ -986,15 +1258,32 @@ static bool on_present_layers(
 
 	cpset_lock(&compositor->cbs);
 
-	EGLDisplay stored_display = eglGetCurrentDisplay();
-	EGLSurface stored_read_surface = eglGetCurrentSurface(EGL_READ);
-	EGLSurface stored_write_surface = eglGetCurrentSurface(EGL_DRAW);
-	EGLContext stored_context = eglGetCurrentContext();
+	// store the previously the currently bound display, surface & context
+	stored_display = eglGetCurrentDisplay();
+	stored_read_surface = eglGetCurrentSurface(EGL_READ);
+	stored_write_surface = eglGetCurrentSurface(EGL_DRAW);
+	stored_context = eglGetCurrentContext();
 
-	eglMakeCurrent(flutterpi.egl.display, flutterpi.egl.surface, flutterpi.egl.surface, flutterpi.egl.root_context);
-	eglSwapBuffers(flutterpi.egl.display, flutterpi.egl.surface);
+	// make our own display, surface & context current
+	egl_ok = eglMakeCurrent(compositor->display, compositor->surface, compositor->surface, compositor->context);
+	if ((egl_ok == false) || (egl_error = eglGetError()) != EGL_SUCCESS) {
+		LOG_COMPOSITOR_ERROR("Could not make the presenting EGL surface & context current. eglMakeCurrent: %d\n", egl_error);
+		return false;
+	}
+
+	// swap buffers / wait for rendering to complete
+	egl_ok = eglSwapBuffers(compositor->display, compositor->surface);
+	if ((egl_ok == false) || (egl_error = eglGetError()) != EGL_SUCCESS) {
+		LOG_COMPOSITOR_ERROR("Could not wait for GPU to finish rendering. eglSwapBuffers: %d\n", egl_error);
+		return false;
+	}
 
 	req_flags =  0 /* DRM_MODE_PAGE_FLIP_EVENT | DRM_MODE_ATOMIC_NONBLOCK*/;
+
+	// if we haven't applied the display mode,
+	// we need to do that on the first frame
+	// we also try to set the zpos value of the cursor plane to the highest possible value,
+	// so it's always in front
 	if (compositor->has_applied_modeset == false) {
 		if (use_atomic_modesetting) {
 			ok = drmdev_atomic_req_put_modeset_props(req, &req_flags);
@@ -1004,62 +1293,56 @@ static bool on_present_layers(
 			schedule_fake_page_flip_event = true;
 		}
 
-		if (use_atomic_modesetting) {
-			for_each_unreserved_plane_in_atomic_req(req, plane) {
-				if (plane->type == DRM_PLANE_TYPE_CURSOR) {
-					// make sure the cursor is in front of everything
-					int64_t max_zpos;
-					bool supported;
+		bool moved_cursor_to_front = false;
 
-					ok = drmdev_plane_get_max_zpos_value(req->drmdev, plane->plane->plane_id, &max_zpos);
-					if (ok != 0) {
-						printf("[compositor] Could not move cursor to front. Mouse cursor may be invisible. drmdev_plane_get_max_zpos_value: %s\n", strerror(ok));
-						continue;
-					}
-					
-					ok = drmdev_plane_supports_setting_zpos_value(req->drmdev, plane->plane->plane_id, max_zpos, &supported);
-					if (ok != 0) {
-						printf("[compositor] Could not move cursor to front. Mouse cursor may be invisible. drmdev_plane_supports_setting_zpos_value: %s\n", strerror(ok));
-						continue;
-					}
+		for_each_unreserved_plane_in_atomic_req(req, plane) {
+			if (plane->type == DRM_PLANE_TYPE_CURSOR) {
+				int64_t max_zpos;
+				bool supported;
 
-					if (supported) {
-						drmdev_atomic_req_put_plane_property(req, plane->plane->plane_id, "zpos", max_zpos);
-					} else {
-						printf("[compositor] Could not move cursor to front. Mouse cursor may be invisible. drmdev_plane_supports_setting_zpos_value: %s\n", strerror(ok));
-						continue;
-					}
+				// Find out the max zpos value for the cursor plane
+				ok = drmdev_plane_get_max_zpos_value(drmdev, plane->plane->plane_id, &max_zpos);
+				if (ok != 0) {
+					LOG_COMPOSITOR_ERROR("Couldn't get max zpos for mouse cursor. drmdev_plane_get_max_zpos_value: %s\n", strerror(ok));
+					continue;
 				}
-			}
-		} else {
-			for_each_pointer_in_pset(&planes, plane) {
-				if (plane->type == DRM_PLANE_TYPE_CURSOR) {
-					// make sure the cursor is in front of everything
-					int64_t max_zpos;
-					bool supported;
+				
+				// Find out if we can actually set it (which may not be supported if the zpos property is immutable)
+				ok = drmdev_plane_supports_setting_zpos_value(drmdev, plane->plane->plane_id, max_zpos, &supported);
+				if (ok != 0) {
+					LOG_COMPOSITOR_ERROR("Failed to check if updating the mouse cursor zpos is supported. drmdev_plane_supports_setting_zpos_value: %s\n", strerror(ok));
+					continue;
+				}
 
-					ok = drmdev_plane_get_max_zpos_value(drmdev, plane->plane->plane_id, &max_zpos);
-					if (ok != 0) {
-						printf("[compositor] Could not move cursor to front. Mouse cursor may be invisible. drmdev_plane_get_max_zpos_value: %s\n", strerror(ok));
-						continue;
-					}
-					
-					ok = drmdev_plane_supports_setting_zpos_value(drmdev, plane->plane->plane_id, max_zpos, &supported);
-					if (ok != 0) {
-						printf("[compositor] Could not move cursor to front. Mouse cursor may be invisible. drmdev_plane_supports_setting_zpos_value: %s\n", strerror(ok));
-						continue;
-					}
-
-					if (supported) {
-						drmdev_legacy_set_plane_property(drmdev, plane->plane->plane_id, "zpos", max_zpos);
+				// If we can set it, do that
+				if (supported) {
+					if (use_atomic_modesetting) {
+						ok = drmdev_atomic_req_put_plane_property(req, plane->plane->plane_id, "zpos", max_zpos);
+						if (ok != 0) {
+							LOG_COMPOSITOR_ERROR("Couldn't move mouse cursor to front. Mouse cursor may be invisible. drmdev_atomic_req_put_plane_property: %s\n", strerror(ok));
+							continue;
+						}
 					} else {
-						printf("[compositor] Could not move cursor to front. Mouse cursor may be invisible. drmdev_plane_supports_setting_zpos_value: %s\n", strerror(ok));
-						continue;
+						ok = drmdev_legacy_set_plane_property(drmdev, plane->plane->plane_id, "zpos", max_zpos);
+						if (ok != 0) {
+							LOG_COMPOSITOR_ERROR("Couldn't move mouse cursor to front. Mouse cursor may be invisible. drmdev_atomic_req_put_plane_property: %s\n", strerror(ok));
+							continue;
+						}
 					}
+
+					moved_cursor_to_front = true;
+					break;
+				} else {
+					LOG_COMPOSITOR_ERROR("Moving mouse cursor to front is not supported. Mouse cursor may be invisible.\n");
+					continue;
 				}
 			}
 		}
 		
+		if (moved_cursor_to_front == false) {
+			LOG_COMPOSITOR_ERROR("Couldn't move cursor to front. Mouse cursor may be invisible.\n");
+		}
+
 		compositor->has_applied_modeset = true;
 	}
 	
@@ -1211,60 +1494,44 @@ static bool on_present_layers(
 	}
 	
 	int64_t min_zpos;
-	if (use_atomic_modesetting) {
-		for_each_unreserved_plane_in_atomic_req(req, plane) {
-			if (plane->type == DRM_PLANE_TYPE_PRIMARY) {
-				ok = drmdev_plane_get_min_zpos_value(req->drmdev, plane->plane->plane_id, &min_zpos);
-				if (ok != 0) {
-					min_zpos = 0;
-				}
-				break;
+	
+	// find out the minimum zpos value we can set.
+	// technically, the zpos ranges could be different for each plane
+	// but I think there's no driver doing that.
+	for_each_pointer_in_pset(&planes, plane) {
+		if (plane->type == DRM_PLANE_TYPE_PRIMARY) {
+			ok = drmdev_plane_get_min_zpos_value(drmdev, plane->plane->plane_id, &min_zpos);
+			
+			if (ok != 0) {
+				min_zpos = 0;
 			}
-		}
-	} else {
-		for_each_pointer_in_pset(&planes, plane) {
-			if (plane->type == DRM_PLANE_TYPE_PRIMARY) {
-				ok = drmdev_plane_get_min_zpos_value(drmdev, plane->plane->plane_id, &min_zpos);
-				if (ok != 0) {
-					min_zpos = 0;
-				}
-				break;
-			}
+			break;
 		}
 	}
 
 	for (size_t i = 0; i < layers_count; i++) {
 		if (layers[i]->type == kFlutterLayerContentTypeBackingStore) {
-			if (use_atomic_modesetting) {
-				for_each_unreserved_plane_in_atomic_req(req, plane) {
-					// choose a plane which has an "intrinsic" zpos that matches
-					// the zpos we want the plane to have.
-					// (Since planes are buggy and we can't rely on the zpos we explicitly
-					// configure the plane to have to be actually applied to the hardware.
-					// In short, assigning a different value to the zpos property won't always
-					// take effect.)
-					if ((i == 0) && (plane->type == DRM_PLANE_TYPE_PRIMARY)) {
-						ok = drmdev_atomic_req_reserve_plane(req, plane);
-						break;
-					} else if ((i != 0) && (plane->type == DRM_PLANE_TYPE_OVERLAY)) {
-						ok = drmdev_atomic_req_reserve_plane(req, plane);
-						break;
-					}
-				}
-			} else {
-				for_each_pointer_in_pset(&planes, plane) {
-					if ((i == 0) && (plane->type == DRM_PLANE_TYPE_PRIMARY)) {
-						break;
-					} else if ((i != 0) && (plane->type == DRM_PLANE_TYPE_OVERLAY)) {
-						break;
-					}
-				}
-				if (plane != NULL) {
-					pset_remove(&planes, plane);
+			for_each_pointer_in_pset(&planes, plane) {
+				// choose a plane which has an "intrinsic" zpos that matches
+				// the zpos we want the plane to have.
+				// (Since planes are buggy and we can't rely on the zpos we explicitly
+				// configure the plane to have to be actually applied to the hardware.
+				// In short, assigning a different value to the zpos property won't always
+				// take effect.)
+				if ((i == 0) && (plane->type == DRM_PLANE_TYPE_PRIMARY)) {
+					break;
+				} else if ((i != 0) && (plane->type == DRM_PLANE_TYPE_OVERLAY)) {
+					break;
 				}
 			}
-			if (plane == NULL) {
-				fprintf(stderr, "[compositor] Could not find a free primary/overlay DRM plane for presenting the backing store. drmdev_atomic_req_reserve_plane: %s\n", strerror(ok));
+			if (plane != NULL) {
+				if (use_atomic_modesetting) {
+					drmdev_atomic_req_reserve_plane(req, plane);
+				} else {
+					pset_remove(&planes, plane);
+				}
+			} else {
+				LOG_COMPOSITOR_ERROR("Could not find a free primary/overlay DRM plane for presenting the backing store. drmdev_atomic_req_reserve_plane: %s\n", strerror(ok));
 				continue;
 			}
 
@@ -1283,7 +1550,7 @@ static bool on_present_layers(
 					i + min_zpos
 				);
 				if (ok != 0) {
-					fprintf(stderr, "[compositor] Could not present backing store. rendertarget->present: %s\n", strerror(ok));
+					LOG_COMPOSITOR_ERROR("Could not present backing store. rendertarget->present: %s\n", strerror(ok));
 				}
 			} else {
 				ok = target->present_legacy(
@@ -1297,9 +1564,12 @@ static bool on_present_layers(
 					i + min_zpos,
 					legacy_rendertarget_set_mode && (plane->type == DRM_PLANE_TYPE_PRIMARY)
 				);
+				if (ok != 0) {
+					LOG_COMPOSITOR_ERROR("Could not present backing store. rendertarget->present_legacy: %s\n", strerror(ok));
+				}
 			}
 		} else if (layers[i]->type == kFlutterLayerContentTypePlatformView) {
-			cb_data = get_cbs_for_view_id_locked(layers[i]->platform_view->identifier);
+			cb_data = get_cbs_for_view_id_locked(compositor, layers[i]->platform_view->identifier);
 
 			if ((cb_data != NULL) && (cb_data->present != NULL)) {
 				ok = cb_data->present(
@@ -1315,12 +1585,13 @@ static bool on_present_layers(
 					cb_data->userdata
 				);
 				if (ok != 0) {
-					fprintf(stderr, "[compositor] Could not present platform view. platform_view->present: %s\n", strerror(ok));
+					LOG_COMPOSITOR_ERROR("Could not present platform view. platform_view->present: %s\n", strerror(ok));
 				}
 			}
 		}
 	}
 
+	// Fill in blank FB_ID and CRTC_ID for unused planes.
 	if (use_atomic_modesetting) {
 		for_each_unreserved_plane_in_atomic_req(req, plane) {
 			if ((plane->type == DRM_PLANE_TYPE_PRIMARY) || (plane->type == DRM_PLANE_TYPE_OVERLAY)) {
@@ -1330,8 +1601,16 @@ static bool on_present_layers(
 		}
 	}
 
-	eglMakeCurrent(stored_display, stored_read_surface, stored_write_surface, stored_context);
-	
+	// Restore the previously bound display, surface and context
+	egl_ok = eglMakeCurrent(stored_display, stored_read_surface, stored_write_surface, stored_context);
+	if ((egl_ok == false) || (egl_error = eglGetError()) != EGL_SUCCESS) {
+		LOG_COMPOSITOR_ERROR("Could not make the previously active EGL surface and context current. eglMakeCurrent: %d\n", egl_error);
+		return false;
+	}
+
+	// If we use atomic modesetting, first, try to commit non-blockingly with a page flip event sent to the drmdev fd.
+	// If that fails with EBUSY, use blocking commits
+	/// TODO: Use syncobj's for synchronization
 	if (use_atomic_modesetting) {
 		do_commit:
 		if (compositor->do_blocking_atomic_commits) {
@@ -1359,8 +1638,9 @@ static bool on_present_layers(
 		drmdev_destroy_atomic_req(req);	
 	}
 
+	// If we use blocking atomic commits, we need to schedule a fake page flip event so flutters FlutterEngineOnVsync callback is called.
 	if (schedule_fake_page_flip_event) {
-		uint64_t time = flutterpi.flutter.libflutter_engine.FlutterEngineGetCurrentTime();
+		uint64_t time = compositor->get_current_time();
 
 		struct simulated_page_flip_event_data *data = malloc(sizeof(struct simulated_page_flip_event_data));
 		if (data == NULL) {
@@ -1370,7 +1650,8 @@ static bool on_present_layers(
 		data->sec = time / 1000000000llu;
 		data->usec = (time % 1000000000llu) / 1000;
 
-		flutterpi_post_platform_task(execute_simulate_page_flip_event, data);
+		/// TODO: Implement again
+		// flutterpi_post_platform_task(NULL, execute_simulate_page_flip_event, data);
 	}
 
 	cpset_unlock(&compositor->cbs);
@@ -1379,14 +1660,15 @@ static bool on_present_layers(
 }
 
 int compositor_on_page_flip(
+	struct compositor *compositor,
 	uint32_t sec,
 	uint32_t usec
 ) {
 	return 0;
 }
 
-/// PLATFORM VIEW CALLBACKS
-int compositor_set_view_callbacks(
+int compositor_put_view_callbacks(
+	struct compositor *compositor,
 	int64_t view_id,
 	platform_view_mount_cb mount,
 	platform_view_unmount_cb unmount,
@@ -1396,18 +1678,18 @@ int compositor_set_view_callbacks(
 ) {
 	struct view_cb_data *entry;
 
-	cpset_lock(&compositor.cbs);
+	cpset_lock(&compositor->cbs);
 
-	entry = get_cbs_for_view_id_locked(view_id);
+	entry = get_cbs_for_view_id_locked(compositor, view_id);
 
 	if (entry == NULL) {
 		entry = calloc(1, sizeof(*entry));
 		if (!entry) {
-			cpset_unlock(&compositor.cbs);
+			cpset_unlock(&compositor->cbs);
 			return ENOMEM;
 		}
 
-		cpset_put_locked(&compositor.cbs, entry);
+		cpset_put_locked(&compositor->cbs, entry);
 	}
 
 	entry->view_id = view_id;
@@ -1417,58 +1699,55 @@ int compositor_set_view_callbacks(
 	entry->present = present;
 	entry->userdata = userdata;
 
-	return cpset_unlock(&compositor.cbs);
+	cpset_unlock(&compositor->cbs);
+
+	return 0;
 }
 
-int compositor_remove_view_callbacks(int64_t view_id) {
+int compositor_remove_view_callbacks(struct compositor *compositor, int64_t view_id) {
 	struct view_cb_data *entry;
 
-	cpset_lock(&compositor.cbs);
+	cpset_lock(&compositor->cbs);
 
-	entry = get_cbs_for_view_id_locked(view_id);
+	entry = get_cbs_for_view_id_locked(compositor, view_id);
 	if (entry == NULL) {
 		return EINVAL;
 	}
 
-	cpset_remove_locked(&compositor.cbs, entry);
+	cpset_remove_locked(&compositor->cbs, entry);
 
 	free(entry);
 
-	cpset_unlock(&compositor.cbs);
+	cpset_unlock(&compositor->cbs);
 
 	return 0;
 }
 
-/// COMPOSITOR INITIALIZATION
-int compositor_initialize(struct drmdev *drmdev) {
-	compositor.drmdev = drmdev;
-	return 0;
-}
 
-static void destroy_cursor_buffer(void) {
+static void destroy_cursor_buffer(struct compositor *compositor) {
 	struct drm_mode_destroy_dumb destroy_req;
 
-	munmap(compositor.cursor.buffer, compositor.cursor.buffer_size);
+	munmap(compositor->cursor.buffer, compositor->cursor.buffer_size);
 
-	drmModeRmFB(compositor.drmdev->fd, compositor.cursor.drm_fb_id);
+	drmModeRmFB(compositor->drmdev->fd, compositor->cursor.drm_fb_id);
 
 	memset(&destroy_req, 0, sizeof destroy_req);
-	destroy_req.handle = compositor.cursor.gem_bo_handle;
+	destroy_req.handle = compositor->cursor.gem_bo_handle;
 
-	ioctl(compositor.drmdev->fd, DRM_IOCTL_MODE_DESTROY_DUMB, &destroy_req);
+	ioctl(compositor->drmdev->fd, DRM_IOCTL_MODE_DESTROY_DUMB, &destroy_req);
 
-	compositor.cursor.has_buffer = false;
-	compositor.cursor.buffer_depth = 0;
-	compositor.cursor.gem_bo_handle = 0;
-	compositor.cursor.buffer_pitch = 0;
-	compositor.cursor.buffer_width = 0;
-	compositor.cursor.buffer_height = 0;
-	compositor.cursor.buffer_size = 0;
-	compositor.cursor.drm_fb_id = 0;
-	compositor.cursor.buffer = NULL;
+	compositor->cursor.has_buffer = false;
+	compositor->cursor.buffer_depth = 0;
+	compositor->cursor.gem_bo_handle = 0;
+	compositor->cursor.buffer_pitch = 0;
+	compositor->cursor.buffer_width = 0;
+	compositor->cursor.buffer_height = 0;
+	compositor->cursor.buffer_size = 0;
+	compositor->cursor.drm_fb_id = 0;
+	compositor->cursor.buffer = NULL;
 }
 
-static int create_cursor_buffer(int width, int height, int bpp) {
+static int create_cursor_buffer(struct compositor *compositor, int width, int height, int bpp) {
 	struct drm_mode_create_dumb create_req;
 	struct drm_mode_map_dumb map_req;
 	uint32_t drm_fb_id;
@@ -1477,7 +1756,7 @@ static int create_cursor_buffer(int width, int height, int bpp) {
 	uint8_t depth;
 	int ok;
 
-	ok = drmGetCap(compositor.drmdev->fd, DRM_CAP_DUMB_BUFFER, &cap);
+	ok = drmGetCap(compositor->drmdev->fd, DRM_CAP_DUMB_BUFFER, &cap);
 	if (ok < 0) {
 		ok = errno;
 		perror("[compositor] Could not query GPU Driver support for dumb buffers. drmGetCap");
@@ -1490,7 +1769,7 @@ static int create_cursor_buffer(int width, int height, int bpp) {
 		goto fail_return_ok;
 	}
 
-	ok = drmGetCap(compositor.drmdev->fd, DRM_CAP_DUMB_PREFERRED_DEPTH, &cap);
+	ok = drmGetCap(compositor->drmdev->fd, DRM_CAP_DUMB_PREFERRED_DEPTH, &cap);
 	if (ok < 0) {
 		ok = errno;
 		perror("[compositor] Could not query dumb buffer preferred depth capability. drmGetCap");
@@ -1509,14 +1788,14 @@ static int create_cursor_buffer(int width, int height, int bpp) {
 	create_req.bpp = bpp;
 	create_req.flags = 0;
 
-	ok = ioctl(compositor.drmdev->fd, DRM_IOCTL_MODE_CREATE_DUMB, &create_req);
+	ok = ioctl(compositor->drmdev->fd, DRM_IOCTL_MODE_CREATE_DUMB, &create_req);
 	if (ok < 0) {
 		ok = errno;
 		perror("[compositor] Could not create a dumb buffer for the hardware cursor. ioctl");
 		goto fail_return_ok;
 	}
 
-	ok = drmModeAddFB(compositor.drmdev->fd, create_req.width, create_req.height, 32, create_req.bpp, create_req.pitch, create_req.handle, &drm_fb_id);
+	ok = drmModeAddFB(compositor->drmdev->fd, create_req.width, create_req.height, 32, create_req.bpp, create_req.pitch, create_req.handle, &drm_fb_id);
 	if (ok < 0) {
 		ok = errno;
 		perror("[compositor] Could not make a DRM FB out of the hardware cursor buffer. drmModeAddFB");
@@ -1526,47 +1805,48 @@ static int create_cursor_buffer(int width, int height, int bpp) {
 	memset(&map_req, 0, sizeof map_req);
 	map_req.handle = create_req.handle;
 
-	ok = ioctl(compositor.drmdev->fd, DRM_IOCTL_MODE_MAP_DUMB, &map_req);
+	ok = ioctl(compositor->drmdev->fd, DRM_IOCTL_MODE_MAP_DUMB, &map_req);
 	if (ok < 0) {
 		ok = errno;
 		perror("[compositor] Could not prepare dumb buffer mmap for uploading the hardware cursor icon. ioctl");
 		goto fail_rm_drm_fb;
 	}
 
-	buffer = mmap(0, create_req.size, PROT_READ | PROT_WRITE, MAP_SHARED, compositor.drmdev->fd, map_req.offset);
+	buffer = mmap(0, create_req.size, PROT_READ | PROT_WRITE, MAP_SHARED, compositor->drmdev->fd, map_req.offset);
 	if (buffer == MAP_FAILED) {
 		ok = errno;
 		perror("[compositor] Could not mmap dumb buffer for uploading the hardware cursor icon. mmap");
 		goto fail_rm_drm_fb;
 	}
 
-	compositor.cursor.has_buffer = true;
-	compositor.cursor.buffer_depth = depth;
-	compositor.cursor.gem_bo_handle = create_req.handle;
-	compositor.cursor.buffer_pitch = create_req.pitch;
-	compositor.cursor.buffer_width = width;
-	compositor.cursor.buffer_height = height;
-	compositor.cursor.buffer_size = create_req.size;
-	compositor.cursor.drm_fb_id = drm_fb_id;
-	compositor.cursor.buffer = buffer;
+	compositor->cursor.has_buffer = true;
+	compositor->cursor.buffer_depth = depth;
+	compositor->cursor.gem_bo_handle = create_req.handle;
+	compositor->cursor.buffer_pitch = create_req.pitch;
+	compositor->cursor.buffer_width = width;
+	compositor->cursor.buffer_height = height;
+	compositor->cursor.buffer_size = create_req.size;
+	compositor->cursor.drm_fb_id = drm_fb_id;
+	compositor->cursor.buffer = buffer;
 	
 	return 0;
 
 
 	fail_rm_drm_fb:
-	drmModeRmFB(compositor.drmdev->fd, drm_fb_id);
+	drmModeRmFB(compositor->drmdev->fd, drm_fb_id);
 
 	fail_destroy_dumb_buffer: ;
 	struct drm_mode_destroy_dumb destroy_req;
 	memset(&destroy_req, 0, sizeof destroy_req);
 	destroy_req.handle = create_req.handle;
-	ioctl(compositor.drmdev->fd, DRM_IOCTL_MODE_DESTROY_DUMB, &destroy_req);
+	ioctl(compositor->drmdev->fd, DRM_IOCTL_MODE_DESTROY_DUMB, &destroy_req);
 
 	fail_return_ok:
 	return ok;
 }
 
 int compositor_apply_cursor_state(
+	struct compositor *compositor,
 	bool is_enabled,
 	int rotation,
 	double device_pixel_ratio
@@ -1590,20 +1870,35 @@ int compositor_apply_cursor_state(
 		}
 
 		// destroy the old cursor buffer, if necessary
-		if (compositor.cursor.has_buffer && (compositor.cursor.buffer_width != cursor->width)) {
-			destroy_cursor_buffer();
+		if (compositor->cursor.has_buffer && (compositor->cursor.buffer_width != cursor->width)) {
+			destroy_cursor_buffer(compositor);
 		}
 
 		// create a new cursor buffer, if necessary
-		if (compositor.cursor.has_buffer == false) {
-			create_cursor_buffer(cursor->width, cursor->width, 32);
+		if (compositor->cursor.has_buffer == false) {
+			ok = create_cursor_buffer(compositor, cursor->width, cursor->width, 32);
+			if (ok != 0) {
+				LOG_COMPOSITOR_ERROR("Couldn't create new mouse cursor buffer. create_cursor_buffer: %s", strerror(ok));
+				
+				// disable HW cursor
+				compositor->cursor.cursor_size = 0;
+				compositor->cursor.current_cursor = NULL;
+				compositor->cursor.current_rotation = 0;
+				compositor->cursor.hot_x = 0;
+				compositor->cursor.hot_y = 0;
+				compositor->cursor.x = 0;
+				compositor->cursor.y = 0;
+				compositor->cursor.is_enabled = false;
+
+				return ok;
+			}
 		}
 
-		if ((compositor.cursor.is_enabled == false) || (compositor.cursor.current_rotation != rotation) || (compositor.cursor.current_cursor != cursor)) {
+		if ((compositor->cursor.is_enabled == false) || (compositor->cursor.current_rotation != rotation) || (compositor->cursor.current_cursor != cursor)) {
 			int rotated_hot_x, rotated_hot_y;
 			
 			if (rotation == 0) {
-				memcpy(compositor.cursor.buffer, cursor->data, compositor.cursor.buffer_size);
+				memcpy(compositor->cursor.buffer, cursor->data, compositor->cursor.buffer_size);
 				rotated_hot_x = cursor->hot_x;
 				rotated_hot_y = cursor->hot_y;
 			} else if ((rotation == 90) || (rotation == 180) || (rotation == 270)) {
@@ -1621,10 +1916,10 @@ int compositor_apply_cursor_state(
 							buffer_y = cursor->width - x - 1;
 						}
 						
-						int buffer_offset = compositor.cursor.buffer_pitch * buffer_y + (compositor.cursor.buffer_depth / 8) * buffer_x;
+						int buffer_offset = compositor->cursor.buffer_pitch * buffer_y + (compositor->cursor.buffer_depth / 8) * buffer_x;
 						int cursor_offset = cursor->width * y + x;
 						
-						compositor.cursor.buffer[buffer_offset / 4] = cursor->data[cursor_offset];
+						compositor->cursor.buffer[buffer_offset / 4] = cursor->data[cursor_offset];
 					}
 				}
 
@@ -1642,19 +1937,19 @@ int compositor_apply_cursor_state(
 				return EINVAL;
 			}
 
-			compositor.cursor.current_rotation = rotation;
-			compositor.cursor.current_cursor = cursor;
-			compositor.cursor.cursor_size = cursor->width;
-			compositor.cursor.hot_x = rotated_hot_x;
-			compositor.cursor.hot_y = rotated_hot_y;
-			compositor.cursor.is_enabled = true;
+			compositor->cursor.current_rotation = rotation;
+			compositor->cursor.current_cursor = cursor;
+			compositor->cursor.cursor_size = cursor->width;
+			compositor->cursor.hot_x = rotated_hot_x;
+			compositor->cursor.hot_y = rotated_hot_y;
+			compositor->cursor.is_enabled = true;
 
 			ok = drmModeSetCursor2(
-				compositor.drmdev->fd,
-				compositor.drmdev->selected_crtc->crtc->crtc_id,
-				compositor.cursor.gem_bo_handle,
-				compositor.cursor.cursor_size,
-				compositor.cursor.cursor_size,
+				compositor->drmdev->fd,
+				compositor->drmdev->selected_crtc->crtc->crtc_id,
+				compositor->cursor.gem_bo_handle,
+				compositor->cursor.cursor_size,
+				compositor->cursor.cursor_size,
 				rotated_hot_x,
 				rotated_hot_y
 			);
@@ -1664,10 +1959,10 @@ int compositor_apply_cursor_state(
 			}
 
 			ok = drmModeMoveCursor(
-				compositor.drmdev->fd,
-				compositor.drmdev->selected_crtc->crtc->crtc_id,
-				compositor.cursor.x - compositor.cursor.hot_x,
-				compositor.cursor.y - compositor.cursor.hot_y
+				compositor->drmdev->fd,
+				compositor->drmdev->selected_crtc->crtc->crtc_id,
+				compositor->cursor.x - compositor->cursor.hot_x,
+				compositor->cursor.y - compositor->cursor.hot_y
 			);
 			if (ok < 0) {
 				perror("[compositor] Could not move cursor. drmModeMoveCursor");
@@ -1676,51 +1971,51 @@ int compositor_apply_cursor_state(
 		}
 		
 		return 0;
-	} else if ((is_enabled == false) && (compositor.cursor.is_enabled == true)) {
+	} else if ((is_enabled == false) && (compositor->cursor.is_enabled == true)) {
 		drmModeSetCursor(
-			compositor.drmdev->fd,
-			compositor.drmdev->selected_crtc->crtc->crtc_id,
+			compositor->drmdev->fd,
+			compositor->drmdev->selected_crtc->crtc->crtc_id,
 			0, 0, 0
 		);
 
-		destroy_cursor_buffer();
+		destroy_cursor_buffer(compositor);
 
-		compositor.cursor.cursor_size = 0;
-		compositor.cursor.current_cursor = NULL;
-		compositor.cursor.current_rotation = 0;
-		compositor.cursor.hot_x = 0;
-		compositor.cursor.hot_y = 0;
-		compositor.cursor.x = 0;
-		compositor.cursor.y = 0;
-		compositor.cursor.is_enabled = false;
+		compositor->cursor.cursor_size = 0;
+		compositor->cursor.current_cursor = NULL;
+		compositor->cursor.current_rotation = 0;
+		compositor->cursor.hot_x = 0;
+		compositor->cursor.hot_y = 0;
+		compositor->cursor.x = 0;
+		compositor->cursor.y = 0;
+		compositor->cursor.is_enabled = false;
 	}
 
 	return 0;
 }
 
-int compositor_set_cursor_pos(int x, int y) {
+int compositor_set_cursor_pos(struct compositor *compositor, int x, int y) {
 	int ok;
 
-	if (compositor.cursor.is_enabled == false) {
+	if (compositor->cursor.is_enabled == false) {
 		return EINVAL;
 	}
 
-	ok = drmModeMoveCursor(compositor.drmdev->fd, compositor.drmdev->selected_crtc->crtc->crtc_id, x - compositor.cursor.hot_x, y - compositor.cursor.hot_y);
+	ok = drmModeMoveCursor(compositor->drmdev->fd, compositor->drmdev->selected_crtc->crtc->crtc_id, x - compositor->cursor.hot_x, y - compositor->cursor.hot_y);
 	if (ok < 0) {
-		perror("[compositor] Could not move cursor. drmModeMoveCursor");
+		LOG_COMPOSITOR_ERROR("Could not move cursor. drmModeMoveCursor: %s", strerror(errno));
 		return errno;
 	}
 
-	compositor.cursor.x = x;
-	compositor.cursor.y = y;    
+	compositor->cursor.x = x;
+	compositor->cursor.y = y;    
 
 	return 0;
 }
 
-const FlutterCompositor flutter_compositor = {
-	.struct_size = sizeof(FlutterCompositor),
-	.create_backing_store_callback = on_create_backing_store,
-	.collect_backing_store_callback = on_collect_backing_store,
-	.present_layers_callback = on_present_layers,
-	.user_data = &compositor
-};
+void compositor_fill_flutter_compositor(struct compositor *compositor, FlutterCompositor *flutter_compositor) {
+	flutter_compositor->struct_size = sizeof(FlutterCompositor);
+	flutter_compositor->create_backing_store_callback = on_create_backing_store;
+	flutter_compositor->collect_backing_store_callback = on_collect_backing_store;
+	flutter_compositor->present_layers_callback = on_present_layers;
+	flutter_compositor->user_data = compositor;
+}

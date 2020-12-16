@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <errno.h>
 #include <stdbool.h>
+#include <time.h>
 
 #include <pthread.h>
 
@@ -402,6 +403,16 @@ static inline void *memdup(const void *restrict src, const size_t n) {
 	return memcpy(dest, src, n);
 }
 
+/**
+ * @brief Get the current time of the system monotonic clock.
+ * @returns time in nanoseconds.
+ */
+static inline uint64_t get_monotonic_time(void) {
+	struct timespec time;
+	clock_gettime(CLOCK_MONOTONIC, &time);
+	return time.tv_nsec + time.tv_sec*1000000000ull;
+}
+
 #define BMAP_DECLARATION(name, n_bits) uint8_t name[(((n_bits) - 1) / 8) + 1]
 #define BMAP_IS_SET(p_bmap, i_bit) ((p_bmap)[(i_bit) / sizeof(*(p_bmap))] & (1 << ((i_bit) & (sizeof(*(p_bmap)) - 1))))
 #define BMAP_SET(p_bmap, i_bit) ((p_bmap)[(i_bit) / sizeof(*(p_bmap))] |= (1 << ((i_bit) & (sizeof(*(p_bmap)) - 1))))
@@ -410,5 +421,6 @@ static inline void *memdup(const void *restrict src, const size_t n) {
 
 #define min(a, b) (((a) < (b)) ? a : b)
 #define max(a, b) (((a) > (b)) ? a : b)
+#define STREQ(a, b) (strcmp(a, b) == 0)
 
 #endif
