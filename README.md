@@ -16,7 +16,7 @@ Although flutter-pi is only tested on a Rasberry Pi 4 2GB, it should work fine o
 - support for hardware 3D acceleration. more precisely support for kernel-modesetting (KMS) and the direct rendering infrastructure (DRI) 
 - CPU architecture is one of ARMv7, ARMv8, x86 or x86 64bit.
 
-This means flutter-pi won't work on a Pi Zero, Pi 1, or Pi 2. A Pi 3 works fine, even the 512MB A+ model.
+This means flutter-pi won't work on a Pi Zero or Pi 1. A Pi 3 works fine, even the 512MB A+ model, and a Pi 2 should work fine too.
 
 If you encounter issues running flutter-pi on any of the supported platforms listed above, please report them to me and I'll fix them.
 
