@@ -9,6 +9,7 @@
 
 #include <xf86drm.h>
 #include <xf86drmMode.h>
+#include <gbm.h>
 
 #include <modesetting.h>
 
@@ -380,6 +381,7 @@ float mode_get_vrefresh(const drmModeModeInfo *mode) {
 }
 
 struct drmdev *drmdev_new_from_fd(int fd) {
+    struct gbm_device *gbmdev;
     struct drmdev *drmdev;
     int ok;
 
@@ -394,29 +396,38 @@ struct drmdev *drmdev_new_from_fd(int fd) {
         goto fail_free_drmdev;
     }
 
-    ok = drmSetClientCap(drmdev->fd, DRM_CLIENT_CAP_UNIVERSAL_PLANES, 1);
-    if (ok < 0) {
+    ok = drmSetClientCap(drmdev->fd, DRM_CLIENT_CAP_UNIVERSAL_PLANES, 1ull);
+    if ((ok < 0) && (errno == EOPNOTSUPP)) {
         ok = errno;
-        perror("[modesetting] Could not set DRM client universal planes capable. drmSetClientCap");
+        goto fail_close_fd;
+    } else {
+        ok = errno;
+        LOG_MODESETTING_ERROR("Could not set DRM client universal planes capable. drmSetClientCap: %s\n", strerror(ok));
         goto fail_close_fd;
     }
     
-    ok = drmSetClientCap(drmdev->fd, DRM_CLIENT_CAP_ATOMIC, 1);
+    ok = drmSetClientCap(drmdev->fd, DRM_CLIENT_CAP_ATOMIC, 1ull);
     if ((ok < 0) && (errno == EOPNOTSUPP)) {
         drmdev->supports_atomic_modesetting = false;
     } else if (ok < 0) {
         ok = errno;
-        perror("[modesetting] Could not set DRM client atomic capable. drmSetClientCap");
-        goto fail_free_drmdev;
+        LOG_MODESETTING_ERROR("Could not set DRM client atomic capable. drmSetClientCap: %s\n", strerror(ok));
+        goto fail_close_fd;
     } else {
         drmdev->supports_atomic_modesetting = true;
+    }
+
+    gbmdev = gbm_create_device(drmdev->fd);
+    if (gbmdev == NULL) {
+        ok = errno;
+        goto fail_close_fd;
     }
 
     drmdev->res = drmModeGetResources(drmdev->fd);
     if (drmdev->res == NULL) {
         ok = errno;
         perror("[modesetting] Could not get DRM device resources. drmModeGetResources");
-        goto fail_free_drmdev;
+        goto fail_close_fd;
     }
 
     drmdev->plane_res = drmModeGetPlaneResources(drmdev->fd);
@@ -702,6 +713,7 @@ struct drmdev *drmdev_new_and_configure(void) {
     return NULL;
 }
 
+
 void drmdev_destroy(
     struct drmdev *drmdev
 ) {
@@ -714,6 +726,7 @@ void drmdev_destroy(
     free_connectors(drmdev->connectors, drmdev->n_connectors);
     drmModeFreePlaneResources(drmdev->plane_res);
     drmModeFreeResources(drmdev->res);
+    gbm_device_destroy(drmdev->gbmdev);
     close(drmdev->fd);
     free(drmdev);
 }

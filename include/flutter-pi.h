@@ -310,6 +310,12 @@ struct flutterpi {
 	pthread_mutex_t event_loop_mutex;
 	sd_event *event_loop;
 	int wakeup_event_loop_fd;
+
+	struct drmdev *drmdev;
+
+	struct renderer *renderer;
+	
+	struct compositor *compositor;
 	
 	struct texture_registry *texture_registry;
 

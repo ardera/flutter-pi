@@ -38,6 +38,7 @@ struct drm_plane {
 
 struct drmdev {
     int fd;
+    struct gbm_device *gbmdev;
 
     pthread_mutex_t mutex;
     bool supports_atomic_modesetting;

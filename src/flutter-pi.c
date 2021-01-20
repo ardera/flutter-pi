@@ -50,6 +50,7 @@
 #include <texture_registry.h>
 #include <dylib_deps.h>
 #include <user_input.h>
+#include <renderer.h>
 
 #include <plugins/text_input.h>
 #include <plugins/raw_keyboard.h>
@@ -143,95 +144,105 @@ struct flutterpi_private {
 // OpenGL contexts are thread-local. So this needs to be thread-local as well.
 static __thread struct flutterpi *flutterpi_associated_with_current_gl_context = NULL;
 
-/*static int flutterpi_post_platform_task(
-	int (*callback)(void *userdata),
-	void *userdata
-);*/
+static bool on_flutter_gl_make_current(void* userdata) {
+	struct flutterpi *flutterpi = userdata;
+	bool success;
+	
+	success = gl_renderer_flutter_make_rendering_context_current(flutterpi->renderer);
+
+	if (success) {
+		flutterpi_associated_with_current_gl_context = flutterpi;
+	}
+
+	return success;
+}
+
+static bool on_flutter_gl_clear_current(void *userdata) {
+	struct flutterpi *flutterpi = userdata;
+	bool success;
+	
+	success = gl_renderer_flutter_make_rendering_context_current(flutterpi->renderer);
+
+	if (success) {
+		flutterpi_associated_with_current_gl_context = NULL;
+	}
+
+	return success;
+}
+
+static bool on_flutter_gl_present(void *userdata) {
+	return gl_renderer_flutter_present(((struct flutterpi*) userdata)->renderer);
+}
+
+static uint32_t on_flutter_gl_get_fbo(void* userdata) {
+	return gl_renderer_flutter_get_fbo(((struct flutterpi *) userdata)->renderer);
+}
+
+static bool on_flutter_gl_make_resource_context_current(void *userdata) {
+	struct flutterpi *flutterpi = userdata;
+	bool success;
+	
+	success = gl_renderer_flutter_make_resource_context_current(flutterpi->renderer);
+
+	if (success) {
+		flutterpi_associated_with_current_gl_context = flutterpi;
+	}
+
+	return success;
+}
+
+static FlutterTransformation on_flutter_gl_get_surface_transformation(void *userdata) {
+	return gl_renderer_flutter_get_surface_transformation(((struct flutterpi *) userdata)->renderer);
+}
+
+static void *on_flutter_gl_resolve_proc(void *userdata, const char *name) {
+	return gl_renderer_flutter_resolve_gl_proc(((struct flutterpi *) userdata)->renderer, name);
+}
+
+static bool on_flutter_gl_get_external_texture_frame(
+	void *userdata,
+	int64_t texture_id,
+	size_t width, size_t height,
+	FlutterOpenGLTexture *texture_out
+) {
+	return texreg_on_external_texture_frame_callback(
+		((struct flutterpi *) userdata)->texture_registry,
+		texture_id,
+		width, height,
+		texture_out
+	) == 0;
+}
+
+static uint32_t on_flutter_gl_get_fbo_with_info(void *userdata, const FlutterFrameInfo *info) {
+	return gl_renderer_flutter_get_fbo_with_info(((struct flutterpi *) userdata)->renderer, info);
+}
+
+bool on_flutter_gl_present_with_info(void *userdata, const FlutterPresentInfo *info) {
+	return gl_renderer_flutter_present_with_info(((struct flutterpi *) userdata)->renderer, info);
+}
+
+static const struct flutter_renderer_gl_interface gl_interface = {
+	.make_current = on_flutter_gl_make_current,
+	.clear_current = on_flutter_gl_clear_current,
+	.present = on_flutter_gl_present,
+	.fbo_callback = on_flutter_gl_get_fbo,
+	.make_resource_current = on_flutter_gl_make_resource_context_current,
+	.surface_transformation = on_flutter_gl_get_surface_transformation,
+	.gl_proc_resolver = on_flutter_gl_resolve_proc,
+	.gl_external_texture_frame_callback = on_flutter_gl_get_external_texture_frame,
+	.fbo_with_frame_info_callback = on_flutter_gl_get_fbo_with_info,
+	.present_with_info = on_flutter_gl_present_with_info
+};
+
+bool on_flutter_sw_present(void *userdata, const void *allocation, size_t bytes_per_row, size_t height) {
+	return sw_renderer_flutter_present(((struct flutterpi *) userdata)->renderer, allocation, bytes_per_row, height);
+}
+
+static const struct flutter_renderer_sw_interface sw_interface = {
+	.surface_present_callback = on_flutter_sw_present
+};
 
 static bool runs_platform_tasks_on_current_thread(void *userdata);
-
-/*********************
- * FLUTTER CALLBACKS *
- *********************/
-/// Called on some flutter internal thread when the flutter
-/// rendering EGLContext should be made current.
-static bool flutterpi_on_make_current(void* userdata) {
-	struct flutterpi *fpi;
-	EGLint egl_error;
-
-	fpi = userdata;
-
-	eglGetError();
-
-	eglMakeCurrent(fpi->egl.display, fpi->egl.surface, fpi->egl.surface, fpi->egl.flutter_render_context);
-	if ((egl_error = eglGetError()) != EGL_SUCCESS) {
-		fprintf(stderr, "[flutter-pi] Could not make the flutter rendering EGL context current. eglMakeCurrent: 0x%08X\n", egl_error);
-		return false;
-	}
-
-	flutterpi_associated_with_current_gl_context = fpi;
-	
-	return true;
-}
-
-/// Called on some flutter internal thread to
-/// clear the EGLContext.
-static bool flutterpi_on_clear_current(void* userdata) {
-	struct flutterpi *fpi;
-	EGLint egl_error;
-
-	fpi = userdata;
-
-	eglGetError();
-
-	eglMakeCurrent(fpi->egl.display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
-	if ((egl_error = eglGetError()) != EGL_SUCCESS) {
-		fprintf(stderr, "[flutter-pi] Could not clear the flutter EGL context. eglMakeCurrent: 0x%08X\n", egl_error);
-		return false;
-	}
-
-	flutterpi_associated_with_current_gl_context = NULL;
-	
-	return true;
-}
-
-/// Called on some flutter internal thread when the flutter
-/// contents should be presented to the screen.
-/// (Won't be called since we're supplying a compositor,
-/// still needs to be present)
-static bool flutterpi_on_present(void *userdata) {
-	// no-op
-	return true;
-}
-
-/// Called on some flutter internal thread to get the
-/// GL FBO id flutter should render into
-/// (Won't be called since we're supplying a compositor,
-/// still needs to be present)
-static uint32_t flutterpi_on_fbo_callback(void* userdata) {
-	return 0;
-}
-
-/// Called on some flutter internal thread when the flutter
-/// resource uploading EGLContext should be made current.
-static bool flutterpi_on_make_resource_context_current(void *userdata) {
-	struct flutterpi *fpi;
-	EGLint egl_error;
-
-	fpi = userdata;
-
-	eglGetError();
-
-	eglMakeCurrent(fpi->egl.display, EGL_NO_SURFACE, EGL_NO_SURFACE, fpi->egl.flutter_resource_uploading_context);
-	if ((egl_error = eglGetError()) != EGL_SUCCESS) {
-		fprintf(stderr, "[flutter-pi] Could not make the flutter resource uploading EGL context current. eglMakeCurrent: 0x%08X\n", egl_error);
-		return false;
-	}
-
-	flutterpi_associated_with_current_gl_context = fpi;
-	
-	return true;
-}
 
 /// Cut a word from a string, mutating "string"
 static void cut_word_from_string(
@@ -255,52 +266,8 @@ static void cut_word_from_string(
 	}
 }
 
-/// An override for glGetString since the real glGetString
-/// won't work.
-static const GLubyte *hacked_glGetString(GLenum name) {
-	struct flutterpi *flutterpi = flutterpi_associated_with_current_gl_context;
 
-	if (name != GL_EXTENSIONS) {
-		return glGetString(name);
-	} else if (flutterpi->gl.extensions_override != NULL) {
-		return (GLubyte *) flutterpi->gl.extensions_override;
-	} else {
-		return (GLubyte *) flutterpi->gl.extensions;
-	}
-}
-
-/// Called by flutter 
-static void *flutterpi_on_resolve_gl_proc(
-	void* userdata,
-	const char* name
-) {
-	struct flutterpi *fpi;
-	void *address;
-
-	fpi = userdata;
-
-	/*  
-	 * The mesa V3D driver reports some OpenGL ES extensions as supported and working
-	 * even though they aren't. hacked_glGetString is a workaround for this, which will
-	 * cut out the non-working extensions from the list of supported extensions.
-	 */
-
-	if (name == NULL)
-		return NULL;
-
-	// if we do, and the symbol to resolve is glGetString, we return our hacked_glGetString.
-	if ((fpi->gl.extensions_override != NULL) && (strcmp(name, "glGetString") == 0))
-		return hacked_glGetString;
-
-	if ((address = dlsym(RTLD_DEFAULT, name)) || (address = eglGetProcAddress(name)))
-		return address;
-	
-	fprintf(stderr, "[flutter-pi] flutterpi_on_resolve_gl_proc: Could not resolve symbol \"%s\"\n", name);
-
-	return NULL;
-}
-
-static void flutterpi_on_platform_message(
+static void on_platform_message(
 	const FlutterPlatformMessage* message,
 	void* userdata
 ) {
@@ -319,7 +286,7 @@ static void flutterpi_on_platform_message(
 /// Called on the main thread when a new frame request may have arrived.
 /// Uses [drmCrtcGetSequence] or [FlutterEngineGetCurrentTime] to complete
 /// the frame request.
-static int flutterpi_on_execute_frame_request(
+static int on_execute_frame_request(
 	void *userdata
 ) {
 	FlutterEngineResult result;
@@ -339,9 +306,9 @@ static int flutterpi_on_execute_frame_request(
 				ns = 0;
 				ok = drmCrtcGetSequence(fpi->drm.drmdev->fd, fpi->drm.drmdev->selected_crtc->crtc->crtc_id, NULL, &ns);
 				if (ok < 0) {
-					perror("[flutter-pi] Couldn't get last vblank timestamp. drmCrtcGetSequence");
-					cqueue_unlock(&fpi->frame_queue);
-					return errno;
+					ok = errno;
+					LOG_FLUTTERPI_ERROR("Couldn't get last vblank timestamp. drmCrtcGetSequence: %s\n", strerror(ok));
+					goto fail_unlock_frame_queue;
 				}
 			} else {
 				ns = fpi->flutter.libflutter_engine->FlutterEngineGetCurrentTime();
@@ -354,29 +321,34 @@ static int flutterpi_on_execute_frame_request(
 				ns + (1000000000 / fpi->display.refresh_rate)
 			);
 			if (result != kSuccess) {
-				fprintf(stderr, "[flutter-pi] Could not reply to frame request. FlutterEngineOnVsync: %s\n", FLUTTER_RESULT_TO_STRING(result));
-				cqueue_unlock(&fpi->frame_queue);
-				return EIO;
+				LOG_FLUTTERPI_ERROR("Could not reply to frame request. FlutterEngineOnVsync: %s\n", FLUTTER_RESULT_TO_STRING(result));
+				goto fail_unlock_frame_queue;
 			}
 
 			peek->state = kFrameRendering;
 		}
 	} else if (ok == EAGAIN) {
-		// do nothing	
+		// do nothing
 	} else if (ok != 0) {
-		fprintf(stderr, "[flutter-pi] Could not get peek of frame queue. cqueue_peek_locked: %s\n", strerror(ok));
-		cqueue_unlock(&fpi->frame_queue);
-		return ok;
+		LOG_FLUTTERPI_ERROR("Could not get peek of frame queue. cqueue_peek_locked: %s\n", strerror(ok));
+		goto fail_unlock_frame_queue;
 	}
 
 	cqueue_unlock(&fpi->frame_queue);
 
 	return 0;
+
+
+	fail_unlock_frame_queue:
+	cqueue_unlock(&fpi->frame_queue);
+
+	fail_return_ok:
+	return ok;
 }
 
 /// Called on some flutter internal thread to request a frame,
 /// and also get the vblank timestamp of the pageflip preceding that frame.
-static void flutterpi_on_frame_request(
+static void on_frame_request(
 	void* userdata,
 	intptr_t baton
 ) {
@@ -397,22 +369,26 @@ static void flutterpi_on_frame_request(
 			.baton = baton
 		});
 		if (ok != 0) {
-			fprintf(stderr, "[flutter-pi] Could not enqueue frame request. cqueue_try_enqueue_locked: %s\n", strerror(ok));
-			cqueue_unlock(&flutterpi->frame_queue);
-			return;
+			LOG_FLUTTERPI_ERROR("Could not enqueue frame request. cqueue_try_enqueue_locked: %s\n", strerror(ok));
+			goto fail_unlock_frame_queue;
 		}
 
 		if (reply_instantly) {	
 			flutterpi_post_platform_task(
 				flutterpi,
-				flutterpi_on_execute_frame_request,
+				on_execute_frame_request,
 				flutterpi
 			);
 		}
 	} else if (ok != 0) {
-		fprintf(stderr, "[flutter-pi] Could not get peek of frame queue. cqueue_peek_locked: %s\n", strerror(ok));
+		LOG_FLUTTERPI_ERROR("Could not get peek of frame queue. cqueue_peek_locked: %s\n", strerror(ok));
+		goto fail_unlock_frame_queue;
 	}
 
+	cqueue_unlock(&flutterpi->frame_queue);
+	return;
+	
+	fail_unlock_frame_queue:
 	cqueue_unlock(&flutterpi->frame_queue);
 }
 
@@ -2077,9 +2053,9 @@ static int init_application(struct flutterpi *fpi) {
 				.struct_size = sizeof(FlutterOpenGLRendererConfig),
 				.make_current = flutterpi_on_make_current,
 				.clear_current = flutterpi_on_clear_current,
-				.present = flutterpi_on_present,
-				.fbo_callback = flutterpi_on_fbo_callback,
-				.make_resource_current = flutterpi_on_make_resource_context_current,
+				.present = on_flutter_gl_present,
+				.fbo_callback = on_flutter_gl_get_fbo_name,
+				.make_resource_current = on_flutter_gl_make_resource_context_current,
 				.gl_proc_resolver = flutterpi_on_resolve_gl_proc,
 				.surface_transformation = flutterpi_on_get_transformation,
 				.gl_external_texture_frame_callback = flutterpi_texture_frame_callback,
@@ -2093,7 +2069,7 @@ static int init_application(struct flutterpi *fpi) {
 			.icu_data_path = fpi->flutter.icu_data_path,
 			.command_line_argc = fpi->flutter.engine_argc,
 			.command_line_argv = (const char * const*) fpi->flutter.engine_argv,
-			.platform_message_callback = flutterpi_on_platform_message,
+			.platform_message_callback = on_platform_message,
 			.vm_snapshot_data = NULL,
 			.vm_snapshot_data_size = 0,
 			.vm_snapshot_instructions = NULL,
@@ -2107,7 +2083,7 @@ static int init_application(struct flutterpi *fpi) {
 			.update_semantics_custom_action_callback = NULL,
 			.persistent_cache_path = NULL,
 			.is_persistent_cache_read_only = false,
-			.vsync_callback = flutterpi_on_frame_request,
+			.vsync_callback = on_frame_request,
 			.custom_dart_entrypoint = NULL,
 			.custom_task_runners = &(FlutterCustomTaskRunners) {
 				.struct_size = sizeof(FlutterCustomTaskRunners),
@@ -2613,9 +2589,9 @@ struct flutterpi *flutterpi_new_from_args(
 				.struct_size = sizeof(FlutterOpenGLRendererConfig),
 				.make_current = flutterpi_on_make_current,
 				.clear_current = flutterpi_on_clear_current,
-				.present = flutterpi_on_present,
-				.fbo_callback = flutterpi_on_fbo_callback,
-				.make_resource_current = flutterpi_on_make_resource_context_current,
+				.present = on_flutter_gl_present,
+				.fbo_callback = on_flutter_gl_get_fbo_name,
+				.make_resource_current = on_flutter_gl_make_resource_context_current,
 				.gl_proc_resolver = flutterpi_on_resolve_gl_proc,
 				.surface_transformation = flutterpi_on_get_transformation,
 				.gl_external_texture_frame_callback = flutterpi_texture_frame_callback,
@@ -2629,7 +2605,7 @@ struct flutterpi *flutterpi_new_from_args(
 			.icu_data_path = icu_data_path,
 			.command_line_argc = n_engine_args,
 			.command_line_argv = (const char * const*) engine_args,
-			.platform_message_callback = flutterpi_on_platform_message,
+			.platform_message_callback = on_platform_message,
 			.vm_snapshot_data = NULL,
 			.vm_snapshot_data_size = 0,
 			.vm_snapshot_instructions = NULL,
@@ -2643,7 +2619,7 @@ struct flutterpi *flutterpi_new_from_args(
 			.update_semantics_custom_action_callback = NULL,
 			.persistent_cache_path = NULL,
 			.is_persistent_cache_read_only = false,
-			.vsync_callback = flutterpi_on_frame_request,
+			.vsync_callback = on_frame_request,
 			.custom_dart_entrypoint = NULL,
 			.custom_task_runners = &(FlutterCustomTaskRunners) {
 				.struct_size = sizeof(FlutterCustomTaskRunners),
