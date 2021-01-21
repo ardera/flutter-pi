@@ -15,6 +15,7 @@
 #include <GLES2/gl2ext.h>
 #include <GLES2/gl2platform.h>
 #include <systemd/sd-bus.h>
+#include <inttypes.h>
 
 #include <flutter-pi.h>
 #include <platformchannel.h>
@@ -406,7 +407,7 @@ static void *mgr_entry(void *userdata) {
     snprintf(
         dbus_name,
         sizeof(dbus_name),
-        "org.mpris.MediaPlayer2.omxplayer_%d_%lld",
+        "org.mpris.MediaPlayer2.omxplayer_%d_%" PRId64,
         (int) getpid(),
         mgr->player->player_id
     );
@@ -1108,7 +1109,7 @@ static int on_create(
     snprintf(
         player->event_channel_name,
         sizeof(player->event_channel_name),
-        "flutter.io/omxplayerVideoPlayer/videoEvents%lld",
+        "flutter.io/omxplayerVideoPlayer/videoEvents%" PRId64,
         player->player_id
     );
 
@@ -1392,7 +1393,7 @@ static int on_dispose_platform_view(
         if (ok != 0) {
             fprintf(
                 stderr,
-                "[omxplayer_video_player plugin] Could not remove view callbacks for platform view %lld. compositor_remove_view_callbacks: %s\n",
+                "[omxplayer_video_player plugin] Could not remove view callbacks for platform view %" PRId64 ". compositor_remove_view_callbacks: %s\n",
                 view_id,
                 strerror(ok)
             );
