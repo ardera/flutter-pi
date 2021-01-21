@@ -1958,7 +1958,7 @@ static int on_libinput_ready(sd_event_source *s, int fd, uint32_t revents, void 
 				}
 			} else if (libinput_device_has_capability(device, LIBINPUT_DEVICE_CAP_KEYBOARD)) {
 #if BUILD_TEXT_INPUT_PLUGIN || BUILD_RAW_KEYBOARD_PLUGIN
-				if (flutterpi.input.disable_text_input == false) {
+				if ((flutterpi.input.disable_text_input == false) && (flutterpi.input.keyboard_config != NULL)) {
 					data->keyboard_state = keyboard_state_new(flutterpi.input.keyboard_config, NULL, NULL);
 				}
 #endif
@@ -2164,7 +2164,7 @@ static int on_libinput_ready(sd_event_source *s, int fd, uint32_t revents, void 
 			} else if (type == LIBINPUT_EVENT_POINTER_AXIS) {
 
 			}
-		} else if (LIBINPUT_EVENT_IS_KEYBOARD(type) && !flutterpi.input.disable_text_input) {
+		} else if (LIBINPUT_EVENT_IS_KEYBOARD(type) && !flutterpi.input.disable_text_input && (data->keyboard_state != NULL)) {
 #if BUILD_RAW_KEYBOARD_PLUGIN || BUILD_TEXT_INPUT_PLUGIN
 			struct keyboard_modifier_state mods;
 			enum libinput_key_state key_state;
