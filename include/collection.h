@@ -5,6 +5,8 @@
 #include <stdlib.h>
 #include <errno.h>
 #include <stdbool.h>
+#include <stdint.h>
+#include <assert.h>
 
 #include <pthread.h>
 
@@ -403,5 +405,26 @@ static inline void *memdup(const void *restrict src, const size_t n) {
 #define BMAP_SET(p_bmap, i_bit) ((p_bmap)[(i_bit) / sizeof(*(p_bmap))] |= (1 << ((i_bit) & (sizeof(*(p_bmap)) - 1))))
 #define BMAP_CLEAR(p_bmap, i_bit) ((p_bmap)[(i_bit) / sizeof(*(p_bmap))] &= ~(1 << ((i_bit) & (sizeof(*(p_bmap)) - 1))))
 #define BMAP_ZERO(p_bmap, n_bits) (memset((p_bmap), 0, (((n_bits) - 1) / 8) + 1))
+
+#define min(a, b) ((a) < (b) ? (a) : (b))
+#define max(a, b) ((a) > (b) ? (a) : (b))
+
+/**
+ * @brief Get the current time of the system monotonic clock.
+ * @returns time in nanoseconds.
+ */
+static inline uint64_t get_monotonic_time(void) {
+	struct timespec time;
+	clock_gettime(CLOCK_MONOTONIC, &time);
+	return time.tv_nsec + time.tv_sec*1000000000ull;
+}
+
+#ifdef DEBUG
+#define DEBUG_ASSERT(__cond) assert(__cond)
+#define DEBUG_ASSERT_MSG(__cond, __msg) assert((__msg, (__cond))
+#else
+#define DEBUG_ASSERT(__cond) do {} while (false)
+#define DEBUG_ASSERT_MSG(__cond, __msg) do {} while (false)
+#endif
 
 #endif

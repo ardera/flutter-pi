@@ -73,11 +73,9 @@ static char *get_value_allocated(const char *varname, const char *buffer) {
 
     ok = find_var_offset_in_string(varname, buffer, &match);
     if (ok != 0) {
-        fprintf(stderr, "Error finding variable in buffer: find_var_offset_in_string: %s\n", strerror(ok));
         errno = ok;
         return NULL;
     } else if ((match.rm_so == -1) || (match.rm_eo == -1)) {
-        fprintf(stderr, "Could not find variable in buffer.\n");
         errno = EINVAL;
         return NULL;
     }
@@ -145,18 +143,40 @@ static char *load_file(const char *path) {
 }
 
 static struct xkb_keymap *load_default_keymap(struct xkb_context *context) {
-    char *file = load_file("/etc/default/keyboard");
+    struct xkb_keymap *keymap;
+    char *file, *xkbmodel, *xkblayout, *xkbvariant, *xkboptions; 
+
+    file = load_file("/etc/default/keyboard");
     if (file == NULL) {
-        perror("[keyboard] Could not load default keyboard configuration from \"/etc/default/keyboard\". ");
-        return NULL;
+        LOG_KEYBOARD_ERROR("Could not load keyboard configuration from \"/etc/default/keyboard\". Default keyboard config will be used. load_file: %s\n", strerror(errno));
+        xkbmodel = NULL;
+        xkblayout = NULL;
+        xkbvariant = NULL;
+        xkboptions = NULL;
+    } else {
+        // we have a config file, load its properties
+        xkbmodel = get_value_allocated("XKBMODEL", file);
+        if (xkbmodel == NULL) {
+            LOG_KEYBOARD_ERROR("Could not find \"XKBMODEL\" property inside \"/etc/default/keyboard\". Default value will be used.");
+        }
+
+        xkblayout = get_value_allocated("XKBLAYOUT", file);
+        if (xkblayout == NULL) {
+            LOG_KEYBOARD_ERROR("Could not find \"XKBLAYOUT\" property inside \"/etc/default/keyboard\". Default value will be used.");
+        }
+
+        xkbvariant = get_value_allocated("XKBVARIANT", file);
+        if (xkbvariant == NULL) {
+            LOG_KEYBOARD_ERROR("Could not find \"XKBVARIANT\" property inside \"/etc/default/keyboard\". Default value will be used.");
+        }
+
+        xkboptions = get_value_allocated("XKBOPTIONS", file);
+        if (xkboptions == NULL) {
+            LOG_KEYBOARD_ERROR("Could not find \"XKBOPTIONS\" property inside \"/etc/default/keyboard\". Default value will be used.");
+        }
+
+        free(file);
     }
-
-    char *xkbmodel = get_value_allocated("XKBMODEL", file);
-    char *xkblayout = get_value_allocated("XKBLAYOUT", file);
-    char *xkbvariant = get_value_allocated("XKBVARIANT", file);
-    char *xkboptions = get_value_allocated("XKBOPTIONS", file);
-
-    free(file);
 
     struct xkb_rule_names names = {
         .rules = NULL,
@@ -166,7 +186,7 @@ static struct xkb_keymap *load_default_keymap(struct xkb_context *context) {
         .options = xkboptions
     };
 
-    struct xkb_keymap *keymap = xkb_keymap_new_from_names(context, &names, XKB_KEYMAP_COMPILE_NO_FLAGS);
+    keymap = xkb_keymap_new_from_names(context, &names, XKB_KEYMAP_COMPILE_NO_FLAGS);
 
     if (xkbmodel != NULL) free(xkbmodel);
     if (xkblayout != NULL) free(xkblayout);
@@ -174,15 +194,23 @@ static struct xkb_keymap *load_default_keymap(struct xkb_context *context) {
     if (xkboptions != NULL) free(xkboptions);
 
     if (keymap == NULL) {
-        fprintf(stderr, "[keyboard] Could not load default keymap.\n");
+        LOG_KEYBOARD_ERROR("Could not create xkb keymap.");
     }
 
     return keymap;
 }
 
 static struct xkb_compose_table *load_default_compose_table(struct xkb_context *context) {
+    struct xkb_compose_table *tbl;
+
     setlocale(LC_ALL, "");
-    return xkb_compose_table_new_from_locale(context, setlocale(LC_CTYPE, NULL), XKB_COMPOSE_COMPILE_NO_FLAGS);
+    
+    tbl = xkb_compose_table_new_from_locale(context, setlocale(LC_CTYPE, NULL), XKB_COMPOSE_COMPILE_NO_FLAGS);
+    if (tbl == NULL) {
+        LOG_KEYBOARD_ERROR("Could not create compose table from locale.\n");
+    }
+
+    return tbl;
 }
 
 
@@ -202,6 +230,7 @@ struct keyboard_config *keyboard_config_new(void) {
 
     ctx = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
     if (ctx == NULL) {
+        LOG_KEYBOARD_ERROR("Could not create XKB context.\n");
         goto fail_free_cfg;
     }
 
@@ -262,16 +291,19 @@ struct keyboard_state *keyboard_state_new(
 
     xkb_state = xkb_state_new(keymap_override != NULL ? keymap_override : config->default_keymap);
     if (xkb_state == NULL) {
+        LOG_KEYBOARD_ERROR("Could not create new XKB state.\n");
         goto fail_free_state;
     }
 
     plain_xkb_state = xkb_state_new(keymap_override != NULL ? keymap_override : config->default_keymap);
     if (plain_xkb_state == NULL) {
+        LOG_KEYBOARD_ERROR("Could not create new XKB state.\n");
         goto fail_free_xkb_state;
     }
 
     compose_state = xkb_compose_state_new(compose_table_override != NULL ? compose_table_override : config->default_compose_table, XKB_COMPOSE_STATE_NO_FLAGS);
     if (compose_state == NULL) {
+        LOG_KEYBOARD_ERROR("Could not create new XKB compose state.\n");
         goto fail_free_xkb_state;
     }
 
