@@ -141,6 +141,8 @@ struct user_input *user_input_new(
 	if (kbdcfg == NULL) {
 		fprintf(stderr, "[flutter-pi] Could not initialize keyboard configuration. Flutter-pi will run without text/raw keyboard input.\n");
 	}
+#else
+    kbdcfg = NULL;
 #endif
 
 	input->interface = *interface;
@@ -183,6 +185,15 @@ struct user_input *user_input_new(
 }
 
 void user_input_destroy(struct user_input *input) {
+    DEBUG_ASSERT(input != NULL);
+
+    /// TODO: Destroy all the input device data, maybe add an additional
+    /// parameter to indicate whether any flutter device removal events should be
+    /// emitted.
+
+    if (input->kbdcfg != NULL) {
+        keyboard_config_destroy(input->kbdcfg);
+    }
     libinput_unref(input->libinput);
 	free(input);
 }
@@ -194,6 +205,10 @@ void user_input_set_transform(
     unsigned int display_width,
     unsigned int display_height
 ) {
+    DEBUG_ASSERT(input != NULL);
+    DEBUG_ASSERT(display_to_view_transform != NULL);
+    DEBUG_ASSERT(view_to_display_transform != NULL);
+
     input->display_to_view_transform = *display_to_view_transform;
     input->view_to_display_transform_nontranslating = *view_to_display_transform;
     input->view_to_display_transform_nontranslating.transX = 0.0;
@@ -203,11 +218,14 @@ void user_input_set_transform(
 }
 
 int user_input_get_fd(struct user_input *input) {
+    DEBUG_ASSERT(input != NULL);
     return libinput_get_fd(input->libinput);
 }
 
 
 static void flush_pointer_events(struct user_input *input) {
+    DEBUG_ASSERT(input != NULL);
+
     if (input->n_collected_flutter_pointer_events > 0) {
         input->interface.on_flutter_pointer_event(
             input->userdata,
@@ -220,6 +238,9 @@ static void flush_pointer_events(struct user_input *input) {
 }
 
 static void emit_pointer_events(struct user_input *input, const FlutterPointerEvent *events, size_t n_events) {
+    DEBUG_ASSERT(input != NULL);
+    DEBUG_ASSERT(events != NULL);
+
     size_t to_copy;
 
     while (n_events > 0) {
@@ -254,6 +275,8 @@ static void emit_pointer_events(struct user_input *input, const FlutterPointerEv
  * it it isn't yet enabled.
  */
 static void maybe_enable_mouse_cursor(struct user_input *input, uint64_t timestamp) {
+    DEBUG_ASSERT(input != NULL);
+
     if (input->n_cursor_devices == 1) {
         input->cursor_flutter_device_id = input->next_unused_flutter_device_id++;
 
@@ -274,6 +297,8 @@ static void maybe_enable_mouse_cursor(struct user_input *input, uint64_t timesta
  * @brief Called when input->n_cursor_devices was decreased to maybe disable the mouse cursor.
  */
 static void maybe_disable_mouse_cursor(struct user_input *input, uint64_t timestamp) {
+    DEBUG_ASSERT(input != NULL);
+
     if (input->n_cursor_devices == 0) {
         emit_pointer_events(
             input,
@@ -294,6 +319,9 @@ static int on_device_added(struct user_input *input, struct libinput_event *even
     struct libinput_device *device;
     int64_t device_id;
     int ok;
+
+    DEBUG_ASSERT(input != NULL);
+    DEBUG_ASSERT(event != NULL);
     
     device = libinput_event_get_device(event);
 
@@ -334,7 +362,12 @@ static int on_device_added(struct user_input *input, struct libinput_event *even
         }
     } else if (libinput_device_has_capability(device, LIBINPUT_DEVICE_CAP_KEYBOARD)) {
         // create a new keyboard state for this keyboard
-        data->keyboard_state = keyboard_state_new(input->kbdcfg, NULL, NULL);
+        if (input->kbdcfg) {
+            data->keyboard_state = keyboard_state_new(input->kbdcfg, NULL, NULL);
+        } else {
+            // If we don't have a keyboard config
+            data->keyboard_state = NULL;
+        }
     } else {
         // We don't handle this device, so we don't need the data.
         libinput_device_set_user_data(device, NULL);
@@ -347,6 +380,9 @@ static int on_device_added(struct user_input *input, struct libinput_event *even
 static int on_device_removed(struct user_input *input, struct libinput_event *event, uint64_t timestamp) {
     struct input_device_data *data;
     struct libinput_device *device;
+
+    DEBUG_ASSERT(input != NULL);
+    DEBUG_ASSERT(event != NULL);
     
     device = libinput_event_get_device(event);
     data = libinput_device_get_user_data(device);
@@ -372,7 +408,9 @@ static int on_device_removed(struct user_input *input, struct libinput_event *ev
         }
     } else if (libinput_device_has_capability(device, LIBINPUT_DEVICE_CAP_KEYBOARD)) {
         // create a new keyboard state for this keyboard
-        keyboard_state_destroy(data->keyboard_state);
+        if (data->keyboard_state != NULL) {
+            keyboard_state_destroy(data->keyboard_state);
+        }
     }
 
     if (data != NULL) {
@@ -395,12 +433,21 @@ static int on_key_event(struct user_input *input, struct libinput_event *event) 
     uint16_t evdev_keycode;
     int ok;
 
+    DEBUG_ASSERT(input != NULL);
+    DEBUG_ASSERT(event != NULL);
+
     key_event = libinput_event_get_keyboard_event(event);
     device = libinput_event_get_device(event);
     data = libinput_device_get_user_data(device);
 
     evdev_keycode = (uint16_t) libinput_event_keyboard_get_key(key_event);
     key_state = libinput_event_keyboard_get_key_state(key_event);
+
+    // If we don't have a keyboard state (for example if we couldn't load /etc/default/keyboard)
+    // we just return here.
+    if (data->keyboard_state == NULL) {
+        return 0;
+    }
 
     // Let the keyboard advance its statemachine.
     // keysym/codepoint are 0 when none were emitted.
@@ -496,6 +543,9 @@ static int on_mouse_motion_event(struct user_input *input, struct libinput_event
     uint64_t timestamp;
     double new_cursor_x, new_cursor_y;
     double dx, dy;
+
+    DEBUG_ASSERT(input != NULL);
+    DEBUG_ASSERT(event != NULL);
     
     pointer_event = libinput_event_get_pointer_event(event);
     device = libinput_event_get_device(event);
@@ -570,6 +620,9 @@ static int on_mouse_motion_absolute_event(struct user_input *input, struct libin
     uint64_t timestamp;
     double x, y;
 
+    DEBUG_ASSERT(input != NULL);
+    DEBUG_ASSERT(event != NULL);
+
     pointer_event = libinput_event_get_pointer_event(event);
     device = libinput_event_get_device(event);
     data = libinput_device_get_user_data(device);
@@ -622,6 +675,9 @@ static int on_mouse_button_event(struct user_input *input, struct libinput_event
     int64_t flutter_button;
     int64_t new_flutter_button_state;
     double x, y;
+
+    DEBUG_ASSERT(input != NULL);
+    DEBUG_ASSERT(event != NULL);
 
     pointer_event = libinput_event_get_pointer_event(event);
     device = libinput_event_get_device(event);
@@ -705,7 +761,8 @@ static int on_mouse_button_event(struct user_input *input, struct libinput_event
 }
 
 static int on_mouse_axis_event(struct user_input *input, struct libinput_event *event) {
-    /// TODO: Implement mouse scrolling
+    DEBUG_ASSERT(input != NULL);
+    DEBUG_ASSERT(event != NULL);
     return 0;
 }
 
@@ -716,6 +773,9 @@ static int on_touch_down(struct user_input *input, struct libinput_event *event)
     int64_t device_id;
     double x, y;
     int slot;
+
+    DEBUG_ASSERT(input != NULL);
+    DEBUG_ASSERT(event != NULL);
 
     data = libinput_device_get_user_data(libinput_event_get_device(event));
     touch_event = libinput_event_get_touch_event(event);
@@ -754,6 +814,9 @@ static int on_touch_up(struct user_input *input, struct libinput_event *event) {
     int64_t device_id;
     int slot;
 
+    DEBUG_ASSERT(input != NULL);
+    DEBUG_ASSERT(event != NULL);
+
     data = libinput_device_get_user_data(libinput_event_get_device(event));
     touch_event = libinput_event_get_touch_event(event);
     timestamp = libinput_event_touch_get_time_usec(touch_event);
@@ -779,6 +842,9 @@ static int on_touch_motion(struct user_input *input, struct libinput_event *even
     int64_t device_id;
     double x, y;
     int slot;
+
+    DEBUG_ASSERT(input != NULL);
+    DEBUG_ASSERT(event != NULL);
 
     data = libinput_device_get_user_data(libinput_event_get_device(event));
     touch_event = libinput_event_get_touch_event(event);
@@ -811,11 +877,15 @@ static int on_touch_motion(struct user_input *input, struct libinput_event *even
 }
 
 static int on_touch_cancel(struct user_input *input, struct libinput_event *event) {
+    DEBUG_ASSERT(input != NULL);
+    DEBUG_ASSERT(event != NULL);
     /// TODO: Implement touch cancel
     return 0;
 }
 
 static int on_touch_frame(struct user_input *input, struct libinput_event *event) {
+    DEBUG_ASSERT(input != NULL);
+    DEBUG_ASSERT(event != NULL);
     /// TODO: Implement touch frame
     return 0;
 }
@@ -825,6 +895,8 @@ static int process_libinput_events(struct user_input *input, uint64_t timestamp)
     enum libinput_event_type event_type;
     struct libinput_event *event;
     int ok;
+
+    DEBUG_ASSERT(input != NULL);
 
     while (libinput_next_event_type(input->libinput) != LIBINPUT_EVENT_NONE) {
         event = libinput_get_event(input->libinput);
@@ -925,6 +997,8 @@ int user_input_on_fd_ready(struct user_input *input) {
     uint64_t timestamp; 
     bool cursor_enabled, cursor_enabled_before;
     int ok;
+
+    DEBUG_ASSERT(input != NULL);
 
     // get a timestamp because some libinput events don't provide one
     // needs to be in milliseconds, since that's what the other libinput events

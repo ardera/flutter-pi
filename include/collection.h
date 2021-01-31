@@ -6,6 +6,7 @@
 #include <errno.h>
 #include <stdbool.h>
 #include <stdint.h>
+#include <assert.h>
 
 #include <pthread.h>
 
@@ -417,5 +418,13 @@ static inline uint64_t get_monotonic_time(void) {
 	clock_gettime(CLOCK_MONOTONIC, &time);
 	return time.tv_nsec + time.tv_sec*1000000000ull;
 }
+
+#ifdef DEBUG
+#define DEBUG_ASSERT(__cond) assert(__cond)
+#define DEBUG_ASSERT_MSG(__cond, __msg) assert((__msg, (__cond))
+#else
+#define DEBUG_ASSERT(__cond) do {} while (false)
+#define DEBUG_ASSERT_MSG(__cond, __msg) do {} while (false)
+#endif
 
 #endif

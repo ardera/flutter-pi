@@ -164,7 +164,7 @@ target_compile_options(flutter-pi PRIVATE
   ${LIBINPUT_CFLAGS}
   ${LIBUDEV_CFLAGS}
   ${LIBXKBCOMMON_CFLAGS}
-  $<$<CONFIG:DEBUG>:-O0 -ggdb>
+  $<$<CONFIG:DEBUG>:-O0 -ggdb -DDEBUG>
 )
 
 if (BUILD_TEXT_INPUT_PLUGIN)
