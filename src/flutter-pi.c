@@ -1180,10 +1180,11 @@ int flutterpi_fill_view_properties(
 	}
 
 	if (flutterpi.user_input != NULL) {
-		// update the user input with the new transform
+		// update the user input with the new transforms
 		user_input_set_transform(
 			flutterpi.user_input,
 			&flutterpi.view.display_to_view_transform,
+			&flutterpi.view.view_to_display_transform,
 			flutterpi.display.width,
 			flutterpi.display.height
 		);
@@ -2585,6 +2586,7 @@ static int init_user_input(void) {
 		&user_input_interface,
 		&flutterpi,
 		&flutterpi.view.display_to_view_transform,
+		&flutterpi.view.view_to_display_transform,
 		flutterpi.display.width,
 		flutterpi.display.height
 	);

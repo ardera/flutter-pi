@@ -47,7 +47,7 @@ struct user_input {
      * used in the flutter pointer events
      */
     FlutterTransformation display_to_view_transform;
-    FlutterTransformation display_to_view_transform_nontranslating;
+    FlutterTransformation view_to_display_transform_nontranslating;
 	unsigned int display_width;
 	unsigned int display_height;
 	
@@ -96,6 +96,7 @@ struct user_input *user_input_new(
     const struct user_input_interface *interface, 
     void *userdata,
     const FlutterTransformation *display_to_view_transform,
+    const FlutterTransformation *view_to_display_transform,
 	unsigned int display_width,
 	unsigned int display_height
 ) {
@@ -143,16 +144,19 @@ struct user_input *user_input_new(
 #endif
 
 	input->interface = *interface;
+    input->userdata = userdata;
+
 	input->libinput = libinput;
 	input->kbdcfg = kbdcfg;
 	input->next_unused_flutter_device_id = 0;
-
-    input->display_to_view_transform = *display_to_view_transform;
-    input->display_to_view_transform_nontranslating = *display_to_view_transform;
-    input->display_to_view_transform_nontranslating.transX = 0.0;
-    input->display_to_view_transform_nontranslating.transY = 0.0;
-    input->display_width = display_width;
-	input->display_height = display_height;
+    
+    user_input_set_transform(
+        input,
+        display_to_view_transform,
+        view_to_display_transform,
+        display_width,
+        display_height
+    );
 
     input->n_cursor_devices = 0;
     input->cursor_flutter_device_id = -1;
@@ -184,14 +188,18 @@ void user_input_destroy(struct user_input *input) {
 }
 
 void user_input_set_transform(
-	struct user_input *input,
-	const FlutterTransformation *display_to_view_transform,
-	unsigned int display_width,
-	unsigned int display_height 
+    struct user_input *input,
+    const FlutterTransformation *display_to_view_transform,
+    const FlutterTransformation *view_to_display_transform,
+    unsigned int display_width,
+    unsigned int display_height
 ) {
-	input->display_to_view_transform = *display_to_view_transform;
-	input->display_width = display_width;
-	input->display_height = display_height;
+    input->display_to_view_transform = *display_to_view_transform;
+    input->view_to_display_transform_nontranslating = *view_to_display_transform;
+    input->view_to_display_transform_nontranslating.transX = 0.0;
+    input->view_to_display_transform_nontranslating.transY = 0.0;
+    input->display_width = display_width;
+    input->display_height = display_height;
 }
 
 int user_input_get_fd(struct user_input *input) {
@@ -235,6 +243,9 @@ static void emit_pointer_events(struct user_input *input, const FlutterPointerEv
 
         // advance events so it points to the first remaining unemitted event
         events += to_copy;
+        
+        // advance the number of stored pointer events
+        input->n_collected_flutter_pointer_events += to_copy;
     }
 }
 
@@ -329,6 +340,8 @@ static int on_device_added(struct user_input *input, struct libinput_event *even
         libinput_device_set_user_data(device, NULL);
         free(data);
     }
+    
+    return 0;
 }
 
 static int on_device_removed(struct user_input *input, struct libinput_event *event, uint64_t timestamp) {
@@ -367,6 +380,8 @@ static int on_device_removed(struct user_input *input, struct libinput_event *ev
     }
     
     libinput_device_set_user_data(device, NULL);
+
+    return 0;
 }
 
 static int on_key_event(struct user_input *input, struct libinput_event *event) {
@@ -426,10 +441,12 @@ static int on_key_event(struct user_input *input, struct libinput_event *event) 
         if (codepoint < 0x80) {
             // we emit UTF8 unconditionally here,
             // maybe we should check if codepoint is a control character?
-            input->interface.on_utf8_character(
-                input->userdata,
-                (uint8_t[1]) {codepoint}
-            );
+            if (isprint(codepoint)) {
+                input->interface.on_utf8_character(
+                    input->userdata,
+                    (uint8_t[1]) {codepoint}
+                );
+            }
         } else if (codepoint < 0x800) {
             input->interface.on_utf8_character(
                 input->userdata,
@@ -494,7 +511,7 @@ static int on_mouse_motion_event(struct user_input *input, struct libinput_event
     // we want the mouse to move in different directions as well.
     // the dx and dy is still in display (not view) coordinates though,
     // we only changed the movement direction.
-    apply_flutter_transformation(input->display_to_view_transform_nontranslating, &dx, &dy);
+    apply_flutter_transformation(input->view_to_display_transform_nontranslating, &dx, &dy);
 
     new_cursor_x = input->cursor_x + dx;
     new_cursor_y = input->cursor_y + dy;
@@ -590,6 +607,8 @@ static int on_mouse_motion_absolute_event(struct user_input *input, struct libin
         ),
         1
     );
+
+    return 0;
 }
 
 static int on_mouse_button_event(struct user_input *input, struct libinput_event *event) {

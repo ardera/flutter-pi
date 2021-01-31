@@ -213,11 +213,17 @@ struct libudev {
 	 .skewY  = 0,                                 .scaleY = 1, .transY = 0, \
 	 .pers0  = -sin(((double) (deg))/180.0*M_PI), .pers1  = 0, .pers2  = cos(((double) (deg))/180.0*M_PI)})
 
+/**
+ * A flutter transformation that rotates any coords around the z-axis, counter-clockwise.
+ */
 #define FLUTTER_ROTZ_TRANSFORMATION(deg) ((FlutterTransformation) \
 	{.scaleX = cos(((double) (deg))/180.0*M_PI), .skewX  = -sin(((double) (deg))/180.0*M_PI), .transX = 0, \
 	 .skewY  = sin(((double) (deg))/180.0*M_PI), .scaleY = cos(((double) (deg))/180.0*M_PI),  .transY = 0, \
 	 .pers0  = 0,                                .pers1  = 0,                                 .pers2  = 1})
 
+/**
+ * A transformation that is the result of multiplying a with b.
+ */
 #define FLUTTER_MULTIPLIED_TRANSFORMATIONS(a, b) ((FlutterTransformation) \
 	{.scaleX = a.scaleX * b.scaleX + a.skewX  * b.skewY  + a.transX * b.pers0, \
 	 .skewX  = a.scaleX * b.skewX  + a.skewX  * b.scaleY + a.transX * b.pers1, \
@@ -229,10 +235,22 @@ struct libudev {
 	 .pers1  = a.pers0  * b.skewX  + a.pers1  * b.scaleY + a.pers2  * b.pers1, \
 	 .pers2  = a.pers0  * b.transX + a.pers1  * b.transY + a.pers2  * b.pers2})
 
+/**
+ * A transformation that is the result of adding a with b.
+ */
 #define FLUTTER_ADDED_TRANSFORMATIONS(a, b) ((FlutterTransformation) \
 	{.scaleX = a.scaleX + b.scaleX, .skewX  = a.skewX  + b.skewX,  .transX = a.transX + b.transX, \
 	 .skewY  = a.skewY  + b.skewY,  .scaleY = a.scaleY + b.scaleY, .transY = a.transY + b.transY, \
 	 .pers0  = a.pers0  + b.pers0,  .pers1  = a.pers1  + b.pers1,  .pers2  = a.pers2  + b.pers2 \
+	})
+
+/**
+ * A transformation that is the result of transponating a.
+ */
+#define FLUTTER_TRANSPONATED_TRANSFORMATION(a) ((FlutterTransformation) \
+	{.scaleX = a.scaleX, .skewX  = a.skewY,  .transX = a.pers0, \
+	 .skewY  = a.skewX,  .scaleY = a.scaleY, .transY = a.pers1, \
+	 .pers0  = a.transX, .pers1  = a.transY, .pers2  = a.pers2, \
 	})
 
 static inline void apply_flutter_transformation(

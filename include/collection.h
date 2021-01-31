@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <errno.h>
 #include <stdbool.h>
+#include <stdint.h>
 
 #include <pthread.h>
 
@@ -407,9 +408,14 @@ static inline void *memdup(const void *restrict src, const size_t n) {
 #define min(a, b) ((a) < (b) ? (a) : (b))
 #define max(a, b) ((a) > (b) ? (a) : (b))
 
+/**
+ * @brief Get the current time of the system monotonic clock.
+ * @returns time in nanoseconds.
+ */
 static inline uint64_t get_monotonic_time(void) {
-	/// TODO: Implement
-	return 0;
+	struct timespec time;
+	clock_gettime(CLOCK_MONOTONIC, &time);
+	return time.tv_nsec + time.tv_sec*1000000000ull;
 }
 
 #endif
