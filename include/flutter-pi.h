@@ -1,6 +1,8 @@
 #ifndef _FLUTTERPI_H
 #define _FLUTTERPI_H
 
+#define LOG_FLUTTERPI_ERROR(...) fprintf(stderr, "[flutter-pi] " __VA_ARGS__)
+
 #include <limits.h>
 #include <linux/input.h>
 #include <stdbool.h>
@@ -392,21 +394,8 @@ struct flutterpi {
 	struct compositor *compositor;
 
 	/// IO
-	struct {
-		bool use_paths;
-		bool disable_text_input;
-
-		glob_t input_devices_glob;
-#		ifndef BUILD_WITHOUT_UDEV_SUPPORT
-		struct libudev libudev;
-#		endif
-		struct libinput *libinput;
-		sd_event_source *libinput_event_source;
-		struct keyboard_config *keyboard_config;
-
-		int64_t next_unused_flutter_device_id;
-		double cursor_x, cursor_y;
-	} input;
+	sd_event_source *user_input_event_source;
+	struct user_input *user_input;
 	
 	/// flutter stuff
 	struct {
@@ -452,14 +441,6 @@ struct platform_message {
 };
 
 extern struct flutterpi flutterpi;
-
-struct input_device_data {
-	int64_t flutter_device_id_offset;
-	struct keyboard_state *keyboard_state;
-	double x, y;
-	int64_t buttons;
-	uint64_t timestamp;
-};
 
 int flutterpi_fill_view_properties(
 	bool has_orientation,

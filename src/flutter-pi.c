@@ -45,6 +45,7 @@
 #include <flutter-pi.h>
 #include <compositor.h>
 #include <keyboard.h>
+#include <user_input.h>
 #include <platformchannel.h>
 #include <pluginregistry.h>
 #include <texture_registry.h>
@@ -1178,6 +1179,16 @@ int flutterpi_fill_view_properties(
 		flutterpi.view.display_to_view_transform.transX = flutterpi.display.height;
 	}
 
+	if (flutterpi.user_input != NULL) {
+		// update the user input with the new transform
+		user_input_set_transform(
+			flutterpi.user_input,
+			&flutterpi.view.display_to_view_transform,
+			flutterpi.display.width,
+			flutterpi.display.height
+		);
+	}
+
 	return 0;
 }
 
@@ -1879,6 +1890,7 @@ int flutterpi_schedule_exit(void) {
 /**************
  * USER INPUT *
  **************/
+/*
 static int libinput_interface_on_open(const char *path, int flags, void *userdata) {
 	return open(path, flags | O_CLOEXEC);
 }
@@ -2436,65 +2448,166 @@ static struct libinput *try_create_path_backed_libinput(void) {
 
 	return libinput;
 }
+*/
 
-static int init_user_input(void) {
-	sd_event_source *libinput_event_source;
-	struct keyboard_config *kbdcfg;
-	struct libinput *libinput;
+/**************
+ * USER INPUT *
+ **************/
+static void on_flutter_pointer_event(void *userdata, const FlutterPointerEvent *events, size_t n_events) {
+	FlutterEngineResult engine_result;
+	struct flutterpi *flutterpi;
+
+	flutterpi = userdata;
+
+	engine_result = flutterpi->flutter.libflutter_engine.FlutterEngineSendPointerEvent(
+		flutterpi->flutter.engine,
+		events,
+		n_events
+	);
+
+	if (engine_result != kSuccess) {
+		LOG_FLUTTERPI_ERROR("Error sending touchscreen / mouse events to flutter. FlutterEngineSendPointerEvent: %s\n", FLUTTER_RESULT_TO_STRING(engine_result));
+		//flutterpi_schedule_exit(flutterpi);
+	}
+}
+
+static void on_utf8_character(void *userdata, uint8_t *character) {
+	FlutterEngineResult engine_result;
+	struct flutterpi *flutterpi;
 	int ok;
 
-	libinput_event_source = NULL;
-	kbdcfg = NULL;
-	libinput = NULL;
-
-	if (flutterpi.input.use_paths == false) {
-		libinput = try_create_udev_backed_libinput();
-	}
-
-	if (libinput == NULL) {
-		libinput = try_create_path_backed_libinput();
-	}
-	
-	if (libinput != NULL) {
-		ok = sd_event_add_io(
-			flutterpi.event_loop,
-			&libinput_event_source,
-			libinput_get_fd(libinput),
-			EPOLLIN | EPOLLRDHUP | EPOLLPRI,
-			on_libinput_ready,
-			NULL
-		);
-		if (ok < 0) {
-			fprintf(stderr, "[flutter-pi] Could not add libinput callback to main loop. sd_event_add_io: %s\n", strerror(-ok));
-#			ifndef BUILD_WITHOUT_UDEV_SUPPORT
-				if (libinput_get_user_data(libinput) != NULL) {
-					struct udev *udev = libinput_get_user_data(libinput);
-					libinput_unref(libinput);
-					flutterpi.input.libudev.udev_unref(udev);
-				} else {
-					libinput_unref(libinput);
-				}
-#			else
-				libinput_unref(libinput);
-#			endif
-			return -ok;
-		}
+	flutterpi = userdata;
 
 #ifdef BUILD_TEXT_INPUT_PLUGIN
-		if (flutterpi.input.disable_text_input == false) {
-			kbdcfg = keyboard_config_new();
-			if (kbdcfg == NULL) {
-				fprintf(stderr, "[flutter-pi] Could not initialize keyboard configuration. Flutter-pi will run without text/raw keyboard input.\n");
-			}
-		}
-#endif
-	} else {
-		fprintf(stderr, "[flutter-pi] Could not initialize input. Flutter-pi will run without user input.\n");
+	ok = textin_on_utf8_char(character);
+	if (ok != 0) {
+		LOG_FLUTTERPI_ERROR("Error handling keyboard event. textin_on_utf8_char: %s\n", strerror(ok));
+		//flutterpi_schedule_exit(flutterpi);
 	}
+#endif
+}
 
-	flutterpi.input.libinput = libinput;
-	flutterpi.input.libinput_event_source = libinput_event_source;
-	flutterpi.input.keyboard_config = kbdcfg;
+static void on_xkb_keysym(void *userdata, xkb_keysym_t keysym) {
+	FlutterEngineResult engine_result;
+	struct flutterpi *flutterpi;
+	int ok;
+
+	flutterpi = userdata;
+
+#ifdef BUILD_TEXT_INPUT_PLUGIN
+	ok = textin_on_xkb_keysym(keysym);
+	if (ok != 0) {
+		LOG_FLUTTERPI_ERROR("Error handling keyboard event. textin_on_xkb_keysym: %s\n", strerror(ok));
+		//flutterpi_schedule_exit(flutterpi);
+	}
+#endif
+}
+
+static void on_gtk_keyevent(
+	void *userdata,
+	uint32_t unicode_scalar_values,
+    uint32_t key_code,
+    uint32_t scan_code,
+    uint32_t modifiers,
+    bool is_down
+) {
+	FlutterEngineResult engine_result;
+	struct flutterpi *flutterpi;
+	int ok;
+
+	flutterpi = userdata;
+
+#ifdef BUILD_RAW_KEYBOARD_PLUGIN
+	ok = rawkb_send_gtk_keyevent(
+		unicode_scalar_values,
+		key_code,
+		scan_code,
+		modifiers,
+		is_down
+	);
+	if (ok != 0) {
+		LOG_FLUTTERPI_ERROR("Error handling keyboard event. rawkb_send_gtk_keyevent: %s\n", strerror(ok));
+		//flutterpi_schedule_exit(flutterpi);
+	}
+#endif
+}
+
+static void on_set_cursor_enabled(void *userdata, bool enabled) {
+	struct flutterpi *flutterpi;
+	int ok;
+
+	flutterpi = userdata;
+
+	ok = compositor_apply_cursor_state(
+		enabled,
+		flutterpi->view.rotation,
+		flutterpi->display.pixel_ratio
+	);
+	if (ok != 0) {
+		LOG_FLUTTERPI_ERROR("Error enabling / disabling mouse cursor. compositor_apply_cursor_state: %s\n", strerror(ok));
+	}
+}
+
+static void on_move_cursor(void *userdata, unsigned int x, unsigned int y) {
+	struct flutterpi *flutterpi;
+	int ok;
+
+	flutterpi = userdata;
+
+	ok = compositor_set_cursor_pos(x, y);
+	if (ok != 0) {
+		LOG_FLUTTERPI_ERROR("Error moving mouse cursor. compositor_set_cursor_pos: %s\n", strerror(ok));
+	}
+}
+
+const static struct user_input_interface user_input_interface = {
+    .on_flutter_pointer_event = on_flutter_pointer_event,
+    .on_utf8_character = on_utf8_character,
+    .on_xkb_keysym = on_xkb_keysym,
+    .on_gtk_keyevent = on_gtk_keyevent,
+    .on_set_cursor_enabled = on_set_cursor_enabled,
+    .on_move_cursor = on_move_cursor
+};
+
+static int on_user_input_fd_ready(sd_event_source *s, int fd, uint32_t revents, void *userdata) {
+	struct user_input *input = userdata;
+	return user_input_on_fd_ready(input);
+}
+
+static int init_user_input(void) {
+	struct user_input *input;
+	sd_event_source *event_source;
+	int ok;
+	
+	event_source = NULL;
+	
+	input = user_input_new(
+		&user_input_interface,
+		&flutterpi,
+		&flutterpi.view.display_to_view_transform,
+		flutterpi.display.width,
+		flutterpi.display.height
+	);
+	if (input == NULL) {
+		LOG_FLUTTERPI_ERROR("Couldn't initialize user input. flutter-pi will run without user input.\n");
+	} else {
+		ok = sd_event_add_io(
+			flutterpi.event_loop,
+			&event_source,
+			user_input_get_fd(input),
+			EPOLLIN | EPOLLRDHUP | EPOLLPRI,
+			on_user_input_fd_ready,
+			input
+		);
+		if (ok < 0) {
+			LOG_FLUTTERPI_ERROR("Couldn't listen for user input. flutter-pi will run without user input. sd_event_add_io: %s\n", strerror(-ok));
+			user_input_destroy(input);
+			input = NULL;
+		}
+	}
+	
+	flutterpi.user_input = input;
+	flutterpi.user_input_event_source = event_source;
 
 	return 0;
 }
@@ -2540,12 +2653,10 @@ static bool setup_paths(void) {
 }
 
 static bool parse_cmd_args(int argc, char **argv) {
-	glob_t input_devices_glob = {0};
 	bool input_specified = false;
 	int opt;
 	int longopt_index = 0;
 	int runtime_mode_int = kDebug;
-	int disable_text_input_int = false;
 	int ok;
 
 	struct option long_options[] = {
@@ -2553,7 +2664,6 @@ static bool parse_cmd_args(int argc, char **argv) {
 		{"input", required_argument, NULL, 'i'},
 		{"orientation", required_argument, NULL, 'o'},
 		{"rotation", required_argument, NULL, 'r'},
-		{"no-text-input", no_argument, &disable_text_input_int, true},
 		{"dimensions", required_argument, NULL, 'd'},
 		{"help", no_argument, 0, 'h'},
 		{0, 0, 0, 0}
@@ -2567,10 +2677,6 @@ static bool parse_cmd_args(int argc, char **argv) {
 		switch (opt) {
 			case 0:
 				// flag was encountered. just continue
-				break;
-			case 'i':
-				glob(optarg, GLOB_BRACE | GLOB_TILDE | (input_specified ? GLOB_APPEND : 0), NULL, &input_devices_glob);
-				input_specified = true;
 				break;
 
 			case 'o':
@@ -2648,10 +2754,6 @@ static bool parse_cmd_args(int argc, char **argv) {
 		}
 	}
 	
-	if (!input_specified) {
-		// user specified no input devices. use "/dev/input/event*"".
-		glob("/dev/input/event*", GLOB_BRACE | GLOB_TILDE, NULL, &input_devices_glob);
-	}
 
 	if (optind >= argc) {
 		fprintf(stderr, "error: expected asset bundle path after options.\n");
@@ -2659,11 +2761,8 @@ static bool parse_cmd_args(int argc, char **argv) {
 		return false;
 	}
 
-	flutterpi.input.use_paths = input_specified;
 	flutterpi.flutter.asset_bundle_path = strdup(argv[optind]);
 	flutterpi.flutter.runtime_mode = runtime_mode_int;
-	flutterpi.input.disable_text_input = disable_text_input_int;
-	flutterpi.input.input_devices_glob = input_devices_glob;
 
 	argv[optind] = argv[0];
 	flutterpi.flutter.engine_argc = argc - optind;

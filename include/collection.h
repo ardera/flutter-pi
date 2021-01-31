@@ -404,4 +404,12 @@ static inline void *memdup(const void *restrict src, const size_t n) {
 #define BMAP_CLEAR(p_bmap, i_bit) ((p_bmap)[(i_bit) / sizeof(*(p_bmap))] &= ~(1 << ((i_bit) & (sizeof(*(p_bmap)) - 1))))
 #define BMAP_ZERO(p_bmap, n_bits) (memset((p_bmap), 0, (((n_bits) - 1) / 8) + 1))
 
+#define min(a, b) ((a) < (b) ? (a) : (b))
+#define max(a, b) ((a) > (b) ? (a) : (b))
+
+static inline uint64_t get_monotonic_time(void) {
+	/// TODO: Implement
+	return 0;
+}
+
 #endif

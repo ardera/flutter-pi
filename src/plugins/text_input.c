@@ -747,15 +747,6 @@ int client_show_autocorrection_prompt_rect(
 /**
  * Text Input Model functions.
  */
-
-static inline int min(int a, int b) {
-    return a < b? a : b;
-}
-
-static inline int max(int a, int b) {
-    return a > b? a : b;
-}
-
 static inline int selection_start(void) {
     return min(text_input.selection_base, text_input.selection_extent);
 }
