@@ -50,9 +50,9 @@ If you encounter issues running flutter-pi on any of the supported platforms lis
 
     </details>
 
-2. Install graphics & system libraries and fonts:
+2. Install cmake, graphics, system libraries and fonts:
     ```bash
-    sudo apt install libgl1-mesa-dev libgles2-mesa-dev libegl1-mesa-dev libdrm-dev libgbm-dev ttf-mscorefonts-installer fontconfig libsystemd-dev libinput-dev libudev-dev  libxkbcommon-dev
+    sudo apt install cmake libgl1-mesa-dev libgles2-mesa-dev libegl1-mesa-dev libdrm-dev libgbm-dev ttf-mscorefonts-installer fontconfig libsystemd-dev libinput-dev libudev-dev  libxkbcommon-dev
     ```
     <details>
       <summary>More Info</summary>
