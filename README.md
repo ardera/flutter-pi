@@ -1,5 +1,5 @@
 ## 📰 NEWS
-- flutter-pi now uses only CMake for building. See the updated build instructions for more info.
+- The flutter engine binaries now have their own repo (since they took up a lot of space and slowed down git in this repo): https://github.com/ardera/flutter-engine-binaries-for-arm
 - I created an improved touchscreen driver for Raspberry Pi 4, for lower latency & higher polling rate. See [this repo](https://github.com/ardera/raspberrypi-fast-ts) for details. The difference is noticeable, it looks a lot better and more responsive with this new driver.
 
 # flutter-pi
@@ -38,7 +38,7 @@ If you encounter issues running flutter-pi on any of the supported platforms lis
 - If you want to update flutter-pi, you check out the latest commit using `git pull && git checkout origin/master` and continue with [compiling](#compiling), step 2.
 
 ### Dependencies
-1. Install the flutter engine binaries using the instructions in the [in the _engine-binaries_ branch of this project.](https://github.com/ardera/flutter-pi/tree/engine-binaries).
+1. Install the flutter engine binaries using the instructions in the [in the _flutter-engine-binaries-for-arm_ repo.](https://github.com/ardera/flutter-engine-binaries-for-arm).
     <details>
       <summary>More Info</summary>
 
@@ -46,7 +46,7 @@ If you encounter issues running flutter-pi on any of the supported platforms lis
       You actually have two options here:
 
       - you build the engine yourself. takes a lot of time, and it most probably won't work on the first try. But once you have it set up, you have unlimited freedom on which engine version you want to use. You can find some rough guidelines [here](https://medium.com/flutter/flutter-on-raspberry-pi-mostly-from-scratch-2824c5e7dcb1).
-      - you can use the pre-built engine binaries I am providing [in the _engine-binaries_ branch of this project.](https://github.com/ardera/flutter-pi/tree/engine-binaries). I will only provide binaries for some engine versions though (most likely the stable ones).
+      - you can use the pre-built engine binaries I am providing [in the _flutter-engine-binaries-for-arm_ repo.](https://github.com/ardera/flutter-engine-binaries-for-arm). I will only provide binaries for some engine versions though (most likely the stable ones).
 
     </details>
 
@@ -126,7 +126,7 @@ If you encounter issues running flutter-pi on any of the supported platforms lis
 
 1. Make sure you've installed the flutter SDK. **You must** use a flutter SDK that's compatible to the installed engine binaries.
    - for the flutter SDK, use flutter stable and keep it up to date.  
-   - always use the latest available [engine binaries](https://github.com/ardera/flutter-pi/tree/engine-binaries)  
+   - always use the latest available [engine binaries](https://github.com/ardera/flutter-engine-binaries-for-arm)  
    
    If you encounter error messages like `Invalid kernel binary format version`, `Invalid SDK hash` or `Invalid engine hash`:
    1. Make sure your flutter SDK is on `stable` and up to date and your engine binaries are up to date.
@@ -189,7 +189,7 @@ rsync -a ./build/flutter_assets/ pi@raspberrypi:/home/pi/flutter_gallery/
       package:my_app_name/main.dart
     ```
 
-5. Fetch the latest `gen_snapshot_linux_x64` I provide in the [engine-binaries branch](https://github.com/ardera/flutter-pi/tree/engine-binaries).
+5. Fetch the latest `gen_snapshot_linux_x64` I provide in the [engine binaries repo](https://github.com/ardera/flutter-engine-binaries-for-arm).
 6. The following steps must be executed on a linux x64 machine. If you're on windows, you can use [WSL](https://docs.microsoft.com/de-de/windows/wsl/install-win10). If you're on macOS, you can use a linux VM.
 7. Build the `app.so`.
     ```bash
