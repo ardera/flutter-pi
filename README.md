@@ -1,5 +1,8 @@
 ## 📰 NEWS
 - The flutter engine binaries now have their own repo (since they took up a lot of space and slowed down git in this repo): https://github.com/ardera/flutter-engine-binaries-for-arm
+- `gen_snapshot_linux_x64` was renamed to `gen_snapshot_linux_x64_release`.
+- I now also provide profile mode engine binaries in the engine binaries repo.
+- The new latest flutter gallery commit for flutter 2.0 is `681e399`
 - I created an improved touchscreen driver for Raspberry Pi 4, for lower latency & higher polling rate. See [this repo](https://github.com/ardera/raspberrypi-fast-ts) for details. The difference is noticeable, it looks a lot better and more responsive with this new driver.
 
 # flutter-pi
@@ -151,7 +154,7 @@ If you encounter issues running flutter-pi on any of the supported platforms lis
 ```bash
 git clone https://github.com/flutter/gallery.git flutter_gallery
 cd flutter_gallery
-git checkout 9b11f127fb46cb08e70b2a7cdfe8eaa8de977d5f
+git checkout 681e399ba983631ba9e20590fe7a6121731825f1
 flutter build bundle
 rsync -a ./build/flutter_assets/ pi@raspberrypi:/home/pi/flutter_gallery/
 ```
@@ -160,7 +163,7 @@ rsync -a ./build/flutter_assets/ pi@raspberrypi:/home/pi/flutter_gallery/
 <details>
   <summary>More information</summary>
     
-  - flutter_gallery is developed against flutter master. `9b11f127fb46cb08e70b2a7cdfe8eaa8de977d5f` is currently the latest flutter gallery
+  - flutter_gallery is developed against flutter master. `681e399ba983631ba9e20590fe7a6121731825f1` is currently the latest flutter gallery
     commit working flutter stable.
 </details>
 
@@ -189,18 +192,16 @@ rsync -a ./build/flutter_assets/ pi@raspberrypi:/home/pi/flutter_gallery/
       package:my_app_name/main.dart
     ```
 
-5. Fetch the latest `gen_snapshot_linux_x64` I provide in the [engine binaries repo](https://github.com/ardera/flutter-engine-binaries-for-arm).
+5. Fetch the latest `gen_snapshot_linux_x64_release` I provide in the [engine binaries repo](https://github.com/ardera/flutter-engine-binaries-for-arm).
 6. The following steps must be executed on a linux x64 machine. If you're on windows, you can use [WSL](https://docs.microsoft.com/de-de/windows/wsl/install-win10). If you're on macOS, you can use a linux VM.
 7. Build the `app.so`.
     ```bash
-    gen_snapshot_linux_x64 \
-      --causal_async_stacks \
+    gen_snapshot_linux_x64_release \
       --deterministic \
       --snapshot_kind=app-aot-elf \
       --elf=build/flutter_assets/app.so \
       --strip \
-      --sim_use_hardfp \
-      --no-use-integer-division \
+      --sim-use-hardfp \
       build/kernel_snapshot.dill
     ```
 8. Now you can switch to your normal OS again.
@@ -220,7 +221,7 @@ rsync -a ./build/flutter_assets/ pi@raspberrypi:/home/pi/flutter_gallery/
     git clone https://github.com/flutter/gallery.git flutter_gallery
     git clone https://github.com/ardera/flutter-pi -b engine-binaries engine-binaries
     cd flutter_gallery
-    git checkout 9b11f127fb46cb08e70b2a7cdfe8eaa8de977d5f
+    git checkout 681e399ba983631ba9e20590fe7a6121731825f1
     flutter build bundle
     C:\flutter\bin\cache\dart-sdk\bin\dart.exe ^
       C:\flutter\bin\cache\dart-sdk\bin\snapshots\frontend_server.dart.snapshot ^
@@ -235,14 +236,12 @@ rsync -a ./build/flutter_assets/ pi@raspberrypi:/home/pi/flutter_gallery/
       --depfile build\kernel_snapshot.d ^
       package:gallery/main.dart
     wsl
-    ../engine-binaries/arm/gen_snapshot_linux_x64 \
-      --causal_async_stacks \
+    ../engine-binaries/arm/gen_snapshot_linux_x64_release \
       --deterministic \
       --snapshot_kind=app-aot-elf \
       --elf=build/flutter_assets/app.so \
       --strip \
-      --sim_use_hardfp \
-      --no-use-integer-division \
+      --sim-use-hardfp \
       build/kernel_snapshot.dill
     mv ./build/app.so ./build/flutter_assets/
     rsync -a --info=progress2 ./build/flutter_assets/ pi@raspberrypi:/home/pi/flutter_gallery
@@ -310,8 +309,6 @@ EXAMPLES:
   flutter-pi -o portrait_up ./my_app
   flutter-pi -r 90 ./my_app
   flutter-pi -d "155, 86" ./my_app
-  flutter-pi -i "/dev/input/event{0,1}" -i "/dev/input/event{2,3}" /home/pi/helloworld_flutterassets
-  flutter-pi -i "/dev/input/mouse*" /home/pi/helloworld_flutterassets
 
 SEE ALSO:
   Author:  Hannes Winkler, a.k.a ardera
