@@ -18,10 +18,8 @@ In each step below with Bash commands, the commands start with a set of `export`
    if [ `uname -m` == 'armv7l' ]; then export ARM=arm; else export ARM=arm64; fi
    mkdir -p ~/dev
    pushd ~/dev
-   git clone --depth 1 --branch engine-binaries https://github.com/ardera/flutter-pi.git engine-binaries
-   sudo cp ~/dev/engine-binaries/$ARM/libflutter_engine.so.* /usr/lib
-   sudo cp ~/dev/engine-binaries/$ARM/icudtl.dat /usr/lib
-   sudo cp ~/dev/engine-binaries/flutter_embedder.h /usr/include
+   git clone --depth 1 https://github.com/ardera/flutter-engine-binaries-for-arm engine-binaries
+   sudo ./engine-binaries/install.sh
    git clone https://github.com/ardera/flutter-pi.git
    cd flutter-pi
    mkdir build && cd build
@@ -35,7 +33,7 @@ In each step below with Bash commands, the commands start with a set of `export`
    
    Take a note of the last line of output. It should say you need "arm" or "arm64". This is used to set ARM below.
    
-   Take a note of which version of Flutter the binaries were compiled for. This is used to set VERSION below. It should be clear from the commit messages of the latest commit to the repo: https://github.com/ardera/flutter-pi/tree/engine-binaries
+   Take a note of which version of Flutter the binaries were compiled for. This is used to set VERSION below. It should be clear from the commit messages of the latest commit to the repo: https://github.com/ardera/flutter-engine-binaries-for-arm
 
 3. Configure your target. Run `sudo raspi-config`, and configure the system as follows:
    1. Select `System Options` -> `Boot / Auto Login` -> `Console` (or `Console (Autologin)`).
@@ -58,8 +56,8 @@ In each step below with Bash commands, the commands start with a set of `export`
    # one-time setup
    git clone --branch $VERSION https://github.com/flutter/flutter.git flutter-for-pi
    ~/dev/flutter-for-pi/bin/flutter precache
-   git clone --depth 1 --branch engine-binaries https://github.com/ardera/flutter-pi.git engine-binaries
-   chmod +x engine-binaries/$ARM/gen_snapshot_linux_x64
+   git clone --depth 1 https://github.com/ardera/flutter-engine-binaries-for-arm engine-binaries
+   chmod +x engine-binaries/$ARM/gen_snapshot_linux_x64_release
    # create the application
    flutter-for-pi/bin/flutter create $APPNAME
    # compile the application
@@ -73,9 +71,9 @@ In each step below with Bash commands, the commands start with a set of `export`
      --aot --tfa -Ddart.vm.product=true \
      --packages .packages --output-dill build/kernel_snapshot.dill --depfile build/kernel_snapshot.d \
      package:$APPNAME/main.dart
-   ../engine-binaries/$ARM/gen_snapshot_linux_x64 \
-     --causal_async_stacks --deterministic --snapshot_kind=app-aot-elf \
-     --strip --sim_use_hardfp --no-use-integer-division \
+   ../engine-binaries/$ARM/gen_snapshot_linux_x64_release \
+     --deterministic --snapshot_kind=app-aot-elf \
+     --strip --sim-use-hardfp \
      --elf=build/flutter_assets/app.so build/kernel_snapshot.dill
    # upload the application
    rsync --recursive ~/dev/$APPNAME/build/flutter_assets/ $TARGETUSER@$TARGET:dev/$APPNAME
