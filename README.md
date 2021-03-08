@@ -1,4 +1,5 @@
 ## 📰 NEWS
+- There's now a `custom-embedders` channel on the [flutter discord](https://discord.gg/BS8KZyg) which you can use if you have any questions regarding flutter-pi or generally, anything related to embedding the engine for which you don't want to open issue about or write an email.
 - The flutter engine binaries now have their own repo (since they took up a lot of space and slowed down git in this repo): https://github.com/ardera/flutter-engine-binaries-for-arm
 - `gen_snapshot_linux_x64` was renamed to `gen_snapshot_linux_x64_release`.
 - I now also provide profile mode engine binaries in the engine binaries repo.
