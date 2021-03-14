@@ -220,7 +220,7 @@ rsync -a ./build/flutter_assets/ pi@raspberrypi:/home/pi/flutter_gallery/
 1. We'll build the asset bundle for `flutter_gallery` and deploy it using `rsync` in this example.
     ```bash
     git clone https://github.com/flutter/gallery.git flutter_gallery
-    git clone https://github.com/ardera/flutter-pi -b engine-binaries engine-binaries
+    git clone --depth 1 https://github.com/ardera/flutter-engine-binaries-for-arm.git engine-binaries
     cd flutter_gallery
     git checkout 681e399ba983631ba9e20590fe7a6121731825f1
     flutter build bundle
@@ -244,8 +244,7 @@ rsync -a ./build/flutter_assets/ pi@raspberrypi:/home/pi/flutter_gallery/
       --strip \
       --sim-use-hardfp \
       build/kernel_snapshot.dill
-    mv ./build/app.so ./build/flutter_assets/
-    rsync -a --info=progress2 ./build/flutter_assets/ pi@raspberrypi:/home/pi/flutter_gallery
+    rsync -a --info=progress2 ./build/flutter_assets/ pi@raspberrypi:/home/pi/flutter_gallery/
     exit
     ```
 3. Done. You can now run this app in release mode using `flutter-pi --release /home/pi/flutter_gallery`.
