@@ -1,6 +1,5 @@
-#if !defined(_POSIX_C_SOURCE) || _POSIX_C_SOURCE <= 200809L
-#   define _POSIX_C_SOURCE 200809L
-#endif
+#define _GNU_SOURCE
+
 #include <dlfcn.h>
 #include <string.h>
 #include <stdlib.h>
@@ -8,6 +7,7 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <sys/prctl.h>
+#include <math.h>
 
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
@@ -161,6 +161,39 @@ static int get_player_from_map_arg(
     return 0;
 }
 
+static int get_orientation_from_mutations(
+    const FlutterPlatformViewMutation **mutations,
+    size_t num_mutations
+) {
+    double rotation;
+
+    rotation = 0;
+    for (int i = 0; i < num_mutations; i++) {
+        if (mutations[i]->type == kFlutterPlatformViewMutationTypeTransformation) {
+            double rotz = atan2(mutations[i]->transformation.skewX, mutations[i]->transformation.scaleX) * 180.0 / M_PI;
+            if (rotz < 0) {
+                rotz += 360;
+            }
+
+            rotation += rotz;
+        }
+    }
+
+    rotation = fmod(rotation, 360.0);
+
+    if ((rotation <= 45) || (rotation > 315)) {
+        rotation = 0;
+    } else if (rotation <= 135) {
+        rotation = 90;
+    } else if (rotation <= 225) {
+        rotation = 180;
+    } else if (rotation <= 315) {
+        rotation = 270;
+    }
+
+    return rotation;
+}
+
 /// Called on the flutter rasterizer thread when a players platform view is presented
 /// for the first time after it was unmounted or initialized.
 static int on_mount(
@@ -190,7 +223,8 @@ static int on_mount(
             .offset_y = offset_y,
             .width = width,
             .height = height,
-            .zpos = zpos
+            .zpos = zpos,
+            .orientation = get_orientation_from_mutations(mutations, num_mutations)
         }
     );
 }
@@ -246,7 +280,8 @@ static int on_update_view(
             .offset_y = offset_y,
             .width = width,
             .height = height,
-            .zpos = zpos
+            .zpos = zpos,
+            .orientation = get_orientation_from_mutations(mutations, num_mutations)
         }
     );
 }
@@ -355,7 +390,7 @@ static void *mgr_entry(void *userdata) {
     sd_bus_message *msg;
     sd_bus_error err;
     sd_bus_slot *slot;
-    int64_t duration_us, video_width, video_height, current_zpos;
+    int64_t duration_us, video_width, video_height, current_zpos, current_orientation;
     sd_bus *bus;
     pid_t omxplayer_pid;
     char dbus_name[256];
@@ -442,6 +477,7 @@ static void *mgr_entry(void *userdata) {
 
     // spawn the omxplayer process
     current_zpos = -128;
+    current_orientation = task.orientation;
     pid_t me = fork();
     if (me == 0) {
         char orientation_str[16] = {0};
@@ -450,7 +486,8 @@ static void *mgr_entry(void *userdata) {
         // I'm the child!
         prctl(PR_SET_PDEATHSIG, SIGKILL);
         int _ok = execvp(
-            "omxplayer.bin",
+            "/home/pi/devel/omxplayer/omxplayer-dist/usr/bin/omxplayer.bin",
+            /*"omxplayer.bin",*/
             (char*[]) {
                 "omxplayer.bin",
                 "--nohdmiclocksync",
@@ -787,6 +824,26 @@ static void *mgr_entry(void *userdata) {
                 }
 
                 current_zpos = task.zpos;
+            }
+
+            if (current_orientation != task.orientation) {
+                ok = sd_bus_call_method(
+                    bus,
+                    dbus_name,
+                    DBUS_OMXPLAYER_OBJECT,
+                    DBUS_OMXPLAYER_PLAYER_FACE,
+                    "SetTransform",
+                    &err,
+                    NULL,
+                    "x",
+                    (360 - (int64_t) task.orientation) % 360
+                );
+                if (ok < 0) {
+                    fprintf(stderr, "[omxplayer_video_player plugin] Could not update omxplayer rotation. %s, %s\n", err.name, err.message);
+                    continue;
+                }
+
+                current_orientation = task.orientation;
             }
         } else if (task.type == kGetPosition) {
             int64_t position = 0;
