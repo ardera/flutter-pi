@@ -11,6 +11,8 @@
 
 #define LOG_MODESETTING_ERROR(...) fprintf(stderr, "[modesetting] " __VA_ARGS__)
 
+#define DRM_NO_PROPERTY_ID ((uint32_t) 0xFFFFFFFF)
+
 struct drm_connector {
     drmModeConnector *connector;
 	drmModeObjectProperties *props;
@@ -34,6 +36,13 @@ struct drm_plane {
     drmModePlane *plane;
     drmModeObjectProperties *props;
     drmModePropertyRes **props_info;
+
+    struct {
+        uint32_t crtc_id, fb_id,
+            src_x, src_y, src_w, src_h,
+            crtc_x, crtc_y, crtc_w, crtc_h,
+            rotation, zpos;
+    } property_ids;
 };
 
 struct drmdev {
@@ -72,6 +81,35 @@ struct drmdev_atomic_req {
 
     void *available_planes_storage[32];
     struct pointer_set available_planes;
+};
+
+struct kmsdev;
+
+struct kms_presenter;
+
+struct kms_crtc_info {
+    int32_t crtc_id;
+    uint32_t bitmask;
+
+    int min_zpos;
+    int max_zpos;
+    bool supports_hardware_cursor;
+
+    uint32_t width;
+    uint32_t height;
+};
+
+typedef void (*kms_fb_pageflip_callback_t)(struct kmsdev *dev, void *userdata);
+
+struct kms_fb_layer {
+    int32_t fb_id;
+    uint32_t src_x, src_y, src_w, src_h;
+    int32_t crtc_x, crtc_y, crtc_w, crtc_h;
+    bool has_rotation;
+    uint8_t rotation;
+    kms_fb_pageflip_callback_t on_flipped_in;
+    kms_fb_pageflip_callback_t on_flipped_out;
+    void *userdata;
 };
 
 struct drmdev *drmdev_new_from_fd(int fd);
@@ -229,6 +267,94 @@ int drmdev_legacy_set_plane_property(
 );
 
 float mode_get_vrefresh(const drmModeModeInfo *mode);
+
+struct kmsdev *kmsdev_new_from_fd(int fd);
+
+void kmsdev_destroy(struct kmsdev *dev);
+
+int kmsdev_get_fd(struct kmsdev *dev);
+
+int kmsdev_on_fd_ready(struct kmsdev *dev);
+
+int kmsdev_add_fb(
+    struct kmsdev *dev,
+    uint32_t width, uint32_t height,
+    uint32_t pixel_format,
+    const uint32_t bo_handles[4],
+    const uint32_t pitches[4],
+    const uint32_t offsets[4],
+    const uint64_t modifier[4],
+    uint32_t *buf_id,
+    uint32_t flags
+);
+
+static inline int kmsdev_add_fb_simple(
+    struct kmsdev *dev,
+    uint32_t width, uint32_t height,
+    uint32_t pixel_format,
+    uint32_t bo_handle,
+    uint32_t pitch,
+    uint32_t offset,
+    uint32_t modifier,
+    uint32_t *buf_id,
+    uint32_t flags
+) {
+    return kmsdev_add_fb(
+        dev,
+        width, height,
+        pixel_format,
+        &(const uint32_t[4]) {
+            bo_handle, 0, 0, 0
+        },
+        &(const uint32_t[4]) {
+            pitch, 0, 0, 0
+        },
+        &(const uint32_t[4]) {
+            offset, 0, 0, 0
+        },
+        &(const uint32_t[4]) {
+            modifier, 0, 0, 0
+        },
+        buf_id,
+        flags
+    );
+}
+
+int kmsdev_destroy_fb(
+    struct kmsdev *dev,
+    uint32_t buf_id
+);
+
+struct kms_crtc_info *kmsdev_get_crtc_info(struct kmsdev *dev, int32_t crtc_id);
+
+struct kms_cursor_buffer *kmsdev_load_cursor(struct kmsdev *dev, const uint8_t *icon, int32_t format);
+
+void kms_cursor_buffer_destroy(struct kms_cursor_buffer *buffer);
+
+int kmsdev_set_cursor_state(struct kmsdev *dev, int32_t crtc_id, bool enabled, struct kms_cursor_buffer *buffer);
+
+int kmsdev_move_cursor(struct kmsdev *dev, int32_t crtc_id, int x, int y);
+
+int kms_presenter_set_active_crtc(struct kms_presenter *presenter, int32_t crtc_id);
+
+struct kms_crtc_info *kms_presenter_get_active_crtc_info(struct kms_presenter *presenter);
+
+void kms_presenter_set_logical_zpos(struct kms_presenter *presenter, int zpos);
+
+void kms_presenter_set_zpos(struct kms_presenter *presenter, int zpos);
+
+int kms_presenter_get_zpos(struct kms_presenter *presenter);
+
+int kms_presenter_push_fb_layer(
+    struct kms_presenter *presenter,
+    const struct kms_fb_layer *layer
+);
+
+void kms_presenter_push_placeholder_layer(struct kms_presenter *presenter, int n_reserved_layers);
+
+void kms_presenter_destroy(struct kms_presenter *presenter);
+
+
 
 inline static struct drm_connector *__next_connector(const struct drmdev *drmdev, const struct drm_connector *connector) {
     bool found = connector == NULL;

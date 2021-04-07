@@ -6,12 +6,33 @@
 #include <errno.h>
 #include <unistd.h>
 #include <alloca.h>
+#include <inttypes.h>
+#include <sys/epoll.h>
+#include <limits.h>
 
 #include <xf86drm.h>
 #include <xf86drmMode.h>
 #include <gbm.h>
 
 #include <modesetting.h>
+
+#define HAS_ACTIVE_CRTC(builder) (((builder)->active_crtc_info == NULL) || ((builder)->active_crtc_id == 0))
+#define DEBUG_ASSERT_HAS_ACTIVE_CRTC(builder) DEBUG_ASSERT(HAS_ACTIVE_CRTC(builder))
+#define CHECK_HAS_ACTIVE_CRTC_OR_RETURN_EINVAL(builder) do { \
+        if (HAS_ACTIVE_CRTC(presenter)) { \
+            LOG_MODESETTING_ERROR("%s: No active CRTC\n", __func__); \
+            return EINVAL; \
+        } \
+    } while (false)
+
+#define IS_VALID_ZPOS(builder, zpos) (((builder)->active_crtc_info->min_zpos <= zpos) && ((builder)->active_crtc_info->max_zpos >= zpos))
+#define DEBUG_ASSERT_VALID_ZPOS(builder, zpos) DEBUG_ASSERT(IS_VALID_ZPOS(builder, zpos))
+#define CHECK_VALID_ZPOS_OR_RETURN_EINVAL(builder, zpos) do { \
+        if (IS_VALID_ZPOS(presenter, zpos)) { \
+            LOG_MODESETTING_ERROR("%s: Invalid zpos\n", __func__); \
+            return EINVAL; \
+        } \
+    } while (false)
 
 static int drmdev_lock(struct drmdev *drmdev) {
     return pthread_mutex_lock(&drmdev->mutex);
@@ -286,6 +307,8 @@ static int fetch_planes(struct drmdev *drmdev, struct drm_plane **planes_out, si
         drmModePropertyRes **props_info;
         drmModePlane *plane;
 
+        memset(&planes[i].property_ids, 0xFF, sizeof(planes[i].property_ids));
+
         plane = drmModeGetPlane(drmdev->fd, drmdev->plane_res->planes[i]);
         if (plane == NULL) {
             ok = errno;
@@ -330,6 +353,30 @@ static int fetch_planes(struct drmdev *drmdev, struct drm_plane **planes_out, si
                         break;
                     }
                 }
+            } else if (strcmp(props_info[j]->name, "CRTC_ID") == 0) {
+                planes[i].property_ids.crtc_id = props_info[j]->prop_id;
+            } else if (strcmp(props_info[j]->name, "FB_ID") == 0) {
+                planes[i].property_ids.fb_id = props_info[j]->prop_id;
+            } else if (strcmp(props_info[j]->name, "SRC_X") == 0) {
+                planes[i].property_ids.src_x = props_info[j]->prop_id;
+            } else if (strcmp(props_info[j]->name, "SRC_Y") == 0) {
+                planes[i].property_ids.src_y = props_info[j]->prop_id;
+            } else if (strcmp(props_info[j]->name, "SRC_W") == 0) {
+                planes[i].property_ids.src_w = props_info[j]->prop_id;
+            } else if (strcmp(props_info[j]->name, "SRC_H") == 0) {
+                planes[i].property_ids.src_h = props_info[j]->prop_id;
+            } else if (strcmp(props_info[j]->name, "CRTC_X") == 0) {
+                planes[i].property_ids.crtc_x = props_info[j]->prop_id;
+            } else if (strcmp(props_info[j]->name, "CRTC_Y") == 0) {
+                planes[i].property_ids.crtc_y = props_info[j]->prop_id;
+            } else if (strcmp(props_info[j]->name, "CRTC_W") == 0) {
+                planes[i].property_ids.crtc_w = props_info[j]->prop_id;
+            } else if (strcmp(props_info[j]->name, "CRTC_H") == 0) {
+                planes[i].property_ids.crtc_h = props_info[j]->prop_id;
+            } else if (strcmp(props_info[j]->name, "zpos") == 0) {
+                planes[i].property_ids.zpos = props_info[j]->prop_id;
+            } else if (strcmp(props_info[j]->name, "rotation") == 0) {
+                planes[i].property_ids.rotation = props_info[j]->prop_id;
             }
         }
 
@@ -1509,4 +1556,600 @@ int drmdev_legacy_set_plane_property(
 
     drmdev_unlock(drmdev);
     return EINVAL;
+}
+
+
+struct kmsdev {
+    int fd;
+    int epoll_fd;
+    bool use_atomic_modesetting;
+
+    size_t n_connectors;
+    struct drm_connector *connectors;
+
+    size_t n_encoders;
+    struct drm_encoder *encoders;
+
+    size_t n_crtcs;
+    struct drm_crtc *crtcs;
+    struct kms_crtc_info *crtc_infos;
+
+    size_t n_planes;
+    struct drm_plane *planes;
+
+    drmModeRes *res;
+    drmModePlaneRes *plane_res;
+    drmEventContext pageflip_evctx;
+};
+
+struct kms_cursor_buffer {
+
+};
+
+struct kms_presenter {
+    struct kmsdev *dev;
+
+    /**
+     * @brief Bitmask of the planes that are currently free to use.
+     */
+    uint32_t free_planes;
+
+    struct kms_crtc_info *active_crtc_info;
+    int32_t active_crtc_id;
+    
+    int current_zpos;
+    drmModeAtomicReq *req;
+
+    bool has_primary_layer;
+    struct kms_fb_layer primary_layer;
+};
+
+struct fd_callback {
+    int fd;
+    void *userdata;
+    bool (*callback)(int fd, void *userdata);
+};
+
+struct fbdev {
+    int fd;
+};
+
+struct kmsdev *kmsdev_new(void) {
+    struct kmsdev *dev;
+    int ok, epoll_fd;
+
+    dev = malloc(sizeof *dev);
+    if (dev == NULL) {
+        return NULL;
+    }
+
+    ok = epoll_create1(EPOLL_CLOEXEC);
+    if (ok < 0) {
+        LOG_MODESETTING_ERROR("Couldn't create epoll fd. epoll_create1: %s\n", strerror(errno));
+        free(dev);
+        return NULL;
+    }
+
+    epoll_fd = ok;
+
+    dev->fd = -1;
+    dev->epoll_fd = epoll_fd;
+    dev->use_atomic_modesetting = false;
+    dev->n_connectors = 0;
+    dev->connectors = NULL;
+    dev->n_encoders = 0;
+    dev->encoders = NULL;
+    dev->n_crtcs = 0;
+    dev->crtcs = NULL;
+    dev->crtc_infos = NULL;
+    dev->n_planes = 0;
+    dev->planes = NULL;
+    dev->res = NULL;
+    dev->plane_res = NULL;
+
+    return dev;
+}
+
+void kmsdev_destroy(struct kmsdev *dev) {
+    if (dev->fd > 0) {
+        close(dev->fd);
+    }
+    close(dev->epoll_fd);
+    free(dev);
+}
+
+struct kmsdev *kmsdev_new_from_fd(int fd) {
+    struct kmsdev *dev;
+    int ok;
+
+    dev = kmsdev_new();
+    if (dev == NULL) {
+        return NULL;
+    }
+
+    ok = epoll_ctl(dev->epoll_fd, EPOLL_CTL_ADD, fd, &(struct epoll_event) {.events = EPOLLIN | EPOLLPRI, .data = {.fd = fd}});
+    if (ok < 0) {
+        LOG_MODESETTING_ERROR("Couldn't add KMS device fd to epoll instance. epoll_ctl: %s\n", strerror(errno));
+        kmsdev_destroy(dev);
+        return NULL;
+    }
+
+    ok = drmSetClientCap(fd, DRM_CLIENT_CAP_UNIVERSAL_PLANES, 1ull);
+    if ((ok < 0) && (errno == EOPNOTSUPP)) {
+        ok = errno;
+        goto fail_close_fd;
+    } else {
+        ok = errno;
+        LOG_MODESETTING_ERROR("Could not set DRM client universal planes capable. drmSetClientCap: %s\n", strerror(ok));
+        goto fail_close_fd;
+    }
+    
+    ok = drmSetClientCap(fd, DRM_CLIENT_CAP_ATOMIC, 1ull);
+    if ((ok < 0) && (errno == EOPNOTSUPP)) {
+        dev->use_atomic_modesetting = false;
+    } else if (ok < 0) {
+        ok = errno;
+        LOG_MODESETTING_ERROR("Could not set DRM client atomic capable. drmSetClientCap: %s\n", strerror(ok));
+        goto fail_close_fd;
+    } else {
+        dev->use_atomic_modesetting = true;
+    }
+
+    dev = gbm_create_device(fd);
+    if (dev == NULL) {
+        ok = errno;
+        goto fail_close_fd;
+    }
+
+    dev->res = drmModeGetResources(fd);
+    if (dev->res == NULL) {
+        ok = errno;
+        perror("[modesetting] Could not get DRM device resources. drmModeGetResources");
+        goto fail_close_fd;
+    }
+
+    dev->plane_res = drmModeGetPlaneResources(dev->fd);
+    if (dev->plane_res == NULL) {
+        ok = errno;
+        perror("[modesetting] Could not get DRM device planes resources. drmModeGetPlaneResources");
+        goto fail_free_resources;
+    }
+
+    ok = fetch_connectors(dev, &dev->connectors, &dev->n_connectors);
+    if (ok != 0) {
+        goto fail_free_plane_resources;
+    }
+
+    ok = fetch_encoders(dev, &dev->encoders, &dev->n_encoders);
+    if (ok != 0) {
+        goto fail_free_connectors;
+    }
+
+    ok = fetch_crtcs(dev, &dev->crtcs, &dev->n_crtcs);
+    if (ok != 0) {
+        goto fail_free_encoders;
+    }
+
+    ok = fetch_planes(dev, &dev->planes, &dev->n_planes);
+    if (ok != 0) {
+        goto fail_free_crtcs;
+    }
+
+    dev->fd = fd;
+    /// TODO: Implement
+
+    return dev;
+
+
+    fail_free_crtcs:
+    free_crtcs(dev->crtcs, dev->n_crtcs);
+
+    fail_free_encoders:
+    free_encoders(dev->encoders, dev->n_encoders);
+
+    fail_free_connectors:
+    free_connectors(dev->connectors, dev->n_connectors);
+
+    fail_free_plane_resources:
+    drmModeFreePlaneResources(dev->plane_res);
+
+    fail_free_resources:
+    drmModeFreeResources(dev->res);
+
+    fail_close_fd:
+    close(dev->fd);
+
+    fail_free_drmdev:
+    kmsdev_destroy(dev);
+
+    return NULL;
+}
+
+int kmsdev_get_fd(struct kmsdev *dev) {
+    return dev->fd;
+}
+
+int kmsdev_on_fd_ready(struct kmsdev *dev) {
+    struct epoll_event events[16];
+    struct fd_callback *cb;
+    bool keep;
+    int ok, n_events;
+
+    ok = epoll_wait(dev->epoll_fd, events, 16, 0);
+    if (ok < 0) {
+        LOG_MODESETTING_ERROR("kmsdev_on_fd_ready: Couldn't get epoll events. epoll_wait: %s\n", strerror(errno));
+        return errno;
+    }
+
+    n_events = ok;
+
+    for (int i = 0; i < n_events; i++) {
+        cb = events[i].data.ptr;
+
+        DEBUG_ASSERT(cb != NULL);
+
+        keep = cb->callback(cb->fd, cb->userdata);
+        if (!keep) {
+            ok = epoll_ctl(dev->epoll_fd, EPOLL_CTL_DEL, cb->fd, NULL);
+            if (ok < 0) {
+                LOG_MODESETTING_ERROR("kmsdev_on_fd_ready: Couldn't remove fd from epoll instance. epoll_ctl: %s\n", strerror(errno));
+            }
+
+            free(cb);
+        }
+    }
+
+    return 0;
+}
+
+int kmsdev_add_fb(
+    struct kmsdev *dev,
+    uint32_t width, uint32_t height,
+    uint32_t pixel_format,
+    const uint32_t bo_handles[4],
+    const uint32_t pitches[4],
+    const uint32_t offsets[4],
+    const uint64_t modifier[4],
+    uint32_t *buf_id,
+    uint32_t flags
+) {
+    int ok;
+    
+    ok = drmModeAddFB2WithModifiers(
+        dev->fd,
+        width, height,
+        pixel_format,
+        bo_handles,
+        pitches,
+        offsets,
+        modifier,
+        buf_id,
+        flags
+    );
+
+    return -ok;
+}
+
+int kmsdev_destroy_fb(
+    struct kmsdev *dev,
+    uint32_t buf_id
+) {
+    return -drmModeRmFB(dev->fd, buf_id);
+}
+
+struct kms_crtc_info *kmsdev_get_crtc_info(struct kmsdev *dev, int32_t crtc_id) {
+    for (size_t i = 0; i < dev->n_crtcs; i++) {
+        if (dev->crtc_infos[i].crtc_id == crtc_id) {
+            return dev->crtc_infos + i;
+        }
+    }
+
+    return NULL;
+}
+
+struct kms_cursor_buffer *kmsdev_load_cursor(struct kmsdev *dev, const uint8_t *icon, int32_t format) {
+    /// TODO: implement
+    return EINVAL;
+}
+
+void kms_cursor_buffer_destroy(struct kms_cursor_buffer *buffer) {
+    /// TODO: Implement
+}
+
+int kmsdev_set_cursor_state(struct kmsdev *dev, int32_t crtc_id, bool enabled, struct kms_cursor_buffer *buffer) {
+    /// TODO: implement
+    return EINVAL;
+}
+
+int kmsdev_move_cursor(struct kmsdev *dev, int32_t crtc_id, int x, int y) {
+    /// TODO: implement
+    return EINVAL;
+}
+
+static int put_fd_callback(
+    struct kmsdev *dev,
+    int fd,
+    uint32_t events,
+    bool (*callback)(struct kmsdev *dev, int fd, void *userdata),
+    void *userdata
+) {
+    struct fd_callback *cb;
+    int ok;
+
+    cb = malloc(sizeof *cb);
+    if (cb == NULL) {
+        return ENOMEM;
+    }
+
+    cb->fd = fd;
+    cb->callback = callback;
+    cb->userdata = userdata;
+
+    ok = epoll_ctl(dev->epoll_fd, EPOLL_CTL_ADD, fd, &(struct epoll_event) {.events = events, .data.ptr = cb});
+    if (ok < 0) {
+        LOG_MODESETTING_ERROR("Couldn't add callback to epoll instance. epoll_ctl: %s\n", strerror(errno));
+        free(cb);
+        return errno;
+    }
+
+    return 0;
+}
+
+static bool on_pageflip(
+    struct kmsdev *dev,
+    int fd,
+    void *userdata
+) {
+    drmEventContext context = {
+        .version = DRM_EVENT_CONTEXT_VERSION,
+        .vblank_handler = NULL,
+        .page_flip_handler = NULL,
+        .page_flip_handler2 = userdata,
+        .sequence_handler = NULL,
+    };
+    int ok;
+
+    ok = drmHandleEvent(fd, &context);
+    if (ok < 0) {
+        LOG_MODESETTING_ERROR("Couldn't handle page flip event. drmHandleEvent: %s\n", strerror(-ok));
+    }
+
+    // don't keep the handler registered.
+    return false;
+}
+
+static int put_pageflip_callback(
+    struct kmsdev *dev,
+    bool (*callback)(struct kmsdev *dev, int fd, void *userdata),
+    void (*page_flip_handler)(int fd, unsigned int sequence, unsigned int tv_sec, unsigned int tv_usec, unsigned int crtc_id, void *user_data)
+) {
+    return put_fd_callback(dev, dev->fd, EPOLLIN, on_pageflip, page_flip_handler);
+}
+
+int kmsdev_commit_scene(
+    struct kmsdev *dev,
+    const struct kms_presenter *scene,
+    uint32_t flags,
+    void *userdata
+) {
+    /// TODO: hookup callback
+    if (dev->use_atomic_modesetting) {
+        return drmModeAtomicCommit(
+            dev->fd,
+            scene->req,
+            flags,
+            userdata
+        );
+    } else {
+        return drmModePageFlip(
+            dev->fd,
+            scene->active_crtc_id,
+            scene->primary_layer.fb_id,
+            DRM_MODE_PAGE_FLIP_EVENT,
+            userdata
+        );
+    }
+}
+
+
+int kms_presenter_set_active_crtc(struct kms_presenter *presenter, int32_t crtc_id) {
+    struct kms_crtc_info *info;
+
+    info = kmsdev_get_crtc_info(presenter->dev, crtc_id);
+    if (info == NULL) {
+        LOG_MODESETTING_ERROR("kms_scene_builder_set_active_crtc: Invalid CRTC id: %" PRId32 "\n", crtc_id);
+        return EINVAL;
+    }
+
+    presenter->active_crtc_id = crtc_id;
+    presenter->active_crtc_info = info;
+
+    return 0;
+}
+
+void kms_presenter_set_logical_zpos(struct kms_presenter *presenter, int zpos) {
+    DEBUG_ASSERT_HAS_ACTIVE_CRTC(presenter);
+
+    if (zpos >= 0) {
+        zpos = zpos + presenter->active_crtc_info->min_zpos;
+    } else {
+        zpos = presenter->active_crtc_info->max_zpos - zpos + 1;
+    }
+
+    DEBUG_ASSERT_VALID_ZPOS(presenter, zpos);
+    presenter->current_zpos = zpos;
+}
+
+void kms_presenter_set_zpos(struct kms_presenter *presenter, int zpos) {
+    DEBUG_ASSERT_HAS_ACTIVE_CRTC(presenter);
+    DEBUG_ASSERT_VALID_ZPOS(presenter, zpos);
+    presenter->current_zpos = zpos;
+}
+
+int kms_presenter_get_zpos(struct kms_presenter *presenter) {
+    return presenter->current_zpos;
+}
+
+/**
+ * @brief Tries to find an unused DRM plane and returns its index in kmsdev->planes. Otherwise returns -1.
+ */
+static inline int reserve_plane(struct kms_presenter *presenter, int zpos_hint) {
+    for (int i = 0; i < sizeof(presenter->free_planes) * CHAR_BIT; i++) {
+        if (presenter->free_planes & (1 << i)) {
+            presenter->free_planes &= ~(1 << i);
+            return i;
+        }
+    }
+    return -1;
+}
+
+/**
+ * @brief Unreserves a plane index so it may be reserved using reserve_plane again.
+ */
+static inline int unreserve_plane(struct kms_presenter *presenter, int plane_index) {
+    presenter->free_planes |= (1 << plane_index);
+}
+
+int kms_presenter_push_fb_layer(
+    struct kms_presenter *presenter,
+    const struct kms_fb_layer *layer
+) {
+    struct drm_plane *plane;
+    uint32_t plane_id, plane_index;
+    int ok;
+    
+    DEBUG_ASSERT(layer != NULL);
+    DEBUG_ASSERT_HAS_ACTIVE_CRTC(presenter);
+    CHECK_VALID_ZPOS_OR_RETURN_EINVAL(presenter, presenter->current_zpos);
+
+    plane_index = reserve_plane(presenter, presenter->has_primary_layer? 1 : 0);
+    if (plane_index < 0) {
+        LOG_MODESETTING_ERROR("Couldn't find unused plane for framebuffer layer.\n");
+        return EINVAL;
+    }
+
+    plane = &presenter->dev->planes[plane_index];
+    plane_id = plane->plane->plane_id;
+
+    if (layer && (plane->property_ids.rotation == DRM_NO_PROPERTY_ID)) {
+        LOG_MODESETTING_ERROR("Rotation was requested but is not supported.\n");
+        ok = EINVAL;
+        goto fail_unreserve_plane;
+    }
+
+    if ((plane->property_ids.zpos == DRM_NO_PROPERTY_ID) && presenter->has_primary_layer) {
+        LOG_MODESETTING_ERROR("Plane doesn't support zpos but that's necessary for overlay planes.\n");
+        ok = EINVAL;
+        goto fail_unreserve_plane;
+    }
+
+    ok = drmModeAtomicAddProperty(presenter->req, plane_id, plane->property_ids.fb_id, layer->fb_id);
+    if (ok < 0) {
+        LOG_MODESETTING_ERROR("Couldn't add property to atomic request. drmModeAtomicAddProperty: %s\n", strerror(-ok));
+        ok = -ok;
+        goto fail_unreserve_plane;
+    }
+
+    ok = drmModeAtomicAddProperty(presenter->req, plane_id, plane->property_ids.crtc_id, presenter->active_crtc_id);
+    if (ok < 0) {
+        LOG_MODESETTING_ERROR("Couldn't add property to atomic request. drmModeAtomicAddProperty: %s\n", strerror(-ok));
+        ok = -ok;
+        goto fail_unreserve_plane;
+    }
+
+    ok = drmModeAtomicAddProperty(presenter->req, plane_id, plane->property_ids.src_x, layer->src_x);
+    if (ok < 0) {
+        LOG_MODESETTING_ERROR("Couldn't add property to atomic request. drmModeAtomicAddProperty: %s\n", strerror(-ok));
+        ok = -ok;
+        goto fail_unreserve_plane;
+    }
+
+    ok = drmModeAtomicAddProperty(presenter->req, plane_id, plane->property_ids.src_y, layer->src_y);
+    if (ok < 0) {
+        LOG_MODESETTING_ERROR("Couldn't add property to atomic request. drmModeAtomicAddProperty: %s\n", strerror(-ok));
+        ok = -ok;
+        goto fail_unreserve_plane;
+    }
+
+    ok = drmModeAtomicAddProperty(presenter->req, plane_id, plane->property_ids.src_w, layer->src_w);
+    if (ok < 0) {
+        LOG_MODESETTING_ERROR("Couldn't add property to atomic request. drmModeAtomicAddProperty: %s\n", strerror(-ok));
+        ok = -ok;
+        goto fail_unreserve_plane;
+    }
+
+    ok = drmModeAtomicAddProperty(presenter->req, plane_id, plane->property_ids.src_h, layer->src_h);
+    if (ok < 0) {
+        LOG_MODESETTING_ERROR("Couldn't add property to atomic request. drmModeAtomicAddProperty: %s\n", strerror(-ok));
+        ok = -ok;
+        goto fail_unreserve_plane;
+    }
+
+    ok = drmModeAtomicAddProperty(presenter->req, plane_id, plane->property_ids.crtc_x, layer->crtc_x);
+    if (ok < 0) {
+        LOG_MODESETTING_ERROR("Couldn't add property to atomic request. drmModeAtomicAddProperty: %s\n", strerror(-ok));
+        ok = -ok;
+        goto fail_unreserve_plane;
+    }
+
+    ok = drmModeAtomicAddProperty(presenter->req, plane_id, plane->property_ids.crtc_y, layer->crtc_y);
+    if (ok < 0) {
+        LOG_MODESETTING_ERROR("Couldn't add property to atomic request. drmModeAtomicAddProperty: %s\n", strerror(-ok));
+        ok = -ok;
+        goto fail_unreserve_plane;
+    }
+    
+    ok = drmModeAtomicAddProperty(presenter->req, plane_id, plane->property_ids.crtc_w, layer->crtc_w);
+    if (ok < 0) {
+        LOG_MODESETTING_ERROR("Couldn't add property to atomic request. drmModeAtomicAddProperty: %s\n", strerror(-ok));
+        ok = -ok;
+        goto fail_unreserve_plane;
+    }
+
+    ok = drmModeAtomicAddProperty(presenter->req, plane_id, plane->property_ids.crtc_h, layer->crtc_h);
+    if (ok < 0) {
+        LOG_MODESETTING_ERROR("Couldn't add property to atomic request. drmModeAtomicAddProperty: %s\n", strerror(-ok));
+        ok = -ok;
+        goto fail_unreserve_plane;
+    }
+
+    if (plane->property_ids.zpos != DRM_NO_PROPERTY_ID) {
+        ok = drmModeAtomicAddProperty(presenter->req, plane_id, plane->property_ids.zpos, presenter->current_zpos);
+        if (ok < 0) {
+            LOG_MODESETTING_ERROR("Couldn't add property to atomic request. drmModeAtomicAddProperty: %s\n", strerror(-ok));
+            ok = -ok;
+            goto fail_unreserve_plane;
+        }
+    }
+
+    if (layer->has_rotation) {
+        ok = drmModeAtomicAddProperty(presenter->req, plane_id, plane->property_ids.rotation, layer->rotation);
+        if (ok < 0) {
+            LOG_MODESETTING_ERROR("Couldn't add property to atomic request. drmModeAtomicAddProperty: %s\n", strerror(-ok));
+            ok = -ok;
+            goto fail_unreserve_plane;
+        }
+    }
+
+    if (presenter->has_primary_layer == false) {
+        memcpy(&presenter->primary_layer, layer, sizeof(struct kms_fb_layer));
+    }
+
+    return 0;
+
+
+    fail_unreserve_plane:
+    unreserve_plane(presenter, plane_index);
+
+    fail_return_ok:
+    return ok;
+}
+
+void kms_presenter_push_placeholder_layer(struct kms_presenter *presenter, int n_reserved_layers) {
+    presenter->current_zpos += n_reserved_layers;
+}
+
+void kms_presenter_destroy(struct kms_presenter *presenter) {
+    drmModeAtomicFree(presenter->req);
+    free(presenter);
 }

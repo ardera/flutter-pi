@@ -84,9 +84,9 @@ struct drm_rbo {
 };
 
 struct drm_fb {
+    struct kmsdev *dev;
     struct gbm_bo *bo;
     uint32_t fb_id;
-    struct drmdev *drmdev;
 };
 
 /*

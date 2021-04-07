@@ -1,6 +1,7 @@
 #ifndef _COLLECTION_H
 #define _COLLECTION_H
 
+#include <assert.h>
 #include <string.h>
 #include <stdlib.h>
 #include <errno.h>
@@ -422,5 +423,11 @@ static inline uint64_t get_monotonic_time(void) {
 #define min(a, b) (((a) < (b)) ? a : b)
 #define max(a, b) (((a) > (b)) ? a : b)
 #define STREQ(a, b) (strcmp(a, b) == 0)
+
+#ifdef DEBUG
+#define DEBUG_ASSERT(condition) assert(condition)
+#else
+#define DEBUG_ASSERT(condition) do {} while (0)
+#endif
 
 #endif

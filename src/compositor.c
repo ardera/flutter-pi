@@ -136,6 +136,7 @@ struct compositor {
     bool do_blocking_atomic_commits;
 };
 
+
 static struct view_cb_data *get_cbs_for_view_id_locked(
 	struct compositor *compositor,
 	int64_t view_id
@@ -190,7 +191,7 @@ static void destroy_gbm_bo(
 	struct drm_fb *fb = userdata;
 
 	if (fb && fb->fb_id)
-		drmModeRmFB(fb->drmdev->fd, fb->fb_id);
+		kmsdev_destroy_fb(fb->dev, fb->fb_id);
 	
 	free(fb);
 }
@@ -198,7 +199,7 @@ static void destroy_gbm_bo(
 /**
  * @brief Get a DRM FB id for this GBM BO, so we can display it.
  */
-static uint32_t gbm_bo_get_drm_fb_id(struct drmdev *drmdev, struct gbm_bo *bo) {
+static uint32_t gbm_bo_get_drm_fb_id(struct kmsdev *dev, struct gbm_bo *bo) {
 	struct drm_fb *fb;
 	uint64_t modifiers[4] = {0};
 	uint32_t width, height, format;
@@ -208,7 +209,6 @@ static uint32_t gbm_bo_get_drm_fb_id(struct drmdev *drmdev, struct gbm_bo *bo) {
 	uint32_t flags = 0;
 	int num_planes;
 	int ok = -1;
-
 	
 	fb = gbm_bo_get_user_data(bo);
 	/// TODO: Invalidate the drm_fb in the case that the drmdev changed (although that should never happen)
@@ -225,7 +225,7 @@ static uint32_t gbm_bo_get_drm_fb_id(struct drmdev *drmdev, struct gbm_bo *bo) {
 	}
 
 	fb->bo = bo;
-	fb->drmdev = drmdev;
+	fb->dev = dev;
 
 	width = gbm_bo_get_width(bo);
 	height = gbm_bo_get_height(bo);
@@ -245,21 +245,20 @@ static uint32_t gbm_bo_get_drm_fb_id(struct drmdev *drmdev, struct gbm_bo *bo) {
 		flags = DRM_MODE_FB_MODIFIERS;
 	}
 
-	ok = drmModeAddFB2WithModifiers(drmdev->fd, width, height, format, handles, strides, offsets, modifiers, &fb->fb_id, flags);
-
-	if (ok) {
-		if (flags)
-			fprintf(stderr, "drm_fb_get_from_bo: modifiers failed!\n");
-		
-		memcpy(handles, (uint32_t [4]){gbm_bo_get_handle(bo).u32,0,0,0}, 16);
-		memcpy(strides, (uint32_t [4]){gbm_bo_get_stride(bo),0,0,0}, 16);
-		memset(offsets, 0, 16);
-
-		ok = drmModeAddFB2(drmdev->fd, width, height, format, handles, strides, offsets, &fb->fb_id, 0);
-	}
-
-	if (ok) {
-		fprintf(stderr, "drm_fb_get_from_bo: failed to create fb: %s\n", strerror(errno));
+	ok = kmsdev_add_fb(
+		dev,
+		width,
+		height,
+		format,
+		handles,
+		strides,
+		offsets,
+		modifiers,
+		&fb->fb_id,
+		flags
+	);
+	if (ok != 0) {
+		LOG_COMPOSITOR_ERROR("Couldn't add GBM BO as DRM framebuffer. kmsdev_add_fb: %s\n", strerror(ok));
 		free(fb);
 		return 0;
 	}
@@ -458,15 +457,20 @@ static void rendertarget_gbm_destroy(struct rendertarget *target) {
 	free(target);
 }
 
+static void rendertarget_gbm_on_pageflipped_out(struct kmsdev *dev, void *userdata) {
+	struct rendertarget *target;
+
+	target = userdata;
+
+	gbm_surface_release_buffer(target->gbm.gbm_surface, target->gbm.current_front_bo);
+}
+
 static int rendertarget_gbm_present(
 	struct rendertarget *target,
-	struct drmdev_atomic_req *atomic_req,
-	uint32_t drm_plane_id,
-	int offset_x,
-	int offset_y,
-	int width,
-	int height,
-	int zpos
+	struct kms_crtc_info *crtc_info,
+	struct kms_presenter *builder,
+	double x, double y,
+	double width, double height
 ) {
 	struct rendertarget_gbm *gbm_target;
 	struct gbm_bo *next_front_bo;
@@ -477,118 +481,26 @@ static int rendertarget_gbm_present(
 	gbm_target = &target->gbm;
 
 	next_front_bo = gbm_surface_lock_front_buffer(gbm_target->gbm_surface);
-	next_front_fb_id = gbm_bo_get_drm_fb_id(atomic_req->drmdev, next_front_bo);
+	/// TODO: put into allocation
+	next_front_fb_id = gbm_bo_get_drm_fb_id(kmsdev, next_front_bo);
 
-	drmdev_atomic_req_put_plane_property(atomic_req, drm_plane_id, "FB_ID", next_front_fb_id);
-	drmdev_atomic_req_put_plane_property(atomic_req, drm_plane_id, "CRTC_ID", atomic_req->drmdev->selected_crtc->crtc->crtc_id);
-	drmdev_atomic_req_put_plane_property(atomic_req, drm_plane_id, "SRC_X", 0);
-	drmdev_atomic_req_put_plane_property(atomic_req, drm_plane_id, "SRC_Y", 0);
-	drmdev_atomic_req_put_plane_property(atomic_req, drm_plane_id, "SRC_W", ((uint16_t) atomic_req->drmdev->selected_mode->hdisplay) << 16);
-	drmdev_atomic_req_put_plane_property(atomic_req, drm_plane_id, "SRC_H", ((uint16_t) atomic_req->drmdev->selected_mode->vdisplay) << 16);
-	drmdev_atomic_req_put_plane_property(atomic_req, drm_plane_id, "CRTC_X", 0);
-	drmdev_atomic_req_put_plane_property(atomic_req, drm_plane_id, "CRTC_Y", 0);
-	drmdev_atomic_req_put_plane_property(atomic_req, drm_plane_id, "CRTC_W", atomic_req->drmdev->selected_mode->hdisplay);
-	drmdev_atomic_req_put_plane_property(atomic_req, drm_plane_id, "CRTC_H", atomic_req->drmdev->selected_mode->vdisplay);
-
-	ok = drmdev_plane_supports_setting_rotation_value(atomic_req->drmdev, drm_plane_id, DRM_MODE_ROTATE_0, &supported);
-	if (ok != 0) return ok;
-
-	if (supported) {
-		drmdev_atomic_req_put_plane_property(atomic_req, drm_plane_id, "rotation", DRM_MODE_ROTATE_0);
-	} else {
-		static bool printed = false;
-
-		if (!printed) {
-			fprintf(stderr,
-					"[compositor] GPU does not support reflecting the screen in Y-direction.\n"
-					"             This is required for rendering into hardware overlay planes though.\n"
-					"             Any UI that is drawn in overlay planes will look upside down.\n"
-			);
-			printed = true;
+	ok = kms_presenter_push_fb_layer(
+		builder,
+		&(const struct kms_fb_layer) {
+			.fb_id = next_front_fb_id,
+			.src_x = 0, .src_y = 0,
+			.src_w = gbm_bo_get_width(next_front_bo) << 16,
+			.src_h = gbm_bo_get_height(next_front_bo) << 16,
+			.crtc_x = 0, .crtc_y = 0,
+			.crtc_x = round(width), .crtc_y = round(height),
+			.has_rotation = false,
+			.rotation = DRM_MODE_ROTATE_0,
+			.on_flipped_in = NULL,
+			.on_flipped_out = NULL,
+			.userdata = NULL
 		}
-	}
-	
-	ok = drmdev_plane_supports_setting_zpos_value(atomic_req->drmdev, drm_plane_id, zpos, &supported);
-	if (ok != 0) return ok;
+	);
 
-	if (supported) {
-		drmdev_atomic_req_put_plane_property(atomic_req, drm_plane_id, "zpos", zpos);
-	} else {
-		static bool printed = false;
-
-		if (!printed) { 
-			fprintf(stderr,
-					"[compositor] GPU does not supported the desired HW plane order.\n"
-					"             Some UI layers may be invisible.\n"
-			);
-			printed = true;
-		}
-	}
-
-	// TODO: move this to the page flip handler.
-	// We can only be sure the buffer can be released when the buffer swap
-	// ocurred.
-	if (gbm_target->current_front_bo != NULL) {
-		gbm_surface_release_buffer(gbm_target->gbm_surface, gbm_target->current_front_bo);
-	}
-	gbm_target->current_front_bo = (struct gbm_bo *) next_front_bo;
-
-	return 0;
-}
-
-static int rendertarget_gbm_present_legacy(
-	struct rendertarget *target,
-	struct drmdev *drmdev,
-	uint32_t drm_plane_id,
-	int offset_x,
-	int offset_y,
-	int width,
-	int height,
-	int zpos,
-	bool set_mode
-) {
-	struct rendertarget_gbm *gbm_target;
-	struct gbm_bo *next_front_bo;
-	uint32_t next_front_fb_id;
-	bool supported, is_primary;
-	int ok;
-
-	gbm_target = &target->gbm;
-
-	is_primary = drmdev_plane_get_type(drmdev, drm_plane_id) == DRM_PLANE_TYPE_PRIMARY;
-
-	next_front_bo = gbm_surface_lock_front_buffer(gbm_target->gbm_surface);
-	next_front_fb_id = gbm_bo_get_drm_fb_id(drmdev, next_front_bo);
-
-	if (is_primary) {
-		if (set_mode) {
-			drmdev_legacy_set_mode_and_fb(
-				drmdev,
-				next_front_fb_id
-			);
-		} else {
-			drmdev_legacy_primary_plane_pageflip(
-				drmdev,
-				next_front_fb_id,
-				NULL
-			);
-		}
-	} else {
-		drmdev_legacy_overlay_plane_pageflip(
-			drmdev,
-			drm_plane_id,
-			next_front_fb_id,
-			0,
-			0,
-			drmdev->selected_mode->hdisplay,
-			drmdev->selected_mode->vdisplay,
-			0,
-			0,
-			((uint16_t) drmdev->selected_mode->hdisplay) << 16,
-			((uint16_t) drmdev->selected_mode->vdisplay) << 16
-		);
-	}
-	
 	// TODO: move this to the page flip handler.
 	// We can only be sure the buffer can be released when the buffer swap
 	// ocurred.
@@ -631,7 +543,7 @@ static int rendertarget_gbm_new(
 		.gl_fbo_id = 0,
 		.destroy = rendertarget_gbm_destroy,
 		.present = rendertarget_gbm_present,
-		.present_legacy = rendertarget_gbm_present_legacy
+		.present_legacy = NULL
 	};
 
 	*out = target;
@@ -2019,3 +1931,4 @@ void compositor_fill_flutter_compositor(struct compositor *compositor, FlutterCo
 	flutter_compositor->present_layers_callback = on_present_layers;
 	flutter_compositor->user_data = compositor;
 }
+
