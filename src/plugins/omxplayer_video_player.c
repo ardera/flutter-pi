@@ -486,8 +486,7 @@ static void *mgr_entry(void *userdata) {
         // I'm the child!
         prctl(PR_SET_PDEATHSIG, SIGKILL);
         int _ok = execvp(
-            "/home/pi/devel/omxplayer/omxplayer-dist/usr/bin/omxplayer.bin",
-            /*"omxplayer.bin",*/
+            "omxplayer.bin",
             (char*[]) {
                 "omxplayer.bin",
                 "--nohdmiclocksync",
