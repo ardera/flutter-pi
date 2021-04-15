@@ -1,12 +1,17 @@
 #ifndef _COLLECTION_H
 #define _COLLECTION_H
 
+#if !defined(_POSIX_C_SOURCE) || (_POSIX_C_SOURCE <= 199309L)
+#define _POSIX_C_SOURCE 199309L
+#endif
+
 #include <assert.h>
 #include <string.h>
 #include <stdlib.h>
 #include <errno.h>
 #include <stdbool.h>
 #include <time.h>
+#include <stdint.h>
 
 #include <pthread.h>
 

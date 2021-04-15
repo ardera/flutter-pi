@@ -108,17 +108,20 @@ set(BUILD_OMXPLAYER_VIDEO_PLAYER_PLUGIN ON CACHE BOOL "Include the omxplayer_vid
 set(BUILD_ANDROID_AUTO_HEADUNIT_PLUGIN OFF CACHE BOOL "Include the android_auto_headunit plugin in the finished binary.")
 
 set(FLUTTER_PI_SRC
-  src/flutter-pi.c
-	src/platformchannel.c
-	src/pluginregistry.c
-	src/texture_registry.c
-	src/compositor.c
-	src/modesetting.c
-	src/collection.c
+  src/collection.c
+  src/compositor.c
   src/cursor.c
+  src/dylib_deps.c
+  src/event_loop.c
+  src/flutter-pi.c
   src/keyboard.c
   src/messenger.c
-  src/dylib_deps.c
+  src/modesetting.c
+  src/platformchannel.c
+  src/pluginregistry.c
+  src/renderer.c
+  src/texture_registry.c
+  src/user_input.c
 	src/plugins/services.c
 )
 
@@ -190,7 +193,8 @@ target_compile_options(flutter-pi PRIVATE
   ${LIBSSL_CFLAGS}
   ${LIBCRYPTO_CFLAGS}
   ${LIBGSTREAMER_CFLAGS}
-  $<$<CONFIG:DEBUG>:-O0 -ggdb -Werror -fsanitize=address -fno-omit-frame-pointer>
+# $<$<CONFIG:DEBUG>:-O0 -ggdb -Werror -fsanitize=address -fno-omit-frame-pointer>
+  $<$<CONFIG:DEBUG>:-O0 -ggdb -Werror -Wall -Wextra -fsanitize=undefined -fno-omit-frame-pointer>
 )
 
 if (BUILD_TEXT_INPUT_PLUGIN)
@@ -211,7 +215,8 @@ endif()
 
 target_link_options(flutter-pi PRIVATE
   -rdynamic
-  $<$<CONFIG:DEBUG>:-fsanitize=address -static-libasan>
+# $<$<CONFIG:DEBUG>:-fsanitize=address -static-libasan>
+  $<$<CONFIG:DEBUG>:-fsanitize=undefined>
 )
 
 if ("${CMAKE_C_COMPILER_ID}" STREQUAL "GNU")

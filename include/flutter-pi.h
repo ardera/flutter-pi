@@ -140,28 +140,12 @@ struct libgl;
 struct keyboard_config;
 */
 
-enum frame_state {
-	kFramePending,
-	kFrameRendering,
-	kFrameRendered
-};
-
-struct frame {
-	/// The current state of the frame.
-	/// - Pending, when the frame was requested using the FlutterProjectArgs' vsync_callback.
-	/// - Rendering, when the baton was returned to the engine
-	/// - Rendered, when the frame has been / is visible on the display.
-	enum frame_state state;
-
-	/// The baton to be returned to the flutter engine when the frame can be rendered.
-	intptr_t baton;
-};
-
 enum flutter_runtime_mode {
 	kDebug, kRelease
 };
 
 struct flutterpi_private;
+
 
 struct flutterpi {
 	struct flutterpi_private *private;
@@ -306,16 +290,12 @@ struct flutterpi {
 	} flutter;
 	
 	/// main event loop
-	pthread_t event_loop_thread;
-	pthread_mutex_t event_loop_mutex;
-	sd_event *event_loop;
-	int wakeup_event_loop_fd;
+	struct event_loop *platform;
+	struct event_loop *render;
 
 	struct drmdev *drmdev;
 
 	struct renderer *renderer;
-	
-	struct compositor *compositor;
 	
 	struct texture_registry *texture_registry;
 
@@ -348,6 +328,10 @@ bool flutterpi_runs_platform_tasks_on_current_thread(
 	struct flutterpi *flutterpi
 );
 
+bool flutterpi_runs_render_tasks_on_current_thread(
+	struct flutterpi *flutterpi
+);
+
 int flutterpi_post_platform_task(
 	struct flutterpi *flutterpi,
 	int (*callback)(void *userdata),
@@ -361,7 +345,22 @@ int flutterpi_post_platform_task_with_time(
 	uint64_t target_time_usec
 );
 
-int flutterpi_sd_event_add_io(
+int flutterpi_post_render_task(
+	struct flutterpi *flutterpi,
+	int (*callback)(void *userdata),
+	void *userdata
+);
+
+int flutterpi_platform_sd_event_add_io(
+	struct flutterpi *flutterpi,
+	sd_event_source **source_out,
+	int fd,
+	uint32_t events,
+	sd_event_io_handler_t callback,
+	void *userdata
+);
+
+int flutterpi_render_sd_event_add_io(
 	struct flutterpi *flutterpi,
 	sd_event_source **source_out,
 	int fd,

@@ -334,7 +334,7 @@ static void on_libusb_fd_added(int fd, short events, void *user_data) {
 
     aaplugin = user_data;
 
-    flutterpi_sd_event_add_io(
+    flutterpi_platform_sd_event_add_io(
         NULL,
         fd,
         events,
@@ -377,7 +377,7 @@ static int init_usb(struct aaplugin *aaplugin) {
     }
 
     for (const struct libusb_pollfd **cursor = pollfds; *cursor; cursor++) {
-        ok = flutterpi_sd_event_add_io(
+        ok = flutterpi_platform_sd_event_add_io(
             NULL,
             (*cursor)->fd,
             (*cursor)->events,

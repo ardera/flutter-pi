@@ -5,15 +5,16 @@
 
 #include <gbm.h>
 #include <flutter_embedder.h>
+#include <event_loop.h>
 
 #include <collection.h>
 #include <modesetting.h>
 
-#define LOG_COMPOSITOR_ERROR(...) fprintf(stderr, "[compositor]" __VA_ARGS__)
+#define LOG_COMPOSITOR_ERROR(format_str, ...) fprintf(stderr, "[compositor] %s: " format_str, __func__, ##__VA_ARGS__)
 
 typedef int (*platform_view_mount_cb)(
     int64_t view_id,
-    struct drmdev_atomic_req *req,
+    struct presenter *presenter,
     const FlutterPlatformViewMutation **mutations,
     size_t num_mutations,
     int offset_x,
@@ -26,13 +27,13 @@ typedef int (*platform_view_mount_cb)(
 
 typedef int (*platform_view_unmount_cb)(
     int64_t view_id,
-    struct drmdev_atomic_req *req,
+    struct presenter *presenter,
     void *userdata
 );
 
 typedef int (*platform_view_update_view_cb)(
     int64_t view_id,
-    struct drmdev_atomic_req *req,
+    struct presenter *presenter,
     const FlutterPlatformViewMutation **mutations,
     size_t num_mutations,
     int offset_x,
@@ -45,7 +46,7 @@ typedef int (*platform_view_update_view_cb)(
 
 typedef int (*platform_view_present_cb)(
     int64_t view_id,
-    struct drmdev_atomic_req *req,
+    struct presenter *presenter,
     const FlutterPlatformViewMutation **mutations,
     size_t num_mutations,
     int offset_x,
@@ -60,24 +61,14 @@ typedef uint64_t (*flutter_engine_get_current_time_t)();
 typedef void (*flutter_engine_trace_event_duration_begin_t)(const char* name);
 typedef void (*flutter_engine_trace_event_duration_end_t)(const char* name);
 typedef void (*flutter_engine_trace_event_instant_t)(const char* name);
+typedef void (*compositor_frame_begin_callback_t)(uint64_t vblank_nanos, uint64_t next_vblank_nanos, void *userdata);
 
 struct compositor;
 
-/*
-struct window_surface_backing_store {
-    struct compositor *compositor;
-    struct gbm_surface *gbm_surface;
-    struct gbm_bo *current_front_bo;
-    uint32_t drm_plane_id;
-};
-*/
-
-struct drm_rbo {
-    struct drmdev *drmdev;
-	struct libegl *libegl;
-    EGLDisplay display;
+struct drm_fbo {
     EGLImage egl_image;
     GLuint gl_rbo_id;
+    GLuint gl_fbo_id;
     uint32_t gem_handle;
     uint32_t gem_stride;
     uint32_t drm_fb_id;
@@ -89,122 +80,81 @@ struct drm_fb {
     uint32_t fb_id;
 };
 
-/*
-struct drm_fb_backing_store {   
-    struct compositor *compositor;
-
-    GLuint gl_fbo_id;
-    struct drm_rbo rbos[2];
-    
-    // The front FB is the one GL is rendering to right now, similiar
-    // to libgbm.
-    int current_front_rbo;
-    
-    uint32_t drm_plane_id;
-};
-
-enum backing_store_type {
-    kWindowSurface,
-    kDrmFb
-};
-
-struct backing_store_metadata {
-    enum backing_store_type type;
-    union {
-        struct window_surface_backing_store window_surface;
-        struct drm_fb_backing_store drm_fb;
-    };
-};
-*/
-
-struct rendertarget_gbm {
+struct gl_rendertarget_gbm {
     struct gbm_surface *gbm_surface;
-    struct gbm_bo *current_front_bo;
+    //struct gbm_bo *current_front_bo;
 };
 
 /**
  * @brief No-GBM Rendertarget.
  * A type of rendertarget that is not backed by a GBM-Surface, used for rendering into DRM overlay planes.
  */
-struct rendertarget_nogbm {
-    GLuint gl_fbo_id;
-    struct drm_rbo rbos[2];
-    
-    /**
-     * @brief The index of the @ref drm_rbo in the @ref rendertarget_nogbm::rbos array that
-     * OpenGL is currently rendering into.
-     */
-    int current_front_rbo;
+struct gl_rendertarget_nogbm {
+    struct kmsdev *kmsdev;
+    struct renderer *renderer;
+    struct drm_fbo fbo;
 };
 
-struct rendertarget {
+struct gl_rendertarget {
     bool is_gbm;
 
-    struct compositor *compositor;
-
     union {
-        struct rendertarget_gbm gbm;
-        struct rendertarget_nogbm nogbm;
+        struct gl_rendertarget_gbm gbm;
+        struct gl_rendertarget_nogbm nogbm;
     };
+
+    /**
+     * @brief This used for adding this rendertarget to the compositors rendertarget cache
+     * after it was disposed.
+     */
+    struct compositor *compositor;
 
     GLuint gl_fbo_id;
 
-    void (*destroy)(struct rendertarget *target);
+    void (*destroy)(struct gl_rendertarget *target);
     int (*present)(
-        struct rendertarget *target,
-        struct drmdev_atomic_req *atomic_req,
-        uint32_t drm_plane_id,
-        int offset_x,
-        int offset_y,
-        int width,
-        int height,
-        int zpos
-    );
-    int (*present_legacy)(
-        struct rendertarget *target,
-        struct drmdev *drmdev,
-        uint32_t drm_plane_id,
-        int offset_x,
-        int offset_y,
-        int width,
-        int height,
-        int zpos,
-        bool set_mode
+        struct gl_rendertarget *target,
+        struct presenter *presenter,
+        int x, int y,
+        int w, int h
     );
 };
 
 struct flutterpi_backing_store {
-    struct rendertarget *target;
+    struct gl_rendertarget *target;
     FlutterBackingStore flutter_backing_store;
     bool should_free_on_next_destroy;
 };
 
-/**
- * @brief Create a new compositor. One compositor instance uses one drmdev exclusively.
- */
-struct compositor *compositor_new(
-	struct drmdev *drmdev,
-	struct gbm_surface *gbm_surface,
-	struct libegl *libegl,
-	EGLDisplay display,
-	EGLSurface surface,
-	EGLContext context,
-	struct egl_display_info *display_info,
-	flutter_engine_get_current_time_t get_current_time,
-	flutter_engine_trace_event_duration_begin_t trace_event_begin,
-	flutter_engine_trace_event_duration_end_t trace_event_end,
-	flutter_engine_trace_event_instant_t trace_event_instant
-);
+enum graphics_output_type {
+    kGraphicsOutputTypeKmsdev,
+    kGraphicsOutputTypeFbdev
+};
+
+struct graphics_output {
+    enum graphics_output_type type;
+    union {
+        struct kmsdev *kmsdev;
+        struct fbdev *fbdev;
+    };
+};
+
+struct flutter_tracing_interface {
+    flutter_engine_get_current_time_t get_current_time;
+	flutter_engine_trace_event_duration_begin_t trace_event_begin;
+	flutter_engine_trace_event_duration_end_t trace_event_end;
+	flutter_engine_trace_event_instant_t trace_event_instant;
+};
 
 /**
- * @brief Update the engine callbacks for this compositor.
+ * @brief Create a new compositor, basically 
  */
-void compositor_set_engine_callbacks(
-    struct compositor *compositor,
-    flutter_engine_get_current_time_t get_current_time,
-	flutter_engine_trace_event_duration_begin_t trace_event_begin,
-	flutter_engine_trace_event_duration_end_t trace_event_end,
-	flutter_engine_trace_event_instant_t trace_event_instant
+struct compositor *compositor_new(
+    const struct graphics_output *output,
+    FlutterRendererType renderer_type,
+    struct renderer *renderer,
+    const struct flutter_tracing_interface *tracing_interface,
+    struct event_loop *evloop
 );
 
 /**
@@ -221,15 +171,7 @@ void compositor_fill_flutter_compositor(
  * The engine should be stopped before this method is called. It'd cause errors
  * to call any of the functions in the FlutterCompositor interface after this function has been called. 
  */
-void compositor_destroy(
-	struct compositor *compositor
-);
-
-int compositor_on_page_flip(
-    struct compositor *compositor,
-	uint32_t sec,
-	uint32_t usec
-);
+void compositor_destroy(struct compositor *compositor);
 
 int compositor_put_view_callbacks(
     struct compositor *compositor,
@@ -246,18 +188,18 @@ int compositor_remove_view_callbacks(
     int64_t view_id
 );
 
-int compositor_apply_cursor_state(
+int compositor_request_frame(
 	struct compositor *compositor,
-	bool is_enabled,
-	int rotation,
-	double device_pixel_ratio
+	compositor_frame_begin_callback_t callback,
+	void *userdata
 );
 
-int compositor_set_cursor_pos(
-    struct compositor *compositor,
-    int x,
-    int y
-);
+int compositor_set_cursor_enabled(struct compositor *compositor, bool is_enabled);
 
+int compositor_set_cursor_rotation(struct compositor *compositor, int rotation);
+
+int compositor_set_cursor_device_pixel_ratio(struct compositor *compositor, double device_pixel_ratio);
+
+int compositor_set_cursor_pos(struct compositor *compositor, int x, int y);
 
 #endif

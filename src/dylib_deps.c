@@ -1210,10 +1210,20 @@ void egl_display_info_destroy(struct egl_display_info *display_info) {
 }
 
 
-struct libgl *libgl_load(void) {
+struct libgl *libgl_load(gl_proc_resolver_t proc_resolver) {
+	struct libgl *libgl;
 
+	libgl = malloc(sizeof *libgl);
+	if (libgl == NULL) {
+		return NULL;
+	}
+
+	libgl->EGLImageTargetRenderbufferStorageOES = proc_resolver("glEGLImageTargetRenderbufferStorageOES");
+	DEBUG_ASSERT(libgl->EGLImageTargetRenderbufferStorageOES != NULL);
+
+	return libgl;
 }
 
 void libgl_unload(struct libgl *lib) {
-
+	free(lib);
 }

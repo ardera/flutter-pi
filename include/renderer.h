@@ -1,7 +1,8 @@
 #ifndef RENDERER_H_
 #define RENDERER_H_
 
-#define LOG_RENDERER_ERROR(...) fprintf(stderr, "[flutter-pi renderer] " __VA_ARGS__)
+#include <gbm.h>
+#include <modesetting.h>
 
 typedef void (*present_complete_callback_t)(void *userdata);
 
@@ -27,11 +28,44 @@ struct flutter_renderer_sw_interface {
 };
 
 struct renderer *gl_renderer_new(
-	struct drmdev *drmdev,
+	struct gbm_device *gbmdev,
 	struct libegl *libegl,
 	struct egl_client_info *egl_client_info,
+	struct libgl *libgl,
 	const struct flutter_renderer_gl_interface *gl_interface,
-	unsigned int width, unsigned int height
+	uint32_t format,
+	int w, int h
+);
+
+/**
+ * @brief Create a new software renderer.
+ * @param kmsdev optional. Used for allocating the 
+ */
+struct renderer *sw_renderer_new(
+	struct kmsdev *kmsdev,
+	struct flutter_renderer_sw_interface *sw_dispatcher
+);
+
+/**
+ * @brief Destroy this renderer, freeing all allocated resources.
+ */
+void renderer_destroy(struct renderer *renderer);
+
+/**
+ * @brief Fill @ref config with the dispatcher functions in the @ref flutter_renderer_gl_interface given to
+ * @ref gl_renderer_new or the @ref flutter_sw_interface @ref sw_renderer_new depending
+ * on whether OpenGL or software rendering is used.
+ * All fields in @ref gl_interface and @ref sw_dispatcher should be populated.
+ * Sometimes there are multiple ways the config can be filled with the interface functions
+ * In that case @ref renderer_fill_flutter_renderer_config will choose a way that it best supports internally.
+ * 
+ * The functions in @ref gl_interface and @ref sw_dispatcher should just call their renderer
+ * equivalents with the renderer instance. For example, `gl_interface->make_current` should call
+ * `gl_renderer_make_flutter_rendering_context_current(renderer)`.
+ */
+void renderer_fill_flutter_renderer_config(
+	struct renderer *renderer,
+	FlutterRendererConfig *config
 );
 
 /**
@@ -70,11 +104,31 @@ int gl_renderer_reserved_make_current(struct renderer *renderer, EGLContext cont
  */
 int gl_renderer_reserved_clear_current(struct renderer *renderer);
 
-bool gl_renderer_flutter_make_renderering_context_current(struct renderer *renderer);
+int gl_renderer_create_scanout_fbo(
+	struct renderer *renderer,
+	int width, int height,
+	EGLImage *image_out,
+	uint32_t *handle_out,
+	uint32_t *stride_out,
+	GLuint *rbo_out,
+	GLuint *fbo_out
+);
+
+int gl_renderer_destroy_scanout_fbo(
+	struct renderer *renderer,
+	EGLImage image,
+	uint32_t handle,
+	GLuint rbo,
+	GLuint fbo
+);
+
+bool gl_renderer_flutter_make_rendering_context_current(struct renderer *renderer);
 
 bool gl_renderer_flutter_make_resource_context_current(struct renderer *renderer);
 
 bool gl_renderer_flutter_clear_current(struct renderer *renderer);
+
+bool gl_renderer_flutter_present(struct renderer *renderer);
 
 uint32_t gl_renderer_flutter_get_fbo(struct renderer *renderer);
 
@@ -86,35 +140,45 @@ uint32_t gl_renderer_flutter_get_fbo_with_info(struct renderer *renderer, const 
 
 bool gl_renderer_flutter_present_with_info(struct renderer *renderer, const FlutterPresentInfo *info);
 
-struct renderer *sw_renderer_new(
-	struct drmdev *drmdev,
-	struct flutter_renderer_sw_interface *sw_dispatcher
-);
-
 bool sw_renderer_flutter_present(
 	struct renderer *renderer,
-	void *allocation,
+	const void *allocation,
 	size_t bytes_per_row,
 	size_t height
 );
 
-/**
- * @brief Fill @ref config with the dispatcher functions in the @ref flutter_renderer_gl_interface given to
- * @ref gl_renderer_new or the @ref flutter_sw_interface @ref sw_renderer_new depending
- * on whether OpenGL or software rendering is used.
- * All fields in @ref gl_interface and @ref sw_dispatcher should be populated.
- * Sometimes there are multiple ways the config can be filled with the interface functions
- * In that case @ref renderer_fill_flutter_renderer_config will choose a way that it best supports internally.
- * 
- * The functions in @ref gl_interface and @ref sw_dispatcher should just call their renderer
- * equivalents with the renderer instance. For example, `gl_interface->make_current` should call
- * `gl_renderer_make_flutter_rendering_context_current(renderer)`.
- */
-int renderer_fill_flutter_renderer_config(
-	struct renderer *renderer,
-	FlutterRendererConfig *config
-);
 
-void renderer_destroy(struct renderer *renderer);
+static const char *streglerr(EGLint egl_error) {
+	static const int egl_errors_offset = EGL_SUCCESS;
+	static const char *egl_errors[] = {
+		"EGL_SUCCESS",
+		"EGL_NOT_INITIALIZED",
+		"EGL_BAD_ACCESS",
+		"EGL_BAD_ALLOC",
+		"EGL_BAD_ATTRIBUTE",
+		"EGL_BAD_CONFIG",
+		"EGL_BAD_CONTEXT",
+		"EGL_BAD_CURRENT_SURFACE",
+		"EGL_BAD_DISPLAY",
+		"EGL_BAD_MATCH",
+		"EGL_BAD_NATIVE_PIXMAP",
+		"EGL_BAD_NATIVE_WINDOW",
+		"EGL_BAD_PARAMETER",
+		"EGL_BAD_SURFACE",
+		"EGL_CONTEXT_LOSS"
+	};
 
-#endif RENDERER_H_
+	if (egl_error < egl_errors_offset) {
+		return NULL;
+	} else if ((unsigned) egl_error >= (egl_errors_offset + (sizeof(egl_errors) / sizeof(*egl_errors)))) {
+		return NULL;
+	} else {
+		return egl_errors[egl_error - egl_errors_offset];
+	}
+};
+
+static inline const char *eglGetErrorString(void) {
+	return streglerr(eglGetError());
+}
+
+#endif

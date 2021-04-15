@@ -271,15 +271,16 @@ static void on_platform_message(
 	const FlutterPlatformMessage* message,
 	void* userdata
 ) {
-	struct platform_message_response_handle *response_handle;
 	struct flutterpi *fpi;
 	int ok;
 
 	fpi = userdata;
 
+	DEBUG_ASSERT(fpi != NULL);
+
 	ok = fm_on_platform_message(fpi->flutter_messenger, message->response_handle, message->channel, message->message, message->message_size);
 	if (ok != 0) {
-		fprintf(stderr, "[flutter-pi] Error handling platform message. fm_on_platform_message: %s\n", strerror(ok));
+		LOG_FLUTTERPI_ERROR("Error handling platform message. fm_on_platform_message: %s\n", strerror(ok));
 	}
 }
 
@@ -565,7 +566,7 @@ int flutterpi_post_platform_task_with_time(
 	return ok;
 }
 
-int flutterpi_sd_event_add_io(
+int flutterpi_platform_sd_event_add_io(
 	struct flutterpi *flutterpi,
 	sd_event_source **source_out,
 	int fd,

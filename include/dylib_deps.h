@@ -587,8 +587,10 @@ struct egl_display_info {
 	bool supports_wl_create_wayland_buffer_from_image;
 };
 
+typedef void *(*gl_proc_resolver_t)(const char *proc_name);
+
 struct libgl {
-	void *handle;
+	PFNGLEGLIMAGETARGETRENDERBUFFERSTORAGEOESPROC EGLImageTargetRenderbufferStorageOES;
 };
 
 /**
@@ -645,7 +647,7 @@ struct egl_display_info *egl_display_info_new(
 void egl_display_info_destroy(struct egl_display_info *display_info);
 
 
-struct libgl *libgl_load(void);
+struct libgl *libgl_load(gl_proc_resolver_t proc_resolver);
 
 void libgl_unload(struct libgl *lib);
 
