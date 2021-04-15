@@ -2791,12 +2791,12 @@ int init(int argc, char **argv) {
 		return ok;
 	}
 
-	ok = init_display();
+	ok = init_user_input();
 	if (ok != 0) {
 		return ok;
 	}
 
-	ok = init_user_input();
+	ok = init_display();
 	if (ok != 0) {
 		return ok;
 	}
