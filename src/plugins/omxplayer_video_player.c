@@ -194,6 +194,43 @@ static int get_orientation_from_mutations(
     return rotation;
 }
 
+static void print_mutations(
+    const FlutterPlatformViewMutation **mutations,
+    size_t n_mutations
+) {
+    const FlutterPlatformViewMutation *mut;
+
+    printf("mutations = {\n");
+    for (int i = 0; i < n_mutations; i++) {
+        mut = mutations[i];
+
+        printf("  [%d] = ", i);
+        if (mut->type == kFlutterPlatformViewMutationTypeOpacity) {
+            printf("Opacity(%f),\n", mut->opacity);
+        } else if (mut->type == kFlutterPlatformViewMutationTypeClipRect) {
+            printf(
+                "ClipRect(left: %f, right: %f, top: %f, bottom: %f),\n",
+                mut->clip_rect.left, mut->clip_rect.right,
+                mut->clip_rect.top, mut->clip_rect.bottom
+            );
+        } else if (mut->type == kFlutterPlatformViewMutationTypeClipRoundedRect) {
+            printf("ClipRoundedRect()\n");
+        } else if (mut->type == kFlutterPlatformViewMutationTypeTransformation) {
+            printf(
+                "Transform(\n"
+                "    %f, %f, %f\n"
+                "    %f, %f, %f\n"
+                "    %f, %f, %f\n"
+                "  ),\n",
+                mut->transformation.scaleX, mut->transformation.skewX,  mut->transformation.transX,
+                mut->transformation.skewY,  mut->transformation.scaleY, mut->transformation.transY,
+                mut->transformation.pers0,  mut->transformation.pers1,  mut->transformation.pers2
+            );
+        }
+    }
+    printf("}\n");
+}
+
 /// Called on the flutter rasterizer thread when a players platform view is presented
 /// for the first time after it was unmounted or initialized.
 static int on_mount(
@@ -213,6 +250,9 @@ static int on_mount(
     if (zpos == 1) {
         zpos = -126;
     }
+
+    //printf("on_mount:\n");
+    //print_mutations(mutations, num_mutations);
 
     return cqueue_enqueue(
         &player->mgr->task_queue,
@@ -270,6 +310,9 @@ static int on_update_view(
     if (zpos == 1) {
         zpos = -126;
     }
+
+    //printf("on_update:\n");
+    //print_mutations(mutations, num_mutations);
 
     return cqueue_enqueue(
         &player->mgr->task_queue,
