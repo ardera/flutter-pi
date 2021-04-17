@@ -159,6 +159,8 @@ struct plugin_registry *plugin_registry_new(struct flutterpi *flutterpi) {
 		}
 	}
 
+	reg->flutterpi = flutterpi;
+
 	return reg;
 
 	fail_free_added_plugins:
@@ -252,7 +254,6 @@ int  plugin_registry_ensure_plugins_initialized(struct plugin_registry *registry
 
 void plugin_registry_ensure_plugins_deinitialized(struct plugin_registry *registry) {
 	struct flutterpi_plugin *plugin;
-	int ok;
 
 	cpset_lock(&registry->plugins);
 

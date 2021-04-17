@@ -168,6 +168,9 @@ int texreg_on_external_texture_frame_callback(
 ) {
     struct flutter_texture *texture;
 
+    (void) width;
+    (void) height;
+
     cpset_lock(&reg->textures);
 
     texture = find_texture_by_id_locked(reg, texture_id);

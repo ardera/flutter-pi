@@ -127,6 +127,7 @@ int fm_destroy(struct flutter_messenger *fm) {
 	
 	cpset_deinit(&fm->listeners);
 	free(fm);
+	return 0;
 }
 
 static inline bool runs_platform_tasks_on_current_thread(struct flutter_messenger *fm) {
@@ -211,8 +212,6 @@ int fm_on_platform_message(
 	fail_unlock_listeners:
 	fm->platform_task_thread_owns_listeners_mutex = false;
 	cpset_unlock(&fm->listeners);
-	
-	fail_return_ok:
 	return ok;
 }
 
@@ -410,13 +409,6 @@ int fm_send_raw_zerocopy_nonblocking(
 
 	return 0;
 
-	fail_maybe_free_message:
-	if (deferred_data->message != NULL) {
-		free(deferred_data->message);
-	}
-
-	fail_free_channel:
-	free(deferred_data->target_channel);
 
 	fail_free_deferred_data:
 	free(deferred_data);
@@ -704,7 +696,7 @@ int fm_respond_raw_zerocopy_nonblocking(
 			deferred_data
 		);
 		if (ok != 0) {
-			goto fail_maybe_free_message;
+			goto fail_free_deferred_data;
 		}
 
 		free(handle);
@@ -713,10 +705,6 @@ int fm_respond_raw_zerocopy_nonblocking(
 
 	return 0;
 
-	fail_maybe_free_message:
-	if (deferred_data->message != NULL) {
-		free(deferred_data->message);
-	}
 
 	fail_free_deferred_data:
 	free(deferred_data);
@@ -768,7 +756,6 @@ int fm_respond_raw_nonblocking(
 	void *error_callback_userdata
 ) {
 	struct respond_raw_nonblocking_metadata *metadata;
-	struct flutter_messenger *fm;
 	uint8_t *duped_message;
 	int ok;
 

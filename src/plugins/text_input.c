@@ -92,11 +92,10 @@ static int on_set_client(
 	const struct platch_obj *object,
 	struct flutter_message_response_handle *responsehandle
 ) {
-	const struct json_value jsvalue, *temp, *temp2, *state, *config;
+	const struct json_value *temp, *temp2, *config;
 	enum text_input_action input_action;
 	enum text_input_type input_type;
-	int64_t transaction_id;
-	bool autocorrect, allow_signs, allow_decimal, has_allow_signs, has_allow_decimal;
+	bool autocorrect, has_allow_signs, allow_signs, has_allow_decimal, allow_decimal;
 
 	/*
 	 *  TextInput.setClient(List)
@@ -210,7 +209,7 @@ static int on_set_client(
 		has_allow_decimal = false;
 	} else if (JSONVALUE_IS_BOOL(*temp2)) {
 		has_allow_decimal = true;
-		allow_signs = JSONVALUE_AS_BOOL(*temp2);
+		allow_decimal = JSONVALUE_AS_BOOL(*temp2);
 	} else {
 		return fm_respond_illegal_arg_json(
 			responsehandle,
@@ -261,6 +260,10 @@ static int on_set_client(
 	textin->autocorrect = autocorrect;
 	textin->input_action = input_action;
 	textin->input_type = input_type;
+	textin->has_allow_signs = has_allow_signs;
+	textin->allow_signs = allow_signs;
+	textin->has_allow_decimal = has_allow_decimal;
+	textin->allow_decimal = allow_decimal;
 
 	if (autocorrect && !textin->warned_about_autocorrect) {
 		fprintf(stderr, "[text input plugin] warning: flutter requested native autocorrect, which "
@@ -283,6 +286,9 @@ static int on_hide(
 	 * 
 	 */
 
+	(void) textin;
+	(void) object;
+
 	// do nothing since we use a physical keyboard.
 	return fm_respond_success_json(
 		responsehandle,
@@ -302,6 +308,8 @@ static int on_clear_client(
 	 *      See [TextInputConnection.close].
 	 * 
 	 */
+
+	(void) object;
 
 	textin->connection_id = -1;
 
@@ -443,6 +451,9 @@ static int on_show(
 	 * 
 	 */
 
+	(void) textin;
+	(void) object;
+
 	// do nothing since we use a physical keyboard.
 	return fm_respond_success_json(
 		responsehandle,
@@ -455,22 +466,33 @@ static int on_request_autofill(
 	const struct platch_obj *object,
 	struct flutter_message_response_handle *responsehandle
 ) {
+	(void) textin;
+	(void) object;
+
 	return fm_respond_success_json(responsehandle, &JSONNULL);
 }
 
+/*
 static int on_set_editable_size_and_transform(
 	struct text_input_plugin *textin,
 	const struct platch_obj *object,
 	struct flutter_message_response_handle *responsehandle
 ) {
+	(void) textin;
+	(void) object;
+
 	return fm_respond_success_json(responsehandle, &JSONNULL);
 }
+*/
 
 static int on_set_style(
 	struct text_input_plugin *textin,
 	const struct platch_obj *object,
 	struct flutter_message_response_handle *responsehandle
 ) {
+	(void) textin;
+	(void) object;
+	
 	return fm_respond_success_json(responsehandle, &JSONNULL);
 }
 
@@ -479,6 +501,9 @@ static int on_finish_autofill_context(
 	const struct platch_obj *object,
 	struct flutter_message_response_handle *responsehandle
 ) {
+	(void) textin;
+	(void) object;
+	
 	return fm_respond_success_json(responsehandle, &JSONNULL);
 }
 
@@ -490,6 +515,9 @@ static void on_receive(
 	void *userdata
 ) {
 	struct text_input_plugin *textin;
+
+	(void) success;
+	(void) channel;
 	
 	textin = userdata;
 
@@ -817,6 +845,7 @@ static bool model_move_cursor_to_end(struct text_input_plugin *textin) {
 	return false;
 }
 
+/*
 static bool model_move_cursor_forward(struct text_input_plugin *textin) {
 	if (textin->selection_base != textin->selection_extent) {
 		textin->selection_base = textin->selection_extent;
@@ -846,8 +875,7 @@ static bool model_move_cursor_back(struct text_input_plugin *textin) {
 
 	return false;
 }
-
-
+*/
 
 static int sync_editing_state(struct text_input_plugin *textin) {
 	return client_update_editing_state(
@@ -993,11 +1021,17 @@ int textin_init(struct flutterpi *flutterpi, void **userdata) {
 		free(plugin);
 		return ok;
 	}
+	
+	*userdata = plugin;
 
 	return 0;
 }
 
 int textin_deinit(struct flutterpi *flutterpi, void **userdata) {
+	struct text_input_plugin *plugin = *userdata;
+
 	fm_remove_listener(flutterpi->flutter_messenger, TEXT_INPUT_CHANNEL);
+	free(plugin);
+
 	return 0;
 }

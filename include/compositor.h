@@ -157,6 +157,11 @@ struct compositor *compositor_new(
     struct event_loop *evloop
 );
 
+void compositor_set_tracing_interface(
+    struct compositor *compositor,
+    const struct flutter_tracing_interface *tracing_interface
+);
+
 /**
  * @brief Fill the given flutter compositor with the callbacks and userdata for this compositor.
  */
@@ -193,12 +198,15 @@ int compositor_request_frame(
 	compositor_frame_begin_callback_t callback,
 	void *userdata
 );
-
-int compositor_set_cursor_enabled(struct compositor *compositor, bool is_enabled);
-
-int compositor_set_cursor_rotation(struct compositor *compositor, int rotation);
-
-int compositor_set_cursor_device_pixel_ratio(struct compositor *compositor, double device_pixel_ratio);
+int compositor_set_cursor_state(
+	struct compositor *compositor,
+	bool has_is_enabled,
+	bool is_enabled,
+	bool has_rotation,
+	int rotation,
+	bool has_device_pixel_ratio,
+	double device_pixel_ratio
+);
 
 int compositor_set_cursor_pos(struct compositor *compositor, int x, int y);
 

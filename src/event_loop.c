@@ -15,6 +15,9 @@ struct event_loop {
     int epoll_fd;
     int schedule_exit_fd;
     bool should_exit;
+
+    bool has_processing_thread;
+    pthread_t processing_thread;
 };
 
 struct trampoline {
@@ -45,7 +48,7 @@ static struct trampoline *trampoline_new(int fd, void *userdata) {
 }
 
 
-struct event_loop *event_loop_create(void) {
+struct event_loop *event_loop_create(bool has_processing_thread, pthread_t processing_thread) {
     struct event_loop *loop;
 	int epoll_fd, schedule_exit_fd;
 
@@ -68,6 +71,8 @@ struct event_loop *event_loop_create(void) {
 
 	loop->epoll_fd = epoll_fd;
     loop->schedule_exit_fd = schedule_exit_fd;
+    loop->has_processing_thread = has_processing_thread;
+    loop->processing_thread = processing_thread;
 
 	return loop;
 
@@ -82,10 +87,23 @@ struct event_loop *event_loop_create(void) {
 	return NULL;
 }
 
+void event_loop_set_processing_thread(struct event_loop *event, bool has_processing_thread, pthread_t processing_thread) {
+    event->has_processing_thread = has_processing_thread;
+    event->processing_thread = processing_thread;
+}
+
 void event_loop_destroy(struct event_loop *loop) {
     close(loop->schedule_exit_fd);
     close(loop->epoll_fd);
     free(loop);
+}
+
+bool event_loop_has_processing_thread(struct event_loop *loop) {
+    return loop->has_processing_thread;
+}
+
+bool event_loop_processing_on_current_thread(struct event_loop *loop) {
+    return loop->has_processing_thread && !!pthread_equal(loop->processing_thread, pthread_self());
 }
 
 int event_loop_schedule_exit(struct event_loop *loop) {

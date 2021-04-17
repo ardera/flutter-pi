@@ -128,5 +128,7 @@ int rawkb_init(struct flutterpi *flutterpi, void **userdata) {
 }
 
 int rawkb_deinit(struct flutterpi *flutterpi, void **userdata) {
+	(void) flutterpi;
+	(void) userdata;
 	return 0;
 }

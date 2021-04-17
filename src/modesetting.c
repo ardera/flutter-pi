@@ -1,3 +1,4 @@
+#define _XOPEN_SOURCE 700
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdint.h>
@@ -17,6 +18,7 @@
 #include <xf86drmMode.h>
 #include <gbm.h>
 #include <event_loop.h>
+#include <math.h>
 
 #include <modesetting.h>
 
@@ -43,6 +45,9 @@
 
 #define IS_VALID_CONNECTOR_INDEX(kmsdev, connector_index) (((connector_index) >= 0) && ((connector_index) < (kmsdev)->n_connectors))
 #define DEBUG_ASSERT_VALID_CONNECTOR_INDEX(kmsdev, connector_index) DEBUG_ASSERT(IS_VALID_CONNECTOR_INDEX(kmsdev, connector_index))
+
+#define DISPLAY_PRIVATE_KMS(p_display) ((struct kms_display *) (p_display)->private)
+#define DISPLAY_PRIVATE_FBDEV(p_display) ((struct fbdev_display *) (p_display)->private)
 
 #define PRESENTER_PRIVATE_KMS(p_presenter) ((struct kms_presenter *) (p_presenter)->private)
 #define PRESENTER_PRIVATE_FBDEV(p_presenter) ((struct fbdev_presenter *) (p_presenter)->private)
@@ -117,6 +122,59 @@ struct drm_fb {
     uint32_t fb_id;
 };
 
+struct kms_display {
+    struct kmsdev *dev;
+    int crtc_index;
+};
+
+struct fbdev_display {
+    int fd;
+    
+    /**
+     * @brief fixinfo is the info that is fixed per framebuffer and can't be changed.
+     */
+    struct fb_fix_screeninfo fixinfo;
+
+    /**
+     * @brief varinfo is the info that can potentially be changed, but we don't do that and
+     * instead rely on something like `fbset` configuring the fbdev for us.
+     */
+    struct fb_var_screeninfo varinfo;
+
+    /**
+     * @brief The physical width & height of the frame buffer and the pixel format as a fourcc code.
+     */
+    uint32_t width, height, format;
+    
+    /**
+     * @brief The mapped video memory of this fbdev.
+     * Basically the result of mmap(fd)
+     */ 
+    uint8_t *vmem;
+
+    /**
+     * @brief How many bytes of vmem we mapped.
+     */
+    size_t size_vmem;
+};
+
+struct display_private;
+
+struct display {
+    struct display_private *private;
+
+    void (*get_supported_formats)(struct display *display, const uint32_t **formats_out, size_t *n_formats_out);
+    struct presenter *(*create_presenter)(struct display *display);
+    void (*destroy)(struct display *display);
+
+    int width, height;
+    bool has_dimensions;
+    int width_mm, height_mm;
+    bool supports_gbm;
+    struct gbm_device *gbm_device;
+    struct gbm_surface *gbm_surface;
+};
+
 struct kms_cursor {
     uint32_t handle;
     int width, height;
@@ -152,6 +210,11 @@ struct kmsdev {
     drmEventContext pageflip_evctx;
 
     struct kms_cursor_state cursor_state[32];
+
+    struct event_loop *loop;
+
+    struct display **displays;
+    size_t n_displays;
 };
 
 struct fbdev {
@@ -203,13 +266,13 @@ struct kms_presenter {
     struct drm_fb_layer primary_layer;
 
     struct {
-        void (*callback)(int crtc_index, void *userdata);
+        presenter_scanout_callback_t callback;
         void *userdata;
     } scanout_callbacks[32];
 };
 
 struct fbdev_presenter {
-    struct fbdev *fbdev;
+    struct display *fbdev_display;
 
     presenter_scanout_callback_t scanout_cb;
     void *scanout_cb_userdata;
@@ -219,7 +282,7 @@ struct presenter_private;
 
 struct presenter {
     struct presenter_private *private;
-    int (*get_supported_formats)(struct presenter *presenter, const uint32_t *const *formats_out, size_t *n_formats_out);
+    int (*get_supported_formats)(struct presenter *presenter, const uint32_t **formats_out, size_t *n_formats_out);
     int (*set_active_crtc)(struct presenter *presenter, int crtc_id);
     int (*get_active_crtc)(struct presenter *presenter, int *crtc_id_out);
     int (*set_logical_zpos)(struct presenter *presenter, int logical_zpos);
@@ -230,7 +293,8 @@ struct presenter {
     int (*push_sw_fb_layer)(struct presenter *presenter, const struct sw_fb_layer *layer);
     int (*push_placeholder_layer)(struct presenter *presenter, int n_reserved_layers);
     int (*flush)(struct presenter *presenter);
-    int (*destroy)(struct presenter *presenter);
+    void (*destroy)(struct presenter *presenter);
+    struct display *display;
 };
 
 struct fbdev_format_mapping {
@@ -253,125 +317,6 @@ static const struct fbdev_format_mapping mappings[] = {
 static const size_t n_mappings = sizeof(mappings) / sizeof(*mappings);
 
 /*****************************************************************************
- *                                  FBDEV                                    *
- *****************************************************************************/
-static inline bool fb_bitfield_equals(const struct fb_bitfield *a, const struct fb_bitfield *b) {
-    return (a->offset == b->offset) && (a->length == b->length) && ((a->msb_right != 0) == (b->msb_right != 0));
-}
-
-struct fbdev *fbdev_new_from_fd(int fd) {
-    struct fbdev *dev;
-    uint32_t format;
-    void *vmem;
-    int ok, i;
-
-    dev = malloc(sizeof *dev);
-    if (dev == NULL) {
-        return NULL;
-    }
-
-    ok = ioctl(fd, FBIOGET_FSCREENINFO, &dev->fixinfo);
-    if (ok < 0) {
-        LOG_MODESETTING_ERROR("Couldn't get fbdev fix_screeninfo. ioctl: %s\n", strerror(-ok));
-        goto fail_free_dev;
-    }
-
-    ok = ioctl(fd, FBIOGET_VSCREENINFO, &dev->varinfo);
-    if (ok < 0) {
-        LOG_MODESETTING_ERROR("Couldn't get fbdev var_screeninfo. ioctl: %s\n", strerror(-ok));
-        goto fail_free_dev;
-    }
-
-    if (dev->fixinfo.visual != FB_TYPE_PACKED_PIXELS) {
-        LOG_MODESETTING_ERROR("A fbdev type other than FB_TYPE_PACKED_PIXELS is not supported.\n");
-        goto fail_free_dev;
-    }
-    
-    if (dev->fixinfo.visual != FB_VISUAL_TRUECOLOR) {
-        LOG_MODESETTING_ERROR("A fbdev visual other than FB_VISUAL_TRUECOLOR is not supported.\n");
-        goto fail_free_dev;
-    }
-
-    // look for the fourcc code for this fbdev format
-    format = 0;
-    for (i = 0; i < n_mappings; i++) {
-        if (fb_bitfield_equals(&dev->varinfo.red, &mappings[i].r) &&
-            fb_bitfield_equals(&dev->varinfo.green, &mappings[i].g) &&
-            fb_bitfield_equals(&dev->varinfo.blue, &mappings[i].b) &&
-            fb_bitfield_equals(&dev->varinfo.transp, &mappings[i].a)
-        ) {
-            format = mappings[i].fourcc;
-            break;
-        }
-    }
-
-    // if the format is still 0 we couldn't find a corresponding DRM fourcc format.
-    if (format == 0) {
-        LOG_MODESETTING_ERROR(
-            "Didn't find a corresponding fourcc format for fbdev format rgba = %" PRIu32 "/%" PRIu32 ",%" PRIu32 "/%" PRIu32 ",%" PRIu32 "/%" PRIu32 ",%" PRIu32"/%" PRIu32 ".\n",
-            dev->varinfo.red.length, dev->varinfo.red.offset,
-            dev->varinfo.green.length, dev->varinfo.green.offset,
-            dev->varinfo.blue.length, dev->varinfo.blue.offset,
-            dev->varinfo.transp.length, dev->varinfo.transp.offset
-        );
-        goto fail_free_dev;
-    }
-
-    vmem = mmap(
-        NULL,
-        dev->varinfo.yres_virtual * dev->fixinfo.line_length,
-        PROT_READ | PROT_WRITE,
-        MAP_SHARED,
-        dev->fd,
-        0
-    );
-    if (vmem == MAP_FAILED) {
-        LOG_MODESETTING_ERROR("Couldn't map fbdev. mmap: %s\n", strerror(errno));
-        goto fail_free_dev;
-    }
-
-    dev->fd = fd;
-    dev->width = dev->varinfo.width;
-    dev->height = dev->varinfo.height;
-    dev->format = format;
-    dev->vmem = vmem;
-
-    return dev;
-
-
-    fail_free_dev:
-    free(dev);
-
-    fail_return_null:
-    return NULL;
-}
-
-struct fbdev *fbdev_new_from_path(const char *path) {
-    struct fbdev *dev;
-    int fd;
-
-    fd = open(path, O_RDWR);
-    if (fd < 0) {
-        LOG_MODESETTING_ERROR("Couldn't open fb device. open: %s\n", strerror(errno));
-        return NULL;
-    }
-
-    dev = fbdev_new_from_fd(fd);
-    if (dev == NULL) {
-        close(fd);
-        return NULL;
-    }
-
-    return dev;
-}
-
-void fbdev_destroy(struct fbdev *dev) {
-    munmap(dev->vmem, dev->size_vmem);
-    close(dev->fd);
-    free(dev);
-}
-
-/*****************************************************************************
  *                                   KMS                                     *
  *****************************************************************************/
 static int fetch_connectors(struct kmsdev *dev, struct drm_connector **connectors_out, size_t *n_connectors_out) {
@@ -381,8 +326,8 @@ static int fetch_connectors(struct kmsdev *dev, struct drm_connector **connector
 
     connectors = calloc(dev->res->count_connectors, sizeof *connectors);
     if (connectors == NULL) {
-        *connectors_out = NULL;
-        return ENOMEM;
+        ok = ENOMEM;
+        goto fail_return_ok;
     }
 
     n_allocated_connectors = 0;
@@ -394,14 +339,14 @@ static int fetch_connectors(struct kmsdev *dev, struct drm_connector **connector
         connector = drmModeGetConnector(dev->fd, dev->res->connectors[i]);
         if (connector == NULL) {
             ok = errno;
-            perror("[modesetting] Could not get DRM device connector. drmModeGetConnector");
+            LOG_MODESETTING_ERROR("Could not get DRM device connector. drmModeGetConnector: %s\n", strerror(errno));
             goto fail_free_connectors;
         }
 
         props = drmModeObjectGetProperties(dev->fd, dev->res->connectors[i], DRM_MODE_OBJECT_CONNECTOR);
         if (props == NULL) {
             ok = errno;
-            perror("[modesetting] Could not get DRM device connectors properties. drmModeObjectGetProperties");
+            LOG_MODESETTING_ERROR("Could not get DRM device connectors properties. drmModeObjectGetProperties: %s\n", strerror(errno));
             drmModeFreeConnector(connector);
             goto fail_free_connectors;
         }
@@ -418,7 +363,7 @@ static int fetch_connectors(struct kmsdev *dev, struct drm_connector **connector
             props_info[j] = drmModeGetProperty(dev->fd, props->props[j]);
             if (props_info[j] == NULL) {
                 ok = errno;
-                perror("[modesetting] Could not get DRM device connector properties' info. drmModeGetProperty");
+                LOG_MODESETTING_ERROR("Could not get DRM device connector properties' info. drmModeGetProperty: %s\n", strerror(errno));
                 for (unsigned int k = 0; k < (j-1); k++)
                     drmModeFreeProperty(props_info[j]);
                 free(props_info);
@@ -447,9 +392,9 @@ static int fetch_connectors(struct kmsdev *dev, struct drm_connector **connector
         drmModeFreeConnector(connectors[i].connector);
     }
 
-    fail_free_result:
     free(connectors);
 
+    fail_return_ok:
     *connectors_out = NULL;
     *n_connectors_out = 0;
     return ok;
@@ -488,7 +433,7 @@ static int fetch_encoders(struct kmsdev *dev, struct drm_encoder **encoders_out,
         encoder = drmModeGetEncoder(dev->fd, dev->res->encoders[i]);
         if (encoder == NULL) {
             ok = errno;
-            perror("[modesetting] Could not get DRM device encoder. drmModeGetEncoder");
+            LOG_MODESETTING_ERROR("Could not get DRM device encoder. drmModeGetEncoder: %s\n", strerror(errno));
             goto fail_free_encoders;
         }
 
@@ -504,8 +449,6 @@ static int fetch_encoders(struct kmsdev *dev, struct drm_encoder **encoders_out,
     for (int i = 0; i < n_allocated_encoders; i++) {
         drmModeFreeEncoder(encoders[i].encoder);
     }
-
-    fail_free_result:
     free(encoders);
 
     *encoders_out = NULL;
@@ -543,14 +486,14 @@ static int fetch_crtcs(struct kmsdev *dev, struct drm_crtc **crtcs_out, size_t *
         crtc = drmModeGetCrtc(dev->fd, dev->res->crtcs[i]);
         if (crtc == NULL) {
             ok = errno;
-            perror("[modesetting] Could not get DRM device CRTC. drmModeGetCrtc");
+            LOG_MODESETTING_ERROR("Could not get DRM device CRTC. drmModeGetCrtc: %s\n", strerror(errno));
             goto fail_free_crtcs;
         }
 
         props = drmModeObjectGetProperties(dev->fd, dev->res->crtcs[i], DRM_MODE_OBJECT_CRTC);
         if (props == NULL) {
             ok = errno;
-            perror("[modesetting] Could not get DRM device CRTCs properties. drmModeObjectGetProperties");
+            LOG_MODESETTING_ERROR("Could not get DRM device CRTCs properties. drmModeObjectGetProperties: %s\n", strerror(errno));
             drmModeFreeCrtc(crtc);
             goto fail_free_crtcs;
         }
@@ -567,7 +510,7 @@ static int fetch_crtcs(struct kmsdev *dev, struct drm_crtc **crtcs_out, size_t *
             props_info[j] = drmModeGetProperty(dev->fd, props->props[j]);
             if (props_info[j] == NULL) {
                 ok = errno;
-                perror("[modesetting] Could not get DRM device CRTCs properties' info. drmModeGetProperty");
+                LOG_MODESETTING_ERROR("Could not get DRM device CRTCs properties' info. drmModeGetProperty: %s\n", strerror(errno));
                 for (unsigned int k = 0; k < (j-1); k++)
                     drmModeFreeProperty(props_info[j]);
                 free(props_info);
@@ -619,7 +562,6 @@ static int fetch_crtcs(struct kmsdev *dev, struct drm_crtc **crtcs_out, size_t *
         drmModeFreeCrtc(crtcs[i].crtc);
     }
 
-    fail_free_result:
     free(crtcs);
 
     *crtcs_out = NULL;
@@ -751,7 +693,6 @@ static int fetch_planes(struct kmsdev *dev, struct drm_plane **planes_out, size_
         drmModeFreePlane(planes[i].plane);
     }
 
-    fail_free_result:
     free(planes);
 
     *planes_out = NULL;
@@ -759,6 +700,7 @@ static int fetch_planes(struct kmsdev *dev, struct drm_plane **planes_out, size_
     return ok;
 }
 
+/*
 static int free_planes(struct drm_plane *planes, size_t n_planes) {
     for (size_t i = 0; i < n_planes; i++) {
         for (uint32_t j = 0; j < planes[i].props->count_props; j++)
@@ -772,10 +714,10 @@ static int free_planes(struct drm_plane *planes, size_t n_planes) {
 
     return 0;
 }
+*/
 
 bool fd_is_kmsfd(int fd) {
     drmModeRes *res;
-    int ok;
 
     res = drmModeGetResources(fd);
     if (res == NULL) {
@@ -797,7 +739,10 @@ void on_pageflip(
 ) {
     struct drm_crtc *crtc;
     struct kmsdev *dev;
-    int i;
+    unsigned int i;
+
+    (void) fd;
+    (void) sequence;
     
     DEBUG_ASSERT(userdata != NULL);
 
@@ -832,11 +777,11 @@ struct kmsdev *kmsdev_new_from_fd(struct event_loop *loop, int fd) {
     ok = drmSetClientCap(fd, DRM_CLIENT_CAP_UNIVERSAL_PLANES, 1ull);
     if ((ok < 0) && (errno == EOPNOTSUPP)) {
         ok = errno;
-        goto fail_close_fd;
+        goto fail_free_dev;
     } else {
         ok = errno;
         LOG_MODESETTING_ERROR("Could not set DRM client universal planes capable. drmSetClientCap: %s\n", strerror(ok));
-        goto fail_close_fd;
+        goto fail_free_dev;
     }
     
     ok = drmSetClientCap(fd, DRM_CLIENT_CAP_ATOMIC, 1ull);
@@ -850,11 +795,13 @@ struct kmsdev *kmsdev_new_from_fd(struct event_loop *loop, int fd) {
         dev->use_atomic_modesetting = true;
     }
 
-    dev = gbm_create_device(fd);
+    /*
+    dev-> = gbm_create_device(fd);
     if (dev == NULL) {
         ok = errno;
         goto fail_close_fd;
     }
+    */
 
     dev->res = drmModeGetResources(fd);
     if (dev->res == NULL) {
@@ -899,6 +846,7 @@ struct kmsdev *kmsdev_new_from_fd(struct event_loop *loop, int fd) {
         .page_flip_handler2 = on_pageflip,
         .sequence_handler = NULL
     };
+    dev->loop = loop;
 
     return dev;
 
@@ -921,8 +869,70 @@ struct kmsdev *kmsdev_new_from_fd(struct event_loop *loop, int fd) {
     fail_close_fd:
     close(dev->fd);
 
-    fail_free_drmdev:
+    fail_free_dev:
     free(dev);
+    return NULL;
+}
+
+struct kmsdev *kmsdev_new_from_path(struct event_loop *loop, const char *path) {
+    struct kmsdev *dev;
+    int fd;
+
+    fd = open(path, O_RDWR);
+    if (fd < 0) {
+        LOG_MODESETTING_ERROR("Couldn't open drm device. open: %s\n", strerror(errno));
+        return NULL;
+    }
+
+    dev = kmsdev_new_from_fd(loop, fd);
+    if (dev == NULL) {
+        close(fd);
+        return NULL;
+    }
+
+    return dev;
+}
+
+struct kmsdev *kmsdev_new_auto(struct event_loop *loop) {
+    struct kmsdev *dev;
+    int n_devices, ok, fd;
+
+    ok = drmGetDevices2(0, NULL, 0);
+    if (ok < 0) {
+        LOG_MODESETTING_ERROR("Couldn't get the number of attached DRM devices. drmGetDevices2: %s\n", strerror(-ok));
+        return NULL;
+    }
+
+    n_devices = ok;
+
+    drmDevice devices[n_devices];
+    ok = drmGetDevices2(0, devices, n_devices);
+    if (ok < 0) {
+        LOG_MODESETTING_ERROR("Couldn't query the attached DRM devices. drmGetDevices2: %s\n", strerror(-ok));
+        return NULL;
+    }
+
+    n_devices = ok;
+    for (int i = 0; i < n_devices; i++) {
+        if (devices[i].available_nodes & (1 << DRM_NODE_PRIMARY)) {
+            ok = open(devices[i].nodes[DRM_NODE_PRIMARY], O_CLOEXEC);
+            if (ok < 0) {
+                LOG_MODESETTING_ERROR("Couldn't open DRM device. open: %s\n", strerror(errno));
+                continue;
+            }
+
+            fd = ok;
+
+            if (fd_is_kmsfd(fd)) {
+                dev = kmsdev_new_from_fd(loop, fd);
+                if (dev != NULL) {
+                    return dev;
+                }
+
+                close(fd);
+            }
+        }
+    }
 
     return NULL;
 }
@@ -942,6 +952,13 @@ int kmsdev_get_n_crtcs(struct kmsdev *dev) {
 int kmsdev_get_n_connectors(struct kmsdev *dev) {
     DEBUG_ASSERT(dev != NULL);
     return dev->n_connectors;
+}
+
+bool kmsdev_is_connector_connected(struct kmsdev *dev, int connector_index) {
+    DEBUG_ASSERT(dev != NULL);
+    DEBUG_ASSERT_VALID_CONNECTOR_INDEX(dev, connector_index);
+    
+    return dev->connectors[connector_index].connector->connection == DRM_MODE_CONNECTED;
 }
 
 int kmsdev_configure_crtc(
@@ -1016,7 +1033,8 @@ int kmsdev_configure_crtc_with_preferences(
     int connector_index,
     const enum kmsdev_mode_preference *preferences
 ) {
-    enum kmsdev_mode_preference *cursor, pref;
+    const enum kmsdev_mode_preference *cursor;
+    enum kmsdev_mode_preference pref;
     drmModeModeInfo *stored_mode, *mode;
 
     DEBUG_ASSERT(dev != NULL);
@@ -1090,6 +1108,7 @@ int kmsdev_configure_crtc_with_preferences(
 static void destroy_gbm_bo(struct gbm_bo *bo, void *userdata) {
 	struct drm_fb *fb = userdata;
 
+    (void) bo;
     DEBUG_ASSERT(fb != NULL);
 
     kmsdev_destroy_fb(fb->dev, fb->fb_id);
@@ -1250,6 +1269,7 @@ int kmsdev_set_cursor(struct kmsdev *dev, int crtc_index, struct kms_cursor *cur
     int ok;
 
     DEBUG_ASSERT_VALID_CRTC_INDEX(dev, crtc_index);
+    state = dev->cursor_state + crtc_index;
 
     if (state->cursor != cursor) {
         ok = set_cursor(dev, crtc_index, cursor);
@@ -1303,12 +1323,9 @@ struct kms_cursor *kmsdev_load_cursor(
     struct drm_mode_create_dumb create_req;
 	struct drm_mode_map_dumb map_req;
     struct kms_cursor *cursor;
-	uint32_t drm_fb_id;
 	uint32_t *buffer;
 	uint64_t cap;
-	uint8_t depth;
 	int ok;
-    int ok;
 
     // ARGB8888 is the format that'll implicitly be used when
     // uploading a cursor BO using drmModeSetCursor2.
@@ -1377,7 +1394,7 @@ struct kms_cursor *kmsdev_load_cursor(
     cursor->hot_x = hot_x;
     cursor->hot_y = hot_y;
 
-    return buffer;
+    return cursor;
 
 
 	fail_destroy_dumb_buffer:
@@ -1410,94 +1427,10 @@ void kmsdev_dispose_cursor(struct kmsdev *dev, struct kms_cursor *cursor) {
 /*****************************************************************************
  *                               PRESENTERS                                  *
  *****************************************************************************/
-/**
- * @brief Get the list of fourcc formats supported by this presenter.
- */
-int presenter_get_supported_formats(struct presenter *presenter, const uint32_t const **formats_out, size_t *n_formats_out) {
+struct display *presenter_get_display(struct presenter *presenter) {
     DEBUG_ASSERT(presenter != NULL);
-    DEBUG_ASSERT(formats_out != NULL);
-    DEBUG_ASSERT(n_formats_out != NULL);
-
-    return presenter->get_supported_formats(presenter, formats_out, n_formats_out);
-}
-
-static int kms_presenter_get_supported_formats(struct presenter *presenter, const uint32_t const **formats_out, size_t *n_formats_out) {
-    struct kms_presenter *private = PRESENTER_PRIVATE_KMS(presenter);
-
-    DEBUG_ASSERT_HAS_ACTIVE_CRTC(private);
-
-    *formats_out = private->active_crtc->formats;
-    *n_formats_out = private->active_crtc->n_formats;
-
-    return 0;
-}
-
-static int fbdev_presenter_get_supported_formats(struct presenter *presenter, const uint32_t const **formats_out, size_t *n_formats_out) {
-    struct fbdev_presenter *private = PRESENTER_PRIVATE_FBDEV(presenter);
-    
-    *formats_out = &private->fbdev->format;
-    *n_formats_out = 1;
-
-    return 0;
-}
-
-/**
- * @brief Select the CRTC we're currently pushing layers to.
- */
-int presenter_set_active_crtc(struct presenter *presenter, int crtc_index) {
-    DEBUG_ASSERT(presenter != NULL);
-    DEBUG_ASSERT(presenter->set_active_crtc != NULL);
-    return presenter->set_active_crtc(presenter, crtc_index);
-}
-
-static int fbdev_presenter_set_active_crtc(struct presenter *presenter, int crtc_index) {
-    // for fbdev we only have one CRTC / output.
-
-    if (crtc_index != 0) {
-        return EINVAL;
-    }
-
-    return 0;
-}
-
-static int kms_presenter_set_active_crtc(struct presenter *presenter, int crtc_index) {
-    struct kms_presenter *private = PRESENTER_PRIVATE_KMS(presenter);
-    struct drm_crtc *crtc;
-
-    DEBUG_ASSERT_VALID_CRTC_INDEX(private, crtc_index);
-
-    crtc = private->dev->crtcs + crtc_index;
-
-    private->active_crtc_index = crtc_index;
-    private->active_crtc = crtc;
-    private->current_zpos = crtc->min_zpos;
-    private->has_primary_layer = false;
-
-    return 0;
-}
-
-/**
- * @brief Get the index of the active crtc in @param crtc_index_out.
- */
-int presenter_get_active_crtc(struct presenter *presenter, int *crtc_index_out) {
-    DEBUG_ASSERT(presenter != NULL);
-    DEBUG_ASSERT(presenter->get_active_crtc != NULL);
-    return presenter->get_active_crtc(presenter, crtc_index_out);
-}
-
-static int fbdev_presenter_get_active_crtc(struct presenter *presenter, int *crtc_index_out) {
-    *crtc_index_out = 0;
-    return 0;
-}
-
-static int kms_presenter_get_active_crtc(struct presenter *presenter, int *crtc_index_out) {
-    struct kms_presenter *private = PRESENTER_PRIVATE_KMS(presenter);
-    
-    DEBUG_ASSERT_HAS_ACTIVE_CRTC(private);
-
-    *crtc_index_out = private->active_crtc_index;
-
-    return 0;
+    DEBUG_ASSERT(presenter->display != NULL);
+    return presenter->display;
 }
 
 /**
@@ -1539,7 +1472,7 @@ static int kms_presenter_set_scanout_callback(struct presenter *presenter, prese
  * Actual hardware zpos ranges are driver-specific, sometimes they range from 0 to 127, sometimes 1 to 256, etc.
  * The logical zpos always starts at 0 and ends at (hw_zpos_max - hw_zpos_min) inclusive.
  */
-void presenter_set_logical_zpos(struct presenter *presenter, int logical_zpos) {
+int presenter_set_logical_zpos(struct presenter *presenter, int logical_zpos) {
     DEBUG_ASSERT(presenter != NULL);
     DEBUG_ASSERT(presenter->set_logical_zpos != NULL);
     return presenter->set_logical_zpos(presenter, logical_zpos);
@@ -1566,6 +1499,8 @@ static int kms_presenter_set_logical_zpos(struct presenter *presenter, int logic
 }
 
 static int fbdev_presenter_set_logical_zpos(struct presenter *presenter, int logical_zpos) {
+    (void) presenter;
+
     if ((logical_zpos == 0) || (logical_zpos == -1)) {
         return 0;
     } else {
@@ -1591,6 +1526,7 @@ static int kms_presenter_get_zpos(struct presenter *presenter) {
 }
 
 static int fbdev_presenter_get_zpos(struct presenter *presenter) {
+    (void) presenter;
     return 0;
 }
 
@@ -1599,7 +1535,8 @@ static int fbdev_presenter_get_zpos(struct presenter *presenter) {
  * @brief Tries to find an unused DRM plane and returns its index in kmsdev->planes. Otherwise returns -1.
  */
 static inline int reserve_plane(struct kms_presenter *presenter, int zpos_hint) {
-    for (int i = 0; i < sizeof(presenter->free_planes) * CHAR_BIT; i++) {
+    (void) zpos_hint;
+    for (unsigned int i = 0; i < (sizeof(presenter->free_planes) * CHAR_BIT); i++) {
         if (presenter->free_planes & (1 << i)) {
             presenter->free_planes &= ~(1 << i);
             return i;
@@ -1611,7 +1548,7 @@ static inline int reserve_plane(struct kms_presenter *presenter, int zpos_hint) 
 /**
  * @brief Unreserves a plane index so it may be reserved using reserve_plane again.
  */
-static inline int unreserve_plane(struct kms_presenter *presenter, int plane_index) {
+static inline void unreserve_plane(struct kms_presenter *presenter, int plane_index) {
     presenter->free_planes |= (1 << plane_index);
 }
 
@@ -1632,8 +1569,8 @@ int presenter_push_drm_fb_layer(
 static int kms_presenter_push_drm_fb_layer(struct presenter *presenter, const struct drm_fb_layer *layer) {
     struct kms_presenter *private;
     struct drm_plane *plane;
-    uint32_t plane_id, plane_index;
-    int ok;
+    uint32_t plane_id;
+    int ok, plane_index;
     
     DEBUG_ASSERT(presenter != NULL);
     DEBUG_ASSERT(layer != NULL);
@@ -1646,7 +1583,8 @@ static int kms_presenter_push_drm_fb_layer(struct presenter *presenter, const st
     plane_index = reserve_plane(private, private->has_primary_layer? 1 : 0);
     if (plane_index < 0) {
         LOG_MODESETTING_ERROR("Couldn't find unused plane for framebuffer layer.\n");
-        return EINVAL;
+        ok = EINVAL;
+        goto fail_return_ok;
     }
 
     plane = &private->dev->planes[plane_index];
@@ -1767,6 +1705,8 @@ static int kms_presenter_push_drm_fb_layer(struct presenter *presenter, const st
 }
 
 static int fbdev_presenter_push_drm_fb_layer(struct presenter *presenter, const struct drm_fb_layer *layer) {
+    (void) presenter;
+    (void) layer;
     return EOPNOTSUPP;
 }
 
@@ -1785,11 +1725,15 @@ int presenter_push_gbm_bo_layer(
 }
 
 static int kms_presenter_push_gbm_bo_layer(struct presenter *presenter, const struct gbm_bo_layer *layer) {
+    (void) presenter;
+    (void) layer;
     /// TODO: Implement
     return EINVAL;
 }
 
 static int fbdev_presenter_push_gbm_bo_layer(struct presenter *presenter, const struct gbm_bo_layer *layer) {
+    (void) presenter;
+    (void) layer;
     /// TODO: Implement
     return EINVAL;
 }
@@ -1811,6 +1755,8 @@ int presenter_push_sw_fb_layer(
 }
 
 static int kms_presenter_push_sw_fb_layer(struct presenter *presenter, const struct sw_fb_layer *layer) {
+    (void) presenter;
+    (void) layer;
     /// NOTE: We _could_ copy the software framebuffer contents into a real framebuffer here.
     /// But really, the code using this should rather create a GBM BO, map it, and render into that directly.
     return ENOTSUP;
@@ -1854,7 +1800,7 @@ static int fbdev_presenter_push_sw_fb_layer(struct presenter *presenter, const s
  * @brief Push a placeholder layer. Increases the zpos by @ref n_reserved_layers for kms presenters.
  * Returns EOVERFLOW if the zpos before incrementing is higher than the maximum supported one by the hardware.
  */
-void presenter_push_placeholder_layer(struct presenter *presenter, int n_reserved_layers) {
+int presenter_push_placeholder_layer(struct presenter *presenter, int n_reserved_layers) {
     DEBUG_ASSERT(presenter != NULL);
     DEBUG_ASSERT(presenter->push_placeholder_layer != NULL);
 
@@ -1874,6 +1820,8 @@ static int kms_presenter_push_placeholder_layer(struct presenter *presenter, int
 }
 
 static int fbdev_presenter_push_placeholder_layer(struct presenter *presenter, int n_reserved_layers) {
+    (void) presenter;
+    (void) n_reserved_layers;
     return EOPNOTSUPP;
 }
 
@@ -1910,6 +1858,7 @@ static int kms_presenter_flush(struct presenter *presenter) {
 }
 
 static int fbdev_presenter_flush(struct presenter *presenter) {
+    (void) presenter;
     /// TODO: Implement
     return 0;
 }
@@ -1959,7 +1908,7 @@ struct presenter *kmsdev_create_presenter(struct kmsdev *dev) {
         return NULL;
     }
 
-    for (int i = 0; i < dev->n_planes; i++) {
+    for (unsigned int i = 0; i < dev->n_planes; i++) {
         if ((dev->planes[i].type == DRM_PLANE_TYPE_PRIMARY) || (dev->planes[i].type == DRM_PLANE_TYPE_OVERLAY)) {
             free_planes |= (1 << i);
         }
@@ -1974,12 +1923,13 @@ struct presenter *kmsdev_create_presenter(struct kmsdev *dev) {
     memset(&private->primary_layer, 0, sizeof(private->primary_layer));
     memset(private->scanout_callbacks, 0, sizeof(private->scanout_callbacks));
 
-    presenter->private = private;
+    presenter->private = (struct presenter_private*) private;
     presenter->get_supported_formats = kms_presenter_get_supported_formats;
     presenter->set_active_crtc = kms_presenter_set_active_crtc;
     presenter->get_active_crtc = kms_presenter_get_active_crtc;
     presenter->set_logical_zpos = kms_presenter_set_logical_zpos;
     presenter->get_zpos = kms_presenter_get_zpos;
+    presenter->set_scanout_callback = kms_presenter_set_scanout_callback;
     presenter->push_drm_fb_layer = kms_presenter_push_drm_fb_layer;
     presenter->push_gbm_bo_layer = kms_presenter_push_gbm_bo_layer;
     presenter->push_sw_fb_layer = kms_presenter_push_sw_fb_layer;
@@ -1987,16 +1937,179 @@ struct presenter *kmsdev_create_presenter(struct kmsdev *dev) {
     presenter->flush = kms_presenter_flush;
     presenter->destroy = kms_presenter_destroy;
 
+    return presenter;
+}
+
+
+/*****************************************************************************
+ *                                  FBDEV                                    *
+ *****************************************************************************/
+static inline bool fb_bitfield_equals(const struct fb_bitfield *a, const struct fb_bitfield *b) {
+    return (a->offset == b->offset) && (a->length == b->length) && ((a->msb_right != 0) == (b->msb_right != 0));
+}
+
+void display_destroy(struct display *display) {
+    DEBUG_ASSERT(display != NULL);
+    DEBUG_ASSERT(display->destroy != NULL);
+    return display->destroy(display);
+}
+
+static void fbdev_display_destroy(struct display *display) {
+    struct fbdev_display *private;
+
+    DEBUG_ASSERT(display != NULL);
+
+    private = DISPLAY_PRIVATE_FBDEV(display);
+
+    munmap(private->vmem, private->size_vmem);
+    close(private->fd);
+    free(private);
+    free(display);
+}
+
+static void kms_display_destroy(struct display *display) {
+    struct kms_display *private;
+
+    DEBUG_ASSERT(display != NULL);
+
+    private = DISPLAY_PRIVATE_KMS(display);
+
+    /// TODO: Implement
+
+    free(private);
+    free(display);
+}
+
+void display_get_size(struct display *display, int *width_out, int *height_out) {
+    DEBUG_ASSERT(display != NULL);
+    
+    if (width_out != NULL) {
+        *width_out = display->width;
+    }
+    if (height_out != NULL) {
+        *height_out = display->height;
+    }
+}
+
+bool display_has_dimensions(struct display *display) {
+    return display->has_dimensions;
+}
+
+void display_get_dimensions(struct display *display, int *width_mm_out, int *height_mm_out) {
+    DEBUG_ASSERT(display->has_dimensions);
+    if (width_mm_out) {
+        *width_mm_out = display->width_mm;
+    }
+    if (height_mm_out) {
+        *height_mm_out = display->height_mm;
+    }
+}
+
+bool display_supports_gbm(struct display *display) {
+    DEBUG_ASSERT(display != NULL);
+    return display->supports_gbm;
+}
+
+struct gbm_device *display_get_gbm_device(struct display *display) {
+    DEBUG_ASSERT(display != NULL);
+    DEBUG_ASSERT(display->supports_gbm);
+    return display->gbm_device;
+}
+
+struct gbm_surface *display_get_gbm_surface(struct display *display) {
+    DEBUG_ASSERT(display != NULL);
+    DEBUG_ASSERT(display->supports_gbm);
+    return display->gbm_surface;
+}
+
+bool display_supports_sw_buffers(struct display *display) {
+    return false;
+}
+
+/**
+ * @brief Get the list of fourcc formats supported by this presenter.
+ */
+void display_get_supported_formats(struct display *display, const uint32_t **formats_out, size_t *n_formats_out) {
+    DEBUG_ASSERT(display != NULL);
+    DEBUG_ASSERT(formats_out != NULL);
+    DEBUG_ASSERT(n_formats_out != NULL);
+    return display->get_supported_formats(display, formats_out, n_formats_out);
+}
+
+static void kms_display_get_supported_formats(struct display *display, const uint32_t **formats_out, size_t *n_formats_out) {
+    struct kms_display *private = DISPLAY_PRIVATE_KMS(display);
+
+    *formats_out = private->dev->crtcs[private->crtc_index].formats;
+    *n_formats_out = private->dev->crtcs[private->crtc_index].n_formats;
+
+    return 0;
+}
+
+static void fbdev_display_get_supported_formats(struct display *display, const uint32_t **formats_out, size_t *n_formats_out) {
+    struct fbdev_display *private = DISPLAY_PRIVATE_FBDEV(display);
+
+    *formats_out = &private->format;
+    *n_formats_out = 1;
+
+    return 0;
+}
+
+
+struct presenter *display_create_presenter(struct display *display) {
+    DEBUG_ASSERT(display != NULL);
+    DEBUG_ASSERT(display->create_presenter != NULL);
+    return display->create_presenter(display);
+}
+
+static struct presenter *fbdev_display_create_presenter(struct display *display) {
+    struct fbdev_presenter *presenter_private;
+    struct fbdev_display *private;
+    struct presenter *presenter;
+
+    DEBUG_ASSERT(display != NULL);
+    private = DISPLAY_PRIVATE_FBDEV(display);
+
+    presenter = malloc(sizeof *presenter);
+    if (presenter == NULL) {
+        return NULL;
+    }
+
+    presenter_private = malloc(sizeof *presenter_private);
+    if (presenter_private == NULL) {
+        free(presenter);
+        return NULL;
+    }
+
+    presenter_private->fbdev_display = display;
+
+    presenter->private = (struct presenter_private *) presenter_private;
+    presenter->get_supported_formats = fbdev_presenter_get_supported_formats;
+    presenter->set_active_crtc = fbdev_presenter_set_active_crtc;
+    presenter->get_active_crtc = fbdev_presenter_get_active_crtc;
+    presenter->set_logical_zpos = fbdev_presenter_set_logical_zpos;
+    presenter->get_zpos = fbdev_presenter_get_zpos;
+    presenter->set_scanout_callback = fbdev_presenter_set_scanout_callback;
+    presenter->push_drm_fb_layer = fbdev_presenter_push_drm_fb_layer;
+    presenter->push_gbm_bo_layer = fbdev_presenter_push_gbm_bo_layer;
+    presenter->push_sw_fb_layer = fbdev_presenter_push_sw_fb_layer;
+    presenter->push_placeholder_layer = fbdev_presenter_push_placeholder_layer;
+    presenter->flush = fbdev_presenter_flush;
+    presenter->destroy = fbdev_presenter_destroy;
     
     return presenter;
 }
 
-/**
- * @brief Creates a new presenter that will present to this fbdev.
- */
-struct presenter *fbdev_create_presenter(struct fbdev *dev) {
-    struct fbdev_presenter *private;
+static struct presenter *kms_display_create_presenter(struct display *display) {
+    struct kms_display *display_private;
+    struct kms_presenter *private;
     struct presenter *presenter;
+    drmModeAtomicReq *req;
+    struct kmsdev *dev;
+    uint32_t free_planes;
+
+    DEBUG_ASSERT(display != NULL);
+    display_private = DISPLAY_PRIVATE_KMS(display);
+    dev = display_private->dev;
 
     presenter = malloc(sizeof *presenter);
     if (presenter == NULL) {
@@ -2009,20 +2122,307 @@ struct presenter *fbdev_create_presenter(struct fbdev *dev) {
         return NULL;
     }
 
-    private->fbdev = dev;
+    req = drmModeAtomicAlloc();
+    if (req == NULL) {
+        free(private);
+        free(presenter);
+        return NULL;
+    }
 
-    presenter->private = private;
-    presenter->get_supported_formats = fbdev_presenter_get_supported_formats;
-    presenter->set_active_crtc = fbdev_presenter_set_active_crtc;
-    presenter->get_active_crtc = fbdev_presenter_get_active_crtc;
-    presenter->set_logical_zpos = fbdev_presenter_set_logical_zpos;
-    presenter->get_zpos = fbdev_presenter_get_zpos;
-    presenter->push_drm_fb_layer = fbdev_presenter_push_drm_fb_layer;
-    presenter->push_gbm_bo_layer = fbdev_presenter_push_gbm_bo_layer;
-    presenter->push_sw_fb_layer = fbdev_presenter_push_sw_fb_layer;
-    presenter->push_placeholder_layer = fbdev_presenter_push_placeholder_layer;
-    presenter->flush = fbdev_presenter_flush;
-    presenter->destroy = fbdev_presenter_destroy;
-    
+    for (unsigned int i = 0; i < dev->n_planes; i++) {
+        if ((dev->planes[i].type == DRM_PLANE_TYPE_PRIMARY) || (dev->planes[i].type == DRM_PLANE_TYPE_OVERLAY)) {
+            free_planes |= (1 << i);
+        }
+    }
+
+    private->dev = dev;
+    private->free_planes = free_planes;
+    private->active_crtc_index = display_private->crtc_index;
+    private->active_crtc = dev->crtcs + display_private->crtc_index;
+    private->req = req;
+    private->has_primary_layer = false;
+    memset(&private->primary_layer, 0, sizeof(private->primary_layer));
+    memset(private->scanout_callbacks, 0, sizeof(private->scanout_callbacks));
+
+    presenter->private = (struct presenter_private*) private;
+    presenter->get_supported_formats = kms_presenter_get_supported_formats;
+    presenter->set_active_crtc = kms_presenter_set_active_crtc;
+    presenter->get_active_crtc = kms_presenter_get_active_crtc;
+    presenter->set_logical_zpos = kms_presenter_set_logical_zpos;
+    presenter->get_zpos = kms_presenter_get_zpos;
+    presenter->set_scanout_callback = kms_presenter_set_scanout_callback;
+    presenter->push_drm_fb_layer = kms_presenter_push_drm_fb_layer;
+    presenter->push_gbm_bo_layer = kms_presenter_push_gbm_bo_layer;
+    presenter->push_sw_fb_layer = kms_presenter_push_sw_fb_layer;
+    presenter->push_placeholder_layer = kms_presenter_push_placeholder_layer;
+    presenter->flush = kms_presenter_flush;
+    presenter->destroy = kms_presenter_destroy;
+
     return presenter;
+}
+
+
+struct display *fbdev_display_new_from_fd(int fd, const struct fbdev_display_config *config) {
+    struct fbdev_display *private;
+    struct display *display;
+    unsigned int i;
+    uint32_t format;
+    void *vmem;
+    int ok;
+
+    DEBUG_ASSERT(config != NULL);
+
+    display = malloc(sizeof *display);
+    if (display == NULL) {
+        goto fail_return_null;
+    }
+
+    private = malloc(sizeof *private);
+    if (private == NULL) {
+        goto fail_free_display;
+    }
+
+    ok = ioctl(fd, FBIOGET_FSCREENINFO, &private->fixinfo);
+    if (ok < 0) {
+        LOG_MODESETTING_ERROR("Couldn't get fbdev fix_screeninfo. ioctl: %s\n", strerror(-ok));
+        goto fail_free_private;
+    }
+
+    ok = ioctl(fd, FBIOGET_VSCREENINFO, &private->varinfo);
+    if (ok < 0) {
+        LOG_MODESETTING_ERROR("Couldn't get fbdev var_screeninfo. ioctl: %s\n", strerror(-ok));
+        goto fail_free_private;
+    }
+
+    if (private->fixinfo.visual != FB_TYPE_PACKED_PIXELS) {
+        LOG_MODESETTING_ERROR("A fbdev type other than FB_TYPE_PACKED_PIXELS is not supported.\n");
+        goto fail_free_private;
+    }
+    
+    if (private->fixinfo.visual != FB_VISUAL_TRUECOLOR) {
+        LOG_MODESETTING_ERROR("A fbdev visual other than FB_VISUAL_TRUECOLOR is not supported.\n");
+        goto fail_free_private;
+    }
+
+    // look for the fourcc code for this fbdev format
+    format = 0;
+    for (i = 0; i < n_mappings; i++) {
+        if (fb_bitfield_equals(&private->varinfo.red, &mappings[i].r) &&
+            fb_bitfield_equals(&private->varinfo.green, &mappings[i].g) &&
+            fb_bitfield_equals(&private->varinfo.blue, &mappings[i].b) &&
+            fb_bitfield_equals(&private->varinfo.transp, &mappings[i].a)
+        ) {
+            format = mappings[i].fourcc;
+            break;
+        }
+    }
+
+    // if the format is still 0 we couldn't find a corresponding DRM fourcc format.
+    if (format == 0) {
+        LOG_MODESETTING_ERROR(
+            "Didn't find a corresponding fourcc format for fbdev format rgba = %" PRIu32 "/%" PRIu32 ",%" PRIu32 "/%" PRIu32 ",%" PRIu32 "/%" PRIu32 ",%" PRIu32"/%" PRIu32 ".\n",
+            private->varinfo.red.length, private->varinfo.red.offset,
+            private->varinfo.green.length, private->varinfo.green.offset,
+            private->varinfo.blue.length, private->varinfo.blue.offset,
+            private->varinfo.transp.length, private->varinfo.transp.offset
+        );
+        goto fail_free_private;
+    }
+
+    vmem = mmap(
+        NULL,
+        private->varinfo.yres_virtual * private->fixinfo.line_length,
+        PROT_READ | PROT_WRITE,
+        MAP_SHARED,
+        private->fd,
+        0
+    );
+    if (vmem == MAP_FAILED) {
+        LOG_MODESETTING_ERROR("Couldn't map fbdev. mmap: %s\n", strerror(errno));
+        goto fail_free_private;
+    }
+
+    private->fd = fd;
+    private->width = private->varinfo.width;
+    private->height = private->varinfo.height;
+    private->format = format;
+    private->vmem = vmem;
+    display->private = (struct display_private*) private;
+    display->destroy = fbdev_display_destroy;
+    display->width = private->varinfo.width;
+    display->height = private->varinfo.height;
+    display->has_dimensions = config->has_explicit_dimensions;
+    display->width_mm = config->width_mm;
+    display->height_mm = config->height_mm;
+    display->create_presenter = fbdev_display_create_presenter;
+
+    return display;
+
+
+    fail_free_private:
+    free(private);
+
+    fail_free_display:
+    free(display);
+
+    fail_return_null:
+    return NULL;
+}
+
+struct display *fbdev_display_new_from_path(const char *path, const struct fbdev_display_config *config) {
+    struct display *display;
+    int fd;
+
+    fd = open(path, O_RDWR | O_CLOEXEC);
+    if (fd < 0) {
+        LOG_MODESETTING_ERROR("Couldn't open fb device. open: %s\n", strerror(errno));
+        return NULL;
+    }
+
+    display = fbdev_display_new_from_fd(fd, config);
+    if (display == NULL) {
+        close(fd);
+        return NULL;
+    }
+
+    return display;
+}
+
+static struct display *create_kms_display(
+    struct kmsdev *dev,
+    int crtc_index,
+    bool has_dimensions,
+    int width_mm, int height_mm
+) {
+    struct drm_connector *connector;
+    struct kms_display *private;
+    struct drm_crtc *crtc;
+    drmModeModeInfo *mode;
+    struct display *display;
+    bool use_dimensions;
+
+    DEBUG_ASSERT_VALID_CRTC_INDEX(dev, crtc_index);
+    
+    display = malloc(sizeof *display);
+    if (display == NULL) {
+        return NULL;
+    }
+
+    private = malloc(sizeof *private);
+    if (private = NULL) {
+        free(display);
+        return NULL;
+    }
+
+    crtc = dev->crtcs + crtc_index;
+    mode = &crtc->selected_mode;
+    connector = crtc->selected_connector;
+
+    if (has_dimensions == false) {
+        if ((connector->connector->connector_type == DRM_MODE_CONNECTOR_DSI) &&
+            (connector->connector->mmWidth == 0) &&
+            (connector->connector->mmHeight == 0)) {
+            // if it's connected via DSI, and the width & height are 0,
+            //   it's probably the official 7 inch touchscreen.
+            has_dimensions = true;
+            width_mm = 155;
+            height_mm = 86;
+        } else if (((connector->connector->mmWidth % 10) != 0) || ((connector->connector->mmHeight % 10) != 0)) {
+            has_dimensions = true;
+            width_mm = connector->connector->mmWidth;
+            height_mm = connector->connector->mmHeight;
+        }
+    }
+
+    private->dev = dev;
+    private->crtc_index = crtc_index;
+    display->private = private;
+    display->create_presenter = kms_display_create_presenter;
+    display->destroy = kms_display_destroy;
+    display->width = mode->hdisplay;
+    display->height = mode->vdisplay;
+    display->has_dimensions = has_dimensions;
+    display->width_mm = width_mm;
+    display->height_mm = height_mm;
+
+    return display;
+}
+
+/**
+ * @brief Configure the display setup.
+ * This will choose all for all connected CRTCs:
+ *   - whether they should be enabled
+ *   - how many planes they'll get assigned (if the CRTC is disabled it'll probably get as few planes as possible)
+ *   - what output mode to use
+ *   - other things like cloning, spanning, etc
+ */
+int kmsdev_configure(
+    struct kmsdev *dev,
+    const struct kms_config *config
+) {
+    struct display **displays, *display;
+    size_t n_displays;
+    int ok, n_allocated_displays;
+
+    DEBUG_ASSERT(dev != NULL);
+    DEBUG_ASSERT(config != NULL);
+    DEBUG_ASSERT(config->display_configs != NULL);
+    DEBUG_ASSERT(config->n_display_configs != 0);
+    
+    n_displays = config->n_display_configs;
+
+    if (dev->n_crtcs < n_displays) {
+        return NULL;
+    }
+
+    displays = malloc(n_displays * (sizeof *displays));
+    if (displays == NULL) {
+        ok = ENOMEM;
+        goto fail_return_ok;
+    }
+
+    n_allocated_displays = 0;
+    for (int i = 0; i < n_displays; i++) {
+        display = create_kms_display(
+            dev,
+            i,
+            config->display_configs[i].has_explicit_dimensions,
+            config->display_configs[i].width_mm,
+            config->display_configs[i].height_mm
+        );
+        if (display == NULL) {
+            goto fail_destroy_displays;
+        }
+
+        n_allocated_displays++;
+    }
+
+    dev->displays = displays;
+    dev->n_displays = n_displays;
+
+    return 0;
+
+
+    fail_destroy_displays:
+    for (int i = n_allocated_displays; i >= 0; i--) display_destroy(displays[i]);
+
+    fail_free_displays:
+    free(displays);
+
+    fail_return_ok:
+    return ok;
+}
+
+struct display *kmsdev_get_display(struct kmsdev *dev, int display_index) {
+    DEBUG_ASSERT(dev != NULL);
+    DEBUG_ASSERT(dev->displays != NULL);
+    DEBUG_ASSERT(display_index < dev->n_displays);
+    return dev->displays[display_index];
+}
+
+void kmsdev_get_displays(struct kmsdev *dev, struct display ***displays_out, size_t *n_displays_out) {
+    DEBUG_ASSERT(dev != NULL);
+    DEBUG_ASSERT(displays_out != NULL);
+    *displays_out = dev->displays;
+    *n_displays_out = dev->n_displays;
 }

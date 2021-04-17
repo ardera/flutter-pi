@@ -114,10 +114,9 @@ int gl_renderer_create_scanout_fbo(
 	GLuint *fbo_out
 );
 
-int gl_renderer_destroy_scanout_fbo(
+void gl_renderer_destroy_scanout_fbo(
 	struct renderer *renderer,
 	EGLImage image,
-	uint32_t handle,
 	GLuint rbo,
 	GLuint fbo
 );

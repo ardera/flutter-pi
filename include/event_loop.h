@@ -23,13 +23,19 @@ struct event_loop;
  * But we want to be able to add events to the event loop from multiple threads
  * (even though we're still only processing on one thread), so we use this instead.
  */
-struct event_loop *event_loop_create(void);
+struct event_loop *event_loop_create(bool has_processing_thread, pthread_t processing_thread);
+
+void event_loop_set_processing_thread(struct event_loop *event, bool has_processing_thread, pthread_t processing_thread);
 
 /**
  * @brief Destroy the event loop, freeing all allocated resources. Should not be called
  * inside a event loop callback.
  */
 void event_loop_destroy(struct event_loop *loop);
+
+bool event_loop_has_processing_thread(struct event_loop *loop);
+
+bool event_loop_processing_on_current_thread(struct event_loop *loop);
 
 /**
  * @brief Schedule the exit of this event loop, possibly causing @ref event_loop_process

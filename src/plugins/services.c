@@ -32,6 +32,10 @@ static void on_receive_navigation(
     const struct platch_obj *object,
     void *userdata
 ) {
+    (void) success;
+    (void) channel;
+    (void) object;
+    (void) userdata;
     fm_respond_not_implemented(responsehandle);
 }
 
@@ -45,9 +49,11 @@ static void on_receive_isolate(
     struct plugin *plugin;
     char *duped;
 
+    (void) channel;
+
     plugin = userdata;
     
-    duped = strndup(data, size);
+    duped = strndup((const char *) data, size);
     if (duped == NULL) {
         LOG_SERVICES_PLUGIN_ERROR("Error duplicating isolate id: Out of memory\n");
         return;
@@ -67,6 +73,9 @@ static void on_receive_platform(
 ) {
     const struct json_value *value, *arg;
     struct plugin *plugin;
+
+    (void) success;
+    (void) channel;
     
     arg = &(object->json_arg);
     plugin = userdata;
@@ -165,8 +174,13 @@ static void on_receive_platform(
 
                 flutterpi_fill_view_properties(plugin->flutterpi, true, i, false, 0);
 
-                /// FIXME: This will unconditionally enable the mouse cursor.
-                compositor_apply_cursor_state(plugin->flutterpi->compositor, true, plugin->flutterpi->view.rotation, plugin->flutterpi->display.pixel_ratio);
+                /// FIXME: Move this into fill_view_properties.
+                compositor_set_cursor_state(
+                    plugin->flutterpi->compositor,
+                    false, 0,
+                    true, plugin->flutterpi->view.rotation,
+                    false, 0
+                );
 
                 // send updated window metrics to flutter
                 /// TODO: Move this into flutter-pi
@@ -259,6 +273,11 @@ static void on_receive_accessibility(
     const struct platch_obj *object,
     void *userdata
 ) {
+    (void) success;
+    (void) channel;
+    (void) object;
+    (void) userdata;
+
     fm_respond_not_implemented(responsehandle);
 }
 
@@ -269,7 +288,9 @@ static void on_receive_platform_views(
     const struct platch_obj *object,
     void *userdata
 ) {
-    int ok;
+    (void) success;
+    (void) channel;
+    (void) userdata;
     
     if STREQ("create", object->method) {
         fm_respond_not_implemented(responsehandle);
@@ -285,9 +306,12 @@ int services_init(struct flutterpi *flutterpi, void **userdata) {
     struct plugin *plugin;
     int ok;
 
+    (void) userdata;
+
     plugin = malloc(sizeof *plugin);
     if (plugin == NULL) {
-        return ENOMEM;
+        ok = ENOMEM;
+        goto fail_return_ok;
     }
 
     plugin->flutterpi = flutterpi;
@@ -361,9 +385,6 @@ int services_init(struct flutterpi *flutterpi, void **userdata) {
     return 0;
 
 
-    fail_remove_platform_views_receiver:
-    fm_remove_listener(flutterpi->flutter_messenger, "flutter/platform_views");
-
     fail_remove_accessibility_receiver:
     fm_remove_listener(flutterpi->flutter_messenger, "flutter/accessibility");
 
@@ -384,10 +405,15 @@ int services_init(struct flutterpi *flutterpi, void **userdata) {
 }
 
 int services_deinit(struct flutterpi *flutterpi, void **userdata) {
+    struct plugin *plugin;
+
+    plugin = *userdata;
+
     fm_remove_listener(flutterpi->flutter_messenger, "flutter/navigation");
     fm_remove_listener(flutterpi->flutter_messenger, "flutter/isolate");
     fm_remove_listener(flutterpi->flutter_messenger, "flutter/platform");
     fm_remove_listener(flutterpi->flutter_messenger, "flutter/accessibility");
     fm_remove_listener(flutterpi->flutter_messenger, "flutter/platform_views");
+    free(plugin);
     return 0;
 }

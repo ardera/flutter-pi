@@ -344,7 +344,7 @@ struct std_value {
 #define JSONVALUE_IS_SIZE(value, _size) ((value).size == (_size))
 #define JSONVALUE_IS_SIZED_ARRAY(value, _size) (JSONVALUE_IS_ARRAY(value) && JSONVALUE_IS_SIZE(value, _size))
 
-#define JSONVALUE_IS_OBJECT(value) ((value).type == kStdMap)
+#define JSONVALUE_IS_OBJECT(value) ((value).type == kJsonObject)
 #define JSONVALUE_IS_SIZED_OBJECT(value, _size) (JSONVALUE_IS_OBJECT(value) && JSONVALUE_IS_SIZE(value, _size))
 
 #define JSONOBJECT1(key1, val1) ((struct json_value) { \

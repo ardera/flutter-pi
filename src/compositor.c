@@ -319,7 +319,7 @@ static int create_drm_fbo(
 		0
 	);
 	if (ok != 0) {
-		gl_renderer_destroy_scanout_fbo(renderer, fbo.egl_image, fbo.gem_handle, fbo.gl_rbo_id, fbo.gl_fbo_id);
+		gl_renderer_destroy_scanout_fbo(renderer, fbo.egl_image, fbo.gl_rbo_id, fbo.gl_fbo_id);
 		return ok;
 	}
 
@@ -333,7 +333,7 @@ static void destroy_drm_fbo(
 	struct drm_fbo *fbo
 ) {
 	kmsdev_destroy_fb(dev, fbo->drm_fb_id);
-	gl_renderer_destroy_scanout_fbo(renderer, fbo->egl_image, fbo->gem_handle, fbo->gl_rbo_id, fbo->gl_fbo_id);
+	gl_renderer_destroy_scanout_fbo(renderer, fbo->egl_image, fbo->gl_rbo_id, fbo->gl_fbo_id);
 }
 
 
@@ -705,7 +705,11 @@ struct compositor *compositor_new(
 	compositor->gbm_surface = NULL;
 	compositor->renderer_type = renderer_type;
 	compositor->renderer = renderer;
-	compositor->tracing = *tracing_interface;
+	if (tracing_interface == NULL) {
+		memset(&compositor->tracing, 0, sizeof(struct flutter_tracing_interface));
+	} else {
+		compositor->tracing = *tracing_interface;
+	}
 	compositor->should_create_window_surface_backing_store = true;
 	compositor->do_blocking_atomic_commits = false;
 
@@ -728,8 +732,19 @@ void compositor_destroy(struct compositor *compositor) {
 	free(compositor);
 }
 
+void compositor_set_tracing_interface(
+    struct compositor *compositor,
+    const struct flutter_tracing_interface *tracing_interface
+) {
+	DEBUG_ASSERT(compositor != NULL);
+	if (tracing_interface == NULL) {
+		memset(&compositor->tracing, 0, sizeof(struct flutter_tracing_interface));
+	} else {
+		compositor->tracing = *tracing_interface;
+	}
+}
+
 static int respond_to_frame_request(struct compositor *compositor, uint64_t vblank_ns) {
-	FlutterEngineResult result;
 	struct frame presented_frame, *peek;
 	int ok;
 
@@ -754,7 +769,7 @@ static int respond_to_frame_request(struct compositor *compositor, uint64_t vbla
 
 	cqueue_unlock(&compositor->frame_queue);
 
-	return;
+	return 0;
 
 	fail_unlock_frame_queue:
 	cqueue_unlock(&compositor->frame_queue);
@@ -764,14 +779,16 @@ static int respond_to_frame_request(struct compositor *compositor, uint64_t vbla
 
 static int signal_presenting_complete(struct compositor *compositor) {
 	if (compositor->use_triple_buffering) {
-		respond_to_frame_request(compositor, get_monotonic_time());
+		return respond_to_frame_request(compositor, get_monotonic_time());
 	}
+	return 0;
 }
 
 static int signal_vblank(struct compositor *compositor, uint64_t vblank_nanos) {
 	if (!compositor->use_triple_buffering) {
-		respond_to_frame_request(compositor, vblank_nanos);
+		return respond_to_frame_request(compositor, vblank_nanos);
 	}
+	return 0;
 }
 
 
@@ -1241,6 +1258,18 @@ static struct presenter *create_presenter(struct compositor *compositor) {
 	}
 }
 
+static void on_scanout(
+	int crtc_index,
+	unsigned int tv_sec,
+	unsigned int tv_usec,
+	void *userdata
+) {
+	struct compositor *compositor = userdata;
+	(void) crtc_index;
+	DEBUG_ASSERT(compositor != NULL);
+	signal_vblank(compositor, tv_sec*1000000000ull + tv_usec*1000ull);
+}
+
 static bool on_present_layers_sw(
 	const FlutterLayer **layers,
 	size_t n_layers,
@@ -1248,6 +1277,7 @@ static bool on_present_layers_sw(
 ) {
 	struct compositor *compositor;
 	struct presenter *presenter;
+	int ok;
 
 	DEBUG_ASSERT(userdata != NULL);
 
@@ -1261,12 +1291,16 @@ static bool on_present_layers_sw(
 	(void) layers;
 	(void) n_layers;
 
-	presenter_flush(compositor);
-	presenter_destroy(compositor);
+	ok = presenter_flush(presenter);
+	if (ok != 0) {
+		presenter_destroy(presenter);
+		return false;
+	}
 
-	signal_presenting_complete(compositor);
+	presenter_destroy(presenter);
 
-	return true;
+	ok = signal_presenting_complete(compositor);
+	return ok == 0;
 }
 
 static bool on_present_layers_gl(
@@ -1330,10 +1364,7 @@ static bool on_present_layers_gl(
 		}
 	}
 
-	presenter_set_scanout_callback(
-		presenter,
-		
-	);
+	presenter_set_scanout_callback(presenter, on_scanout, compositor);
 
 	ok = presenter_flush(presenter);
 	if (ok != 0) {
@@ -1389,10 +1420,11 @@ int compositor_request_frame(
 	}
 
 	cqueue_unlock(&compositor->frame_queue);
-	return;
+	return 0;
 	
 	fail_unlock_frame_queue:
 	cqueue_unlock(&compositor->frame_queue);
+	return ok;
 }
 
 int compositor_put_view_callbacks(

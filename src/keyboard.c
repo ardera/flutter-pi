@@ -61,8 +61,6 @@ static int find_var_offset_in_string(const char *varname, const char *buffer, re
         match->rm_so = -1;
         match->rm_eo = -1;
     }
-
-    fail_return_ok:
     return ok;
 }
 
@@ -219,8 +217,6 @@ struct keyboard_config *keyboard_config_new(void) {
 
     return cfg;
 
-    fail_free_keymap:
-    xkb_keymap_unref(keymap);
 
     fail_free_compose_table:
     xkb_compose_table_unref(compose_table);
@@ -280,8 +276,6 @@ struct keyboard_state *keyboard_state_new(
 
     return state;
 
-    fail_free_plain_xkb_state:
-    xkb_state_unref(plain_xkb_state);
 
     fail_free_xkb_state:
     xkb_state_unref(xkb_state);

@@ -13,11 +13,29 @@
 
 #define DRM_NO_PROPERTY_ID ((uint32_t) 0xFFFFFFFF)
 
+struct kms_display_config {
+    char connector_name[32];
+    bool has_explicit_mode;
+    drmModeModeInfo explicit_mode;
+    bool has_explicit_dimensions;
+    int width_mm, height_mm;
+};
+
+struct kms_config {
+    struct kms_display_config *display_configs;
+    size_t n_display_configs;
+};
+
 struct kmsdev;
 
 struct kms_cursor;
 
-struct fbdev;
+struct fbdev_display_config {
+    bool has_explicit_dimensions;
+    int width_mm, height_mm;
+};
+
+struct display;
 
 struct presenter;
 
@@ -68,6 +86,9 @@ enum kmsdev_mode_preference {
     kKmsdevModePreferenceInterlaced
 };
 
+/*********************
+ * UTILITY FUNCTIONS *
+ *********************/
 static inline float mode_get_vrefresh(const drmModeModeInfo *mode) {
     return mode->clock * 1000.0 / (mode->htotal * mode->vtotal);
 }
@@ -86,13 +107,22 @@ static inline bool mode_is_preferred(const drmModeModeInfo *mode) {
 
 bool fd_is_kmsfd(int fd);
 
+/**********
+ * KMSDEV *
+ **********/
 struct kmsdev *kmsdev_new_from_fd(struct event_loop *loop, int fd);
+
+struct kmsdev *kmsdev_new_from_path(struct event_loop *loop, const char *path);
+
+struct kmsdev *kmsdev_new_auto(struct event_loop *loop);
 
 void kmsdev_destroy(struct kmsdev *dev);
 
 int kmsdev_get_n_crtcs(struct kmsdev *dev);
 
 int kmsdev_get_n_connectors(struct kmsdev *dev);
+
+bool kmsdev_is_connector_connected(struct kmsdev *dev, int connector_index);
 
 int kmsdev_configure_crtc(
     struct kmsdev *dev,
@@ -183,19 +213,54 @@ int kmsdev_set_cursor(struct kmsdev *dev, int crtc_index, struct kms_cursor *cur
 
 int kmsdev_move_cursor(struct kmsdev *dev, int crtc_index, int x, int y);
 
-int presenter_set_active_crtc(struct presenter *presenter, int crtc_index);
+int kmsdev_configure(struct kmsdev *dev, const struct kms_config *config);
 
-int presenter_get_active_crtc(struct presenter *presenter, int *crtc_index_out);
+struct display *kmsdev_get_display(struct kmsdev *dev, int display_index);
 
+void kmsdev_get_displays(struct kmsdev *dev, struct display ***displays_out, size_t *n_displays_out);
+
+/*********
+ * FBDEV *
+ *********/
+struct display *fbdev_display_new_from_fd(int fd, const struct fbdev_display_config *config);
+
+struct display *fbdev_display_new_from_path(const char *path, const struct fbdev_display_config *config);
+
+/************
+ * DISPLAYS *
+ ************/
+void display_destroy(struct display *display);
+
+void display_get_size(struct display *display, int *width_out, int *height_out);
+
+bool display_has_dimensions(struct display *display);
+
+void display_get_dimensions(struct display *display, int *width_mm_out, int *height_mm_out);
+
+bool display_supports_gbm(struct display *display);
+
+struct gbm_device *display_get_gbm_device(struct display *display);
+
+struct gbm_surface *display_get_gbm_surface(struct display *display);
+
+bool display_supports_sw_buffers(struct display *display);
+
+void display_get_supported_formats(struct display *display, const uint32_t **formats_out, size_t *n_formats_out);
+
+struct presenter *display_create_presenter(struct display *display);
+
+/**************
+ * PRESENTERS *
+ **************/
 int presenter_set_scanout_callback(
     struct presenter *presenter,
     presenter_scanout_callback_t cb,
     void *userdata
 );
 
-void presenter_set_logical_zpos(struct presenter *presenter, int zpos);
+int presenter_set_logical_zpos(struct presenter *presenter, int zpos);
 
-void presenter_set_zpos(struct presenter *presenter, int zpos);
+int presenter_set_zpos(struct presenter *presenter, int zpos);
 
 int presenter_get_zpos(struct presenter *presenter);
 
@@ -214,14 +279,10 @@ int presenter_push_sw_fb_layer(
     const struct sw_fb_layer *layer
 );
 
-void presenter_push_placeholder_layer(struct presenter *presenter, int n_reserved_layers);
+int presenter_push_placeholder_layer(struct presenter *presenter, int n_reserved_layers);
 
 int presenter_flush(struct presenter *presenter);
 
 void presenter_destroy(struct presenter *presenter);
-
-struct presenter *kmsdev_create_presenter(struct kmsdev *dev);
-
-struct presenter *fbdev_create_presenter(struct fbdev *dev);
 
 #endif

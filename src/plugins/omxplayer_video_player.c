@@ -46,7 +46,8 @@ static struct omxpvidpp {
 } omxpvidpp = {
     .initialized = false,
     .next_unused_player_id = 1,
-    .players = CPSET_INITIALIZER(CPSET_DEFAULT_MAX_SIZE)
+    .players = CPSET_INITIALIZER(CPSET_DEFAULT_MAX_SIZE),
+    .flutterpi = NULL
 };
 
 /// Add a player instance to the player collection.
@@ -101,6 +102,8 @@ static int get_player_id_from_map_arg(
     struct flutter_message_response_handle *responsehandle
 ) {
     int ok;
+
+    (void) plugin;
 
     if (arg->type != kStdMap) {
         ok = fm_respond_illegal_arg_std(
@@ -167,19 +170,29 @@ static int get_player_from_map_arg(
 /// for the first time after it was unmounted or initialized.
 static int on_mount(
     int64_t view_id,
-    struct drmdev_atomic_req *req,
+    struct presenter *presenter,
     const FlutterPlatformViewMutation **mutations,
-    size_t num_mutations,
+    size_t n_mutations,
     int offset_x,
     int offset_y,
     int width,
     int height,
     int zpos,
-    void *userdata  
+    void *userdata
 ) {
     struct omxplayer_video_player *player = userdata;
 
-    if (zpos == 1) {
+    (void) view_id;
+    (void) presenter;
+    (void) mutations;
+    (void) n_mutations;
+
+    // we don't even push a placeholder layer here since
+    // raspberry pi's concept of "zpos" is a bit broken
+
+    if (zpos == 0) {
+        zpos = -127;
+    } else if (zpos == 1) {
         zpos = -126;
     }
 
@@ -201,10 +214,13 @@ static int on_mount(
 /// in the currently being drawn frame after it was present in the previous frame.
 static int on_unmount(
     int64_t view_id,
-    struct drmdev_atomic_req *req,
+    struct presenter *presenter,
     void *userdata
 ) {
     struct omxplayer_video_player *player = userdata;
+
+    (void) view_id;
+    (void) presenter;
 
     return cqueue_enqueue(
         &player->mgr->task_queue,
@@ -223,9 +239,9 @@ static int on_unmount(
 /// changed from the previous frame.
 static int on_update_view(
     int64_t view_id,
-    struct drmdev_atomic_req *req,
+    struct presenter *presenter,
     const FlutterPlatformViewMutation **mutations,
-    size_t num_mutations,
+    size_t n_mutations,
     int offset_x,
     int offset_y,
     int width,
@@ -235,7 +251,14 @@ static int on_update_view(
 ) {
     struct omxplayer_video_player *player = userdata;
 
-    if (zpos == 1) {
+    (void) view_id;
+    (void) presenter;
+    (void) mutations;
+    (void) n_mutations;
+
+    if (zpos == 0) {
+        zpos = -127;
+    } else if (zpos == 1) {
         zpos = -126;
     }
 
@@ -259,6 +282,8 @@ static int respond_sd_bus_error(
     sd_bus_error *err
 ) {
     char str[256];
+
+    (void) plugin;
 
     snprintf(str, sizeof(str), "%s: %s", err->name, err->message);
 
@@ -327,6 +352,8 @@ static int mgr_on_dbus_message(
     char *old_owner, *new_owner, *name;
     int ok;
 
+    (void) ret_error;
+
     task = userdata;
 
     sender = sd_bus_message_get_sender(m);
@@ -355,7 +382,6 @@ static void *mgr_entry(void *userdata) {
     struct flutter_messenger *fm;
     struct concurrent_queue *q;
     struct omxplayer_mgr *mgr;
-    struct timespec t_scheduled_pause;
     sd_bus_message *msg;
     sd_bus_error err;
     sd_bus_slot *slot;
@@ -363,10 +389,7 @@ static void *mgr_entry(void *userdata) {
     sd_bus *bus;
     pid_t omxplayer_pid;
     char dbus_name[256];
-    bool omxplayer_online;
     bool has_sent_initialized_event;
-    bool pause_on_end;
-    bool has_scheduled_pause_time;
     bool is_stream;
     int ok;
 
@@ -607,8 +630,6 @@ static void *mgr_entry(void *userdata) {
     fm_respond_success_std(task.responsehandle, &STDINT64(mgr->player->player_id));
 
     has_sent_initialized_event = false;
-    pause_on_end = is_stream ? false : true;
-    has_scheduled_pause_time = false;
     while (1) {
         ok = cqueue_dequeue(q, &task);
         
@@ -715,8 +736,6 @@ static void *mgr_entry(void *userdata) {
 
             fm_respond_success_std(task.responsehandle, NULL);
         } else if (task.type == kPause) {
-            has_scheduled_pause_time = false;
-
             ok = sd_bus_call_method(
                 bus,
                 dbus_name,
@@ -845,7 +864,6 @@ static void *mgr_entry(void *userdata) {
                 fm_respond_success_std(task.responsehandle, NULL);
             }
         } else if (task.type == kSetLooping) {
-            pause_on_end = false;
             fm_respond_success_std(task.responsehandle, NULL);
         } else if (task.type == kSetVolume) {
             ok = sd_bus_call_method(
@@ -897,8 +915,6 @@ static void *mgr_entry(void *userdata) {
     cqueue_deinit(&mgr->task_queue);
     free(mgr);
     mgr = NULL;
-
-    fail_return_ok:
     return (void*) EXIT_FAILURE;
 }
 
@@ -924,6 +940,8 @@ static int respond_init_failed(
     struct omxpvidpp *plugin,
     struct flutter_message_response_handle *handle
 ) {
+    (void) plugin;
+    
     return fm_respond_error_std(
         handle,
         "couldnotinit",
@@ -944,10 +962,9 @@ static void on_receive_evch(
     void *userdata
 ) {
     struct omxplayer_video_player *player;
-    struct omxpvidpp *plugin;
-    int ok;
 
-    plugin = userdata;
+    (void) success;
+    (void) userdata;
 
     player = get_player_by_evch(channel);
     if (player == NULL) {
@@ -975,6 +992,8 @@ static int on_initialize(
     struct flutter_message_response_handle* responsehandle
 ) {
     int ok;
+
+    (void) arg;
 
     ok = ensure_binding_initialized();
     if (ok != 0) {
@@ -1141,6 +1160,10 @@ static int on_create(
     if (ok != 0) {
         goto fail_remove_evch_listener;
     }
+
+    (void) source_type;
+    (void) package_name;
+    (void) format_hint;
 
     return 0;
 
@@ -1455,6 +1478,8 @@ static void on_receive_mch(
     void *userdata
 ) {
     struct omxpvidpp *plugin;
+
+    (void) channel;
 
     plugin = userdata;
 

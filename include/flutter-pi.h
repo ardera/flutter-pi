@@ -24,6 +24,7 @@
 
 #include <collection.h>
 #include <keyboard.h>
+#include <event_loop.h>
 
 #define LOG_FLUTTERPI_ERROR(...) fprintf(stderr, "[flutter-pi] " __VA_ARGS__);
 
@@ -144,8 +145,12 @@ enum flutter_runtime_mode {
 	kDebug, kRelease
 };
 
-struct flutterpi_private;
+enum event_loop_type {
+	kPlatform,
+	kRender
+};
 
+struct flutterpi_private;
 
 struct flutterpi {
 	struct flutterpi_private *private;
@@ -324,6 +329,8 @@ int flutterpi_fill_view_properties(
 	int rotation
 );
 
+struct event_loop *flutterpi_get_event_loop(struct flutterpi *flutterpi, enum event_loop_type type);
+
 bool flutterpi_runs_platform_tasks_on_current_thread(
 	struct flutterpi *flutterpi
 );
@@ -332,25 +339,76 @@ bool flutterpi_runs_render_tasks_on_current_thread(
 	struct flutterpi *flutterpi
 );
 
-int flutterpi_post_platform_task(
+static inline int flutterpi_post_task(
 	struct flutterpi *flutterpi,
-	int (*callback)(void *userdata),
+	enum event_loop_type type,
+	void (*callback)(void *userdata),
 	void *userdata
-);
+) {
+	return event_loop_post_task(
+		flutterpi_get_event_loop(flutterpi, type),
+		callback,
+		userdata
+	);
+}
 
-int flutterpi_post_platform_task_with_time(
+static inline int flutterpi_post_task_with_time(
 	struct flutterpi *flutterpi,
-	int (*callback)(void *userdata),
+	enum event_loop_type type,
+	uint64_t target_time_usec,
+	void (*callback)(void *userdata),
+	void *userdata
+) {
+	return event_loop_post_task_with_time(
+		flutterpi_get_event_loop(flutterpi, type),
+		target_time_usec,
+		callback,
+		userdata
+	);
+}
+
+static inline int flutterpi_post_platform_task(
+	struct flutterpi *flutterpi,
+	void (*callback)(void *userdata),
+	void *userdata
+) {
+	return flutterpi_post_task(
+		flutterpi,
+		kPlatform,
+		callback,
+		userdata
+	);
+}
+
+static inline int flutterpi_post_platform_task_with_time(
+	struct flutterpi *flutterpi,
+	void (*callback)(void *userdata),
 	void *userdata,
 	uint64_t target_time_usec
-);
+) {
+	return flutterpi_post_task_with_time(
+		flutterpi,
+		kPlatform,
+		target_time_usec,
+		callback,
+		userdata
+	);
+}
 
-int flutterpi_post_render_task(
+static inline int flutterpi_post_render_task(
 	struct flutterpi *flutterpi,
-	int (*callback)(void *userdata),
+	void (*callback)(void *userdata),
 	void *userdata
-);
+) {
+	return flutterpi_post_task(
+		flutterpi,
+		kRender,
+		callback,
+		userdata
+	);
+}
 
+/*
 int flutterpi_platform_sd_event_add_io(
 	struct flutterpi *flutterpi,
 	sd_event_source **source_out,
@@ -368,6 +426,7 @@ int flutterpi_render_sd_event_add_io(
 	sd_event_io_handler_t callback,
 	void *userdata
 );
+*/
 
 bool flutterpi_get_cursor_enabled(struct flutterpi *flutterpi);
 

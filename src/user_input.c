@@ -1,3 +1,4 @@
+#define _XOPEN_SOURCE 700
 #include <stdlib.h>
 #include <stdio.h>
 #include <memory.h>
@@ -12,6 +13,7 @@
 #include <collection.h>
 #include <keyboard.h>
 #include <user_input.h>
+#include <flutter-pi.h>
 
 struct input_device_data {
 	int64_t flutter_device_id_offset;
@@ -90,7 +92,6 @@ struct user_input *user_input_new(
 ) {
 	struct keyboard_config *kbdcfg;
 	struct user_input *input;
-	sd_event_source *libinput_event_source;
 	struct libinput *libinput;
 	struct udev *udev;
 	int ok;
@@ -132,6 +133,7 @@ struct user_input *user_input_new(
 #endif
 
 	input->interface = *interface;
+    input->userdata = userdata;
 	input->libinput = libinput;
 	input->kbdcfg = kbdcfg;
 	input->next_unused_flutter_device_id = 0;
@@ -225,7 +227,6 @@ static int on_device_added(struct user_input *input, struct libinput_event *even
     struct input_device_data *data;
     struct libinput_device *device;
     int64_t device_id;
-    int ok;
     
     device = libinput_event_get_device(event);
 
@@ -250,11 +251,10 @@ static int on_device_added(struct user_input *input, struct libinput_event *even
 
             emit_pointer_events(
                 input,
-                &FLUTTER_POINTER_ADD_EVENT(
+                &FLUTTER_POINTER_MOUSE_ADD_EVENT(
                     timestamp,
                     0.0, 0.0,
                     device_id,
-                    kFlutterPointerDeviceKindMouse,
                     0
                 ),
                 1
@@ -269,12 +269,10 @@ static int on_device_added(struct user_input *input, struct libinput_event *even
 
             emit_pointer_events(
                 input,
-                &FLUTTER_POINTER_ADD_EVENT(
+                &FLUTTER_POINTER_TOUCH_ADD_EVENT(
                     timestamp,
                     0.0, 0.0,
-                    device_id,
-                    kFlutterPointerDeviceKindTouch,
-                    0
+                    device_id
                 ),
                 1
             );
@@ -287,11 +285,15 @@ static int on_device_added(struct user_input *input, struct libinput_event *even
         libinput_device_set_user_data(device, NULL);
         free(data);
     }
+
+    return 0;
 }
 
 static int on_device_removed(struct user_input *input, struct libinput_event *event, uint64_t timestamp) {
     struct input_device_data *data;
     struct libinput_device *device;
+
+    (void) timestamp;
     
     device = libinput_event_get_device(event);
     data = libinput_device_get_user_data(device);
@@ -303,12 +305,10 @@ static int on_device_removed(struct user_input *input, struct libinput_event *ev
         if (input->n_cursor_devices == 0) {
             emit_pointer_events(
                 input,
-                &FLUTTER_POINTER_REMOVE_EVENT(
+                &FLUTTER_POINTER_TOUCH_REMOVE_EVENT(
                     timestamp,
                     0.0, 0.0,
-                    input->cursor_flutter_device_id,
-                    kFlutterPointerDeviceKindMouse,
-                    0
+                    input->cursor_flutter_device_id
                 ),
                 1
             );
@@ -318,12 +318,10 @@ static int on_device_removed(struct user_input *input, struct libinput_event *ev
         for (int i = 0; i < libinput_device_touch_get_touch_count(device); i++) {
             emit_pointer_events(
                 input,
-                &FLUTTER_POINTER_REMOVE_EVENT(
+                &FLUTTER_POINTER_TOUCH_REMOVE_EVENT(
                     timestamp,
                     0.0, 0.0,
-                    data->flutter_device_id_offset + i,
-                    kFlutterPointerDeviceKindTouch,
-                    0
+                    data->flutter_device_id_offset + i
                 ),
                 1
             );
@@ -338,13 +336,14 @@ static int on_device_removed(struct user_input *input, struct libinput_event *ev
     }
     
     libinput_device_set_user_data(device, NULL);
+
+    return 0;
 }
 
 static int on_key_event(struct user_input *input, struct libinput_event *event) {
     struct libinput_event_keyboard *key_event;
     struct input_device_data *data;
     struct libinput_device *device;
-    struct keyboard_modifier_state mods;
     enum libinput_key_state key_state;
     xkb_keysym_t keysym;
     uint32_t codepoint, plain_codepoint;
@@ -549,6 +548,8 @@ static int on_mouse_motion_absolute_event(struct user_input *input, struct libin
         ),
         1
     );
+
+    return 0;
 }
 
 static int on_mouse_button_event(struct user_input *input, struct libinput_event *event) {
@@ -566,7 +567,7 @@ static int on_mouse_button_event(struct user_input *input, struct libinput_event
     pointer_event = libinput_event_get_pointer_event(event);
     device = libinput_event_get_device(event);
     data = libinput_device_get_user_data(device);
-    timestamp = libinput_event_pointer_get_time_usec(event);
+    timestamp = libinput_event_pointer_get_time_usec(pointer_event);
     evdev_code = (uint16_t) libinput_event_pointer_get_button(pointer_event);
     button_state = libinput_event_pointer_get_button_state(pointer_event);
 
@@ -640,6 +641,8 @@ static int on_mouse_button_event(struct user_input *input, struct libinput_event
 
 static int on_mouse_axis_event(struct user_input *input, struct libinput_event *event) {
     /// TODO: Implement mouse scrolling
+    (void) input;
+    (void) event;
     return 0;
 }
 
@@ -746,11 +749,15 @@ static int on_touch_motion(struct user_input *input, struct libinput_event *even
 
 static int on_touch_cancel(struct user_input *input, struct libinput_event *event) {
     /// TODO: Implement touch cancel
+    (void) input;
+    (void) event;
     return 0;
 }
 
 static int on_touch_frame(struct user_input *input, struct libinput_event *event) {
     /// TODO: Implement touch frame
+    (void) input;
+    (void) event;
     return 0;
 }
 
@@ -849,8 +856,6 @@ static int process_libinput_events(struct user_input *input, uint64_t timestamp)
 
     fail_destroy_event:
     libinput_event_destroy(event);
-
-    fail_return_ok:
     return ok;
 }
 

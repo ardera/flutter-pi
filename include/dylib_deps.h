@@ -3,9 +3,11 @@
 
 #include <sys/types.h>
 #include <flutter_embedder.h>
+
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
-
+#include <GLES2/gl2.h>
+#include <GLES2/gl2ext.h>
 
 typedef uint64_t (*flutter_engine_get_current_time_t)();
 
