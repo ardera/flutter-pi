@@ -935,6 +935,52 @@ static int execute_simulate_page_flip_event(void *userdata) {
 	return 0;
 }
 
+static void back_transform(
+	double *x, double *y,
+	double *w, double *h,
+	const FlutterTransformation *display_to_view_transform,
+	const FlutterPlatformViewMutation **mutations,
+	size_t n_mutations,
+	double device_pixel_ratio
+) {
+	double topleft_x = *x;
+	double topleft_y = *y;
+	double topright_x = *x + *w;
+	double topright_y = *y;
+	double bottomleft_x = *x;
+	double bottomleft_y = *y + *h;
+	double bottomright_x = *x + *w;
+	double bottomright_y = *y + *h;
+
+	printf("backtransforming %f, %f, %f, %f\n", *x, *y, *w, *h);
+
+	// invert root_surface_transformation_.mapRect
+	apply_flutter_transformation(*display_to_view_transform, &topleft_x, &topleft_y);
+	apply_flutter_transformation(*display_to_view_transform, &topright_x, &topright_y);
+	apply_flutter_transformation(*display_to_view_transform, &bottomleft_x, &bottomleft_y);
+	apply_flutter_transformation(*display_to_view_transform, &bottomright_x, &bottomright_y);
+
+	double l = min(min(min(topleft_x, topright_x), bottomleft_x), bottomright_x);
+	double r = max(max(max(topleft_x, topright_x), bottomleft_x), bottomright_x);
+	double t = min(min(min(topleft_y, topright_y), bottomleft_y), bottomright_y);
+	double b = max(max(max(topleft_y, topright_y), bottomleft_y), bottomright_y);
+
+	*x = l;
+	*y = t;
+	*w = r - l;
+	*h = b - t;
+
+	printf("after inverting root_surface_transformation: %f, %f, %f, %f\n", *x, *y, *w, *h);
+
+	// invert multiplying sizes with device_pixel_ratio
+	*x /= device_pixel_ratio;
+	*y /= device_pixel_ratio;
+	*w /= device_pixel_ratio;
+	*h /= device_pixel_ratio;
+
+	printf("back transformed: %f, %f, %f, %f\n", *x, *y, *w, *h);
+}
+
 /// PRESENT FUNCS
 static bool on_present_layers(
 	const FlutterLayer **layers,
@@ -1125,6 +1171,8 @@ static bool on_present_layers(
 				if (ok != 0) {
 					fprintf(stderr, "[compositor] Could not unmount platform view. unmount: %s\n", strerror(ok));
 				}
+
+				cb_data->was_present_last_frame = false;
 			}
 		}
 
@@ -1141,15 +1189,24 @@ static bool on_present_layers(
 				}
 			}
 
+			double x = layer->offset.x, y = layer->offset.y, w = layer->size.width, h = layer->size.height;
+			back_transform(
+				&x, &y, &w, &h,
+				&flutterpi.view.display_to_view_transform,
+				layer->platform_view->mutations,
+				layer->platform_view->mutations_count,
+				flutterpi.display.pixel_ratio
+			);
+
 			ok = cb_data->update_view(
 				cb_data->view_id,
 				req,
 				layer->platform_view->mutations,
 				layer->platform_view->mutations_count,
-				(int) round(layer->offset.x),
-				(int) round(layer->offset.y),
-				(int) round(layer->size.width),
-				(int) round(layer->size.height),
+				(int) round(x),
+				(int) round(y),
+				(int) round(w),
+				(int) round(h),
 				zpos,
 				cb_data->userdata
 			);
@@ -1179,16 +1236,25 @@ static bool on_present_layers(
 				}
 			}
 
+			double x = layer->offset.x, y = layer->offset.y, w = layer->size.width, h = layer->size.height;
+			back_transform(
+				&x, &y, &w, &h,
+				&flutterpi.view.display_to_view_transform,
+				layer->platform_view->mutations,
+				layer->platform_view->mutations_count,
+				flutterpi.display.pixel_ratio
+			);
+
 			if (cb_data->mount != NULL) {
 				ok = cb_data->mount(
 					layer->platform_view->identifier,
 					req,
 					layer->platform_view->mutations,
 					layer->platform_view->mutations_count,
-					(int) round(layer->offset.x),
-					(int) round(layer->offset.y),
-					(int) round(layer->size.width),
-					(int) round(layer->size.height),
+					(int) round(x),
+					(int) round(y),
+					(int) round(w),
+					(int) round(h),
 					zpos,
 					cb_data->userdata
 				);
@@ -1197,6 +1263,7 @@ static bool on_present_layers(
 				}
 			}
 
+			cb_data->was_present_last_frame = true;
 			cb_data->last_zpos = zpos;
 			cb_data->last_size = layer->size;
 			cb_data->last_offset = layer->offset;

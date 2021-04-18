@@ -251,18 +251,42 @@ static int on_mount(
         zpos = -126;
     }
 
-    //printf("on_mount:\n");
-    //print_mutations(mutations, num_mutations);
+    fprintf(stderr, "on_mount: offset_x: %d, offset_y: %d, width: %d, height: %d\n", offset_x, offset_y, width, height);
+    print_mutations(mutations, num_mutations);
+
+    double l = offset_x, r = offset_x + width, t = offset_y, b = offset_y + height;
+    
+    for (int i = num_mutations - 1; i >= 0; i--) {
+        if (mutations[i]->type == kFlutterPlatformViewMutationTypeTransformation) {
+            apply_flutter_transformation(mutations[i]->transformation, &l, &t);
+            apply_flutter_transformation(mutations[i]->transformation, &r, &b);
+            printf("transformed: LRTB: %f, %f, %f, %f\n", l, r, t, b);
+        }
+    }
+
+    if (l > r) {
+        double _ = r;
+        r = l;
+        l = _;
+    }
+
+    if (t > b) {
+        double _ = b;
+        b = t;
+        t = _;
+    }
+
+    printf("final: LRTB: %f, %f, %f, %f, WH: %f, %f\n", l, r, t, b, r-l, b-t);
 
     return cqueue_enqueue(
         &player->mgr->task_queue,
         &(struct omxplayer_mgr_task) {
             .type = kUpdateView,
             .responsehandle = NULL,
-            .offset_x = offset_x,
-            .offset_y = offset_y,
-            .width = width,
-            .height = height,
+            .offset_x = l,
+            .offset_y = t,
+            .width = r - l,
+            .height = b - t,
             .zpos = zpos,
             .orientation = get_orientation_from_mutations(mutations, num_mutations)
         }
@@ -277,6 +301,8 @@ static int on_unmount(
     void *userdata
 ) {
     struct omxplayer_video_player *player = userdata;
+
+    printf("on_unmount\n");
 
     return cqueue_enqueue(
         &player->mgr->task_queue,
@@ -311,8 +337,8 @@ static int on_update_view(
         zpos = -126;
     }
 
-    //printf("on_update:\n");
-    //print_mutations(mutations, num_mutations);
+    fprintf(stderr, "on_update: offset_x: %d, offset_y: %d, width: %d, height: %d\n", offset_x, offset_y, width, height);
+    print_mutations(mutations, num_mutations);
 
     return cqueue_enqueue(
         &player->mgr->task_queue,
@@ -358,8 +384,12 @@ static int get_dbus_property(
     void *ret_ptr
 ) {
     sd_bus_message *msg;
+    bool n_retries;
     int ok;
 
+    n_retries = 0;
+
+    retry:
     ok = sd_bus_call_method(
         bus,
         destination,
@@ -372,7 +402,10 @@ static int get_dbus_property(
         interface,
         member
     );
-    if (ok < 0) {
+    /*if ((ok < 0) && (strcmp(ret_error->name, SD_BUS_ERROR_UNKNOWN_METHOD) == 0) && (n_retries < 10)) {
+        n_retries++;
+        goto retry;
+    } else */if (ok < 0) {
         fprintf(stderr, "[omxplayer_video_player plugin] Could not read DBus property: %s, %s\n", ret_error->name, ret_error->message);
         return -ok;
     }
@@ -831,6 +864,9 @@ static void *mgr_entry(void *userdata) {
                 (double) (task.offset_y + task.height)
             );
 
+            printf("task: %d, %d, %d, %d\n", task.offset_x, task.offset_y, task.width, task.height);
+            printf("video_pos_str: %s\n", video_pos_str);
+
             ok = sd_bus_call_method(
                 bus,
                 dbus_name,
@@ -868,6 +904,7 @@ static void *mgr_entry(void *userdata) {
                 current_zpos = task.zpos;
             }
 
+#ifdef OMXPLAYER_SUPPORTS_RUNTIME_ROTATION
             if (current_orientation != task.orientation) {
                 ok = sd_bus_call_method(
                     bus,
@@ -884,9 +921,9 @@ static void *mgr_entry(void *userdata) {
                     fprintf(stderr, "[omxplayer_video_player plugin] Could not update omxplayer rotation. %s, %s\n", err.name, err.message);
                     continue;
                 }
-
                 current_orientation = task.orientation;
             }
+#endif
         } else if (task.type == kGetPosition) {
             int64_t position = 0;
             
