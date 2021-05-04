@@ -39,12 +39,8 @@ struct renderer *gl_renderer_new(
 
 /**
  * @brief Create a new software renderer.
- * @param kmsdev optional. Used for allocating the 
  */
-struct renderer *sw_renderer_new(
-	struct kmsdev *kmsdev,
-	struct flutter_renderer_sw_interface *sw_dispatcher
-);
+struct renderer *sw_renderer_new(struct flutter_renderer_sw_interface *sw_dispatcher);
 
 /**
  * @brief Destroy this renderer, freeing all allocated resources.

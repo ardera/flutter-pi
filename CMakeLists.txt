@@ -213,6 +213,11 @@ if (BUILD_ANDROID_AUTO_HEADUNIT_PLUGIN)
   target_compile_definitions(flutter-pi PRIVATE "BUILD_ANDROID_AUTO_HEADUNIT_PLUGIN")
 endif()
 
+target_compile_definitions(flutter-pi PRIVATE "HAS_FBDEV")
+target_compile_definitions(flutter-pi PRIVATE "HAS_KMS")
+target_compile_definitions(flutter-pi PRIVATE "HAS_GBM")
+target_compile_definitions(flutter-pi PRIVATE "HAS_EGL")
+
 target_link_options(flutter-pi PRIVATE
   -rdynamic
 # $<$<CONFIG:DEBUG>:-fsanitize=address -static-libasan>

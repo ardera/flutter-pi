@@ -46,7 +46,20 @@ struct gl_renderer {
 };
 
 struct sw_renderer {
-	struct kmsdev *kmsdev;
+	/**
+	 * @brief The display to use for allocating the buffers.
+	 */
+	struct display *display;
+
+	/**
+	 * @brief The dispatcher functions. When the FlutterSoftwareRendererConfig is filled
+	 * using @ref renderer_fill_flutter_renderer_config, these functions will be filled.
+	 * The functions should then call the sw_renderer_flutter_* functions with the correct
+	 * renderer instance.
+	 * 
+	 * This is needed because the both the global flutter config and the flutter renderer config
+	 * callbacks share the userdata.
+	 */
 	const struct flutter_renderer_sw_interface *sw_dispatcher;
 };
 
@@ -837,7 +850,7 @@ struct renderer *gl_renderer_new(
 }
 
 struct renderer *sw_renderer_new(
-	struct kmsdev *kmsdev,
+	struct display *display,
 	struct flutter_renderer_sw_interface *sw_dispatcher
 ) {
 	struct sw_renderer *private;
@@ -853,7 +866,7 @@ struct renderer *sw_renderer_new(
 		goto fail_free_renderer;
 	}
 
-	private->kmsdev = kmsdev;
+	private->display = display;
 	private->sw_dispatcher = sw_dispatcher;
 	renderer->type = kSoftware;
 	renderer->private = (struct renderer_private *) private;

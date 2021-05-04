@@ -65,21 +65,6 @@ typedef void (*compositor_frame_begin_callback_t)(uint64_t vblank_nanos, uint64_
 
 struct compositor;
 
-struct drm_fbo {
-    EGLImage egl_image;
-    GLuint gl_rbo_id;
-    GLuint gl_fbo_id;
-    uint32_t gem_handle;
-    uint32_t gem_stride;
-    uint32_t drm_fb_id;
-};
-
-struct drm_fb {
-    struct kmsdev *dev;
-    struct gbm_bo *bo;
-    uint32_t fb_id;
-};
-
 struct gl_rendertarget_gbm {
     struct gbm_surface *gbm_surface;
     //struct gbm_bo *current_front_bo;
@@ -90,9 +75,13 @@ struct gl_rendertarget_gbm {
  * A type of rendertarget that is not backed by a GBM-Surface, used for rendering into DRM overlay planes.
  */
 struct gl_rendertarget_nogbm {
-    struct kmsdev *kmsdev;
+    struct display_buffer *buffer;
     struct renderer *renderer;
-    struct drm_fbo fbo;
+    EGLImage egl_image;
+    GLuint gl_rbo_id;
+    GLuint gl_fbo_id;
+    uint32_t gem_handle;
+    uint32_t gem_stride;
 };
 
 struct gl_rendertarget {
