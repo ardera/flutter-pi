@@ -9,15 +9,12 @@
 #include <collection.h>
 #include <modesetting.h>
 
+struct platform_view_params;
+
 typedef int (*platform_view_mount_cb)(
     int64_t view_id,
     struct drmdev_atomic_req *req,
-    const FlutterPlatformViewMutation **mutations,
-    size_t num_mutations,
-    int offset_x,
-    int offset_y,
-    int width,
-    int height,
+    const struct platform_view_params *params,
     int zpos,
     void *userdata  
 );
@@ -31,12 +28,7 @@ typedef int (*platform_view_unmount_cb)(
 typedef int (*platform_view_update_view_cb)(
     int64_t view_id,
     struct drmdev_atomic_req *req,
-    const FlutterPlatformViewMutation **mutations,
-    size_t num_mutations,
-    int offset_x,
-    int offset_y,
-    int width,
-    int height,
+    const struct platform_view_params *params,
     int zpos,
     void *userdata
 );
@@ -44,15 +36,74 @@ typedef int (*platform_view_update_view_cb)(
 typedef int (*platform_view_present_cb)(
     int64_t view_id,
     struct drmdev_atomic_req *req,
-    const FlutterPlatformViewMutation **mutations,
-    size_t num_mutations,
-    int offset_x,
-    int offset_y,
-    int width,
-    int height,
+    const struct platform_view_params *params,
     int zpos,
     void *userdata
 );
+
+struct point {
+    double x, y;
+};
+
+struct quad {
+    struct point top_left, top_right, bottom_left, bottom_right;
+};
+
+struct aa_rect {
+    struct point offset, size;
+};
+
+static inline struct aa_rect get_aa_bounding_rect(const struct quad _rect) {
+    double l = min(min(min(_rect.top_left.x, _rect.top_right.x), _rect.bottom_left.x), _rect.bottom_right.x);
+	double r = max(max(max(_rect.top_left.x, _rect.top_right.x), _rect.bottom_left.x), _rect.bottom_right.x);
+	double t = min(min(min(_rect.top_left.y, _rect.top_right.y), _rect.bottom_left.y), _rect.bottom_right.y);
+	double b = max(max(max(_rect.top_left.y, _rect.top_right.y), _rect.bottom_left.y), _rect.bottom_right.y);
+
+    return (struct aa_rect) {
+        .offset.x = l,
+        .offset.y = t,
+        .size.x = r - l,
+        .size.y = b - t
+    };
+}
+
+static inline struct quad get_quad(const struct aa_rect rect) {
+    return (struct quad) {
+        .top_left = rect.offset,
+        .top_right.x = rect.offset.x + rect.size.x,
+        .top_right.y = rect.offset.y,
+        .bottom_left.x = rect.offset.x,
+        .bottom_left.y = rect.offset.y + rect.size.y,
+        .bottom_right.x = rect.offset.x + rect.size.x,
+        .bottom_right.y = rect.offset.y + rect.size.y
+    };
+}
+
+static inline void apply_transform_to_point(const FlutterTransformation transform, struct point *point) {
+    apply_flutter_transformation(transform, &point->x, &point->y);
+}
+
+static inline void apply_transform_to_quad(const FlutterTransformation transform, struct quad *rect) {
+	apply_transform_to_point(transform, &rect->top_left);
+	apply_transform_to_point(transform, &rect->top_right);
+	apply_transform_to_point(transform, &rect->bottom_left);
+	apply_transform_to_point(transform, &rect->bottom_right);
+}
+
+static inline struct quad apply_transform_to_aa_rect(const FlutterTransformation transform, const struct aa_rect rect) {
+    struct quad _quad = get_quad(rect);
+    apply_transform_to_quad(transform, &_quad);
+    return _quad;
+}
+
+
+struct platform_view_params {
+    struct quad rect;
+    double rotation;
+    struct clip_rect *clip_rects;
+    size_t n_clip_rects;
+    double opacity;
+};
 
 struct compositor {
     struct drmdev *drmdev;

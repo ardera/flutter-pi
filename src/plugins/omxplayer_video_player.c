@@ -161,26 +161,7 @@ static int get_player_from_map_arg(
     return 0;
 }
 
-static int get_orientation_from_mutations(
-    const FlutterPlatformViewMutation **mutations,
-    size_t num_mutations
-) {
-    double rotation;
-
-    rotation = 0;
-    for (int i = 0; i < num_mutations; i++) {
-        if (mutations[i]->type == kFlutterPlatformViewMutationTypeTransformation) {
-            double rotz = atan2(mutations[i]->transformation.skewX, mutations[i]->transformation.scaleX) * 180.0 / M_PI;
-            if (rotz < 0) {
-                rotz += 360;
-            }
-
-            rotation += rotz;
-        }
-    }
-
-    rotation = fmod(rotation, 360.0);
-
+static int get_orientation_from_rotation(double rotation) {
     if ((rotation <= 45) || (rotation > 315)) {
         rotation = 0;
     } else if (rotation <= 135) {
@@ -194,54 +175,12 @@ static int get_orientation_from_mutations(
     return rotation;
 }
 
-static void print_mutations(
-    const FlutterPlatformViewMutation **mutations,
-    size_t n_mutations
-) {
-    const FlutterPlatformViewMutation *mut;
-
-    printf("mutations = {\n");
-    for (int i = 0; i < n_mutations; i++) {
-        mut = mutations[i];
-
-        printf("  [%d] = ", i);
-        if (mut->type == kFlutterPlatformViewMutationTypeOpacity) {
-            printf("Opacity(%f),\n", mut->opacity);
-        } else if (mut->type == kFlutterPlatformViewMutationTypeClipRect) {
-            printf(
-                "ClipRect(left: %f, right: %f, top: %f, bottom: %f),\n",
-                mut->clip_rect.left, mut->clip_rect.right,
-                mut->clip_rect.top, mut->clip_rect.bottom
-            );
-        } else if (mut->type == kFlutterPlatformViewMutationTypeClipRoundedRect) {
-            printf("ClipRoundedRect()\n");
-        } else if (mut->type == kFlutterPlatformViewMutationTypeTransformation) {
-            printf(
-                "Transform(\n"
-                "    %f, %f, %f\n"
-                "    %f, %f, %f\n"
-                "    %f, %f, %f\n"
-                "  ),\n",
-                mut->transformation.scaleX, mut->transformation.skewX,  mut->transformation.transX,
-                mut->transformation.skewY,  mut->transformation.scaleY, mut->transformation.transY,
-                mut->transformation.pers0,  mut->transformation.pers1,  mut->transformation.pers2
-            );
-        }
-    }
-    printf("}\n");
-}
-
 /// Called on the flutter rasterizer thread when a players platform view is presented
 /// for the first time after it was unmounted or initialized.
 static int on_mount(
     int64_t view_id,
     struct drmdev_atomic_req *req,
-    const FlutterPlatformViewMutation **mutations,
-    size_t num_mutations,
-    int offset_x,
-    int offset_y,
-    int width,
-    int height,
+    const struct platform_view_params *params,
     int zpos,
     void *userdata  
 ) {
@@ -251,44 +190,20 @@ static int on_mount(
         zpos = -126;
     }
 
-    fprintf(stderr, "on_mount: offset_x: %d, offset_y: %d, width: %d, height: %d\n", offset_x, offset_y, width, height);
-    print_mutations(mutations, num_mutations);
 
-    double l = offset_x, r = offset_x + width, t = offset_y, b = offset_y + height;
-    
-    for (int i = num_mutations - 1; i >= 0; i--) {
-        if (mutations[i]->type == kFlutterPlatformViewMutationTypeTransformation) {
-            apply_flutter_transformation(mutations[i]->transformation, &l, &t);
-            apply_flutter_transformation(mutations[i]->transformation, &r, &b);
-            printf("transformed: LRTB: %f, %f, %f, %f\n", l, r, t, b);
-        }
-    }
-
-    if (l > r) {
-        double _ = r;
-        r = l;
-        l = _;
-    }
-
-    if (t > b) {
-        double _ = b;
-        b = t;
-        t = _;
-    }
-
-    printf("final: LRTB: %f, %f, %f, %f, WH: %f, %f\n", l, r, t, b, r-l, b-t);
+    struct aa_rect rect = get_aa_bounding_rect(params->rect);
 
     return cqueue_enqueue(
         &player->mgr->task_queue,
         &(struct omxplayer_mgr_task) {
             .type = kUpdateView,
             .responsehandle = NULL,
-            .offset_x = l,
-            .offset_y = t,
-            .width = r - l,
-            .height = b - t,
+            .offset_x = rect.offset.x,
+            .offset_y = rect.offset.y,
+            .width = rect.size.x,
+            .height = rect.size.y,
             .zpos = zpos,
-            .orientation = get_orientation_from_mutations(mutations, num_mutations)
+            .orientation = get_orientation_from_rotation(params->rotation)
         }
     );
 }
@@ -301,8 +216,6 @@ static int on_unmount(
     void *userdata
 ) {
     struct omxplayer_video_player *player = userdata;
-
-    printf("on_unmount\n");
 
     return cqueue_enqueue(
         &player->mgr->task_queue,
@@ -322,12 +235,7 @@ static int on_unmount(
 static int on_update_view(
     int64_t view_id,
     struct drmdev_atomic_req *req,
-    const FlutterPlatformViewMutation **mutations,
-    size_t num_mutations,
-    int offset_x,
-    int offset_y,
-    int width,
-    int height,
+    const struct platform_view_params *params,
     int zpos,
     void *userdata
 ) {
@@ -337,20 +245,19 @@ static int on_update_view(
         zpos = -126;
     }
 
-    fprintf(stderr, "on_update: offset_x: %d, offset_y: %d, width: %d, height: %d\n", offset_x, offset_y, width, height);
-    print_mutations(mutations, num_mutations);
+    struct aa_rect rect = get_aa_bounding_rect(params->rect);
 
     return cqueue_enqueue(
         &player->mgr->task_queue,
         &(struct omxplayer_mgr_task) {
             .type = kUpdateView,
             .responsehandle = NULL,
-            .offset_x = offset_x,
-            .offset_y = offset_y,
-            .width = width,
-            .height = height,
+            .offset_x = rect.offset.x,
+            .offset_y = rect.offset.y,
+            .width = rect.size.x,
+            .height = rect.size.y,
             .zpos = zpos,
-            .orientation = get_orientation_from_mutations(mutations, num_mutations)
+            .orientation = get_orientation_from_rotation(params->rotation)
         }
     );
 }
@@ -863,9 +770,6 @@ static void *mgr_entry(void *userdata) {
                 (double) (task.offset_x + task.width),
                 (double) (task.offset_y + task.height)
             );
-
-            printf("task: %d, %d, %d, %d\n", task.offset_x, task.offset_y, task.width, task.height);
-            printf("video_pos_str: %s\n", video_pos_str);
 
             ok = sd_bus_call_method(
                 bus,
