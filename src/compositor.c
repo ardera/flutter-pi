@@ -43,55 +43,22 @@ struct frame {
 };
 
 struct compositor {
-	enum graphics_output_type output_type;
-	union {
-		struct kmsdev *kmsdev;
-		struct fbdev *fbdev;
-	};
-	
-	int crtc_index;
-	double refresh_rate;
-	bool use_triple_buffering;
+	struct display **displays;
+	size_t n_displays;
+	struct display *main_display;
 
-	/**
-	 * @brief The GBM surface if we're using GBM to display frames.
-	 * If we're using fbdev with software rendering this is NULL.
-	 */
+#ifdef HAS_GBM
+	struct gbm_device *gbm_device;
 	struct gbm_surface *gbm_surface;
+#endif
 
 	FlutterRendererType renderer_type;
 	struct renderer *renderer;
 
-	struct flutter_tracing_interface tracing;
-
-	struct concurrent_queue frame_queue;
-
-    /**
-     * @brief The EGL interface to for swapping buffers, creating EGL images, etc.
-     *
-    struct libegl *libegl;
-
-    EGLDisplay display;
-	EGLSurface surface;
-	EGLContext context;
-
-    **
-     * @brief Information about the EGL Display, like supported extensions / EGL versions.
-     *
-    struct egl_display_info *display_info;
-
-    **
-     * @brief Flutter engine function for getting the current system time (uses monotonic clock)
-     *
-    flutter_engine_get_current_time_t get_current_time;
-
-    *
+	/*
      * Flutter engine profiling functions 
-     *
-	flutter_engine_trace_event_duration_begin_t trace_event_begin;
-	flutter_engine_trace_event_duration_end_t trace_event_end;
-	flutter_engine_trace_event_instant_t trace_event_instant;
-	*/
+     */
+	struct flutter_tracing_interface tracing;
 
     /**
      * @brief Contains a struct for each existing platform view, containing the view id
@@ -100,6 +67,29 @@ struct compositor {
      * @see compositor_set_view_callbacks compositor_remove_view_callbacks
      */
     struct concurrent_pointer_set cbs;
+
+	/**
+     * @brief A cache of rendertargets that are not currently in use for
+     * any flutter layers and can be reused.
+     * 
+     * Make sure to destroy all stale rendertargets before presentation so all the DRM planes
+     * that are reserved by any stale rendertargets get freed.
+     */
+    struct concurrent_pointer_set stale_rendertargets;
+
+	/**
+	 * @brief Queue of requested frames that were requested by flutter using the vsync request callback.
+	 * 
+	 * Once a request becomes the peek of the queue (the first element), it is signalled. (A callback is called,
+	 * and that callback will probably return the flutter vsync baton back to the engine using FlutterEngineOnVsync)
+	 * The request is not dequeued however. The point at which the request is dequeued depends on whether triple buffering
+	 * is enabled or not. If triple buffering is enabled, the request will be dequeued as soon as the last frame has finished
+	 * rendering (Note: eglSwapBuffers does not finish rendering). If triple buffering is disabled, the request will be dequeued
+	 * as soon as the previous frame has started to scan out.
+	 * 
+	 * When a request is dequeued, possibly a new frame request becomes the first element and is answered.
+	 */
+	struct concurrent_queue frame_queue;
 
     /**
      * @brief Whether the compositor should invoke @ref rendertarget_gbm_new the next time
@@ -111,21 +101,7 @@ struct compositor {
      */
     bool should_create_window_surface_backing_store;
 
-    /**
-     * @brief Whether the display mode was already applied. (Resolution, Refresh rate, etc)
-     * If it wasn't already applied, it will be the first time @ref on_present_layers
-     * is invoked.
-     */
-    //bool has_applied_modeset;
-
-    /**
-     * @brief A cache of rendertargets that are not currently in use for
-     * any flutter layers and can be reused.
-     * 
-     * Make sure to destroy all stale rendertargets before presentation so all the DRM planes
-     * that are reserved by any stale rendertargets get freed.
-     */
-    struct concurrent_pointer_set stale_rendertargets;
+	bool use_triple_buffering;
 
 	struct {
 		struct kms_cursor *cursor;
@@ -134,17 +110,6 @@ struct compositor {
 		double device_pixel_ratio;
 		int x, y;
 	} cursor;
-
-    /**
-     * If true, @ref on_present_layers will commit blockingly.
-     * 
-     * It will also schedule a simulated page flip event on the main thread
-     * afterwards so the frame queue works.
-     * 
-     * If false, @ref on_present_layers will commit nonblocking using page flip events,
-     * like usual.
-     */
-    bool do_blocking_atomic_commits;
 };
 
 static struct view_cb_data *get_cbs_for_view_id_locked(
@@ -294,18 +259,13 @@ static void destroy_gbm_bo(
  * and registered as a DRM framebuffer
  */
 static int create_drm_fbo(
-	struct kmsdev *kmsdev,
 	struct renderer *renderer,
+	struct display *display,
 	int w, int h,
 	struct drm_fbo *out
 ) {
 	struct drm_fbo fbo;
 	int ok;
-
-	ok = gl_renderer_create_scanout_fbo(renderer, w, h, &fbo.egl_image, &fbo.gem_handle, &fbo.gem_stride, &fbo.gl_rbo_id, &fbo.gl_fbo_id);
-	if (ok != 0) {
-		return ok;
-	}
 
 	ok = kmsdev_add_fb_planar(
 		kmsdev,
@@ -457,54 +417,85 @@ static int rendertarget_nogbm_present(
 	);
 }
 
+static void rendertarget_nogbm_on_destroy_display_buffer(struct display *display, const struct display_buffer_backend *backend, void *userdata) {
+
+}
+
 /**
  * @brief Create a type of rendertarget that is not backed by a GBM-Surface, used for rendering into DRM overlay planes.
  * 
- * @param[out] out A pointer to the pointer of the created rendertarget.
- * @param[in] compositor The compositor which this rendertarget should be associated with.
+ * @param[in] renderer The renderer to be used for creating the target.
+ * @param[in] display The display to use for 
  * 
  * @see rendertarget_nogbm
  */
-static int rendertarget_nogbm_new(
-	struct gl_rendertarget **out,
-	struct kmsdev *dev,
+static struct gl_rendertarget *rendertarget_nogbm_new(
 	struct renderer *renderer,
-	int w, int h
+	struct display *display,
+	int w, int h,
+	enum pixfmt format
 ) {
 	struct gl_rendertarget *target;
-	struct drm_fbo fbo;
+	struct display_buffer *buffer;
 	int ok;
 
-	target = calloc(1, sizeof *target);
+	DEBUG_ASSERT(format == kARGB8888);
+
+	target = malloc(sizeof *target);
 	if (target == NULL) {
-		ok = ENOMEM;
-		goto fail_return_ok;
+		goto fail_return_null;
 	}
 
-	ok = create_drm_fbo(dev, renderer, w, h, &fbo);
+	ok = gl_renderer_create_scanout_fbo(
+		renderer,
+		w, h,
+		&target->nogbm.egl_image,
+		&target->nogbm.gem_handle,
+		&target->nogbm.gem_stride,
+		&target->nogbm.gl_rbo_id,
+		&target->nogbm.gl_fbo_id
+	);
 	if (ok != 0) {
 		goto fail_free_target;
 	}
 
+	buffer = display_import_buffer(
+		display,
+		&(struct display_buffer_backend) {
+			.type = kDisplayBufferTypeGemBo,
+			.gem_bo = {
+				.gem_bo_handle = target->nogbm.gem_handle,
+				.stride = target->nogbm.gem_stride,
+				.width = w,
+				.height = h,
+				.format = format
+			}
+		},
+		rendertarget_nogbm_on_destroy_display_buffer,
+		target
+	);
+	if (buffer == NULL) {
+		goto fail_destroy_scanout_fbo;
+	}
+
+	
 	target->is_gbm = false;
-	target->nogbm.fbo = fbo;
-	target->nogbm.kmsdev = dev;
+	target->nogbm.buffer = buffer;
 	target->nogbm.renderer = renderer;
+	target->gl_fbo_id = target->nogbm.gl_fbo_id;
 	target->destroy = rendertarget_nogbm_destroy;
 	target->present = rendertarget_nogbm_present;
+	return target;
 
-	target->gl_fbo_id = target->nogbm.fbo.gl_fbo_id;
-
-	*out = target;
-	return 0;
-
+	
+	fail_destroy_scanout_fbo:
+	gl_renderer_destroy_scanout_fbo(renderer, target->nogbm.egl_image, target->nogbm.gl_rbo_id, target->nogbm.gl_fbo_id);
 
 	fail_free_target:
 	free(target);
 
-	fail_return_ok:
-	*out = NULL;
-	return ok;
+	fail_return_null:
+	return NULL;
 }
 
 /**
@@ -660,26 +651,70 @@ static bool on_create_backing_store(
 	return true;
 }
 
-/************************
- * COMPOSITOR INTERFACE *
- ************************/
+/**
+ * @brief Create a renderer that is compatible with all these displays.
+ * 
+ * Will create a GBM/EGL-backend OpenGL ES renderer if:
+ *   - all displays support presenting GBM BOs (currently only KMS, but fbdev can be modified to present GBM BOs as well)
+ *     (including foreign GBM BOs (from another driver))
+ *   - EGL supports GBM as a platform
+ * 
+ * If there's no display that has a GBM device, we'll instead try to open a render-only DRM device node
+ * and use that as our GBM device. If that fails, fallback to software rendering.
+ */
 struct compositor *compositor_new(
-    const struct graphics_output *output,
-	FlutterRendererType renderer_type,
-    struct renderer *renderer,
-    const struct flutter_tracing_interface *tracing_interface,
-    struct event_loop *evloop
+	struct display **displays,
+	size_t n_displays,
+	struct libegl *libegl,
+	struct egl_client_info *client_info,
+	struct libgl *libgl,
+	struct event_loop *evloop,
+	const struct flutter_renderer_gl_interface *gl_interface,
+	const struct flutter_renderer_sw_interface *sw_interface,
+	const struct flutter_tracing_interface *tracing_interface,
 ) {
 	struct compositor *compositor;
+	struct gbm_device *gbm_device;
+	struct renderer *renderer;
+	uint32_t format, *p_supported_formats;
+	size_t n_supported_formats;
+	bool all_displays_support_gbm;
+	int width, height;
 	int ok;
 
-	(void) evloop;
-
-	DEBUG_ASSERT(output != NULL);
-	DEBUG_ASSERT(renderer != NULL);
-	DEBUG_ASSERT(tracing_interface != NULL);
+	DEBUG_ASSERT(displays != NULL);
+	DEBUG_ASSERT(n_displays > 0);
+	DEBUG_ASSERT(libegl != NULL);
+	DEBUG_ASSERT(client_info != NULL);
+	DEBUG_ASSERT(libgl != NULL);
+	DEBUG_ASSERT(gl_interface != NULL);
+	DEBUG_ASSERT(sw_interface != NULL);
 	DEBUG_ASSERT(evloop != NULL);
-	DEBUG_ASSERT((renderer_type == kOpenGL) && "only OpenGL rendering is supported right now.");
+
+	// first, create a renderer that supports all our video outputs.
+	gbm_device = NULL;
+	all_displays_support_gbm = true;
+	for (unsigned int i = 0; i < n_displays; i++) {
+		if (display_supports_gbm(displays[i]) && (gbm_device == NULL)) {
+			gbm_device = display_get_gbm_device(displays[i]);
+		}
+
+		if (!display_supports_importing_buffer_type(displays[i], kDisplayBufferTypeGbmBo)) {
+			all_displays_support_gbm = false;
+			break;
+		}
+	}
+
+	// try to open a render-only gbm device and use that as our renderer
+	if (gbm_device == NULL) {
+		/// TODO: Implement
+		DEBUG_ASSERT(false && "unimplemented");
+	}
+
+	// we'll just say displays[0] is our main display and we'll use
+	// that displays dimensions for the root GL surface
+	display_get_size(displays[0], &width, &height);
+	display_get_supported_formats(displays[0], &p_supported_formats, &n_supported_formats);
 
 	compositor = malloc(sizeof *compositor);
 	if (compositor == NULL) {
@@ -696,13 +731,33 @@ struct compositor *compositor_new(
 		goto fail_deinit_cbs;
 	}
 
-	compositor->output_type = output->type;
-	if (compositor->output_type == kGraphicsOutputTypeKmsdev) {
-		compositor->kmsdev = output->kmsdev;
-	} else {
-		compositor->fbdev = output->fbdev;
+	ok = cpset_init(&compositor->frame_queue, CPSET_DEFAULT_MAX_SIZE);
+	if (ok != 0) {
+		goto fail_deinit_stale_rendertargets;
 	}
-	compositor->gbm_surface = NULL;
+
+	renderer = NULL;
+	if (all_displays_support_gbm && (gbm_device != NULL)) {
+		renderer = gl_renderer_new(
+			gbm_device,
+			libegl,
+			client_info,
+			libgl,
+			gl_interface,
+			p_supported_formats[0],
+			width, height
+		);
+	} else {
+		renderer = sw_renderer_new(sw_interface);
+	}
+
+	if (renderer == NULL) {
+		goto fail_deinit_frame_queue;
+	}
+
+	compositor->displays = displays;
+	compositor->n_displays = n_displays;
+	compositor->main_display = displays[0];
 	compositor->renderer_type = renderer_type;
 	compositor->renderer = renderer;
 	if (tracing_interface == NULL) {
@@ -711,10 +766,127 @@ struct compositor *compositor_new(
 		compositor->tracing = *tracing_interface;
 	}
 	compositor->should_create_window_surface_backing_store = true;
-	compositor->do_blocking_atomic_commits = false;
 
 	return compositor;
 
+
+	fail_deinit_frame_queue:
+	cpset_deinit(&compositor->frame_queue);
+
+	fail_deinit_stale_rendertargets:
+	cpset_deinit(&compositor->stale_rendertargets);
+
+	fail_deinit_cbs:
+	cpset_deinit(&compositor->cbs);
+
+	fail_free_compositor:
+	free(compositor);
+
+	fail_return_null:
+	return NULL;
+}
+
+/************************
+ * COMPOSITOR INTERFACE *
+ ************************/
+struct compositor *compositor_new(
+    struct display **displays,
+	size_t n_displays,
+	FlutterRendererType renderer_type,
+    struct renderer *renderer,
+    const struct flutter_tracing_interface *tracing_interface,
+    struct event_loop *evloop
+) {
+	struct compositor *compositor;
+	int ok;
+
+	(void) evloop;
+
+	DEBUG_ASSERT(displays != NULL);
+	DEBUG_ASSERT(n_displays > 0);
+	DEBUG_ASSERT((renderer_type == kOpenGL) && "only OpenGL rendering is supported right now.");
+	DEBUG_ASSERT(renderer != NULL);
+	DEBUG_ASSERT(evloop != NULL);
+
+	compositor = malloc(sizeof *compositor);
+	if (compositor == NULL) {
+		goto fail_return_null;
+	}
+
+	ok = cpset_init(&compositor->cbs, CPSET_DEFAULT_MAX_SIZE);
+	if (ok != 0) {
+		goto fail_free_compositor;
+	}
+
+	ok = cpset_init(&compositor->stale_rendertargets, CPSET_DEFAULT_MAX_SIZE);
+	if (ok != 0) {
+		goto fail_deinit_cbs;
+	}
+
+	ok = cpset_init(&compositor->frame_queue, CPSET_DEFAULT_MAX_SIZE);
+	if (ok != 0) {
+		goto fail_deinit_stale_rendertargets;
+	}
+
+	compositor->renderer_type = renderer_type;
+	compositor->renderer = renderer;
+	if (tracing_interface == NULL) {
+		memset(&compositor->tracing, 0, sizeof(struct flutter_tracing_interface));
+	} else {
+		compositor->tracing = *tracing_interface;
+	}
+	compositor->should_create_window_surface_backing_store = true;
+
+	return compositor;
+
+
+	fail_deinit_stale_rendertargets:
+	cpset_deinit(&compositor->stale_rendertargets);
+
+	fail_deinit_cbs:
+	cpset_deinit(&compositor->cbs);
+
+	fail_free_compositor:
+	free(compositor);
+
+	fail_return_null:
+	return NULL;
+}
+
+struct compositor *compositor_new(
+	struct display **displays,
+	size_t n_displays,
+	FlutterRendererType renderer_type,
+	struct renderer *renderer,
+	struct event_loop *evloop,
+	const struct flutter_tracing_interface *tracing_interface,
+) {
+	struct compositor *compositor;
+	int ok;
+
+	DEBUG_ASSERT(displays != NULL);
+	DEBUG_ASSERT(n_displays > 0);
+	DEBUG_ASSERT(renderer != NULL);
+	DEBUG_ASSERT(evloop != NULL);
+	
+	compositor = malloc(sizeof *compositor);
+	if (compositor == NULL) {
+		goto fail_return_null;
+	}
+
+	ok = cpset_init(&compositor->cbs, CPSET_DEFAULT_MAX_SIZE);
+	if (ok != 0) {
+		goto fail_free_compositor;
+	}
+
+	ok = cpset_init(&compositor->stale_rendertargets, CPSET_DEFAULT_MAX_SIZE);
+	if (ok != 0) {
+		goto fail_deinit_cbs;
+	}
+
+	compositor->
+
+	return compositor;
 
 	fail_deinit_cbs:
 	cpset_deinit(&compositor->cbs);
@@ -1250,14 +1422,6 @@ static bool on_present_layers(
 }
 */
 
-static struct presenter *create_presenter(struct compositor *compositor) {
-	if (compositor->output_type == kGraphicsOutputTypeKmsdev) {
-		return kmsdev_create_presenter(compositor->kmsdev);
-	} else {
-		return fbdev_create_presenter(compositor->fbdev);
-	}
-}
-
 static void on_scanout(
 	int crtc_index,
 	unsigned int tv_sec,
@@ -1283,7 +1447,7 @@ static bool on_present_layers_sw(
 
 	compositor = userdata;
 
-	presenter = create_presenter(compositor);
+	presenter = display_create_presenter(compositor->main_display);
 	if (presenter == NULL) {
 		return false;
 	}
@@ -1566,4 +1730,10 @@ void compositor_fill_flutter_compositor(struct compositor *compositor, FlutterCo
 		flutter_compositor->present_layers_callback = on_present_layers_gl;
 	}
 	flutter_compositor->user_data = compositor;
+}
+
+void compositor_fill_flutter_renderer_config(struct compositor *compositor, FlutterRendererConfig *config) {
+	DEBUG_ASSERT(compositor != NULL);
+	DEBUG_ASSERT(config != NULL);
+	return renderer_fill_flutter_renderer_config(compositor->renderer, config);
 }
