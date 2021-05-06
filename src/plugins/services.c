@@ -100,7 +100,7 @@ static int on_receive_platform(char *channel, struct platch_obj *object, Flutter
 
             // if the list contains the current orientation, we just return and don't change the current orientation at all.
             if (o == flutterpi.view.orientation) {
-                return 0;
+                return platch_respond_success_json(responsehandle, NULL);
             }
 
             preferred_orientations[o] = true;
