@@ -130,6 +130,13 @@ int fm_destroy(struct flutter_messenger *fm) {
 	return 0;
 }
 
+void fm_set_engine(
+	struct flutter_messenger *fm,
+	FlutterEngine engine
+) {
+	fm->engine = engine;
+}
+
 static inline bool runs_platform_tasks_on_current_thread(struct flutter_messenger *fm) {
 	return fm->runs_platform_tasks_on_current_thread(fm->flutterpi);
 }
@@ -231,6 +238,8 @@ static int send_raw(
 	FlutterEngineResult engine_result;
 	int ok;
 
+	printf("fm send_raw\n");
+
 	if (response_callback != NULL) {
 		engine_result = fm->create_response_handle(
 			fm->engine,
@@ -288,6 +297,8 @@ static int respond_raw(
 	size_t message_size
 ) {
 	FlutterEngineResult engine_result;
+
+	printf("fm respond_raw\n");
 
 	engine_result = fm->send_response(
 		fm->engine,
@@ -1458,7 +1469,7 @@ int fm_call_json(
 		channel,
 		&PLATCH_OBJ_JSON_CALL(
 			method,
-			*arg
+			arg == NULL ? JSONNULL : *arg
 		),
 		kJSONMethodCallResponse,
 		response_callback,
@@ -1475,7 +1486,11 @@ int fm_respond_success_json_ext(
 ) {
 	return fm_respond_nonblocking(
 		handle,
-		&PLATCH_OBJ_JSON_CALL_SUCCESS_RESPONSE(*return_value),
+		&PLATCH_OBJ_JSON_CALL_SUCCESS_RESPONSE(
+			return_value == NULL
+			? JSONNULL
+			: *return_value
+		),
 		error_callback,
 		userdata
 	);
@@ -1494,7 +1509,9 @@ int fm_respond_error_json_ext(
 		&PLATCH_OBJ_JSON_CALL_ERROR_RESPONSE(
 			error_code,
 			error_message,
-			*error_details
+			error_details == NULL
+				? JSONNULL
+				: *error_details
 		),
 		error_callback,
 		userdata
@@ -1544,7 +1561,11 @@ int fm_send_success_event_json_ext(
 	return fm_send_nonblocking(
 		fm,
 		channel,
-		&PLATCH_OBJ_JSON_SUCCESS_EVENT(event_value ? *event_value : JSONNULL),
+		&PLATCH_OBJ_JSON_SUCCESS_EVENT(
+			event_value
+				? *event_value
+				: JSONNULL
+		),
 		kJSONMethodCallResponse,
 		NULL,
 		error_callback,
@@ -1568,11 +1589,16 @@ int fm_send_error_event_json_ext(
 	return fm_send_nonblocking(
 		fm,
 		channel,
-		&PLATCH_OBJ_JSON_ERROR_EVENT(error_code, error_message, error_details != NULL ? *error_details : JSONNULL),
+		&PLATCH_OBJ_JSON_ERROR_EVENT(
+			error_code,
+			error_message,
+			error_details != NULL
+				? *error_details
+				: JSONNULL
+		),
 		kJSONMethodCallResponse,
 		NULL,
 		error_callback,
 		userdata
 	);
 }
-

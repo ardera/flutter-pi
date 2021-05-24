@@ -89,9 +89,9 @@ struct libflutter_engine *libflutter_engine_load_for_runtime_mode(enum flutter_r
 	struct libflutter_engine *engine_lib;
 	
 	if (runtime_mode == kRelease) {
-		engine_lib = libflutter_engine_load("libflutter_engine.so.debug");
-	} else if (runtime_mode == kDebug) {
 		engine_lib = libflutter_engine_load("libflutter_engine.so.release");
+	} else if (runtime_mode == kDebug) {
+		engine_lib = libflutter_engine_load("libflutter_engine.so.debug");
 	}
 
 	if (engine_lib == NULL) {

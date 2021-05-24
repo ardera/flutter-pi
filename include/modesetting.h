@@ -34,6 +34,7 @@ typedef void (*display_buffer_destroy_callback_t)(struct display *display, const
 enum pixfmt {
     kRGB565,
     kARGB8888,
+    kXRGB8888,
     kBGRA8888,
     kRGBA8888,
 };
@@ -74,8 +75,26 @@ struct display_buffer_backend {
 
 struct sw_fb_layer {
     uint8_t *vmem;
-    uint32_t width, height, pitch;
-    uint32_t format;
+    int width, height, pitch;
+    enum pixfmt format;
+};
+
+enum dspbuf_layer_rotation {
+    kDspBufLayerRotationNone = 1 << 0,
+    kDspBufLayerRotation90 = 1 << 1,
+    kDspBufLayerRotation180 = 1 << 2,
+    kDspBufLayerRotation270 = 1 << 3,
+    kDspBufLayerRotationReflectX = 1 << 4,
+    kDspBufLayerRotationReflectY = 1 << 5
+};
+
+struct display_buffer_layer {
+    struct display_buffer *buffer;
+
+    int buffer_x, buffer_y, buffer_w, buffer_h;
+    int display_x, display_y, display_w, display_h;
+
+    enum dspbuf_layer_rotation rotation;
 };
 
 #ifdef HAS_FBDEV
@@ -85,6 +104,11 @@ struct fbdev_pixfmt {
 #endif
 
 struct pixfmt_info {
+    /**
+     * @brief A descriptive, human-readable name for this pixel format.
+     */
+    const char *name;
+
     /**
      * @brief The pixel format that this struct provides information about.
      */
@@ -198,6 +222,11 @@ int presenter_push_sw_fb_layer(
     const struct sw_fb_layer *layer
 );
 
+int presenter_push_display_buffer_layer(
+    struct presenter *presenter,
+    const struct display_buffer_layer *layer
+);
+
 int presenter_push_placeholder_layer(struct presenter *presenter, int n_reserved_layers);
 
 int presenter_flush(struct presenter *presenter);
@@ -208,6 +237,8 @@ void presenter_destroy(struct presenter *presenter);
  * DISPLAYS *
  ************/
 void display_destroy(struct display *display);
+
+double display_get_refreshrate(struct display *display);
 
 void display_get_size(struct display *display, int *width_out, int *height_out);
 
@@ -225,7 +256,7 @@ struct gbm_surface *display_get_gbm_surface(struct display *display);
 
 bool display_supports_sw_buffers(struct display *display);
 
-void display_get_supported_formats(struct display *display, const uint32_t **formats_out, size_t *n_formats_out);
+void display_get_supported_formats(struct display *display, const enum pixfmt **formats_out, size_t *n_formats_out);
 
 struct presenter *display_create_presenter(struct display *display);
 
@@ -280,6 +311,7 @@ struct kms_display_config {
     char connector_name[32];
     bool has_explicit_mode;
     drmModeModeInfo explicit_mode;
+    const enum kmsdev_mode_preference *preferences;
     bool has_explicit_dimensions;
     int width_mm, height_mm;
 };
@@ -414,6 +446,6 @@ int kmsdev_configure(struct kmsdev *dev, const struct kms_config *config);
 
 struct display *kmsdev_get_display(struct kmsdev *dev, int display_index);
 
-void kmsdev_get_displays(struct kmsdev *dev, struct display ***displays_out, size_t *n_displays_out);
+void kmsdev_get_displays(struct kmsdev *dev, struct display *const **displays_out, size_t *n_displays_out);
 #endif
 #endif

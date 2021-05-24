@@ -79,6 +79,11 @@ struct flutter_messenger *fm_new(
  */
 int fm_destroy(struct flutter_messenger *fm);
 
+void fm_set_engine(
+	struct flutter_messenger *fm,
+	FlutterEngine engine
+);
+
 /**
  * @brief Notifies the flutter messenger that a platform message has arrived.
  * 

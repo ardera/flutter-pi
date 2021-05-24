@@ -140,8 +140,6 @@ struct flutterpi_private {
 	struct flutterpi *flutterpi;
 	struct text_input_plugin *textin;
 	struct raw_keyboard_plugin *rawkb;
-	struct renderer *renderer;
-	struct compositor *compositor;
 	struct event_loop *platform, *render;
 };
 
@@ -152,35 +150,53 @@ struct flutterpi_frame_request {
 	intptr_t baton;
 };
 
+struct flutterpi_frame_response {
+	struct flutterpi *flutterpi;
+	intptr_t baton;
+	uint64_t frame_nanos;
+	uint64_t next_frame_nanos;
+};
+
 // OpenGL contexts are thread-local. So this needs to be thread-local as well.
 static bool on_flutter_gl_make_current(void* userdata) {
 	struct flutterpi *flutterpi = userdata;
+
+	printf("on_flutter_gl_make_current\n");
+
 	return gl_renderer_flutter_make_rendering_context_current(flutterpi->renderer);
 }
 
 static bool on_flutter_gl_clear_current(void *userdata) {
 	struct flutterpi *flutterpi = userdata;
+
+	printf("on_flutter_gl_clear_current\n");
+
 	return gl_renderer_flutter_make_rendering_context_current(flutterpi->renderer);
 }
 
 static bool on_flutter_gl_present(void *userdata) {
+	printf("on_flutter_gl_present\n");
 	return gl_renderer_flutter_present(((struct flutterpi*) userdata)->renderer);
 }
 
 static uint32_t on_flutter_gl_get_fbo(void* userdata) {
+	printf("on_flutter_gl_get_fbo\n");
 	return gl_renderer_flutter_get_fbo(((struct flutterpi *) userdata)->renderer);
 }
 
 static bool on_flutter_gl_make_resource_context_current(void *userdata) {
 	struct flutterpi *flutterpi = userdata;
+	printf("on_flutter_gl_make_resource_context_current\n");
 	return gl_renderer_flutter_make_resource_context_current(flutterpi->renderer);
 }
 
 static FlutterTransformation on_flutter_gl_get_surface_transformation(void *userdata) {
+	printf("on_flutter_gl_get_surface_transformation\n");
 	return gl_renderer_flutter_get_surface_transformation(((struct flutterpi *) userdata)->renderer);
 }
 
 static void *on_flutter_gl_resolve_proc(void *userdata, const char *name) {
+	printf("on_flutter_gl_resolve_proc\n");
 	return gl_renderer_flutter_resolve_gl_proc(((struct flutterpi *) userdata)->renderer, name);
 }
 
@@ -199,10 +215,12 @@ static bool on_flutter_gl_get_external_texture_frame(
 }
 
 static uint32_t on_flutter_gl_get_fbo_with_info(void *userdata, const FlutterFrameInfo *info) {
+	printf("on_flutter_gl_get_fbo_with_info\n");
 	return gl_renderer_flutter_get_fbo_with_info(((struct flutterpi *) userdata)->renderer, info);
 }
 
 bool on_flutter_gl_present_with_info(void *userdata, const FlutterPresentInfo *info) {
+	printf("on_flutter_gl_present_with_info\n");
 	return gl_renderer_flutter_present_with_info(((struct flutterpi *) userdata)->renderer, info);
 }
 
@@ -220,6 +238,7 @@ static const struct flutter_renderer_gl_interface gl_interface = {
 };
 
 bool on_flutter_sw_present(void *userdata, const void *allocation, size_t bytes_per_row, size_t height) {
+	printf("on_flutter_sw_present\n");
 	return sw_renderer_flutter_present(((struct flutterpi *) userdata)->renderer, allocation, bytes_per_row, height);
 }
 
@@ -230,6 +249,7 @@ static const struct flutter_renderer_sw_interface sw_interface = {
 static bool runs_platform_tasks_on_current_thread(void *userdata);
 
 /// Cut a word from a string, mutating "string"
+/*
 static void cut_word_from_string(
 	char* string,
 	const char* word
@@ -250,7 +270,7 @@ static void cut_word_from_string(
 		} while (word_in_str[i++ + word_length] != 0);
 	}
 }
-
+*/
 
 static void on_platform_message(
 	const FlutterPlatformMessage* message,
@@ -269,7 +289,25 @@ static void on_platform_message(
 	}
 }
 
+static void on_deferred_respond_to_frame_request(void *userdata) {
+	struct flutterpi_frame_response *resp;
+
+	resp = userdata;
+
+	printf("on_deferred_respond_to_frame_request: %p\n", (void*) (resp->baton));
+
+	resp->flutterpi->flutter.libflutter_engine->FlutterEngineOnVsync(
+		resp->flutterpi->flutter.engine,
+		resp->baton,
+		resp->frame_nanos,
+		resp->next_frame_nanos
+	);
+
+	free(resp);
+}
+
 static void on_begin_frame(uint64_t frame_nanos, uint64_t next_frame_nanos, void *userdata) {
+	struct flutterpi_frame_response *resp;
 	struct flutterpi_frame_request *req;
 	struct flutterpi *flutterpi;
 	intptr_t baton;
@@ -278,15 +316,34 @@ static void on_begin_frame(uint64_t frame_nanos, uint64_t next_frame_nanos, void
 	flutterpi = req->flutterpi;
 	baton = req->baton;
 
+	printf("on_begin_frame\n");
+
 	DEBUG_ASSERT(req != NULL);
 
-	/// FIXME: We need to make sure this is called on the platform thread.
-	flutterpi->flutter.libflutter_engine->FlutterEngineOnVsync(
-		flutterpi->flutter.engine,
-		frame_nanos,
-		next_frame_nanos,
-		baton
-	);
+	if (flutterpi_runs_platform_tasks_on_current_thread(flutterpi)) {
+		flutterpi->flutter.libflutter_engine->FlutterEngineOnVsync(
+			flutterpi->flutter.engine,
+			frame_nanos,
+			next_frame_nanos,
+			baton
+		);
+	} else {
+		resp = malloc(sizeof *resp);
+		if (resp == NULL) {
+			free(req);
+		}
+
+		resp->flutterpi = flutterpi;
+		resp->frame_nanos = frame_nanos;
+		resp->next_frame_nanos = next_frame_nanos;
+		resp->baton = baton;
+
+		event_loop_post_task(
+			flutterpi->private->platform,
+			on_deferred_respond_to_frame_request,
+			resp
+		);
+	}
 
 	free(req);	
 }
@@ -297,6 +354,8 @@ static void on_frame_request(void* userdata, intptr_t baton) {
 	struct flutterpi_frame_request *req;
 	struct flutterpi *flutterpi;
 	int ok;
+
+	printf("on_frame_request: %p\n", (void*) baton);
 
 	flutterpi = userdata;
 
@@ -329,13 +388,13 @@ struct event_loop *flutterpi_get_event_loop(struct flutterpi *flutterpi, enum ev
 	}
 }
 
+/*
 static FlutterTransformation flutterpi_on_get_transformation(void *userdata) {
 	struct flutterpi *fpi;
-	
 	fpi = userdata;
-	
 	return fpi->view.view_to_display_transform;
 }
+*/
 
 /// flutter tasks
 static void on_execute_flutter_task(
@@ -346,10 +405,14 @@ static void on_execute_flutter_task(
 
 	task = userdata;
 
+	printf("on_execute_flutter_task: 0x%016" PRIX64 "\n", task->task.task);
+
 	engine_result = task->flutterpi->flutter.libflutter_engine->FlutterEngineRunTask(task->flutterpi->flutter.engine, &task->task);
 	if (engine_result != kSuccess) {
 		LOG_FLUTTERPI_ERROR("Error running platform task. FlutterEngineRunTask: %s\n", FLUTTER_RESULT_TO_STRING(engine_result));
 	}
+
+	printf("on_execute_flutter_task done\n");
 
 	free(task);
 }
@@ -362,6 +425,8 @@ static void on_post_flutter_task(
 	struct flutterpi_flutter_task *fpi_task;
 	struct flutterpi *flutterpi;
 	int ok;
+
+	printf("on_post_flutter_task: 0x%016" PRIX64 "\n", task.task);
 
 	flutterpi = userdata;
 
@@ -587,26 +652,6 @@ static int run_main_loop(struct flutterpi *flutterpi) {
 	return event_loop_process(flutterpi_get_event_loop(flutterpi, kPlatform));
 }
 
-static int init_main_loop(struct flutterpi *flutterpi) {
-	struct event_loop *platform, *render;
-
-	platform = event_loop_create(true, pthread_self());
-	if (platform == NULL) {
-		return ENOMEM;
-	}
-
-	render = event_loop_create(false, (pthread_t) 0);
-	if (render == NULL) {
-		event_loop_destroy(platform);
-		return ENOMEM;
-	}
-
-	flutterpi->platform = platform;
-	flutterpi->render = render;
-
-	return 0;
-}
-
 /**************************
  * DISPLAY INITIALIZATION *
  **************************/
@@ -698,511 +743,6 @@ int flutterpi_fill_view_properties(
 }
 
 /*
-static int load_egl_gl_procs(void) {
-	// TODO: Make most of these optional.
-	LOAD_EGL_PROC(flutterpi, getPlatformDisplay);
-	LOAD_EGL_PROC(flutterpi, createPlatformWindowSurface);
-	LOAD_EGL_PROC(flutterpi, createPlatformPixmapSurface);
-	LOAD_EGL_PROC(flutterpi, createDRMImageMESA);
-	LOAD_EGL_PROC(flutterpi, exportDRMImageMESA);
-	LOAD_EGL_PROC(flutterpi, createImageKHR);
-	LOAD_EGL_PROC(flutterpi, destroyImageKHR);
-
-	LOAD_GL_PROC(flutterpi, EGLImageTargetTexture2DOES);
-	LOAD_GL_PROC(flutterpi, EGLImageTargetRenderbufferStorageOES);
-
-	return 0;
-}
-*/
-
-int flutterpi_create_egl_context(struct flutterpi *flutterpi, EGLContext *context_out, EGLint *err_out) {
-	EGLContext context;
-	EGLint egl_error;
-	bool has_current;
-
-	static const EGLint context_attribs[] = {
-		EGL_CONTEXT_CLIENT_VERSION, 2,
-		EGL_NONE
-	};
-
-	has_current = eglGetCurrentContext() != EGL_NO_CONTEXT;
-
-	eglGetError();
-
-	if (!has_current) {
-		eglMakeCurrent(flutterpi->egl.display, flutterpi->egl.surface, flutterpi->egl.surface, flutterpi->egl.root_context);
-		if ((egl_error = eglGetError()) != EGL_SUCCESS) {
-			if (err_out) {
-				*err_out = egl_error;
-			}
-			if (context_out) {
-				*context_out = EGL_NO_CONTEXT;
-			}
-
-			return EINVAL;
-		}
-	}
-
-	context = eglCreateContext(flutterpi->egl.display, flutterpi->egl.config, flutterpi->egl.root_context, context_attribs);
-	if ((egl_error = eglGetError()) != EGL_SUCCESS) {
-		if (err_out) {
-			*err_out = egl_error;
-		}
-		if (context_out) {
-			*context_out = EGL_NO_CONTEXT;
-		}
-
-		eglMakeCurrent(flutterpi->egl.display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
-
-		return EINVAL;
-	}
-
-	if (!has_current) {
-		eglMakeCurrent(flutterpi->egl.display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
-	}
-
-	if (err_out) {
-		*err_out = EGL_SUCCESS;
-	}
-	if (context_out) {
-		*context_out = context;
-	}
-
-	return 0;
-}
-
-/*
-static int init_display(struct flutterpi *flutterpi) {
-	**********************
-	 * DRM INITIALIZATION *
-	 **********************
-	const struct drm_connector *connector;
-	const struct drm_encoder *encoder;
-	const struct drm_crtc *crtc;
-	const drmModeModeInfo *mode, *mode_iter;
-	drmDevicePtr devices[64];
-	EGLint egl_error;
-	int ok, num_devices;
-
-	**********************
-	 * DRM INITIALIZATION *
-	 **********************
-	
-	num_devices = drmGetDevices2(0, devices, sizeof(devices)/sizeof(*devices));
-	if (num_devices < 0) {
-		fprintf(stderr, "[flutter-pi] Could not query DRM device list: %s\n", strerror(-num_devices));
-		return -num_devices;
-	}
-	
-	// find a GPU that has a primary node
-	flutterpi->drm.drmdev = NULL;
-	for (int i = 0; i < num_devices; i++) {
-		drmDevicePtr device;
-		
-		device = devices[i];
-
-		if (!(device->available_nodes & (1 << DRM_NODE_PRIMARY))) {
-			// We need a primary node.
-			continue;
-		}
-
-		ok = drmdev_new_from_path(&flutterpi->drm.drmdev, device->nodes[DRM_NODE_PRIMARY]);
-		if (ok != 0) {
-			fprintf(stderr, "[flutter-pi] Could not create drmdev from device at \"%s\". Continuing.\n", device->nodes[DRM_NODE_PRIMARY]);
-			continue;
-		}
-
-		break;
-	}
-
-	if (flutterpi->drm.drmdev == NULL) {
-		fprintf(stderr, "flutter-pi couldn't find a usable DRM device.\n"
-						"Please make sure you've enabled the Fake-KMS driver in raspi-config.\n"
-						"If you're not using a Raspberry Pi, please make sure there's KMS support for your graphics chip.\n");
-		return ENOENT;
-	}
-
-	// find a connected connector
-	for_each_connector_in_drmdev(flutterpi->drm.drmdev, connector) {
-		if (connector->connector->connection == DRM_MODE_CONNECTED) {
-			// only update the physical size of the display if the values
-			//   are not yet initialized / not set with a commandline option
-			if ((flutterpi->display.width_mm == 0) || (flutterpi->display.height_mm == 0)) {
-				if ((connector->connector->connector_type == DRM_MODE_CONNECTOR_DSI) &&
-					(connector->connector->mmWidth == 0) &&
-					(connector->connector->mmHeight == 0))
-				{
-					// if it's connected via DSI, and the width & height are 0,
-					//   it's probably the official 7 inch touchscreen.
-					flutterpi->display.width_mm = 155;
-					flutterpi->display.height_mm = 86;
-				} else if ((connector->connector->mmHeight % 10 == 0) &&
-							(connector->connector->mmWidth % 10 == 0)) {
-					// don't change anything.
-				} else {
-					flutterpi->display.width_mm = connector->connector->mmWidth;
-					flutterpi->display.height_mm = connector->connector->mmHeight;
-				}
-			}
-
-			break;
-		}
-	}
-
-	if (connector == NULL) {
-		fprintf(stderr, "[flutter-pi] Could not find a connected connector!\n");
-		return EINVAL;
-	}
-
-	// Find the preferred mode (GPU drivers _should_ always supply a preferred mode, but of course, they don't)
-	// Alternatively, find the mode with the highest width*height. If there are multiple modes with the same w*h,
-	// prefer higher refresh rates. After that, prefer progressive scanout modes.
-	mode = NULL;
-	for_each_mode_in_connector(connector, mode_iter) {
-		if (mode_iter->type & DRM_MODE_TYPE_PREFERRED) {
-			mode = mode_iter;
-			break;
-		} else if (mode == NULL) {
-			mode = mode_iter;
-		} else {
-			int area = mode_iter->hdisplay * mode_iter->vdisplay;
-			int old_area = mode->hdisplay * mode->vdisplay;
-
-			if ((area > old_area) ||
-				((area == old_area) && (mode_iter->vrefresh > mode->vrefresh)) ||
-				((area == old_area) && (mode_iter->vrefresh == mode->vrefresh) && ((mode->flags & DRM_MODE_FLAG_INTERLACE) == 0))) {
-				mode = mode_iter;
-			}
-		}
-	}
-
-	if (mode == NULL) {
-		fprintf(stderr, "[flutter-pi] Could not find a preferred output mode!\n");
-		return EINVAL;
-	}
-
-	flutterpi->display.width = mode->hdisplay;
-	flutterpi->display.height = mode->vdisplay;
-	flutterpi->display.refresh_rate = mode->vrefresh;
-
-	if ((flutterpi->display.width_mm == 0) || (flutterpi->display.height_mm == 0)) {
-		fprintf(
-			stderr,
-			"[flutter-pi] WARNING: display didn't provide valid physical dimensions.\n"
-			"             The device-pixel ratio will default to 1.0, which may not be the fitting device-pixel ratio for your display.\n"
-		);
-		flutterpi->display.pixel_ratio = 1.0;
-	} else {
-		flutterpi->display.pixel_ratio = (10.0 * flutterpi->display.width) / (flutterpi->display.width_mm * 38.0);
-		
-		int horizontal_dpi = (int) (flutterpi->display.width / (flutterpi->display.width_mm / 25.4));
-		int vertical_dpi = (int) (flutterpi->display.height / (flutterpi->display.height_mm / 25.4));
-
-		if (horizontal_dpi != vertical_dpi) {
-		        // See https://github.com/flutter/flutter/issues/71865 for current status of this issue.
-			fprintf(stderr, "[flutter-pi] WARNING: display has non-square pixels. Non-square-pixels are not supported by flutter.\n");
-		}
-	}
-	
-	for_each_encoder_in_drmdev(flutterpi->drm.drmdev, encoder) {
-		if (encoder->encoder->encoder_id == connector->connector->encoder_id) {
-			break;
-		}
-	}
-	
-	if (encoder == NULL) {
-		for (int i = 0; i < connector->connector->count_encoders; i++, encoder = NULL) {
-			for_each_encoder_in_drmdev(flutterpi->drm.drmdev, encoder) {
-				if (encoder->encoder->encoder_id == connector->connector->encoders[i]) {
-					break;
-				}
-			}
-
-			if (encoder->encoder->possible_crtcs) {
-				// only use this encoder if there's a crtc we can use with it
-				break;
-			}
-		}
-	}
-
-	if (encoder == NULL) {
-		fprintf(stderr, "[flutter-pi] Could not find a suitable DRM encoder.\n");
-		return EINVAL;
-	}
-
-	for_each_crtc_in_drmdev(flutterpi->drm.drmdev, crtc) {
-		if (crtc->crtc->crtc_id == encoder->encoder->crtc_id) {
-			break;
-		}
-	}
-
-	if (crtc == NULL) {
-		for_each_crtc_in_drmdev(flutterpi->drm.drmdev, crtc) {
-			if (encoder->encoder->possible_crtcs & crtc->bitmask) {
-				// find a CRTC that is possible to use with this encoder
-				break;
-			}
-		}
-	}
-
-	if (crtc == NULL) {
-		fprintf(stderr, "[flutter-pi] Could not find a suitable DRM CRTC.\n");
-		return EINVAL;
-	}
-
-	ok = drmdev_configure(flutterpi->drm.drmdev, connector->connector->connector_id, encoder->encoder->encoder_id, crtc->crtc->crtc_id, mode);
-	if (ok != 0) return ok;
-
-	// only enable vsync if the kernel supplies valid vblank timestamps
-	{
-		uint64_t ns = 0;
-		ok = drmCrtcGetSequence(flutterpi->drm.drmdev->fd, flutterpi->drm.drmdev->selected_crtc->crtc->crtc_id, NULL, &ns);
-		int _errno = errno;
-
-		if ((ok == 0) && (ns != 0)) {
-			flutterpi->drm.platform_supports_get_sequence_ioctl = true;
-		} else {
-			flutterpi->drm.platform_supports_get_sequence_ioctl = false;
-			if (ok != 0) {
-				fprintf(
-					stderr,
-					"WARNING: Error getting last vblank timestamp. drmCrtcGetSequence: %s\n",
-					strerror(_errno)
-				);
-			} else {
-				fprintf(
-					stderr,
-					"WARNING: Kernel didn't return a valid vblank timestamp. (timestamp == 0)\n"
-				);
-			}
-			fprintf(
-				stderr,
-				"         VSync will be disabled.\n"
-				"         See https://github.com/ardera/flutter-pi/issues/38 for more info.\n"
-			);
-		}
-	}
-
-	memset(&flutterpi->drm.evctx, 0, sizeof(drmEventContext));
-	flutterpi->drm.evctx.version = 4;
-	flutterpi->drm.evctx.page_flip_handler = on_pageflip_event;
-
-	ok = sd_event_add_io(
-		flutterpi->event_loop,
-		&flutterpi->drm.drm_pageflip_event_source,
-		flutterpi->drm.drmdev->fd,
-		EPOLLIN | EPOLLHUP | EPOLLPRI,
-		on_drm_fd_ready,
-		NULL
-	);
-	if (ok < 0) {
-		fprintf(stderr, "[flutter-pi] Could not add DRM pageflip event listener. sd_event_add_io: %s\n", strerror(-ok));
-		return -ok;
-	}
-
-	printf(
-		"===================================\n"
-		"display mode:\n"
-		"  resolution: %u x %u\n"
-		"  refresh rate: %uHz\n"
-		"  physical size: %umm x %umm\n"
-		"  flutter device pixel ratio: %f\n"
-		"===================================\n",
-		flutterpi->display.width, flutterpi->display.height,
-		flutterpi->display.refresh_rate,
-		flutterpi->display.width_mm, flutterpi->display.height_mm,
-		flutterpi->display.pixel_ratio
-	);
-
-	**********************
-	 * GBM INITIALIZATION *
-	 **********************
-	flutterpi->gbm.device = gbm_create_device(flutterpi->drm.drmdev->fd);
-	flutterpi->gbm.format = DRM_FORMAT_ARGB8888;
-	flutterpi->gbm.surface = NULL;
-	flutterpi->gbm.modifier = DRM_FORMAT_MOD_LINEAR;
-
-	flutterpi->gbm.surface = gbm_surface_create_with_modifiers(flutterpi->gbm.device, flutterpi->display.width, flutterpi->display.height, flutterpi->gbm.format, &flutterpi->gbm.modifier, 1);
-	if (flutterpi->gbm.surface == NULL) {
-		perror("[flutter-pi] Could not create GBM Surface. gbm_surface_create_with_modifiers");
-		return errno;
-	}
-
-	**********************
-	 * EGL INITIALIZATION *
-	 **********************
-	EGLint major, minor;
-
-	static const EGLint context_attribs[] = {
-		EGL_CONTEXT_CLIENT_VERSION, 2,
-		EGL_NONE
-	};
-
-	const EGLint config_attribs[] = {
-		EGL_SURFACE_TYPE, EGL_WINDOW_BIT,
-		EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
-		EGL_SAMPLES, 0,
-		EGL_NONE
-	};
-
-	flutterpi->egl.lib = libegl_load();
-	flutterpi->egl.client_info = egl_client_info_new(flutterpi->egl.lib);
-
-	EGLDisplay display;
-	if (flutterpi->egl.lib->eglGetPlatformDisplay != NULL) {
-		display = flutterpi->egl.lib->eglGetPlatformDisplay(EGL_PLATFORM_GBM_KHR, flutterpi->gbm.device, NULL);
-		if ((egl_error = eglGetError()) != EGL_SUCCESS) {
-			fprintf(stderr, "[flutter-pi] Could not get EGL display! eglGetPlatformDisplay: 0x%08X\n", egl_error);
-			return EIO;
-		}
-	} else if (flutterpi->egl.client_info->supports_ext_platform_base && flutterpi->egl.client_info->supports_khr_platform_gbm) {
-		display = flutterpi->egl.lib->eglGetPlatformDisplayEXT(EGL_PLATFORM_GBM_KHR, flutterpi->gbm.device, NULL);
-		if ((egl_error = eglGetError()) != EGL_SUCCESS) {
-			fprintf(stderr, "[flutter-pi] Could not get EGL display! eglGetPlatformDisplayEXT: 0x%08X\n", egl_error);
-			return EIO;
-		}
-	} else {
-		display = eglGetDisplay((void*) flutterpi->gbm.device);
-		if ((egl_error = eglGetError()) != EGL_SUCCESS) {
-			fprintf(stderr, "[flutter-pi] Could not get EGL display! eglGetDisplay: 0x%08X\n", egl_error);
-			return EIO;
-		}
-	}
-
-	flutterpi->egl.display = display;
-	
-	eglInitialize(flutterpi->egl.display, &major, &minor);
-	if ((egl_error = eglGetError()) != EGL_SUCCESS) {
-		fprintf(stderr, "[flutter-pi] Failed to initialize EGL! eglInitialize: 0x%08X\n", egl_error);
-		return EIO;
-	}
-
-	flutterpi->egl.display_info = egl_display_info_new(flutterpi->egl.lib, major, minor, flutterpi->egl.display);
-
-	printf("EGL information:\n");
-	printf("  version: %s\n", eglQueryString(flutterpi->egl.display, EGL_VERSION));
-	printf("  vendor: \"%s\"\n", eglQueryString(flutterpi->egl.display, EGL_VENDOR));
-	printf("  client extensions: \"%s\"\n", flutterpi->egl.display_info->client_extensions);
-	printf("  display extensions: \"%s\"\n", flutterpi->egl.display_info->display_extensions);
-	printf("===================================\n");
-
-	if (!flutterpi->egl.display_info->supports_12) {
-		fprintf(stderr, "[flutter-pi] EGL 1.2 or newer is required.\n");
-	}
-
-	eglBindAPI(EGL_OPENGL_ES_API);
-	if ((egl_error = eglGetError()) != EGL_SUCCESS) {
-		fprintf(stderr, "[flutter-pi] Failed to bind OpenGL ES API! eglBindAPI: 0x%08X\n", egl_error);
-		return EIO;
-	}
-
-	EGLint count = 0, matched = 0;
-	EGLConfig *configs;
-	bool _found_matching_config = false;
-	
-	eglGetConfigs(flutterpi->egl.display, NULL, 0, &count);
-	if ((egl_error = eglGetError()) != EGL_SUCCESS) {
-		fprintf(stderr, "[flutter-pi] Could not get the number of EGL framebuffer configurations. eglGetConfigs: 0x%08X\n", egl_error);
-		return EIO;
-	}
-
-	configs = malloc(count * sizeof(EGLConfig));
-	if (!configs) return ENOMEM;
-
-	eglChooseConfig(flutterpi->egl.display, config_attribs, configs, count, &matched);
-	if ((egl_error = eglGetError()) != EGL_SUCCESS) {
-		fprintf(stderr, "[flutter-pi] Could not query EGL framebuffer configurations with fitting attributes. eglChooseConfig: 0x%08X\n", egl_error);
-		return EIO;
-	}
-
-	if (matched == 0) {
-		fprintf(stderr, "[flutter-pi] No fitting EGL framebuffer configuration found.\n");
-		return EIO;
-	}
-
-	for (int i = 0; i < count; i++) {
-		EGLint native_visual_id;
-
-		eglGetConfigAttrib(flutterpi->egl.display, configs[i], EGL_NATIVE_VISUAL_ID, &native_visual_id);
-		if ((egl_error = eglGetError()) != EGL_SUCCESS) {
-			fprintf(stderr, "[flutter-pi] Could not query native visual ID of EGL config. eglGetConfigAttrib: 0x%08X\n", egl_error);
-			continue;
-		}
-
-		if ((uint32_t) native_visual_id == flutterpi->gbm.format) {
-			flutterpi->egl.config = configs[i];
-			_found_matching_config = true;
-			break;
-		}
-	}
-	free(configs);
-
-	if (_found_matching_config == false) {
-		fprintf(stderr, "[flutter-pi] Could not find EGL framebuffer configuration with appropriate attributes & native visual ID.\n");
-		return EIO;
-	}
-
-	****************************
-	 * OPENGL ES INITIALIZATION *
-	 ****************************
-	flutterpi->egl.root_context = eglCreateContext(flutterpi->egl.display, flutterpi->egl.config, EGL_NO_CONTEXT, context_attribs);
-	if ((egl_error = eglGetError()) != EGL_SUCCESS) {
-		fprintf(stderr, "[flutter-pi] Could not create OpenGL ES root context. eglCreateContext: 0x%08X\n", egl_error);
-		return EIO;
-	}
-
-	flutterpi->egl.flutter_render_context = eglCreateContext(flutterpi->egl.display, flutterpi->egl.config, flutterpi->egl.root_context, context_attribs);
-	if ((egl_error = eglGetError()) != EGL_SUCCESS) {
-		fprintf(stderr, "[flutter-pi] Could not create OpenGL ES context for flutter rendering. eglCreateContext: 0x%08X\n", egl_error);
-		return EIO;
-	}
-
-	flutterpi->egl.flutter_resource_uploading_context = eglCreateContext(flutterpi->egl.display, flutterpi->egl.config, flutterpi->egl.root_context, context_attribs);
-	if ((egl_error = eglGetError()) != EGL_SUCCESS) {
-		fprintf(stderr, "[flutter-pi] Could not create OpenGL ES context for flutter resource uploads. eglCreateContext: 0x%08X\n", egl_error);
-		return EIO;
-	}
-
-	flutterpi->egl.compositor_context = eglCreateContext(flutterpi->egl.display, flutterpi->egl.config, flutterpi->egl.root_context, context_attribs);
-	if ((egl_error = eglGetError()) != EGL_SUCCESS) {
-		fprintf(stderr, "[flutter-pi] Could not create OpenGL ES context for compositor. eglCreateContext: 0x%08X\n", egl_error);
-		return EIO;
-	}
-
-	flutterpi->egl.surface = eglCreateWindowSurface(flutterpi->egl.display, flutterpi->egl.config, (EGLNativeWindowType) flutterpi->gbm.surface, NULL);
-	if ((egl_error = eglGetError()) != EGL_SUCCESS) {
-		fprintf(stderr, "[flutter-pi] Could not create EGL window surface. eglCreateWindowSurface: 0x%08X\n", egl_error);
-		return EIO;
-	}
-
-	eglMakeCurrent(flutterpi->egl.display, flutterpi->egl.surface, flutterpi->egl.surface, flutterpi->egl.root_context);
-	if ((egl_error = eglGetError()) != EGL_SUCCESS) {
-		fprintf(stderr, "[flutter-pi] Could not make OpenGL ES root context current to get OpenGL information. eglMakeCurrent: 0x%08X\n", egl_error);
-		return EIO;
-	}
-
-	flutterpi->gl.renderer = (char*) glGetString(GL_RENDERER);
-
-	flutterpi->gl.version = (char*) glGetString(GL_VERSION);
-	flutterpi->gl.shading_language_version = (char*) glGetString(GL_SHADING_LANGUAGE_VERSION);
-	flutterpi->gl.vendor = (char*) glGetString(GL_VENDOR);
-	flutterpi->gl.renderer = (char*) glGetString(GL_RENDERER);
-	flutterpi->gl.extensions = (char*) glGetString(GL_EXTENSIONS);
-
-	flutterpi->gl.is_vc4 = strncmp(flutterpi->gl.renderer, "VC4 V3D", strlen("VC4 V3D")) == 0;
-
-	if (flutterpi->gl.is_vc4) {
-		printf(
-			"[flutter-pi] Detected VideoCore IV as underlying graphics chip, and VC4 as\n"
-			"             the driver. Reporting modified GL_EXTENSIONS string that doesn't\n"
-			"             contain non-working extensions.\n"
-		);
-
-		char *extensions = strdup(flutterpi->gl.extensions);
-		if (extensions == NULL) {
-			return ENOMEM;
-		}
-
 		*
 		* working (apparently)
 		*
@@ -1264,88 +804,7 @@ static int init_display(struct flutterpi *flutterpi) {
 		cut_word_from_string(extensions, "GL_KHR_context_flush_control");
 		cut_word_from_string(extensions, "GL_KHR_no_error");
 		cut_word_from_string(extensions, "GL_KHR_parallel_shader_compile");
-
-		flutterpi->gl.extensions_override = extensions;
-	} else {
-		flutterpi->gl.extensions_override = NULL;
-	}
-
-	printf("OpenGL ES information:\n");
-	printf("  version: \"%s\"\n", flutterpi->gl.vendor);
-	printf("  shading language version: \"%s\"\n", flutterpi->gl.shading_language_version);
-	printf("  vendor: \"%s\"\n", flutterpi->gl.vendor);
-	printf("  renderer: \"%s\"\n", flutterpi->gl.renderer);
-	printf("  extensions: \"%s\"\n", flutterpi->gl.extensions);
-	printf("===================================\n");
-
-	// it seems that after some Raspbian update, regular users are sometimes no longer allowed
-	//   to use the direct-rendering infrastructure; i.e. the open the devices inside /dev/dri/
-	//   as read-write. flutter-pi must be run as root then.
-	// sometimes it works fine without root, sometimes it doesn't.
-	if (strncmp(flutterpi->gl.renderer, "llvmpipe", sizeof("llvmpipe")-1) == 0) {
-		printf("WARNING: Detected llvmpipe (ie. software rendering) as the OpenGL ES renderer.\n"
-			   "         Check that flutter-pi has permission to use the 3D graphics hardware,\n"
-			   "         or try running it as root.\n"
-			   "         This warning will probably result in a \"failed to set mode\" error\n"
-			   "         later on in the initialization.\n");
-	}
-
-	eglMakeCurrent(flutterpi->egl.display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
-	if ((egl_error = eglGetError()) != EGL_SUCCESS) {
-		fprintf(stderr, "[flutter-pi] Could not clear OpenGL ES context. eglMakeCurrent: 0x%08X\n", egl_error);
-		return EIO;
-	}
-
-	/// miscellaneous initialization
-	/// initialize the compositor
-	struct compositor *compositor = compositor_new(
-		flutterpi->drm.drmdev,
-		flutterpi->gbm.surface,
-		flutterpi->egl.lib,
-		flutterpi->egl.display,
-		flutterpi->egl.surface,
-		flutterpi->egl.flutter_render_context,
-		flutterpi->egl.display_info,
-		NULL,
-		NULL,
-		NULL,
-		NULL
-	);
-	if (compositor == NULL) {
-		return EINVAL;
-	}
-
-	flutterpi->compositor = compositor;
-
-	/// initialize the frame queue
-	ok = cqueue_init(&flutterpi->frame_queue, sizeof(struct frame), QUEUE_DEFAULT_MAX_SIZE);
-	if (ok != 0) {
-		return ok;
-	}
-
-	/// We're starting without any rotation by default.
-	flutterpi_fill_view_properties(flutterpi, false, 0, false, 0);
-
-	return 0;
-
-	// TODO: proper error handling
-
-	fail_close_drmdev:
-	drmdev_destroy(flutterpi->drm.drmdev);
-
-	return ok;
-}*/
-
-static bool flutterpi_texture_frame_callback(
-	void* userdata,
-	int64_t texture_id,
-	size_t width,
-	size_t height,
-	FlutterOpenGLTexture* texture_out
-) {
-	struct flutterpi *flutterpi = userdata;
-	return texreg_on_external_texture_frame_callback(flutterpi->texture_registry, texture_id, width, height, texture_out);
-}
+*/
 
 /**************
  * USER INPUT *
@@ -1475,208 +934,6 @@ static const struct user_input_interface user_input_interface = {
 /**************************
  * FLUTTER INITIALIZATION *
  **************************/
-static int init_application(struct flutterpi *fpi) {
-	FlutterEngineAOTDataSource aot_source;
-	struct libflutter_engine *engine_lib;
-	struct texture_registry *texreg;
-	FlutterEngineAOTData aot_data;
-	FlutterEngineResult engine_result;
-	FlutterCompositor flutter_compositor;
-
-	engine_lib = NULL;
-	if (fpi->flutter.runtime_mode == kRelease) {
-		engine_lib = libflutter_engine_load("libflutter_engine.so.release");
-		if (engine_lib == NULL) {
-			printf("[flutter-pi] Warning: Could not load libflutter_engine.so.release.\n");
-		}
-	} else if (fpi->flutter.runtime_mode == kDebug) {
-		engine_lib = libflutter_engine_load("libflutter_engine.so.debug");
-		if (engine_lib == NULL) {
-			printf("[flutter-pi] Warning: Could not load libflutter_engine.so.debug.\n");
-		}
-	}
-
-	if (engine_lib == NULL) {
-		engine_lib = libflutter_engine_load("libflutter_engine.so");
-		if (engine_lib == NULL) {
-			fprintf(stderr, "[flutter-pi] Could not load libflutter_engine.so.\n");
-		}
-	}
-
-	if (engine_lib == NULL) {
-		fprintf(stderr, "[flutter-pi] Could not find a fitting libflutter_engine.\n");
-		return EINVAL;
-	}
-
-	texreg = texreg_new(
-		NULL,
-		engine_lib->FlutterEngineRegisterExternalTexture,
-		engine_lib->FlutterEngineMarkExternalTextureFrameAvailable,
-		engine_lib->FlutterEngineUnregisterExternalTexture
-	);
-	if (texreg == NULL) {
-		fprintf(stderr, "[flutter-pi] Could not create texture registry. texreg_new\n");
-		return EINVAL;
-	}
-
-	compositor_fill_flutter_compositor(
-		fpi->compositor,
-		&flutter_compositor
-	);
-
-	bool engine_is_aot = engine_lib->FlutterEngineRunsAOTCompiledDartCode();
-	if ((engine_is_aot == true) && (fpi->flutter.runtime_mode != kRelease)) {
-		fprintf(
-			stderr,
-			"[flutter-pi] The flutter engine was built for release (AOT) mode,\n"
-			"             but flutter-pi was not started up in release mode. \n"
-			"             Either you swap out the libflutter_engine.so \n"
-			"             with one that was built for debug mode, or you start\n"
-			"             flutter-pi with the --release flag and make sure\n"
-			"             a valid \"app.so\" is located inside the asset bundle\n"
-			"             directory.\n"
-		);
-		return EINVAL;
-	} else if ((engine_is_aot == false) && (fpi->flutter.runtime_mode != kDebug)) {
-		fprintf(
-			stderr,
-			"[flutter-pi] The flutter engine was built for debug mode,\n"
-			"             but flutter-pi was started up in release mode.\n"
-			"             Either you swap out the libflutter_engine.so\n"
-			"             with one that was built for release mode, or you\n"
-			"             start flutter-pi without the --release flag.\n"
-		);
-		return EINVAL;
-	}
-
-	if (fpi->flutter.runtime_mode == kRelease) {
-		aot_source = (FlutterEngineAOTDataSource) {
-			.elf_path = fpi->flutter.app_elf_path,
-			.type = kFlutterEngineAOTDataSourceTypeElfPath
-		};
-
-		engine_result = engine_lib->FlutterEngineCreateAOTData(&aot_source, &aot_data);
-		if (engine_result != kSuccess) {
-			fprintf(stderr, "[flutter-pi] Could not load AOT data. FlutterEngineCreateAOTData: %s\n", FLUTTER_RESULT_TO_STRING(engine_result));
-			return EIO;
-		}
-	}
-
-	engine_result = engine_lib->FlutterEngineInitialize(
-		FLUTTER_ENGINE_VERSION,
-		&(FlutterRendererConfig) {
-			.type = kOpenGL,
-			.open_gl = {
-				.struct_size = sizeof(FlutterOpenGLRendererConfig),
-				.make_current = on_flutter_gl_make_current,
-				.clear_current = on_flutter_gl_clear_current,
-				.present = on_flutter_gl_present,
-				.fbo_callback = on_flutter_gl_get_fbo,
-				.make_resource_current = on_flutter_gl_make_resource_context_current,
-				.gl_proc_resolver = on_flutter_gl_resolve_proc,
-				.surface_transformation = on_flutter_gl_get_surface_transformation,
-				.gl_external_texture_frame_callback = on_flutter_gl_get_external_texture_frame,
-			}
-		},
-		&(FlutterProjectArgs) {
-			.struct_size = sizeof(FlutterProjectArgs),
-			.assets_path = fpi->flutter.asset_bundle_path,
-			.main_path__unused__ = NULL,
-			.packages_path__unused__ = NULL,
-			.icu_data_path = fpi->flutter.icu_data_path,
-			.command_line_argc = fpi->flutter.engine_argc,
-			.command_line_argv = (const char * const*) fpi->flutter.engine_argv,
-			.platform_message_callback = on_platform_message,
-			.vm_snapshot_data = NULL,
-			.vm_snapshot_data_size = 0,
-			.vm_snapshot_instructions = NULL,
-			.vm_snapshot_instructions_size = 0,
-			.isolate_snapshot_data = NULL,
-			.isolate_snapshot_data_size = 0,
-			.isolate_snapshot_instructions = NULL,
-			.isolate_snapshot_instructions_size = 0,
-			.root_isolate_create_callback = NULL,
-			.update_semantics_node_callback = NULL,
-			.update_semantics_custom_action_callback = NULL,
-			.persistent_cache_path = NULL,
-			.is_persistent_cache_read_only = false,
-			.vsync_callback = on_frame_request,
-			.custom_dart_entrypoint = NULL,
-			.custom_task_runners = &(FlutterCustomTaskRunners) {
-				.struct_size = sizeof(FlutterCustomTaskRunners),
-				.platform_task_runner = &(FlutterTaskRunnerDescription) {
-					.struct_size = sizeof(FlutterTaskRunnerDescription),
-					.user_data = NULL,
-					.runs_task_on_current_thread_callback = runs_platform_tasks_on_current_thread,
-					.post_task_callback = on_post_flutter_task
-				},
-				.render_task_runner = NULL
-			},
-			.shutdown_dart_vm_when_done = true,
-			.compositor = &flutter_compositor,
-			.dart_old_gen_heap_size = -1,
-			.aot_data = aot_data,
-			.compute_platform_resolved_locale_callback = NULL
-		},
-		fpi,
-		&fpi->flutter.engine
-	);
-	if (engine_result != kSuccess) {
-		fprintf(stderr, "[flutter-pi] Could not run the flutter engine. FlutterEngineInitialize: %s\n", FLUTTER_RESULT_TO_STRING(engine_result));
-		return EINVAL;
-	}
-
-	fpi->plugin_registry = plugin_registry_new(fpi);
-	if (fpi->plugin_registry == NULL) {
-		fprintf(stderr, "[flutter-pi] Could not initialize plugin registry.\n");
-		return EINVAL;
-	}
-
-	fpi->texture_registry = texreg;
-	texreg_set_engine(texreg, fpi->flutter.engine);
-
-	compositor_set_tracing_interface(
-		fpi->compositor,
-		&(const struct flutter_tracing_interface) {
-			.get_current_time = engine_lib->FlutterEngineGetCurrentTime,
-			.trace_event_begin = engine_lib->FlutterEngineTraceEventDurationBegin,
-			.trace_event_end = engine_lib->FlutterEngineTraceEventDurationEnd,
-			.trace_event_instant = engine_lib->FlutterEngineTraceEventInstant
-		}
-	);
-
-	fpi->private = malloc(sizeof *fpi->private);
-	if (fpi->private == NULL) {
-		return ENOMEM;
-	}
-
-	fpi->private->flutterpi = fpi;
-	fpi->private->rawkb = rawkb_get_instance_via_plugin_registry(fpi->plugin_registry);
-	fpi->private->textin = textin_get_instance_via_plugin_registry(fpi->plugin_registry);
-
-	// update window size
-	engine_result = engine_lib->FlutterEngineSendWindowMetricsEvent(
-		fpi->flutter.engine,
-		&(FlutterWindowMetricsEvent) {
-			.struct_size = sizeof(FlutterWindowMetricsEvent),
-			.width = fpi->view.width,
-			.height = fpi->view.height,
-			.pixel_ratio = fpi->display.pixel_ratio
-		}
-	);
-	if (engine_result != kSuccess) {
-		fprintf(stderr, "[flutter-pi] Could not send window metrics to flutter engine.\n");
-		return EINVAL;
-	}
-
-	engine_result = engine_lib->FlutterEngineRunInitialized(fpi->flutter.engine);
-	if (engine_result != kSuccess) {
-		fprintf(stderr, "[flutter-pi] Could not run the flutter engine. FlutterEngineRunInitialized: %s\n", FLUTTER_RESULT_TO_STRING(engine_result));
-		return EINVAL;
-	}
-	
-	return 0;
-}
 
 int flutterpi_schedule_exit(struct flutterpi *flutterpi) {
 	(void) flutterpi;
@@ -1687,7 +944,6 @@ int flutterpi_schedule_exit(struct flutterpi *flutterpi) {
 static int setup_paths(
 	const char *asset_bundle_path,
 	enum flutter_runtime_mode runtime_mode,
-	char **kernel_blob_path_out,
 	char **icu_data_path_out,
 	char **app_elf_path_out
 ) {
@@ -1729,20 +985,23 @@ static int setup_paths(
 		}
 	}
 
+	free(kernel_blob_path);
+	kernel_blob_path = NULL;
+
 	ok = asprintf(&icu_data_path, "/usr/lib/icudtl.dat");
 	if (ok == -1) {
+		free(app_elf_path);
+		free(icu_data_path);
 		return ENOMEM;
 	}
 
 	if (!PATH_EXISTS(icu_data_path)) {
 		LOG_FLUTTERPI_ERROR("Could not find \"icudtl.dat\" file inside \"/usr/lib/\".\n");
-		free(kernel_blob_path);
 		free(app_elf_path);
 		free(icu_data_path);
 		return ENOENT;
 	}
 
-	*kernel_blob_path_out = kernel_blob_path;
 	*icu_data_path_out = icu_data_path;
 	*app_elf_path_out = app_elf_path;
 
@@ -1928,26 +1187,26 @@ struct flutterpi *flutterpi_new_from_args(
 	struct flutter_messenger *messenger;
 	struct libflutter_engine *engine_lib;
 	struct texture_registry *texture_registry;
-	struct egl_display_info *egl_display_info;
 	struct plugin_registry *plugin_registry;
 	struct egl_client_info *egl_client_info;
+	FlutterRendererConfig renderer_config;
+	FlutterEngineAOTData aot_data;
 	FlutterEngineResult engine_result;
-	struct gbm_surface *gbm_surface;
 	struct event_loop *platform, *render;
-	struct gbm_device *gbm_device;
 	struct compositor *compositor;
+	FlutterCompositor flutter_compositor;
 	struct user_input *input;
 	struct flutterpi *flutterpi;
-	struct display *main_display;
+	struct renderer *renderer;
+	struct display *const *displays;
+	FlutterEngine engine;
 	struct libegl *libegl;
+#ifdef HAS_KMS
 	struct kmsdev *kmsdev;
-	struct fbdev *fbdev;
-	EGLDisplay egl_display;
-	EGLSurface egl_surface;
-	EGLContext egl_context;
-	EGLConfig egl_config;
+#endif
+	size_t n_displays;
 	char **engine_argv_dup;
-	char *kernel_blob_path, *app_elf_path, *icu_data_path;
+	char *app_elf_path, *icu_data_path;
 	bool use_kms;
 	int ok;
 	
@@ -1991,7 +1250,6 @@ struct flutterpi *flutterpi_new_from_args(
 	ok = setup_paths(
 		asset_bundle_path,
 		runtime_mode,
-		&kernel_blob_path,
 		&icu_data_path,
 		&app_elf_path
 	);
@@ -2009,20 +1267,21 @@ struct flutterpi *flutterpi_new_from_args(
 		goto fail_free_platform_event_loop;
 	}
 
+	use_kms = true;
+
 	// initialize the display
 	kmsdev = NULL;
-	fbdev = NULL;
 	if (use_kms) {
 		kmsdev = kmsdev_new_auto(render);
 		if (kmsdev == NULL) {
-			goto fail_free_paths;
+			goto fail_free_render_event_loop;
 		}
 
 		for (int i = 0; i < kmsdev_get_n_connectors(kmsdev); i++) {
 			if (kmsdev_is_connector_connected(kmsdev, i)) {
 				ok = kmsdev_configure_crtc_with_preferences(
 					kmsdev,
-					0,
+					0, /// TODO: Implement
 					i,
 					(enum kmsdev_mode_preference[]) {
 						kKmsdevModePreferencePreferred,
@@ -2037,16 +1296,62 @@ struct flutterpi *flutterpi_new_from_args(
 				}
 			}
 		}
-	} else {
-		fbdev = fbdev_new_from_path("/dev/fb0");
-		if (fbdev == NULL) {
-			goto fail_free_paths;
+
+		ok = kmsdev_configure(
+			kmsdev,
+			&(const struct kms_config) {
+				.n_display_configs = 1,
+				.display_configs = (struct kms_display_config[]) {
+					{
+						.connector_name = "DSI0",
+						.has_explicit_mode = false,
+						.preferences = (enum kmsdev_mode_preference[5]) {
+							kKmsdevModePreferencePreferred,
+							kKmsdevModePreferenceHighestRefreshrate,
+							kKmsdevModePreferenceHighestResolution,
+							kKmsdevModePreferenceProgressive,
+							kKmsdevModePreferenceNone
+						},
+						.has_explicit_dimensions = false
+					}
+				}
+			}
+		);
+		if (ok != 0) {
+			goto fail_destroy_kmsdev;
 		}
+
+		kmsdev_get_displays(kmsdev, &displays, &n_displays);
+	} else {
+		struct display *display = fbdev_display_new_from_path(
+			"/dev/fb0",
+			&(struct fbdev_display_config) {
+				.has_explicit_dimensions = false,
+				.width_mm = 0,
+				.height_mm = 0
+			}
+		);
+		if (display == NULL) {
+			goto fail_free_render_event_loop;
+		}
+
+		struct display **modifiable_displays;
+
+		modifiable_displays = malloc(sizeof *modifiable_displays);
+		if (displays == NULL) {
+			display_destroy(display);
+			goto fail_free_render_event_loop;
+		}
+
+		modifiable_displays[0] = display;
+
+		displays = modifiable_displays;
+		n_displays = 1;
 	}
 
 	libegl = libegl_load();
 	if (libegl == NULL) {
-		goto fail_destroy_gbm_device_and_surface;
+		goto fail_destroy_displays;
 	}
 
 	egl_client_info = egl_client_info_new(libegl);
@@ -2054,46 +1359,40 @@ struct flutterpi *flutterpi_new_from_args(
 		goto fail_unload_libegl;
 	}
 
-	ok = create_drmdev_egl_output(
-		drmdev,
-		libegl,
-		egl_client_info,
-		&gbm_device,
-		&gbm_surface,
-		&egl_display,
-		&egl_display_info,
-		&egl_config,
-		&egl_surface,
-		&egl_context
-	);
-	if (ok != 0) {
+	engine_lib = libflutter_engine_load_for_runtime_mode(runtime_mode);
+	if (engine_lib == NULL) {
 		goto fail_destroy_egl_client_info;
 	}
 
 	compositor = compositor_new(
-		use_kms ? &(const struct graphics_output) {
-			.type = kGraphicsOutputTypeKmsdev,
-			.kmsdev = kmsdev
-		} : &(const struct graphics_output) {
-			.type = kGraphicsOutputTypeFbdev,
-			.fbdev = fbdev
-		},
-		kOpenGL,
-		renderer,
-		NULL,
-		render
+		displays,
+		n_displays,
+		libegl,
+		egl_client_info,
+		NULL /*libgl*/,
+		render,
+		&gl_interface,
+		&sw_interface,
+		&(struct flutter_tracing_interface) {
+			.get_current_time = engine_lib->FlutterEngineGetCurrentTime,
+			.trace_event_begin = engine_lib->FlutterEngineTraceEventDurationBegin,
+			.trace_event_end = engine_lib->FlutterEngineTraceEventDurationEnd,
+			.trace_event_instant = engine_lib->FlutterEngineTraceEventInstant
+		}
 	);
 	if (compositor == NULL) {
-		goto fail_destroy_egl_output;
+		goto fail_unload_engine;
 	}
 
-	engine_lib = libflutter_engine_load_for_runtime_mode(runtime_mode);
-	if (engine_lib == NULL) {
-		goto fail_destroy_compositor;
-	}
-	
+	renderer = compositor_get_renderer(compositor);
+
+	compositor_fill_flutter_compositor(compositor, &flutter_compositor);
+	compositor_fill_flutter_renderer_config(compositor, &renderer_config);
+
+	texture_registry = NULL;
+
 	bool engine_is_aot = engine_lib->FlutterEngineRunsAOTCompiledDartCode();
-	if ((engine_is_aot == true) && (fpi->flutter.runtime_mode != kRelease)) {
+	if ((engine_is_aot == true) && (flutterpi->flutter.runtime_mode != kRelease)) {
 		fprintf(
 			stderr,
 			"[flutter-pi] The flutter engine was built for release (AOT) mode,\n"
@@ -2104,8 +1403,9 @@ struct flutterpi *flutterpi_new_from_args(
 			"             a valid \"app.so\" is located inside the asset bundle\n"
 			"             directory.\n"
 		);
-		return EINVAL;
-	} else if ((engine_is_aot == false) && (fpi->flutter.runtime_mode != kDebug)) {
+		
+		goto fail_destroy_compositor;
+	} else if ((engine_is_aot == false) && (flutterpi->flutter.runtime_mode != kDebug)) {
 		fprintf(
 			stderr,
 			"[flutter-pi] The flutter engine was built for debug mode,\n"
@@ -2114,29 +1414,26 @@ struct flutterpi *flutterpi_new_from_args(
 			"             with one that was built for release mode, or you\n"
 			"             start flutter-pi without the --release flag.\n"
 		);
-		return EINVAL;
+
+		goto fail_destroy_compositor;
 	}
 
-	if (fpi->flutter.runtime_mode == kRelease) {
-		aot_source = (FlutterEngineAOTDataSource) {
-			.elf_path = fpi->flutter.app_elf_path,
-			.type = kFlutterEngineAOTDataSourceTypeElfPath
+	if (flutterpi->flutter.runtime_mode == kRelease) {
+		FlutterEngineAOTDataSource aot_source = (FlutterEngineAOTDataSource) {
+			.type = kFlutterEngineAOTDataSourceTypeElfPath,
+			.elf_path = app_elf_path
 		};
 
 		engine_result = engine_lib->FlutterEngineCreateAOTData(&aot_source, &aot_data);
+		
+		free(app_elf_path);
+		app_elf_path = NULL;
+
 		if (engine_result != kSuccess) {
-			fprintf(stderr, "[flutter-pi] Could not load AOT data. FlutterEngineCreateAOTData: %s\n", FLUTTER_RESULT_TO_STRING(engine_result));
-			return EIO;
+			LOG_FLUTTERPI_ERROR("Could not load AOT data. FlutterEngineCreateAOTData: %s\n", FLUTTER_RESULT_TO_STRING(engine_result));
+			goto fail_destroy_compositor;
 		}
 	}
-
-	FlutterRendererConfig renderer_config;
-
-	struct renderer *renderer = gl_renderer_new(
-
-	);
-
-	renderer_fill_flutter_renderer_config(renderer, &renderer_config);
 
 	engine_result = engine_lib->FlutterEngineInitialize(
 		FLUTTER_ENGINE_VERSION,
@@ -2187,44 +1484,56 @@ struct flutterpi *flutterpi_new_from_args(
 		&engine
 	);
 	if (engine_result != kSuccess) {
-		fprintf(stderr, "[flutter-pi] Could not run the flutter engine. FlutterEngineInitialize: %s\n", FLUTTER_RESULT_TO_STRING(engine_result));
-		return EINVAL;
+		LOG_FLUTTERPI_ERROR("Could not run the flutter engine. FlutterEngineInitialize: %s\n", FLUTTER_RESULT_TO_STRING(engine_result));
+		goto fail_collect_aot_data;
 	}
-	// engine = create_engine();
+
+	messenger = fm_new(
+		(runs_platform_tasks_on_current_thread_t) runs_platform_tasks_on_current_thread,
+		(post_platform_task_t) flutterpi_post_platform_task,
+		engine_lib->FlutterEngineSendPlatformMessage,
+		engine_lib->FlutterPlatformMessageCreateResponseHandle,
+		engine_lib->FlutterPlatformMessageReleaseResponseHandle,
+		engine_lib->FlutterEngineSendPlatformMessageResponse,
+		flutterpi,
+		engine
+	);
+	if (messenger == NULL) {
+		goto fail_deinitialize_engine;
+	}
 
 	// create the user input "subsystem".
 	// display needs to be initialized before this so we can set
 	// the correct view here.
 	input = user_input_new(
-		&user_input_interface, flutterpi,
+		&user_input_interface,
+		flutterpi,
 		&FLUTTER_TRANSLATION_TRANSFORMATION(0, 0),
 		0, 0
 	);
 	if (input == NULL) {
 		LOG_FLUTTERPI_ERROR("ERROR: Couldn't initialize user input.\n");
-		goto fail_free_paths;
+		goto fail_destroy_messenger;
 	}
 
 	// initialize the plugin registry
 	plugin_registry = plugin_registry_new(flutterpi);
 	if (plugin_registry == NULL) {
-		LOG_FLUTTERPI_ERROR("ERROR: Couldn't initialize plugin registry.\n");
-		goto fail_free_paths;
+		LOG_FLUTTERPI_ERROR("Couldn't initialize plugin registry.\n");
+		goto fail_destroy_user_input;
 	}
 
-
-
-
 	private->flutterpi = flutterpi;
-	private->rawkb = NULL;
 	private->textin = NULL;
+	private->rawkb = NULL;
+	private->render = render;
+	private->platform = platform;
 
 	memset(flutterpi, 0, sizeof *flutterpi);
 
 	/// TODO: Add more initializers in case the struct changes.
 	flutterpi->private = private;
-	flutterpi->input.cursor_x = 0.0;
-	flutterpi->input.cursor_y = 0.0;
+	flutterpi->renderer = renderer;
 
 	if (has_explicit_dimensions) {
 		flutterpi->display.width_mm = width_mm;
@@ -2236,26 +1545,45 @@ struct flutterpi *flutterpi_new_from_args(
 	flutterpi->view.has_orientation = has_orientation;
 	flutterpi->view.orientation = orientation;
 
-	flutterpi->flutter.runtime_mode = runtime_mode;
 	flutterpi->flutter.asset_bundle_path = asset_bundle_path;
+	flutterpi->flutter.icu_data_path = icu_data_path;
 	flutterpi->flutter.engine_argc = n_engine_args + 1;
 	flutterpi->flutter.engine_argv = engine_argv_dup;
+	flutterpi->flutter.runtime_mode = runtime_mode;
+	flutterpi->flutter.libflutter_engine = engine_lib;
+	flutterpi->flutter.engine = engine;
+
+	flutterpi->compositor = compositor;
+	flutterpi->renderer = renderer;
+	flutterpi->texture_registry = texture_registry;
+	flutterpi->plugin_registry = plugin_registry;
+	flutterpi->flutter_messenger = messenger;
+
+	fm_set_engine(messenger, engine);
+	plugin_registry_ensure_plugins_initialized(plugin_registry);
 
 	return flutterpi;
 
-	fail_free_input:
-	//user_input_destroy(input);
+
+	fail_destroy_user_input:
+	user_input_destroy(input);
+
+	fail_destroy_messenger:
+	fm_destroy(messenger);
+
+	fail_deinitialize_engine:
+	engine_lib->FlutterEngineDeinitialize(engine);
+
+	fail_collect_aot_data:
+	if (engine_is_aot) {
+		engine_lib->FlutterEngineCollectAOTData(aot_data);
+	}
 
 	fail_destroy_compositor:
 	compositor_destroy(compositor);
 
-	fail_destroy_egl_output:
-	eglDestroyContext(egl_display, egl_context);
-	eglDestroySurface(egl_display, egl_surface);
-	egl_display_info_destroy(egl_display_info);
-	eglTerminate(egl_display);
-	gbm_surface_destroy(gbm_surface);
-	gbm_device_destroy(gbm_device);
+	fail_unload_engine:
+	libflutter_engine_unload(engine_lib);
 
 	fail_destroy_egl_client_info:
 	egl_client_info_destroy(egl_client_info);
@@ -2263,12 +1591,12 @@ struct flutterpi *flutterpi_new_from_args(
 	fail_unload_libegl:
 	libegl_unload(libegl);
 
-	fail_destroy_gbm_device_and_surface:
-	gbm_surface_destroy(gbm_surface);
-	gbm_device_destroy(gbm_device);
+	fail_destroy_displays:
+	//for (size_t i = 0; i < n_displays; i++) display_destroy(displays[i]);
+	//free(displays);
 
 	fail_destroy_kmsdev:
-	kmsdev_destroy(kmsdev);
+	if (kmsdev != NULL) kmsdev_destroy(kmsdev);
 
 	fail_free_render_event_loop:
 	event_loop_destroy(render);
@@ -2277,9 +1605,6 @@ struct flutterpi *flutterpi_new_from_args(
 	event_loop_destroy(platform);
 
 	fail_free_paths:
-	if (kernel_blob_path != NULL) {
-		free(kernel_blob_path);
-	}
 	if (app_elf_path != NULL) {
 		free(app_elf_path);
 	}
@@ -2440,55 +1765,19 @@ struct flutterpi *flutterpi_new_from_cmdline(
 		has_rotation, rotation,
 		has_orientation, orientation,
 		has_explicit_dimensions, width_mm, height_mm,
-		input_devices_glob,
 		argv[optind],
 		argc - (optind + 1),
 		(const char **) &argv[optind + 1]
 	);
 }
 
-int flutterpi_init(struct flutterpi *flutterpi) {
-	int ok;
-
-	ok = setup_paths(
-		flutterpi->flutter.asset_bundle_path,
-		flutterpi->flutter.runtime_mode,
-		&flutterpi->flutter.kernel_blob_path,
-		&flutterpi->flutter.icu_data_path,
-		&flutterpi->flutter.app_elf_path
-	);
-	if (ok == false) {
-		return EINVAL;
-	}
-
-	ok = init_main_loop(flutterpi);
-	if (ok != 0) {
-		return ok;
-	}
-
-	ok = init_display(flutterpi);
-	if (ok != 0) {
-		return ok;
-	}
-
-	ok = init_user_input(flutterpi);
-	if (ok != 0) {
-		return ok;
-	}
-
-	ok = init_application(flutterpi);
-	if (ok != 0) {
-		return ok;
-	}
-
-	return 0;
-}
-
 int flutterpi_run(struct flutterpi *flutterpi) {
+	flutterpi->flutter.libflutter_engine->FlutterEngineRunInitialized(flutterpi->flutter.engine);
 	return run_main_loop(flutterpi);
 }
 
-void flutterpi_deinit(struct flutterpi *flutterpi) {
+void flutterpi_destroy(struct flutterpi *flutterpi) {
+	(void) flutterpi;
 	return;
 }
 
@@ -2497,22 +1786,22 @@ int main(int argc, char **argv) {
 	struct flutterpi *flutterpi;
 	int ok;
 
+	printf("INIT\n");
 	flutterpi = flutterpi_new_from_cmdline(argc, argv);
 	if (flutterpi == NULL) {
 		return EXIT_FAILURE;
 	}
 
-	ok = flutterpi_init(flutterpi);
-	if (ok != 0) {
-		return EXIT_FAILURE;
-	}
-
+	printf("RUN\n");
 	ok = flutterpi_run(flutterpi);
+
+	printf("DESTROY\n");
 	if (ok != 0) {
+		flutterpi_destroy(flutterpi);
 		return EXIT_FAILURE;
 	}
 
-	flutterpi_deinit(flutterpi);
+	flutterpi_destroy(flutterpi);
 
 	return EXIT_SUCCESS;
 }

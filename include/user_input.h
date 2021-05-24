@@ -96,6 +96,8 @@ struct user_input *user_input_new(
 	unsigned int display_height
 );
 
+void user_input_destroy(struct user_input *input);
+
 void user_input_set_transform(
 	struct user_input *input,
 	const FlutterTransformation *display_to_view_transform,

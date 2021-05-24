@@ -47,11 +47,6 @@ struct gl_renderer {
 
 struct sw_renderer {
 	/**
-	 * @brief The display to use for allocating the buffers.
-	 */
-	struct display *display;
-
-	/**
 	 * @brief The dispatcher functions. When the FlutterSoftwareRendererConfig is filled
 	 * using @ref renderer_fill_flutter_renderer_config, these functions will be filled.
 	 * The functions should then call the sw_renderer_flutter_* functions with the correct
@@ -121,7 +116,7 @@ static EGLContext create_egl_context(struct gl_renderer *private) {
 	for_each_pointer_in_cpset(&private->egl_contexts, context)
 		break;
 
-	if ((context == EGL_NO_CONTEXT) || (context == NULL)) {
+	if (context == EGL_NO_CONTEXT) {
 		cpset_unlock(&private->egl_contexts);
 		return EGL_NO_CONTEXT;
 	}
@@ -137,6 +132,7 @@ static EGLContext create_egl_context(struct gl_renderer *private) {
 		}
 	);
 	if (context == EGL_NO_CONTEXT) {
+		LOG_RENDERER_ERROR("Could not create additional EGL context. eglCreateContext: %s\n", eglGetErrorString());
 		cpset_unlock(&private->egl_contexts);
 		return EGL_NO_CONTEXT;
 	}
@@ -158,7 +154,7 @@ static EGLContext get_unused_egl_context(struct gl_renderer *private) {
 	ok = cqueue_try_dequeue(&private->unused_egl_contexts, &context);
 	if (ok == EAGAIN) {
 		return create_egl_context(private);
-	} else {
+	} else if (ok != 0) {
 		return NULL;
 	}
 
@@ -310,7 +306,7 @@ int gl_renderer_create_scanout_fbo(
 	int ok;
 
 	DEBUG_ASSERT_GL_RENDERER(renderer);
-	DEBUG_ASSERT(egl_image_out != NULL);
+	DEBUG_ASSERT(image_out != NULL);
 	DEBUG_ASSERT(handle_out != NULL);
 	DEBUG_ASSERT(eglGetCurrentDisplay() != EGL_NO_DISPLAY);
 	DEBUG_ASSERT(eglGetCurrentContext() != EGL_NO_CONTEXT);
@@ -421,7 +417,7 @@ void gl_renderer_destroy_scanout_fbo(
 	struct gl_renderer *private;
 
 	DEBUG_ASSERT_GL_RENDERER(renderer);
-	DEBUG_ASSERT(egl_image != EGL_NO_IMAGE);
+	DEBUG_ASSERT(image != EGL_NO_IMAGE);
 	DEBUG_ASSERT(eglGetCurrentDisplay() != EGL_NO_DISPLAY);
 	DEBUG_ASSERT(eglGetCurrentContext() != EGL_NO_CONTEXT);
 
@@ -477,7 +473,7 @@ bool gl_renderer_flutter_make_resource_context_current(struct renderer *renderer
 		private->flutter_resource_context = context;
 	}
 
-	ok = gl_renderer_reserved_make_current(renderer, context, false);
+	ok = gl_renderer_reserved_make_current(renderer, context, true);
 	if (ok != 0) {
 		put_unused_egl_context(private, context);
 		return false;
@@ -492,6 +488,9 @@ bool gl_renderer_flutter_clear_current(struct renderer *renderer) {
 
 bool gl_renderer_flutter_present(struct renderer *renderer) {
 	(void) renderer;
+
+	printf("gl_renderer_flutter_present\n");
+
 	return true;
 }
 
@@ -568,9 +567,9 @@ bool gl_renderer_flutter_present_with_info(struct renderer *renderer, const Flut
 }
 
 
-bool sw_renderer_present(
+bool sw_renderer_flutter_present(
 	struct renderer *renderer,
-	void *allocation,
+	const void *allocation,
 	size_t bytes_per_row,
 	size_t height
 ) {
@@ -578,6 +577,9 @@ bool sw_renderer_present(
 	(void) allocation;
 	(void) bytes_per_row;
 	(void) height;
+
+	printf("sw_renderer_flutter_present\n");
+
 	return true;
 }
 
@@ -654,13 +656,68 @@ static void gl_renderer_fill_flutter_renderer_config(struct renderer *renderer, 
 	};
 }
 
+static EGLConfig get_matching_config(EGLDisplay display, enum pixfmt format) {
+	EGLConfig *configs;
+	EGLint egl_ok, n_matched, attrib_value;
+
+	static const EGLint attributes[] = {
+		EGL_SURFACE_TYPE, EGL_WINDOW_BIT,
+		EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
+		EGL_NONE
+	};
+
+	egl_ok = eglChooseConfig(
+		display,
+		attributes,
+		NULL, 0,
+		&n_matched
+	);
+	if (egl_ok == EGL_FALSE) {
+		LOG_RENDERER_ERROR("Could not query number of EGL configs: eglChooseConfig: %s\n", eglGetErrorString());
+		return EGL_NO_CONFIG_KHR;
+	}
+
+	configs = alloca(sizeof(EGLConfig) * n_matched);
+
+	egl_ok = eglChooseConfig(
+		display,
+		attributes,
+		configs, n_matched,
+		&n_matched
+	);
+	if (egl_ok == EGL_FALSE) {
+		LOG_RENDERER_ERROR("Could not query EGL configs: eglChooseConfig: %s\n", eglGetErrorString());
+		return EGL_NO_CONFIG_KHR;
+	}
+
+	for (int i = 0; i < n_matched; i++) {
+		egl_ok = eglGetConfigAttrib(
+			display,
+			configs[i],
+			EGL_NATIVE_VISUAL_ID,
+			&attrib_value
+		);
+		if (egl_ok == EGL_FALSE) {
+			LOG_RENDERER_ERROR("Could not query EGL config attribute: eglGetConfigAttrib: %s\n", eglGetErrorString());
+			return EGL_NO_CONFIG_KHR;
+		}
+
+		if (*((uint32_t*) &attrib_value) == get_pixfmt_info(format)->gbm_format) {
+			return configs[i];
+		}
+	}
+
+	LOG_RENDERER_ERROR("Could not find EGL framebuffer config for pixel format %s.\n", get_pixfmt_info(format)->name);
+	return EGL_NO_CONFIG_KHR;
+}
+
 struct renderer *gl_renderer_new(
 	struct gbm_device *gbmdev,
 	struct libegl *libegl,
 	struct egl_client_info *egl_client_info,
 	struct libgl *libgl,
 	const struct flutter_renderer_gl_interface *gl_interface,
-	uint32_t format,
+	enum pixfmt format,
 	int w, int h
 ) {
 	struct gl_renderer *private;
@@ -672,7 +729,7 @@ struct renderer *gl_renderer_new(
 	EGLContext root_context;
 	EGLBoolean egl_ok;
 	EGLConfig egl_config;
-	EGLint egl_error, n_matched, major, minor;
+	EGLint major, minor;
 	int ok;
 
 	renderer = malloc(sizeof *renderer);
@@ -697,9 +754,8 @@ struct renderer *gl_renderer_new(
 
 	gbm_surface = gbm_surface_create_with_modifiers(
 		gbmdev,
-		w,
-		h,
-		format,
+		w, h,
+		get_pixfmt_info(format)->gbm_format,
 		(uint64_t[1]) {DRM_FORMAT_MOD_LINEAR},
 		1
 	);
@@ -740,28 +796,8 @@ struct renderer *gl_renderer_new(
 		goto fail_terminate_display;
 	}
 
-	// We take the first config with ARGB8888. EGL orders all matching configs
-	// so the top ones are most "desirable", so we should be fine
-	// with just fetching the first config.
-	egl_ok = eglChooseConfig(
-		egl_display,
-		(const EGLint[]) {
-			EGL_SURFACE_TYPE, EGL_WINDOW_BIT,
-			EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
-			EGL_NATIVE_VISUAL_ID, format,
-			EGL_NONE
-		},
-		&egl_config,
-		1,
-		&n_matched
-	);
-	if (egl_ok == EGL_FALSE) {
-		LOG_RENDERER_ERROR("Error finding a hardware accelerated EGL framebuffer configuration. eglChooseConfig: %s\n", eglGetErrorString());
-		goto fail_destroy_egl_display_info;
-	}
-
-	if (n_matched == 0) {
-		LOG_RENDERER_ERROR("Couldn't configure a hardware accelerated EGL framebuffer configuration.\n");
+	egl_config = get_matching_config(egl_display, format);
+	if (egl_config == EGL_NO_CONFIG_KHR) {
 		goto fail_destroy_egl_display_info;
 	}
 
@@ -786,12 +822,12 @@ struct renderer *gl_renderer_new(
 	}
 
 	egl_surface = eglCreateWindowSurface(egl_display, egl_config, (EGLNativeWindowType) gbm_surface, NULL);
-	if (egl_error = eglGetError(), egl_surface == EGL_NO_SURFACE || egl_error != EGL_SUCCESS) {
-		LOG_RENDERER_ERROR("Could not create EGL window surface. eglCreateWindowSurface: 0x%08X\n", egl_error);
+	if (egl_surface == EGL_NO_SURFACE) {
+		LOG_RENDERER_ERROR("Could not create EGL window surface. eglCreateWindowSurface: %s\n", eglGetErrorString());
 		goto fail_destroy_egl_context;
 	}
 
-	cpset_put_locked(&private->egl_contexts, &root_context);
+	cpset_put_locked(&private->egl_contexts, root_context);
 	cqueue_enqueue_locked(&private->unused_egl_contexts, &root_context);
 
 	private->libegl = libegl;
@@ -850,8 +886,7 @@ struct renderer *gl_renderer_new(
 }
 
 struct renderer *sw_renderer_new(
-	struct display *display,
-	struct flutter_renderer_sw_interface *sw_dispatcher
+	const struct flutter_renderer_sw_interface *sw_dispatcher
 ) {
 	struct sw_renderer *private;
 	struct renderer *renderer;
@@ -866,7 +901,6 @@ struct renderer *sw_renderer_new(
 		goto fail_free_renderer;
 	}
 
-	private->display = display;
 	private->sw_dispatcher = sw_dispatcher;
 	renderer->type = kSoftware;
 	renderer->private = (struct renderer_private *) private;

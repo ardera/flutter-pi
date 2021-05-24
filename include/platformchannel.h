@@ -110,7 +110,7 @@ struct std_value {
 
 #define STDVALUE_IS_STRING(value) ((value).type == kStdString)
 #define STDVALUE_AS_STRING(value) ((value).string_value)
-#define STDSTRING(str) ((struct std_value) {.type = kStdString, .string_value = str})
+#define STDSTRING(str) ((struct std_value) {.type = kStdString, .string_value = (str)})
 
 #define STDVALUE_IS_LIST(value) ((value).type == kStdList)
 #define STDVALUE_IS_SIZE(value, _size) ((value).size == (_size))

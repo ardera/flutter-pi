@@ -193,8 +193,7 @@ target_compile_options(flutter-pi PRIVATE
   ${LIBSSL_CFLAGS}
   ${LIBCRYPTO_CFLAGS}
   ${LIBGSTREAMER_CFLAGS}
-# $<$<CONFIG:DEBUG>:-O0 -ggdb -Werror -fsanitize=address -fno-omit-frame-pointer>
-  $<$<CONFIG:DEBUG>:-O0 -ggdb -Werror -Wall -Wextra -fsanitize=undefined -fno-omit-frame-pointer>
+  $<$<CONFIG:DEBUG>:-O0 -ggdb -Werror -Wall -Wextra -Wno-error=missing-field-initializers -fsanitize=undefined -fno-omit-frame-pointer>
 )
 
 if (BUILD_TEXT_INPUT_PLUGIN)

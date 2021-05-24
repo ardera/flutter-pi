@@ -135,15 +135,28 @@ struct flutter_tracing_interface {
 	flutter_engine_trace_event_instant_t trace_event_instant;
 };
 
+
+struct flutter_renderer_gl_interface;
+struct flutter_renderer_sw_interface;
+struct libgl;
+
 /**
  * @brief Create a new compositor, basically 
  */
 struct compositor *compositor_new(
-    const struct graphics_output *output,
-    FlutterRendererType renderer_type,
-    struct renderer *renderer,
-    const struct flutter_tracing_interface *tracing_interface,
-    struct event_loop *evloop
+	struct display *const *displays,
+	size_t n_displays,
+	struct libegl *libegl,
+	struct egl_client_info *client_info,
+	struct libgl *libgl,
+	struct event_loop *evloop,
+	const struct flutter_renderer_gl_interface *gl_interface,
+	const struct flutter_renderer_sw_interface *sw_interface,
+	const struct flutter_tracing_interface *tracing_interface
+);
+
+struct renderer *compositor_get_renderer(
+    struct compositor *compositor
 );
 
 void compositor_set_tracing_interface(
@@ -157,6 +170,15 @@ void compositor_set_tracing_interface(
 void compositor_fill_flutter_compositor(
     struct compositor *compositor,
     FlutterCompositor *flutter_compositor
+);
+
+/**
+ * @brief Fill the given flutter renderer config with the right renderer type
+ * and callbacks for this compositor.
+ */
+void compositor_fill_flutter_renderer_config(
+    struct compositor *compositor,
+    FlutterRendererConfig *config
 );
 
 /**

@@ -42,31 +42,33 @@
 #   define DRM_FORMAT_FIELD_INITIALIZER(_drm_format)
 #endif
 
-#define PIXFMT_MAPPING(_format, _bpp, _is_opaque, r_length, r_offset, g_length, g_offset, b_length, b_offset, a_length, a_offset, _gbm_format, _drm_format) \
+#define PIXFMT_MAPPING(_name, _format, _bpp, _is_opaque, r_length, r_offset, g_length, g_offset, b_length, b_offset, a_length, a_offset, _gbm_format, _drm_format) \
     { \
+        .name = _name, \
         .format = _format, \
-        .bpp = _bpp, \
+        .bits_per_pixel = _bpp, \
         .is_opaque = _is_opaque, \
         FBDEV_FORMAT_FIELD_INITIALIZER(r_length, r_offset, g_length, g_offset, b_length, b_offset, a_length, a_offset) \
         GBM_FORMAT_FIELD_INITIALIZER(_gbm_format) \
         DRM_FORMAT_FIELD_INITIALIZER(_drm_format) \
     }
 
-extern const struct pixfmt_info pixfmt_infos[] = {
+const struct pixfmt_info pixfmt_infos[] = {
     /**
      * 16-bit (high color)
      */
-    PIXFMT_MAPPING(kRGB565, 16, true, 5, 11, 6, 5, 5, 0, 0, 0, GBM_FORMAT_RGB565, DRM_FORMAT_RGB565),
+    PIXFMT_MAPPING("RGB 5:6:5", kRGB565, 16, true, 5, 11, 6, 5, 5, 0, 0, 0, GBM_FORMAT_RGB565, DRM_FORMAT_RGB565),
     
     /**
      * 24- or 32-bit (true color)
      */
-    PIXFMT_MAPPING(kARGB8888, 32, false, 8, 16, 8, 8, 8, 0, 8, 24, GBM_FORMAT_ARGB8888, DRM_FORMAT_RGB565),
-    PIXFMT_MAPPING(kBGRA8888, 32, false, 8, 8, 8, 16, 8, 24, 8, 0, GBM_FORMAT_BGRA8888, DRM_FORMAT_BGRA8888),
-    PIXFMT_MAPPING(kRGBA8888, 32, false, 8, 24, 8, 16, 8, 8, 8, 0, GBM_FORMAT_RGBA8888, DRM_FORMAT_RGBA8888)
+    PIXFMT_MAPPING("ARGB 8:8:8:8", kARGB8888, 32, false, 8, 16, 8, 8, 8, 0, 8, 24, GBM_FORMAT_ARGB8888, DRM_FORMAT_RGB565),
+    PIXFMT_MAPPING("XRGB 8:8:8:8", kXRGB8888, 32, true,  8, 16, 8, 8, 8, 0, 0, 24, GBM_FORMAT_XRGB8888, DRM_FORMAT_XRGB8888),
+    PIXFMT_MAPPING("BGRA 8:8:8:8", kBGRA8888, 32, false, 8,  8, 8, 16, 8, 24, 8, 0, GBM_FORMAT_BGRA8888, DRM_FORMAT_BGRA8888),
+    PIXFMT_MAPPING("RGBA 8:8:8:8", kRGBA8888, 32, false, 8, 24, 8, 16, 8, 8, 8, 0, GBM_FORMAT_RGBA8888, DRM_FORMAT_RGBA8888)
 };
 
-extern const size_t n_pixfmt_infos = sizeof(pixfmt_mappings) / sizeof(*pixfmt_mappings);
+const size_t n_pixfmt_infos = sizeof(pixfmt_infos) / sizeof(*pixfmt_infos);
 
 
 struct presenter_private;
@@ -219,6 +221,10 @@ void presenter_destroy(struct presenter *presenter) {
 
 
 struct display_buffer {
+    struct {
+        uint32_t kms_fb_id;
+    } resources;
+
     struct display *display;
     struct display_buffer_backend backend;
     display_buffer_destroy_callback_t destroy_callback;
@@ -230,7 +236,7 @@ struct display_private;
 struct display {
     struct display_private *private;
 
-    void (*get_supported_formats)(struct display *display, const uint32_t **formats_out, size_t *n_formats_out);
+    void (*get_supported_formats)(struct display *display, const enum pixfmt **formats_out, size_t *n_formats_out);
     int (*make_mapped_buffer)(struct display_buffer *buffer);
     int (*import_sw_buffer)(struct display_buffer *buffer);
     int (*import_gbm_bo)(struct display_buffer *buffer);
@@ -265,6 +271,11 @@ void display_get_size(struct display *display, int *width_out, int *height_out) 
     }
 }
 
+double display_get_refreshrate(struct display *display) {
+    DEBUG_ASSERT(display != NULL);
+    return display->refresh_rate;
+}
+
 bool display_has_dimensions(struct display *display) {
     return display->has_dimensions;
 }
@@ -295,7 +306,7 @@ struct gbm_device *display_get_gbm_device(struct display *display) {
 /**
  * @brief Get the list of fourcc formats supported by this presenter.
  */
-void display_get_supported_formats(struct display *display, const uint32_t **formats_out, size_t *n_formats_out) {
+void display_get_supported_formats(struct display *display, const enum pixfmt **formats_out, size_t *n_formats_out) {
     DEBUG_ASSERT(display != NULL);
     DEBUG_ASSERT(formats_out != NULL);
     DEBUG_ASSERT(n_formats_out != NULL);
@@ -319,7 +330,7 @@ bool display_supports_importing_buffer_type(struct display *display, enum displa
 
 struct display_buffer *display_create_mapped_buffer(
     struct display *display,
-    int width, int height, int stride,
+    int width, int height,
     enum pixfmt format
 ) {
     struct display_buffer *buffer;
@@ -419,7 +430,12 @@ struct fbdev_display {
     /**
      * @brief The physical width & height of the frame buffer and the pixel format as a fourcc code.
      */
-    uint32_t width, height, format;
+    int width, height;
+    
+    /**
+     * @brief The pixel format of the display (ARGB8888, RGB565, etc) as a enum pixfmt.
+     */
+    enum pixfmt format;
     
     /**
      * @brief The mapped video memory of this fbdev.
@@ -496,7 +512,7 @@ static int fbdev_presenter_push_sw_fb_layer(struct presenter *presenter, const s
 
     // If the pitches don't match, we'd need to copy line by line.
     // We can support that in the future but it's probably unnecessary right now.
-    if (private->fbdev_display->fixinfo.line_length != layer->pitch) {
+    if ((int) private->fbdev_display->fixinfo.line_length != layer->pitch) {
         LOG_MODESETTING_ERROR("Rendering software framebuffers into fbdev with non-matching buffer pitches is not supported.\n");
         return EINVAL;
     }
@@ -506,7 +522,7 @@ static int fbdev_presenter_push_sw_fb_layer(struct presenter *presenter, const s
     memcpy(
         private->fbdev_display->vmem + offset,
         layer->vmem,
-        min(private->fbdev_display->size_vmem - offset, layer->height * layer->pitch)
+        min(private->fbdev_display->size_vmem - offset, (size_t) (layer->height) * (size_t) layer->pitch)
     );
 
     return 0;
@@ -545,21 +561,21 @@ static void fbdev_display_destroy(struct display *display) {
     free(display);
 }
 
-static void fbdev_display_get_supported_formats(struct display *display, const uint32_t **formats_out, size_t *n_formats_out) {
+static void fbdev_display_get_supported_formats(struct display *display, const enum pixfmt **formats_out, size_t *n_formats_out) {
     struct fbdev_display *private = DISPLAY_PRIVATE_FBDEV(display);
 
     *formats_out = &private->format;
     *n_formats_out = 1;
-
-    return 0;
 }
 
 static void fbdev_display_on_destroy_mapped_buffer(struct display *display, const struct display_buffer_backend *backend, void *userdata) {
+    (void) display;
+    (void) userdata;
+    
     free(backend->sw.vmem);
 }
 
 static int fbdev_display_make_mapped_buffer(struct display_buffer *buffer) {
-    struct fbdev_display *private = DISPLAY_PRIVATE_FBDEV(buffer->display);
     uint8_t *vmem;
     int bytes_per_pixel, stride;
 
@@ -591,7 +607,7 @@ static int fbdev_display_import_sw_buffer(struct display_buffer *buffer) {
         return EINVAL;
     }
 
-    if (buffer->backend.sw.pixel_format != private->format) {
+    if (buffer->backend.sw.format != private->format) {
         LOG_MODESETTING_ERROR("sw buffer has wrong pixel format.\n");
         return EINVAL;
     }
@@ -618,7 +634,7 @@ static struct presenter *fbdev_display_create_presenter(struct display *display)
         return NULL;
     }
 
-    presenter_private->fbdev_display = display;
+    presenter_private->fbdev_display = private;
 
     presenter->private = (struct presenter_private *) presenter_private;
     presenter->set_logical_zpos = fbdev_presenter_set_logical_zpos;
@@ -679,12 +695,12 @@ struct display *fbdev_display_new_from_fd(int fd, const struct fbdev_display_con
     // look for the fourcc code for this fbdev format
     format = 0;
     for (i = 0; i < n_pixfmt_infos; i++) {
-        if (fb_bitfield_equals(&private->varinfo.red, &pixfmt_infos[i].r) &&
-            fb_bitfield_equals(&private->varinfo.green, &pixfmt_infos[i].g) &&
-            fb_bitfield_equals(&private->varinfo.blue, &pixfmt_infos[i].b) &&
-            fb_bitfield_equals(&private->varinfo.transp, &pixfmt_infos[i].a)
+        if (fb_bitfield_equals(&private->varinfo.red, &pixfmt_infos[i].fbdev_format.r) &&
+            fb_bitfield_equals(&private->varinfo.green, &pixfmt_infos[i].fbdev_format.g) &&
+            fb_bitfield_equals(&private->varinfo.blue, &pixfmt_infos[i].fbdev_format.b) &&
+            fb_bitfield_equals(&private->varinfo.transp, &pixfmt_infos[i].fbdev_format.a)
         ) {
-            format = pixfmt_infos[i].fourcc;
+            format = pixfmt_infos[i].format;
             break;
         }
     }
@@ -722,6 +738,7 @@ struct display *fbdev_display_new_from_fd(int fd, const struct fbdev_display_con
     display->private = (struct display_private*) private;
     display->get_supported_formats = fbdev_display_get_supported_formats;
     display->import_sw_buffer = fbdev_display_import_sw_buffer;
+    display->make_mapped_buffer = fbdev_display_make_mapped_buffer;
     display->create_presenter = fbdev_display_create_presenter;
     display->destroy = fbdev_display_destroy;
     display->width = private->varinfo.width;
@@ -731,7 +748,6 @@ struct display *fbdev_display_new_from_fd(int fd, const struct fbdev_display_con
     display->height_mm = config->height_mm;
     display->supports_gbm = false;
     display->gbm_device = NULL;
-    display->gbm_surface = NULL;
     display->supported_buffer_types_for_import[kDisplayBufferTypeSw] = true;
     display->supported_buffer_types_for_import[kDisplayBufferTypeGbmBo] = false;
     display->supported_buffer_types_for_import[kDisplayBufferTypeGemBo] = false;
@@ -822,7 +838,7 @@ struct drm_crtc {
     int min_zpos, max_zpos;
     
     size_t n_formats;
-    uint32_t *formats;
+    enum pixfmt *formats2;
 
     presenter_scanout_callback_t scanout_cb;
     struct display *scanout_cb_display;
@@ -1188,8 +1204,11 @@ static int fetch_crtcs(struct kmsdev *dev, struct drm_crtc **crtcs_out, size_t *
         crtcs[i].min_zpos = 0;
         crtcs[i].max_zpos = 0;
         
-        crtcs[i].n_formats = 0;
-        crtcs[i].formats = NULL;
+        /// TODO: Actually fill this out
+        crtcs[i].n_formats = 1;
+        crtcs[i].formats2 = malloc(sizeof *crtcs[i].formats2);
+        DEBUG_ASSERT(crtcs[i].formats2 != NULL);
+        crtcs[i].formats2[0] = kXRGB8888;
 
         crtcs[i].scanout_cb = NULL;
         crtcs[i].scanout_cb_userdata = NULL;
@@ -1253,14 +1272,14 @@ static int fetch_planes(struct kmsdev *dev, struct drm_plane **planes_out, size_
         plane = drmModeGetPlane(dev->fd, dev->plane_res->planes[i]);
         if (plane == NULL) {
             ok = errno;
-            perror("[modesetting] Could not get DRM device plane. drmModeGetPlane");
+            LOG_MODESETTING_ERROR("Could not get DRM device plane. drmModeGetPlane: %s", strerror(errno));
             goto fail_free_planes;
         }
 
         props = drmModeObjectGetProperties(dev->fd, dev->plane_res->planes[i], DRM_MODE_OBJECT_PLANE);
         if (props == NULL) {
             ok = errno;
-            perror("[modesetting] Could not get DRM device planes' properties. drmModeObjectGetProperties");
+            LOG_MODESETTING_ERROR(" Could not get DRM device planes' properties. drmModeObjectGetProperties: %s", strerror(errno));
             drmModeFreePlane(plane);
             goto fail_free_planes;
         }
@@ -1277,7 +1296,7 @@ static int fetch_planes(struct kmsdev *dev, struct drm_plane **planes_out, size_
             props_info[j] = drmModeGetProperty(dev->fd, props->props[j]);
             if (props_info[j] == NULL) {
                 ok = errno;
-                perror("[modesetting] Could not get DRM device planes' properties' info. drmModeGetProperty");
+                LOG_MODESETTING_ERROR(" Could not get DRM device planes' properties' info. drmModeGetProperty: %s", strerror(errno));
                 for (unsigned int k = 0; k < (j-1); k++)
                     drmModeFreeProperty(props_info[j]);
                 free(props_info);
@@ -1427,7 +1446,7 @@ struct kmsdev *kmsdev_new_from_fd(struct event_loop *loop, int fd) {
     if ((ok < 0) && (errno == EOPNOTSUPP)) {
         ok = errno;
         goto fail_free_dev;
-    } else {
+    } else if (ok < 0) {
         ok = errno;
         LOG_MODESETTING_ERROR("Could not set DRM client universal planes capable. drmSetClientCap: %s\n", strerror(ok));
         goto fail_free_dev;
@@ -1455,16 +1474,18 @@ struct kmsdev *kmsdev_new_from_fd(struct event_loop *loop, int fd) {
     dev->res = drmModeGetResources(fd);
     if (dev->res == NULL) {
         ok = errno;
-        perror("[modesetting] Could not get DRM device resources. drmModeGetResources");
+        LOG_MODESETTING_ERROR("Could not get DRM device resources. drmModeGetResources: %s", strerror(errno));
         goto fail_close_fd;
     }
 
-    dev->plane_res = drmModeGetPlaneResources(dev->fd);
+    dev->plane_res = drmModeGetPlaneResources(fd);
     if (dev->plane_res == NULL) {
         ok = errno;
-        perror("[modesetting] Could not get DRM device planes resources. drmModeGetPlaneResources");
+        LOG_MODESETTING_ERROR("Could not get DRM device planes resources. drmModeGetPlaneResources: %s", strerror(errno));
         goto fail_free_resources;
     }
+
+    dev->fd = fd;
 
     ok = fetch_connectors(dev, &dev->connectors, &dev->n_connectors);
     if (ok != 0) {
@@ -1486,7 +1507,6 @@ struct kmsdev *kmsdev_new_from_fd(struct event_loop *loop, int fd) {
         goto fail_free_crtcs;
     }
 
-    dev->fd = fd;
     dev->supports_explicit_fencing = false;
     dev->pageflip_evctx = (drmEventContext) {
         .version = DRM_EVENT_CONTEXT_VERSION,
@@ -1496,6 +1516,9 @@ struct kmsdev *kmsdev_new_from_fd(struct event_loop *loop, int fd) {
         .sequence_handler = NULL
     };
     dev->loop = loop;
+    dev->displays = NULL;
+    dev->n_displays = 0;
+    dev->gbm_device = gbm_create_device(fd);
 
     return dev;
 
@@ -1543,6 +1566,7 @@ struct kmsdev *kmsdev_new_from_path(struct event_loop *loop, const char *path) {
 }
 
 struct kmsdev *kmsdev_new_auto(struct event_loop *loop) {
+    drmDevice **devices;
     struct kmsdev *dev;
     int n_devices, ok, fd;
 
@@ -1553,18 +1577,39 @@ struct kmsdev *kmsdev_new_auto(struct event_loop *loop) {
     }
 
     n_devices = ok;
+    devices = alloca((sizeof *devices) * n_devices);
 
-    drmDevice devices[n_devices];
     ok = drmGetDevices2(0, devices, n_devices);
     if (ok < 0) {
         LOG_MODESETTING_ERROR("Couldn't query the attached DRM devices. drmGetDevices2: %s\n", strerror(-ok));
         return NULL;
     }
 
+    printf("n_devices: %d\n", n_devices);
+
     n_devices = ok;
     for (int i = 0; i < n_devices; i++) {
-        if (devices[i].available_nodes & (1 << DRM_NODE_PRIMARY)) {
-            ok = open(devices[i].nodes[DRM_NODE_PRIMARY], O_CLOEXEC);
+        printf("device 1:\n");
+        printf(
+            "  available nodes: 0x%X\n",
+            devices[i]->available_nodes
+        );
+        printf("  bustype: %d\n", devices[i]->bustype);
+        printf(
+            "  primary node: %s\n",
+            devices[i]->nodes[DRM_NODE_PRIMARY]
+        );
+        printf(
+            "  primary node: %s\n",
+            devices[i]->nodes[DRM_NODE_CONTROL]
+        );
+        printf(
+            "  primary node: %s\n",
+            devices[i]->nodes[DRM_NODE_RENDER]
+        );
+
+        if (devices[i]->available_nodes & (1 << DRM_NODE_PRIMARY)) {
+            ok = open(devices[i]->nodes[DRM_NODE_PRIMARY], O_CLOEXEC);
             if (ok < 0) {
                 LOG_MODESETTING_ERROR("Couldn't open DRM device. open: %s\n", strerror(errno));
                 continue;
@@ -1697,6 +1742,7 @@ int kmsdev_configure_crtc_with_preferences(
         mode = dev->connectors[connector_index].connector->modes + i;
 
         if (stored_mode == NULL) {
+            stored_mode = mode;
             continue;
         }
 
@@ -1751,6 +1797,7 @@ int kmsdev_configure_crtc_with_preferences(
         } while (*(cursor++) != kKmsdevModePreferenceNone);
     }
 
+    // stored_mode is a stack 
     return kmsdev_configure_crtc(dev, crtc_index, connector_index, stored_mode);
 }
 
@@ -2077,9 +2124,6 @@ void kmsdev_dispose_cursor(struct kmsdev *dev, struct kms_cursor *cursor) {
 static int kms_presenter_set_scanout_callback(struct presenter *presenter, presenter_scanout_callback_t cb, void *userdata) {
     struct kms_presenter *private = PRESENTER_PRIVATE_KMS(presenter);
 
-    private->scanout_callbacks[private->kms_display->crtc_index].callback = cb;
-    private->scanout_callbacks[private->kms_display->crtc_index].userdata = userdata;
-
     private->kms_display->crtc->scanout_cb = cb;
     private->kms_display->crtc->scanout_cb_userdata = userdata;
     
@@ -2127,6 +2171,142 @@ static inline int reserve_plane(struct kms_presenter *presenter, int zpos_hint) 
  */
 static inline void unreserve_plane(struct kms_presenter *presenter, int plane_index) {
     presenter->free_planes |= (1 << plane_index);
+}
+
+static int kms_presenter_push_display_buffer_layer(struct presenter *presenter, const struct display_buffer_layer *layer) {
+    struct kms_presenter *private;
+    struct drm_plane *plane;
+    uint32_t plane_id;
+    int ok, plane_index;
+    
+    DEBUG_ASSERT(presenter != NULL);
+    DEBUG_ASSERT(layer != NULL);
+    private = PRESENTER_PRIVATE_KMS(presenter);
+    CHECK_VALID_ZPOS_OR_RETURN_EINVAL(private, private->current_zpos);
+
+    plane_index = reserve_plane(private, private->has_primary_layer? 1 : 0);
+    if (plane_index < 0) {
+        LOG_MODESETTING_ERROR("Couldn't find unused plane for framebuffer layer.\n");
+        ok = EINVAL;
+        goto fail_return_ok;
+    }
+
+    plane = &private->dev->planes[plane_index];
+    plane_id = plane->plane->plane_id;
+
+    if (layer && (plane->property_ids.rotation == DRM_NO_PROPERTY_ID)) {
+        LOG_MODESETTING_ERROR("Rotation was requested but is not supported.\n");
+        ok = EINVAL;
+        goto fail_unreserve_plane;
+    }
+
+    if ((plane->property_ids.zpos == DRM_NO_PROPERTY_ID) && private->has_primary_layer) {
+        LOG_MODESETTING_ERROR("Plane doesn't support zpos but that's necessary for overlay planes.\n");
+        ok = EINVAL;
+        goto fail_unreserve_plane;
+    }
+
+    ok = drmModeAtomicAddProperty(private->req, plane_id, plane->property_ids.fb_id, layer->buffer->resources.kms_fb_id);
+    if (ok < 0) {
+        LOG_MODESETTING_ERROR("Couldn't add property to atomic request. drmModeAtomicAddProperty: %s\n", strerror(-ok));
+        ok = -ok;
+        goto fail_unreserve_plane;
+    }
+
+    ok = drmModeAtomicAddProperty(private->req, plane_id, plane->property_ids.crtc_id, private->kms_display->crtc->crtc->crtc_id);
+    if (ok < 0) {
+        LOG_MODESETTING_ERROR("Couldn't add property to atomic request. drmModeAtomicAddProperty: %s\n", strerror(-ok));
+        ok = -ok;
+        goto fail_unreserve_plane;
+    }
+
+    ok = drmModeAtomicAddProperty(private->req, plane_id, plane->property_ids.src_x, layer->buffer_x << 16);
+    if (ok < 0) {
+        LOG_MODESETTING_ERROR("Couldn't add property to atomic request. drmModeAtomicAddProperty: %s\n", strerror(-ok));
+        ok = -ok;
+        goto fail_unreserve_plane;
+    }
+
+    ok = drmModeAtomicAddProperty(private->req, plane_id, plane->property_ids.src_y, layer->buffer_y << 16);
+    if (ok < 0) {
+        LOG_MODESETTING_ERROR("Couldn't add property to atomic request. drmModeAtomicAddProperty: %s\n", strerror(-ok));
+        ok = -ok;
+        goto fail_unreserve_plane;
+    }
+
+    ok = drmModeAtomicAddProperty(private->req, plane_id, plane->property_ids.src_w, layer->buffer_w << 16);
+    if (ok < 0) {
+        LOG_MODESETTING_ERROR("Couldn't add property to atomic request. drmModeAtomicAddProperty: %s\n", strerror(-ok));
+        ok = -ok;
+        goto fail_unreserve_plane;
+    }
+
+    ok = drmModeAtomicAddProperty(private->req, plane_id, plane->property_ids.src_h, layer->buffer_h << 16);
+    if (ok < 0) {
+        LOG_MODESETTING_ERROR("Couldn't add property to atomic request. drmModeAtomicAddProperty: %s\n", strerror(-ok));
+        ok = -ok;
+        goto fail_unreserve_plane;
+    }
+
+    ok = drmModeAtomicAddProperty(private->req, plane_id, plane->property_ids.crtc_x, layer->display_x);
+    if (ok < 0) {
+        LOG_MODESETTING_ERROR("Couldn't add property to atomic request. drmModeAtomicAddProperty: %s\n", strerror(-ok));
+        ok = -ok;
+        goto fail_unreserve_plane;
+    }
+
+    ok = drmModeAtomicAddProperty(private->req, plane_id, plane->property_ids.crtc_y, layer->display_y);
+    if (ok < 0) {
+        LOG_MODESETTING_ERROR("Couldn't add property to atomic request. drmModeAtomicAddProperty: %s\n", strerror(-ok));
+        ok = -ok;
+        goto fail_unreserve_plane;
+    }
+    
+    ok = drmModeAtomicAddProperty(private->req, plane_id, plane->property_ids.crtc_w, layer->display_w);
+    if (ok < 0) {
+        LOG_MODESETTING_ERROR("Couldn't add property to atomic request. drmModeAtomicAddProperty: %s\n", strerror(-ok));
+        ok = -ok;
+        goto fail_unreserve_plane;
+    }
+
+    ok = drmModeAtomicAddProperty(private->req, plane_id, plane->property_ids.crtc_h, layer->display_h);
+    if (ok < 0) {
+        LOG_MODESETTING_ERROR("Couldn't add property to atomic request. drmModeAtomicAddProperty: %s\n", strerror(-ok));
+        ok = -ok;
+        goto fail_unreserve_plane;
+    }
+
+    if (plane->property_ids.zpos != DRM_NO_PROPERTY_ID) {
+        ok = drmModeAtomicAddProperty(private->req, plane_id, plane->property_ids.zpos, private->current_zpos);
+        if (ok < 0) {
+            LOG_MODESETTING_ERROR("Couldn't add property to atomic request. drmModeAtomicAddProperty: %s\n", strerror(-ok));
+            ok = -ok;
+            goto fail_unreserve_plane;
+        }
+    }
+
+    /// TODO: Keep track of the last rotation of the plane, so we unrotate it again if it was at some other rotation than 0 before
+    if (layer->rotation != kDspBufLayerRotationNone) {
+        ok = drmModeAtomicAddProperty(private->req, plane_id, plane->property_ids.rotation, layer->rotation);
+        if (ok < 0) {
+            LOG_MODESETTING_ERROR("Couldn't add property to atomic request. drmModeAtomicAddProperty: %s\n", strerror(-ok));
+            ok = -ok;
+            goto fail_unreserve_plane;
+        }
+    }
+
+    if (private->has_primary_layer == false) {
+        memcpy(&private->primary_layer, layer, sizeof(struct drm_fb_layer));
+    }
+
+    return 0;
+
+
+    fail_unreserve_plane:
+    unreserve_plane(private, plane_index);
+
+    fail_return_ok:
+    return ok;
 }
 
 static int kms_presenter_push_drm_fb_layer(struct presenter *presenter, const struct drm_fb_layer *layer) {
@@ -2333,35 +2513,43 @@ static void kms_display_destroy(struct display *display) {
 
 static void kms_display_on_destroy_mapped_buffer(struct display *display, const struct display_buffer_backend *backend, void *userdata) {
     /// TODO: Implement
+    (void) display;
+    (void) backend;
+    (void) userdata;
 }
 
 static int kms_display_make_mapped_buffer(struct display_buffer *buffer) {
-    struct kms_display *private = DISPLAY_PRIVATE_KMS(buffer->display);
-    uint8_t *vmem;
-    int bytes_per_pixel, stride;
-
-    bytes_per_pixel = (get_pixfmt_info(buffer->backend.sw.format)->bits_per_pixel + 7) / 8;
-    
     /// TODO: Implement
-
-    stride = buffer->backend.sw.width * bytes_per_pixel;
-    vmem = malloc(buffer->backend.sw.height * stride);
-    if (vmem == NULL) {
-        return ENOMEM;
-    }
-
-    buffer->backend.sw.stride = stride;
-    buffer->backend.sw.vmem = vmem;
+    buffer->backend.sw.vmem = NULL;
+    buffer->backend.sw.stride = 0;
     buffer->destroy_callback = kms_display_on_destroy_mapped_buffer;
     buffer->userdata = NULL;
     return 0;
 }
 
-static void kms_display_get_supported_formats(struct display *display, const uint32_t **formats_out, size_t *n_formats_out) {
+static void kms_display_get_supported_formats(struct display *display, const enum pixfmt **formats_out, size_t *n_formats_out) {
     struct kms_display *private = DISPLAY_PRIVATE_KMS(display);
 
-    *formats_out = private->dev->crtcs[private->crtc_index].formats;
-    *n_formats_out = private->dev->crtcs[private->crtc_index].n_formats;
+    /// TODO: Implement
+    *formats_out = private->crtc->formats2;
+    *n_formats_out = private->crtc->n_formats;
+}
+
+static int kms_display_import_gbm_bo(struct display_buffer *buffer) {
+    struct kms_display *private = DISPLAY_PRIVATE_KMS(buffer->display);
+    uint32_t fb_id;
+    int ok;
+
+    ok = kmsdev_add_gbm_bo(
+        private->dev,
+        buffer->backend.gbm_bo.bo,
+        &fb_id
+    );
+    if (ok != 0) {
+        return ok;
+    }
+
+    buffer->resources.kms_fb_id = fb_id;
 
     return 0;
 }
@@ -2407,12 +2595,11 @@ static struct presenter *kms_display_create_presenter(struct display *display) {
     private->req = req;
     private->has_primary_layer = false;
     memset(&private->primary_layer, 0, sizeof(private->primary_layer));
-    memset(private->scanout_callbacks, 0, sizeof(private->scanout_callbacks));
-
     presenter->private = (struct presenter_private*) private;
     presenter->set_logical_zpos = kms_presenter_set_logical_zpos;
     presenter->get_zpos = kms_presenter_get_zpos;
     presenter->set_scanout_callback = kms_presenter_set_scanout_callback;
+    presenter->push_display_buffer_layer = kms_presenter_push_display_buffer_layer;
     presenter->push_drm_fb_layer = kms_presenter_push_drm_fb_layer;
     presenter->push_gbm_bo_layer = kms_presenter_push_gbm_bo_layer;
     presenter->push_sw_fb_layer = kms_presenter_push_sw_fb_layer;
@@ -2444,7 +2631,7 @@ static struct display *create_kms_display(
     }
 
     private = malloc(sizeof *private);
-    if (private = NULL) {
+    if (private == NULL) {
         free(display);
         return NULL;
     }
@@ -2454,7 +2641,7 @@ static struct display *create_kms_display(
     connector = crtc->selected_connector;
 
     planes = 0;
-    for (int i = 0; i < dev->n_planes; i++) {
+    for (size_t i = 0; i < dev->n_planes; i++) {
         if (dev->planes[i].plane->possible_crtcs & crtc->bitmask) {
             planes |= (1 << i);
         }
@@ -2480,17 +2667,28 @@ static struct display *create_kms_display(
     private->crtc_index = crtc_index;
     private->crtc = dev->crtcs + crtc_index;
     private->assigned_planes = planes;
-    display->private = private;
+
+    display->private = (struct display_private *) private;
+    display->get_supported_formats = kms_display_get_supported_formats;
+    display->make_mapped_buffer = kms_display_make_mapped_buffer;
+    display->import_sw_buffer = NULL;
+    display->import_gbm_bo = kms_display_import_gbm_bo;
+    display->import_gem_bo = NULL;
+    display->import_egl_image = NULL;
     display->create_presenter = kms_display_create_presenter;
     display->destroy = kms_display_destroy;
     display->width = mode->hdisplay;
     display->height = mode->vdisplay;
+    display->refresh_rate = mode->vrefresh;
     display->has_dimensions = has_dimensions;
     display->width_mm = width_mm;
     display->height_mm = height_mm;
     display->supports_gbm = true;
     display->gbm_device = dev->gbm_device;
-
+    display->supported_buffer_types_for_import[kDisplayBufferTypeSw] = false;
+    display->supported_buffer_types_for_import[kDisplayBufferTypeGbmBo] = true;
+    display->supported_buffer_types_for_import[kDisplayBufferTypeGemBo] = false;
+    display->supported_buffer_types_for_import[kDisplayBufferTypeEglImage] = false;
     return display;
 }
 
@@ -2518,7 +2716,9 @@ int kmsdev_configure(
     n_displays = config->n_display_configs;
 
     if (dev->n_crtcs < n_displays) {
-        return NULL;
+        LOG_MODESETTING_ERROR("More display configs than CRTCs given.\n");
+        ok = EINVAL;
+        goto fail_return_ok;
     }
 
     displays = malloc(n_displays * (sizeof *displays));
@@ -2528,7 +2728,7 @@ int kmsdev_configure(
     }
 
     n_allocated_displays = 0;
-    for (int i = 0; i < n_displays; i++) {
+    for (size_t i = 0; i < n_displays; i++) {
         display = create_kms_display(
             dev,
             i,
@@ -2540,6 +2740,7 @@ int kmsdev_configure(
             goto fail_destroy_displays;
         }
 
+        displays[i] = display;
         n_allocated_displays++;
     }
 
@@ -2551,8 +2752,6 @@ int kmsdev_configure(
 
     fail_destroy_displays:
     for (int i = n_allocated_displays; i >= 0; i--) display_destroy(displays[i]);
-
-    fail_free_displays:
     free(displays);
 
     fail_return_ok:
@@ -2566,7 +2765,7 @@ struct display *kmsdev_get_display(struct kmsdev *dev, int display_index) {
     return dev->displays[display_index];
 }
 
-void kmsdev_get_displays(struct kmsdev *dev, struct display ***displays_out, size_t *n_displays_out) {
+void kmsdev_get_displays(struct kmsdev *dev, struct display *const **displays_out, size_t *n_displays_out) {
     DEBUG_ASSERT(dev != NULL);
     DEBUG_ASSERT(displays_out != NULL);
     *displays_out = dev->displays;

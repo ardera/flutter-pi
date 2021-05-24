@@ -33,14 +33,14 @@ struct renderer *gl_renderer_new(
 	struct egl_client_info *egl_client_info,
 	struct libgl *libgl,
 	const struct flutter_renderer_gl_interface *gl_interface,
-	uint32_t format,
+	enum pixfmt format,
 	int w, int h
-);
+) ;
 
 /**
  * @brief Create a new software renderer.
  */
-struct renderer *sw_renderer_new(struct flutter_renderer_sw_interface *sw_dispatcher);
+struct renderer *sw_renderer_new(const struct flutter_renderer_sw_interface *sw_dispatcher);
 
 /**
  * @brief Destroy this renderer, freeing all allocated resources.

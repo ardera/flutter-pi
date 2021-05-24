@@ -155,43 +155,10 @@ struct flutterpi_private;
 struct flutterpi {
 	struct flutterpi_private *private;
 	
-	/// graphics stuff
-	struct {
-		struct drmdev *drmdev;
-		drmEventContext evctx;
-		sd_event_source *drm_pageflip_event_source;
-		bool platform_supports_get_sequence_ioctl;
-	} drm;
+	struct libegl *libegl;
+	struct egl_client_info *egl_client_info;
 
-	struct {
-		struct gbm_device  *device;
-		struct gbm_surface *surface;
-		uint32_t 			format;
-		uint64_t			modifier;
-	} gbm;
-
-	struct {
-		EGLDisplay display;
-		EGLConfig  config;
-		EGLContext root_context;
-		EGLContext flutter_render_context;
-		EGLContext flutter_resource_uploading_context;
-		EGLContext compositor_context;
-		EGLSurface surface;
-
-		struct libegl *lib;
-		struct egl_client_info *client_info;
-		struct egl_display_info *display_info;
-
-		PFNEGLGETPLATFORMDISPLAYEXTPROC getPlatformDisplay;
-		PFNEGLCREATEPLATFORMWINDOWSURFACEEXTPROC createPlatformWindowSurface;
-		PFNEGLCREATEPLATFORMPIXMAPSURFACEEXTPROC createPlatformPixmapSurface;
-		PFNEGLCREATEDRMIMAGEMESAPROC createDRMImageMESA;
-		PFNEGLEXPORTDRMIMAGEMESAPROC exportDRMImageMESA;
-		PFNEGLCREATEIMAGEKHRPROC createImageKHR;
-		PFNEGLDESTROYIMAGEKHRPROC destroyImageKHR;
-	} egl;
-
+	/*
 	struct {
 		PFNGLEGLIMAGETARGETTEXTURE2DOESPROC EGLImageTargetTexture2DOES;
 		PFNGLEGLIMAGETARGETRENDERBUFFERSTORAGEOESPROC EGLImageTargetRenderbufferStorageOES;
@@ -207,6 +174,7 @@ struct flutterpi {
 		bool is_vc4;
 		char *extensions_override;
 	} gl;
+	*/
 
 	struct {
 		/// width & height of the display in pixels.
@@ -261,30 +229,9 @@ struct flutterpi {
 		FlutterTransformation display_to_view_transform;
 	} view;
 
-	struct concurrent_queue frame_queue;
-
-	struct compositor *compositor;
-
-	/// IO
-	struct {
-		bool use_paths;
-
-		glob_t *input_devices_glob;
-		
-		struct libinput *libinput;
-		sd_event_source *libinput_event_source;
-		struct keyboard_config *keyboard_config;
-
-		int64_t next_unused_flutter_device_id;
-		double cursor_x, cursor_y;
-	} input;
-	
 	/// flutter stuff
 	struct {
 		char *asset_bundle_path;
-		char *kernel_blob_path;
-		char *app_elf_path;
-		void *app_elf_handle;
 		char *icu_data_path;
 
 		int engine_argc;
@@ -295,18 +242,10 @@ struct flutterpi {
 	} flutter;
 	
 	/// main event loop
-	struct event_loop *platform;
-	struct event_loop *render;
-
-	struct drmdev *drmdev;
-
+	struct compositor *compositor;
 	struct renderer *renderer;
-	
 	struct texture_registry *texture_registry;
-
-	/// flutter-pi internal stuff
 	struct plugin_registry *plugin_registry;
-
 	struct flutter_messenger *flutter_messenger;
 };
 

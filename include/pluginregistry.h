@@ -71,34 +71,6 @@ void *plugin_registry_get_plugin_userdata(
 );
 
 /**
- * @brief Set the callback that should be called when a platform message arrives on channel @ref channel
- * and the codec used to automatically decode the platform message.
- * 
- * Can be called inside a platform message handler.
- * 
- * The new @ref codec, @ref callback and @ref userdata will take effect immediately when this call returns.
- * (See for example, if you call this method to set a new userdata, you can free the old userdata immediately after
- * this call returns.)
- */
-int plugin_registry_set_receiver(
-	struct plugin_registry *registry,
-	const char *channel,
-	enum platch_codec codec,
-	platch_obj_recv_callback callback,
-	void *userdata
-);
-
-/**
- * @brief Removes the callback on channel @ref channel.
- * After this call returns, the previously configured callback will no longer be called.
- * (You can free any potential userdata immediately after this call returns.) 
- */
-int plugin_registry_remove_receiver(
-	struct plugin_registry *registry,
-	const char *channel
-);
-
-/**
  * @brief Returns true @ref registry has a plugin with name @ref plugin_name.
  */
 bool plugin_registry_is_plugin_present(

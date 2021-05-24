@@ -43,7 +43,7 @@ struct frame {
 };
 
 struct compositor {
-	struct display **displays;
+	struct display *const *displays;
 	size_t n_displays;
 	struct display *main_display;
 
@@ -167,6 +167,8 @@ static inline int cache_gl_rendertarget(struct compositor *compositor, struct gl
 	return cpset_put(&compositor->stale_rendertargets, rendertarget);
 }
 
+/// TODO: Implement
+/*
 static struct kms_cursor *load_cursor_image(
 	struct kmsdev *dev,
 	int rotation,
@@ -176,6 +178,8 @@ static struct kms_cursor *load_cursor_image(
 
 	DEBUG_ASSERT(dev != NULL);
 	DEBUG_ASSERT((rotation == 0) || (rotation == 90) || (rotation == 180) || (rotation == 270));
+
+	/// TODO: Implement
 
 	// find the best fitting cursor icon.
 	{
@@ -192,7 +196,7 @@ static struct kms_cursor *load_cursor_image(
 	}
 
 	if (rotation == 0) {
-		return kmsdev_load_cursor(dev, cursor->width, cursor->height, GBM_FORMAT_ARGB8888, cursor->hot_x, cursor->hot_y, (const uint8_t*) cursor->data);
+		//return kmsdev_load_cursor(dev, cursor->width, cursor->height, GBM_FORMAT_ARGB8888, cursor->hot_x, cursor->hot_y, (const uint8_t*) cursor->data);
 	} else if ((rotation == 90) || (rotation == 180) || (rotation == 270)) {
 		uint32_t rotated_data[cursor->width * cursor->height];
 		int rotated_hot_x, rotated_hot_y;
@@ -229,73 +233,12 @@ static struct kms_cursor *load_cursor_image(
 			rotated_hot_y = cursor->width - cursor->hot_x - 1;
 		}
 
-		return kmsdev_load_cursor(dev, cursor->width, cursor->height, GBM_FORMAT_ARGB8888, rotated_hot_x, rotated_hot_y, (const uint8_t*) rotated_data);
+		//return kmsdev_load_cursor(dev, cursor->width, cursor->height, GBM_FORMAT_ARGB8888, rotated_hot_x, rotated_hot_y, (const uint8_t*) rotated_data);
 	}
 
 	return 0;
-}
-
-
-/*
-static void destroy_gbm_bo(
-	struct gbm_bo *bo,
-	void *userdata
-) {
-	struct drm_fb *fb = userdata;
-
-	(void) bo;
-
-	DEBUG_ASSERT(fb != NULL);
-
-	if (fb && fb->fb_id)
-		kmsdev_destroy_fb(fb->dev, fb->fb_id);
-	
-	free(fb);
 }
 */
-
-/**
- * @brief Create a GL framebuffer object that is backed by a GEM BO (that can be scanned out)
- * and registered as a DRM framebuffer
- */
-static int create_drm_fbo(
-	struct renderer *renderer,
-	struct display *display,
-	int w, int h,
-	struct drm_fbo *out
-) {
-	struct drm_fbo fbo;
-	int ok;
-
-	ok = kmsdev_add_fb_planar(
-		kmsdev,
-		w, h,
-		DRM_FORMAT_ARGB8888,
-		fbo.gem_handle,
-		fbo.gem_stride,
-		0,
-		DRM_FORMAT_MOD_LINEAR,
-		&fbo.drm_fb_id,
-		0
-	);
-	if (ok != 0) {
-		gl_renderer_destroy_scanout_fbo(renderer, fbo.egl_image, fbo.gl_rbo_id, fbo.gl_fbo_id);
-		return ok;
-	}
-
-	*out = fbo;
-	return 0;
-}
-
-static void destroy_drm_fbo(
-	struct kmsdev *dev,
-	struct renderer *renderer,
-	struct drm_fbo *fbo
-) {
-	kmsdev_destroy_fb(dev, fbo->drm_fb_id);
-	gl_renderer_destroy_scanout_fbo(renderer, fbo->egl_image, fbo->gl_rbo_id, fbo->gl_fbo_id);
-}
-
 
 static void rendertarget_gbm_destroy(struct gl_rendertarget *target) {
 	free(target);
@@ -388,11 +331,7 @@ static int rendertarget_gbm_new(
 }
 
 static void rendertarget_nogbm_destroy(struct gl_rendertarget *target) {
-	DEBUG_ASSERT(eglGetCurrentDisplay() != NULL);
-	DEBUG_ASSERT(eglGetCurrentContext() != NULL);
-
-	destroy_drm_fbo(target->nogbm.kmsdev, target->nogbm.renderer, &target->nogbm.fbo);
-	free(target);
+	display_buffer_destroy(target->nogbm.buffer);
 }
 
 static int rendertarget_nogbm_present(
@@ -401,24 +340,36 @@ static int rendertarget_nogbm_present(
 	int x, int y,
 	int w, int h
 ) {
-	return presenter_push_drm_fb_layer(
+	return presenter_push_display_buffer_layer(
 		presenter,
-		&(const struct drm_fb_layer) {
-			.fb_id = target->nogbm.fbo.drm_fb_id,
-			.src_x = x << 16, .src_y = y << 16,
-			.src_w = w << 16, .src_h = h << 16,
-			.crtc_x = x, .crtc_y = y,
-			.crtc_w = w, .crtc_h = h,
-			.has_rotation = true,
-			.rotation = DRM_MODE_REFLECT_Y,
-			.on_release = NULL,
-			.userdata = NULL
+		&(const struct display_buffer_layer) {
+			.buffer = target->nogbm.buffer,
+			.buffer_x = x, .buffer_y = y,
+			.buffer_w = w, .buffer_h = h,
+			.display_x = x, .display_y = y,
+			.display_w = w, .display_h = h,
+			.rotation = kDspBufLayerRotationReflectY
 		}
 	);
 }
 
 static void rendertarget_nogbm_on_destroy_display_buffer(struct display *display, const struct display_buffer_backend *backend, void *userdata) {
+	struct gl_rendertarget *target = userdata;
 
+	(void) display;
+	(void) backend;
+
+	DEBUG_ASSERT(eglGetCurrentDisplay() != NULL);
+	DEBUG_ASSERT(eglGetCurrentContext() != NULL);
+
+	gl_renderer_destroy_scanout_fbo(
+		target->nogbm.renderer,
+		target->nogbm.egl_image,
+		target->nogbm.gl_rbo_id,
+		target->nogbm.gl_fbo_id	
+	);
+
+	free(target);
 }
 
 /**
@@ -616,14 +567,14 @@ static bool on_create_backing_store(
 
 			compositor->should_create_window_surface_backing_store = false;
 		} else {
-			ok = rendertarget_nogbm_new(
-				&target,
-				compositor->kmsdev,
+			target = rendertarget_nogbm_new(
 				compositor->renderer,
+				compositor->main_display,
 				round(config->size.width),
-				round(config->size.height)
+				round(config->size.height),
+				kARGB8888
 			);
-			if (ok != 0) {
+			if (target == NULL) {
 				free(store);
 				return false;
 			}
@@ -663,7 +614,7 @@ static bool on_create_backing_store(
  * and use that as our GBM device. If that fails, fallback to software rendering.
  */
 struct compositor *compositor_new(
-	struct display **displays,
+	struct display *const *displays,
 	size_t n_displays,
 	struct libegl *libegl,
 	struct egl_client_info *client_info,
@@ -671,17 +622,19 @@ struct compositor *compositor_new(
 	struct event_loop *evloop,
 	const struct flutter_renderer_gl_interface *gl_interface,
 	const struct flutter_renderer_sw_interface *sw_interface,
-	const struct flutter_tracing_interface *tracing_interface,
+	const struct flutter_tracing_interface *tracing_interface
 ) {
+	FlutterRendererType renderer_type;
 	struct compositor *compositor;
 	struct gbm_device *gbm_device;
 	struct renderer *renderer;
-	uint32_t format, *p_supported_formats;
+	const enum pixfmt *p_supported_formats;
 	size_t n_supported_formats;
 	bool all_displays_support_gbm;
 	int width, height;
 	int ok;
 
+	(void) evloop;
 	DEBUG_ASSERT(displays != NULL);
 	DEBUG_ASSERT(n_displays > 0);
 	DEBUG_ASSERT(libegl != NULL);
@@ -731,13 +684,14 @@ struct compositor *compositor_new(
 		goto fail_deinit_cbs;
 	}
 
-	ok = cpset_init(&compositor->frame_queue, CPSET_DEFAULT_MAX_SIZE);
+	ok = cqueue_init(&compositor->frame_queue, sizeof(struct frame), CQUEUE_DEFAULT_MAX_SIZE);
 	if (ok != 0) {
 		goto fail_deinit_stale_rendertargets;
 	}
 
 	renderer = NULL;
 	if (all_displays_support_gbm && (gbm_device != NULL)) {
+		renderer_type = kOpenGL;
 		renderer = gl_renderer_new(
 			gbm_device,
 			libegl,
@@ -748,6 +702,7 @@ struct compositor *compositor_new(
 			width, height
 		);
 	} else {
+		renderer_type = kSoftware;
 		renderer = sw_renderer_new(sw_interface);
 	}
 
@@ -771,7 +726,7 @@ struct compositor *compositor_new(
 
 
 	fail_deinit_frame_queue:
-	cpset_deinit(&compositor->frame_queue);
+	cqueue_deinit(&compositor->frame_queue);
 
 	fail_deinit_stale_rendertargets:
 	cpset_deinit(&compositor->stale_rendertargets);
@@ -784,120 +739,15 @@ struct compositor *compositor_new(
 
 	fail_return_null:
 	return NULL;
+}
+
+struct renderer *compositor_get_renderer(struct compositor *compositor) {
+	return compositor->renderer;
 }
 
 /************************
  * COMPOSITOR INTERFACE *
  ************************/
-struct compositor *compositor_new(
-    struct display **displays,
-	size_t n_displays,
-	FlutterRendererType renderer_type,
-    struct renderer *renderer,
-    const struct flutter_tracing_interface *tracing_interface,
-    struct event_loop *evloop
-) {
-	struct compositor *compositor;
-	int ok;
-
-	(void) evloop;
-
-	DEBUG_ASSERT(displays != NULL);
-	DEBUG_ASSERT(n_displays > 0);
-	DEBUG_ASSERT((renderer_type == kOpenGL) && "only OpenGL rendering is supported right now.");
-	DEBUG_ASSERT(renderer != NULL);
-	DEBUG_ASSERT(evloop != NULL);
-
-	compositor = malloc(sizeof *compositor);
-	if (compositor == NULL) {
-		goto fail_return_null;
-	}
-
-	ok = cpset_init(&compositor->cbs, CPSET_DEFAULT_MAX_SIZE);
-	if (ok != 0) {
-		goto fail_free_compositor;
-	}
-
-	ok = cpset_init(&compositor->stale_rendertargets, CPSET_DEFAULT_MAX_SIZE);
-	if (ok != 0) {
-		goto fail_deinit_cbs;
-	}
-
-	ok = cpset_init(&compositor->frame_queue, CPSET_DEFAULT_MAX_SIZE);
-	if (ok != 0) {
-		goto fail_deinit_stale_rendertargets;
-	}
-
-	compositor->renderer_type = renderer_type;
-	compositor->renderer = renderer;
-	if (tracing_interface == NULL) {
-		memset(&compositor->tracing, 0, sizeof(struct flutter_tracing_interface));
-	} else {
-		compositor->tracing = *tracing_interface;
-	}
-	compositor->should_create_window_surface_backing_store = true;
-
-	return compositor;
-
-
-	fail_deinit_stale_rendertargets:
-	cpset_deinit(&compositor->stale_rendertargets);
-
-	fail_deinit_cbs:
-	cpset_deinit(&compositor->cbs);
-
-	fail_free_compositor:
-	free(compositor);
-
-	fail_return_null:
-	return NULL;
-}
-
-struct compositor *compositor_new(
-	struct display **displays,
-	size_t n_displays,
-	FlutterRendererType renderer_type,
-	struct renderer *renderer,
-	struct event_loop *evloop,
-	const struct flutter_tracing_interface *tracing_interface,
-) {
-	struct compositor *compositor;
-	int ok;
-
-	DEBUG_ASSERT(displays != NULL);
-	DEBUG_ASSERT(n_displays > 0);
-	DEBUG_ASSERT(renderer != NULL);
-	DEBUG_ASSERT(evloop != NULL);
-	
-	compositor = malloc(sizeof *compositor);
-	if (compositor == NULL) {
-		goto fail_return_null;
-	}
-
-	ok = cpset_init(&compositor->cbs, CPSET_DEFAULT_MAX_SIZE);
-	if (ok != 0) {
-		goto fail_free_compositor;
-	}
-
-	ok = cpset_init(&compositor->stale_rendertargets, CPSET_DEFAULT_MAX_SIZE);
-	if (ok != 0) {
-		goto fail_deinit_cbs;
-	}
-
-	compositor->
-
-	return compositor;
-
-	fail_deinit_cbs:
-	cpset_deinit(&compositor->cbs);
-
-	fail_free_compositor:
-	free(compositor);
-
-	fail_return_null:
-	return NULL;
-}
-
 void compositor_destroy(struct compositor *compositor) {
 	cpset_deinit(&compositor->stale_rendertargets);
 	cpset_deinit(&compositor->cbs);
@@ -936,7 +786,7 @@ static int respond_to_frame_request(struct compositor *compositor, uint64_t vbla
 		LOG_COMPOSITOR_ERROR("Could not get frame queue peek. cqueue_peek_locked: %s\n", strerror(ok));
 		goto fail_unlock_frame_queue;
 	} else {
-		presented_frame.callback(vblank_ns, vblank_ns + compositor->refresh_rate, presented_frame.userdata);
+		presented_frame.callback(vblank_ns, vblank_ns + display_get_refreshrate(compositor->main_display), presented_frame.userdata);
 	}
 
 	cqueue_unlock(&compositor->frame_queue);
@@ -1423,15 +1273,14 @@ static bool on_present_layers(
 */
 
 static void on_scanout(
-	int crtc_index,
-	unsigned int tv_sec,
-	unsigned int tv_usec,
+	struct display *display,
+	uint64_t ns,
 	void *userdata
 ) {
 	struct compositor *compositor = userdata;
-	(void) crtc_index;
+	(void) display;
 	DEBUG_ASSERT(compositor != NULL);
-	signal_vblank(compositor, tv_sec*1000000000ull + tv_usec*1000ull);
+	signal_vblank(compositor, ns);
 }
 
 static bool on_present_layers_sw(
@@ -1442,6 +1291,8 @@ static bool on_present_layers_sw(
 	struct compositor *compositor;
 	struct presenter *presenter;
 	int ok;
+
+	printf("on_present_layers_sw\n");
 
 	DEBUG_ASSERT(userdata != NULL);
 
@@ -1481,12 +1332,11 @@ static bool on_present_layers_gl(
 
 	DEBUG_ASSERT(userdata != NULL);
 
+	printf("on_present_layers_gl\n");
+
 	compositor = userdata;
 
-	presenter = create_presenter(compositor);
-	if (presenter == NULL) {
-		goto fail_return_false;
-	}
+	presenter = display_create_presenter(compositor->main_display);
 
 	display = eglGetCurrentDisplay();
 	DEBUG_ASSERT(display != EGL_NO_DISPLAY);
@@ -1543,8 +1393,6 @@ static bool on_present_layers_gl(
 
 	fail_destroy_presenter:
 	presenter_destroy(presenter);
-
-	fail_return_false:
 	return false;
 }
 
@@ -1576,7 +1424,7 @@ int compositor_request_frame(
 
 		if (reply_instantly) {	
 			uint64_t current_time = get_monotonic_time();
-			callback(current_time, current_time + compositor->refresh_rate, userdata);
+			callback(current_time, current_time + display_get_refreshrate(compositor->main_display), userdata);
 		}
 	} else if (ok != 0) {
 		LOG_COMPOSITOR_ERROR("Could not get peek of frame queue. cqueue_peek_locked: %s\n", strerror(ok));
@@ -1666,37 +1514,37 @@ int compositor_set_cursor_state(
 	
 	should_be_enabled = has_is_enabled ? is_enabled : compositor->cursor.is_enabled;
 
-	if (compositor->output_type != kGraphicsOutputTypeKmsdev) {
-		LOG_COMPOSITOR_ERROR("Cursors are only supported for KMS right now.\n");
-		return EOPNOTSUPP;
-	}
+	(void) should_be_enabled;
+	(void) ok;
 
 	// if anything changed about the cursor specs, load it again
 	if ((compositor->cursor.cursor == NULL) ||
 		(has_rotation && (rotation != compositor->cursor.rotation)) ||
 		(has_device_pixel_ratio && (device_pixel_ratio != compositor->cursor.device_pixel_ratio)))
 	{
-		new = load_cursor_image(compositor->kmsdev, rotation, device_pixel_ratio);
-		if (new == NULL) {
-			return EINVAL;
-		}
+		//new = load_cursor_image(compositor->kmsdev, rotation, device_pixel_ratio);
+		//if (new == NULL) {
+		//	  return EINVAL;
+		//}
 	} else {
 		new = NULL;
 	}
 
 	// update the cursor used by KMS, pass NULL as the cursor if it should be disabled.
-	ok = kmsdev_set_cursor(compositor->kmsdev, compositor->crtc_index, should_be_enabled ? (new ?: compositor->cursor.cursor) : NULL);
-	if (ok != 0) {
-		if (new != NULL) kmsdev_dispose_cursor(compositor->kmsdev, new);
-		return ok;
-	}
+	// ok = kmsdev_set_cursor(compositor->kmsdev, compositor->crtc_index, should_be_enabled ? (new ?: compositor->cursor.cursor) : NULL);
+	// if (ok != 0) {
+	//     if (new != NULL) kmsdev_dispose_cursor(compositor->kmsdev, new);
+	//     return ok;
+	//}
 
 	// optionally free the old cursor
 	if (new != NULL) {
+		/*
 		if (compositor->cursor.cursor != NULL) {
 			kmsdev_dispose_cursor(compositor->kmsdev, compositor->cursor.cursor);
 		}
 		compositor->cursor.cursor = new;
+		*/
 	}
 
 	return 0;
@@ -1705,13 +1553,17 @@ int compositor_set_cursor_state(
 int compositor_set_cursor_pos(struct compositor *compositor, int x, int y) {
 	int ok;
 
-	DEBUG_ASSERT(compositor->output_type == kGraphicsOutputTypeKmsdev);
+	(void) ok;
+
+	/// TODO: Implement
 
 	if (compositor->cursor.is_enabled) {
+		/*
 		ok = kmsdev_move_cursor(compositor->kmsdev, compositor->crtc_index, x, y);
 		if (ok != 0) {
 			return ok;
 		}
+		*/
 
 		compositor->cursor.x = x;
 		compositor->cursor.y = y;
@@ -1722,6 +1574,7 @@ int compositor_set_cursor_pos(struct compositor *compositor, int x, int y) {
 
 void compositor_fill_flutter_compositor(struct compositor *compositor, FlutterCompositor *flutter_compositor) {
 	flutter_compositor->struct_size = sizeof(FlutterCompositor);
+	flutter_compositor->user_data = compositor;
 	flutter_compositor->create_backing_store_callback = on_create_backing_store;
 	flutter_compositor->collect_backing_store_callback = on_collect_backing_store;
 	if (compositor->renderer_type == kSoftware) {
@@ -1729,7 +1582,7 @@ void compositor_fill_flutter_compositor(struct compositor *compositor, FlutterCo
 	} else if (compositor->renderer_type == kOpenGL) {
 		flutter_compositor->present_layers_callback = on_present_layers_gl;
 	}
-	flutter_compositor->user_data = compositor;
+	flutter_compositor->avoid_backing_store_cache = false;
 }
 
 void compositor_fill_flutter_renderer_config(struct compositor *compositor, FlutterRendererConfig *config) {
