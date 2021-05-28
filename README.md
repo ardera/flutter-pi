@@ -161,7 +161,7 @@ rsync -a ./build/flutter_assets/ pi@raspberrypi:/home/pi/flutter_gallery/
   <summary>More information</summary>
     
   - flutter_gallery is developed against flutter master. `633be8aa13799bf1215d03a155132025f42c7d07` is currently the latest flutter gallery
-    commit working flutter stable.
+    commit working with flutter stable.
 </details>
 
 ### Building the `app.so` (for running your app in Release/Profile mode)
