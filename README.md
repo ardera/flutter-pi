@@ -1,10 +1,6 @@
 ## 📰 NEWS
+- The new latest flutter gallery commit for flutter 2.2 is `633be8a`
 - There's now a `#custom-embedders` channel on the [flutter discord](https://discord.gg/BS8KZyg) which you can use if you have any questions regarding flutter-pi or generally, anything related to embedding the engine for which you don't want to open issue about or write an email.
-- The flutter engine binaries now have their own repo (since they took up a lot of space and slowed down git in this repo): https://github.com/ardera/flutter-engine-binaries-for-arm
-- `gen_snapshot_linux_x64` was renamed to `gen_snapshot_linux_x64_release`.
-- I now also provide profile mode engine binaries in the engine binaries repo.
-- The new latest flutter gallery commit for flutter 2.0 is `681e399`
-- I created an improved touchscreen driver for Raspberry Pi 4, for lower latency & higher polling rate. See [this repo](https://github.com/ardera/raspberrypi-fast-ts) for details. The difference is noticeable, it looks a lot better and more responsive with this new driver.
 
 # flutter-pi
 A light-weight Flutter Engine Embedder for Raspberry Pi. Inspired by https://github.com/chinmaygarde/flutter_from_scratch.
