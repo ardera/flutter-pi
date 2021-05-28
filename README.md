@@ -151,7 +151,7 @@ If you encounter issues running flutter-pi on any of the supported platforms lis
 ```bash
 git clone https://github.com/flutter/gallery.git flutter_gallery
 cd flutter_gallery
-git checkout 681e399ba983631ba9e20590fe7a6121731825f1
+git checkout 633be8a
 flutter build bundle
 rsync -a ./build/flutter_assets/ pi@raspberrypi:/home/pi/flutter_gallery/
 ```
@@ -160,7 +160,7 @@ rsync -a ./build/flutter_assets/ pi@raspberrypi:/home/pi/flutter_gallery/
 <details>
   <summary>More information</summary>
     
-  - flutter_gallery is developed against flutter master. `681e399ba983631ba9e20590fe7a6121731825f1` is currently the latest flutter gallery
+  - flutter_gallery is developed against flutter master. `633be8aa13799bf1215d03a155132025f42c7d07` is currently the latest flutter gallery
     commit working flutter stable.
 </details>
 
@@ -218,7 +218,7 @@ rsync -a ./build/flutter_assets/ pi@raspberrypi:/home/pi/flutter_gallery/
     git clone https://github.com/flutter/gallery.git flutter_gallery
     git clone --depth 1 https://github.com/ardera/flutter-engine-binaries-for-arm.git engine-binaries
     cd flutter_gallery
-    git checkout 681e399ba983631ba9e20590fe7a6121731825f1
+    git checkout 633be8a
     flutter build bundle
     C:\flutter\bin\cache\dart-sdk\bin\dart.exe ^
       C:\flutter\bin\cache\dart-sdk\bin\snapshots\frontend_server.dart.snapshot ^
