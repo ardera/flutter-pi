@@ -92,6 +92,7 @@ struct libflutter_engine {
 	FlutterEngineResult (*FlutterEnginePostDartObject)(FlutterEngine engine, FlutterEngineDartPort port, const FlutterEngineDartObject* object);
 	FlutterEngineResult (*FlutterEngineNotifyLowMemoryWarning)(FlutterEngine engine);
 	FlutterEngineResult (*FlutterEnginePostCallbackOnAllNativeThreads)(FlutterEngine engine, FlutterNativeThreadCallback callback, void* user_data);
+	FlutterEngineResult (*FlutterEngineNotifyDisplayUpdate)(FlutterEngine engine, FlutterEngineDisplaysUpdateType update_type, const FlutterEngineDisplay* displays, size_t display_count);
 };
 
 struct libudev {

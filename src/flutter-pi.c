@@ -1738,6 +1738,7 @@ static int init_application(void) {
 	LOAD_LIBFLUTTER_ENGINE_PROC(FlutterEnginePostDartObject);
 	LOAD_LIBFLUTTER_ENGINE_PROC(FlutterEngineNotifyLowMemoryWarning);
 	LOAD_LIBFLUTTER_ENGINE_PROC(FlutterEnginePostCallbackOnAllNativeThreads);
+	LOAD_LIBFLUTTER_ENGINE_PROC(FlutterEngineNotifyDisplayUpdate);
 
 #	undef LOAD_LIBFLUTTER_ENGINE_PROC
 
@@ -1785,7 +1786,7 @@ static int init_application(void) {
 		.update_semantics_custom_action_callback = NULL,
 		.persistent_cache_path = NULL,
 		.is_persistent_cache_read_only = false,
-		.vsync_callback = on_frame_request,
+		.vsync_callback = NULL /* on_frame_request - broken since 2.2 */,
 		.custom_dart_entrypoint = NULL,
 		.custom_task_runners = &(FlutterCustomTaskRunners) {
 			.struct_size = sizeof(FlutterCustomTaskRunners),
@@ -1797,7 +1798,13 @@ static int init_application(void) {
 			}
 		},
 		.shutdown_dart_vm_when_done = true,
-		.compositor = &flutter_compositor
+		.compositor = &flutter_compositor,
+		.dart_old_gen_heap_size = -1,
+		.compute_platform_resolved_locale_callback = NULL,
+		.dart_entrypoint_argc = 0,
+		.dart_entrypoint_argv = NULL,
+		.log_message_callback = NULL,
+		.log_tag = NULL
 	};
 
 	bool engine_is_aot = libflutter_engine->FlutterEngineRunsAOTCompiledDartCode();
@@ -1843,7 +1850,23 @@ static int init_application(void) {
 	// spin up the engine
 	engine_result = libflutter_engine->FlutterEngineRun(FLUTTER_ENGINE_VERSION, &renderer_config, &project_args, NULL, &flutterpi.flutter.engine);
 	if (engine_result != kSuccess) {
-		fprintf(stderr, "[flutter-pi] Could not run the flutter engine. FlutterEngineRun: %s\n", FLUTTER_RESULT_TO_STRING(engine_result));
+		LOG_FLUTTERPI_ERROR("Could not run the flutter engine. FlutterEngineRun: %s\n", FLUTTER_RESULT_TO_STRING(engine_result));
+		return EINVAL;
+	}
+
+	engine_result = libflutter_engine->FlutterEngineNotifyDisplayUpdate(
+		flutterpi.flutter.engine,
+		kFlutterEngineDisplaysUpdateTypeStartup,
+		&(FlutterEngineDisplay) {
+			.struct_size = sizeof(FlutterEngineDisplay),
+			.display_id = 0,
+			.single_display = true,
+			.refresh_rate = flutterpi.display.refresh_rate
+		},
+		1
+	);
+	if (engine_result != kSuccess) {
+		LOG_FLUTTERPI_ERROR("Could not send display update to flutter engine. FlutterEngineNotifyDisplayUpdate: %s\n", FLUTTER_RESULT_TO_STRING(engine_result));
 		return EINVAL;
 	}
 
@@ -1858,7 +1881,7 @@ static int init_application(void) {
 		}
 	);
 	if (engine_result != kSuccess) {
-		fprintf(stderr, "[flutter-pi] Could not send window metrics to flutter engine.\n");
+		LOG_FLUTTERPI_ERROR("Could not send window metrics to flutter engine. FlutterEngineSendWindowMetricsEvent: %s\n", FLUTTER_RESULT_TO_STRING(engine_result));
 		return EINVAL;
 	}
 	

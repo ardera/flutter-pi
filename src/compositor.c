@@ -50,7 +50,7 @@ struct compositor compositor = {
 	.has_applied_modeset = false,
 	.should_create_window_surface_backing_store = true,
 	.stale_rendertargets = CPSET_INITIALIZER(CPSET_DEFAULT_MAX_SIZE),
-	.do_blocking_atomic_commits = false
+	.do_blocking_atomic_commits = true
 };
 
 static struct view_cb_data *get_cbs_for_view_id_locked(int64_t view_id) {
@@ -448,10 +448,24 @@ static int rendertarget_gbm_present_legacy(
 				next_front_fb_id
 			);
 		} else {
-			drmdev_legacy_primary_plane_pageflip(
+			/*drmdev_legacy_primary_plane_pageflip(
 				drmdev,
 				next_front_fb_id,
 				NULL
+			);*/
+
+			drmdev_legacy_overlay_plane_pageflip(
+				drmdev,
+				drm_plane_id,
+				next_front_fb_id,
+				0,
+				0,
+				flutterpi.display.width,
+				flutterpi.display.height,
+				0,
+				0,
+				((uint16_t) flutterpi.display.width) << 16,
+				((uint16_t) flutterpi.display.height) << 16
 			);
 		}
 	} else {
@@ -928,7 +942,8 @@ static int execute_simulate_page_flip_event(void *userdata) {
 
 	data = userdata;
 
-	on_pageflip_event(flutterpi.drm.drmdev->fd, 0, data->sec, data->usec, NULL);
+	// disabled because vsync is broken
+	// on_pageflip_event(flutterpi.drm.drmdev->fd, 0, data->sec, data->usec, NULL);
 
 	free(data);
 
