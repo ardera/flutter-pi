@@ -1,6 +1,6 @@
 ## 📰 NEWS
 - The new latest flutter gallery commit for flutter 2.2 is `633be8a`
-- There's now a `#custom-embedders` channel on the [flutter discord](https://discord.gg/BS8KZyg) which you can use if you have any questions regarding flutter-pi or generally, anything related to embedding the engine for which you don't want to open issue about or write an email.
+- There's now a `#custom-embedders` channel on the [flutter discord](https://github.com/flutter/flutter/wiki/Chat) which you can use if you have any questions regarding flutter-pi or generally, anything related to embedding the engine for which you don't want to open issue about or write an email.
 
 # flutter-pi
 A light-weight Flutter Engine Embedder for Raspberry Pi. Inspired by https://github.com/chinmaygarde/flutter_from_scratch.
