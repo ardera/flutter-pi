@@ -191,7 +191,7 @@ rsync -a ./build/flutter_assets/ pi@raspberrypi:/home/pi/flutter_gallery/
 
 5. Fetch the latest `gen_snapshot_linux_x64_release` I provide in the [engine binaries repo](https://github.com/ardera/flutter-engine-binaries-for-arm).
 6. The following steps must be executed on a linux x64 machine. If you're on windows, you can use [WSL](https://docs.microsoft.com/de-de/windows/wsl/install-win10). If you're on macOS, you can use a linux VM.
-7. Build the `app.so`.
+7. Build the `app.so`. If you're building for _arm64_, you need to omit the `--sim-use-hardfp` flag.
     ```bash
     gen_snapshot_linux_x64_release \
       --deterministic \
