@@ -88,6 +88,8 @@ enum dspbuf_layer_rotation {
     kDspBufLayerRotationReflectY = 1 << 5
 };
 
+typedef void (*dspbuf_release_callback_t)(struct display_buffer *buffer, const struct display_buffer_backend *backend, void *userdata);
+
 struct display_buffer_layer {
     struct display_buffer *buffer;
 
@@ -95,6 +97,9 @@ struct display_buffer_layer {
     int display_x, display_y, display_w, display_h;
 
     enum dspbuf_layer_rotation rotation;
+
+    dspbuf_release_callback_t on_release;
+    void *userdata;
 };
 
 #ifdef HAS_FBDEV
@@ -151,43 +156,6 @@ static inline const struct pixfmt_info *get_pixfmt_info(enum pixfmt format) {
     return pixfmt_infos + format;
 }
 
-#ifdef HAS_GBM
-typedef void (*gbm_bo_release_callback_t)(struct gbm_bo *bo, void *userdata);
-
-struct gbm_bo_layer {
-    struct gbm_bo *bo;
-    uint32_t src_x, src_y, src_w, src_h;
-    int32_t crtc_x, crtc_y, crtc_w, crtc_h;
-
-    bool has_rotation;
-    uint8_t rotation;
-    
-    gbm_bo_release_callback_t on_release;
-    void *userdata;
-};
-#endif
-
-#ifdef HAS_KMS
-#include <xf86drm.h>
-#include <xf86drmMode.h>
-
-#define DRM_NO_PROPERTY_ID ((uint32_t) 0xFFFFFFFF)
-
-typedef void (*drm_fb_release_callback_t)(int32_t fb_id, void *userdata);
-
-struct drm_fb_layer {
-    int32_t fb_id;
-    uint32_t src_x, src_y, src_w, src_h;
-    int32_t crtc_x, crtc_y, crtc_w, crtc_h;
-
-    bool has_rotation;
-    uint8_t rotation;
-    
-    drm_fb_release_callback_t on_release;
-    void *userdata;
-};
-#endif
-
 /**************
  * PRESENTERS *
  **************/
@@ -203,19 +171,7 @@ int presenter_set_zpos(struct presenter *presenter, int zpos);
 
 int presenter_get_zpos(struct presenter *presenter);
 
-#ifdef HAS_KMS
-int presenter_push_drm_fb_layer(
-    struct presenter *presenter,
-    const struct drm_fb_layer *layer
-);
-#endif
-
-#ifdef HAS_GBM
-int presenter_push_gbm_bo_layer(
-    struct presenter *presenter,
-    const struct gbm_bo_layer *layer
-);
-#endif
+struct display *presenter_get_display(struct presenter *presenter);
 
 int presenter_push_sw_fb_layer(
     struct presenter *presenter,
@@ -242,9 +198,23 @@ double display_get_refreshrate(struct display *display);
 
 void display_get_size(struct display *display, int *width_out, int *height_out);
 
+static inline int display_get_width(struct display *display) {
+    int width;
+    display_get_size(display, &width, NULL);
+    return width;
+}
+
+static inline int display_get_height(struct display *display) {
+    int height;
+    display_get_size(display, NULL, &height);
+    return height;
+}
+
 bool display_has_dimensions(struct display *display);
 
 void display_get_dimensions(struct display *display, int *width_mm_out, int *height_mm_out);
+
+double display_get_flutter_pixel_ratio(struct display *display);
 
 bool display_supports_gbm(struct display *display);
 
@@ -292,6 +262,9 @@ struct display *fbdev_display_new_from_path(const char *path, const struct fbdev
 #endif
 
 #ifdef HAS_KMS
+
+#define DRM_NO_PROPERTY_ID (uint32_t) 0xFFFFFFFF
+
 struct kmsdev;
 
 struct kms_cursor;

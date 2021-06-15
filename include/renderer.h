@@ -142,6 +142,9 @@ bool sw_renderer_flutter_present(
 	size_t height
 );
 
+struct gbm_surface *gl_renderer_get_main_gbm_surface(
+	struct renderer *renderer
+);
 
 static const char *streglerr(EGLint egl_error) {
 	static const int egl_errors_offset = EGL_SUCCESS;

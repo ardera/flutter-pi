@@ -431,8 +431,10 @@ static inline uint64_t get_monotonic_time(void) {
 
 #ifdef DEBUG
 #define DEBUG_ASSERT(condition) assert(condition)
+#define DEBUG_ASSERT_NOT_NULL(ptr) assert((ptr) != NULL && "Expected " # ptr " to be non-null.")
 #else
 #define DEBUG_ASSERT(condition) do {} while (0)
+#define DEBUG_ASSERT_NOT_NULL(ptr) do {} while (0)
 #endif
 
 #endif

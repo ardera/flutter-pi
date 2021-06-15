@@ -51,6 +51,11 @@
 	- ANGLE_FROM_ORIENTATION(o_start) \
 	+ (ANGLE_FROM_ORIENTATION(o_start) > ANGLE_FROM_ORIENTATION(o_end) ? 360 : 0))
 
+#define FLUTTER_IDENTITY_TRANSFORMATION ((FlutterTransformation) \
+	{.scaleX = 1, .skewX  = 0, .transX = 0, \
+	 .skewY  = 0, .scaleY = 1, .transY = 0, \
+	 .pers0  = 0, .pers1  = 0, .pers2  = 1})
+
 #define FLUTTER_TRANSLATION_TRANSFORMATION(translate_x, translate_y) ((FlutterTransformation) \
 	{.scaleX = 1, .skewX  = 0, .transX = translate_x, \
 	 .skewY  = 0, .scaleY = 1, .transY = translate_y, \

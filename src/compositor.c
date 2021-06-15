@@ -60,6 +60,8 @@ struct compositor {
      */
 	struct flutter_tracing_interface tracing;
 
+	struct flutter_view_interface view_interface;
+
     /**
      * @brief Contains a struct for each existing platform view, containing the view id
      * and platform view callbacks.
@@ -246,10 +248,15 @@ static void rendertarget_gbm_destroy(struct gl_rendertarget *target) {
 
 static void rendertarget_gbm_on_release_gbm_bo(struct gbm_bo *bo, void *userdata) {
 	struct gbm_surface *surface = userdata;
-
-	DEBUG_ASSERT(surface != NULL);
-
+	DEBUG_ASSERT_NOT_NULL(surface);
 	gbm_surface_release_buffer(surface, bo);
+}
+
+static void rendertarget_gbm_on_destroy_gbm_bo(struct gbm_bo *bo, void *userdata) {
+	struct display_buffer *buffer = userdata;
+	(void) bo;
+	DEBUG_ASSERT_NOT_NULL(buffer);
+	display_buffer_destroy(buffer);
 }
 
 static int rendertarget_gbm_present(
@@ -259,8 +266,13 @@ static int rendertarget_gbm_present(
 	int w, int h
 ) {
 	struct gl_rendertarget_gbm *gbm_target;
+	struct display_buffer *dspbuf;
 	struct gbm_bo *bo;
 	int ok;
+
+	DEBUG_ASSERT(eglGetCurrentDisplay() != EGL_NO_DISPLAY);
+	DEBUG_ASSERT(eglGetCurrentContext() != EGL_NO_CONTEXT);
+	DEBUG_ASSERT(eglGetCurrentSurface(EGL_DRAW) != EGL_NO_SURFACE);
 
 	gbm_target = &target->gbm;
 
@@ -271,25 +283,41 @@ static int rendertarget_gbm_present(
 		return ok;
 	}
 
-	ok = presenter_push_gbm_bo_layer(
+	dspbuf = gbm_bo_get_user_data(bo);
+	if (dspbuf == NULL) {
+		dspbuf = display_import_buffer(
+			presenter_get_display(builder),
+			&(struct display_buffer_backend) {
+				.type = kDisplayBufferTypeGbmBo,
+				.gbm_bo = {
+					.bo = bo
+				}
+			},
+			NULL,
+			NULL
+		);
+		if (dspbuf == NULL) {
+			return EIO;
+		}
+
+		gbm_bo_set_user_data(bo, dspbuf, rendertarget_gbm_on_destroy_gbm_bo);
+	}
+
+	ok = presenter_push_display_buffer_layer(
 		builder,
-		&(const struct gbm_bo_layer) {
-			.bo = bo,
-			.src_x = x << 16, .src_y = y << 16,
-			.src_w = w << 16, .src_h = h << 16,
-			.crtc_x = x, .crtc_y = y,
-			.crtc_w = w, .crtc_h = h,
-			.has_rotation = false,
-			.on_release = rendertarget_gbm_on_release_gbm_bo,
-			.userdata = gbm_target->gbm_surface
+		&(struct display_buffer_layer) {
+			.buffer = dspbuf,
+			.buffer_x = x, .buffer_y = y,
+			.buffer_w = w, .buffer_h = h,
+			.display_x = x, .display_y = y,
+			.display_w = w, .display_h = h,
+			.rotation = kDspBufLayerRotationNone
 		}
 	);
 	if (ok != 0) {
 		gbm_surface_release_buffer(gbm_target->gbm_surface, bo);
 		return ok;
 	}
-
-	//gbm_target->current_front_bo = (struct gbm_bo *) bo;
 
 	return 0;
 }
@@ -323,7 +351,7 @@ static int rendertarget_gbm_new(
 		.gl_fbo_id = 0,
 		.destroy = rendertarget_gbm_destroy,
 		.present = rendertarget_gbm_present
-	};
+	};	
 
 	*out = target;
 
@@ -558,7 +586,7 @@ static bool on_create_backing_store(
 
 			ok = rendertarget_gbm_new(
 				&target,
-				compositor->gbm_surface
+				gl_renderer_get_main_gbm_surface(compositor->renderer)
 			);
 			if (ok != 0) {
 				free(store);
@@ -622,7 +650,8 @@ struct compositor *compositor_new(
 	struct event_loop *evloop,
 	const struct flutter_renderer_gl_interface *gl_interface,
 	const struct flutter_renderer_sw_interface *sw_interface,
-	const struct flutter_tracing_interface *tracing_interface
+	const struct flutter_tracing_interface *tracing_interface,
+	const struct flutter_view_interface *view_interface
 ) {
 	FlutterRendererType renderer_type;
 	struct compositor *compositor;
@@ -713,12 +742,18 @@ struct compositor *compositor_new(
 	compositor->displays = displays;
 	compositor->n_displays = n_displays;
 	compositor->main_display = displays[0];
+	compositor->gbm_device = gbm_device;
 	compositor->renderer_type = renderer_type;
 	compositor->renderer = renderer;
 	if (tracing_interface == NULL) {
 		memset(&compositor->tracing, 0, sizeof(struct flutter_tracing_interface));
 	} else {
 		compositor->tracing = *tracing_interface;
+	}
+	if (view_interface == NULL) {
+		memset(&compositor->view_interface, 0, sizeof(struct flutter_view_interface));
+	} else {
+		compositor->view_interface = *view_interface;
 	}
 	compositor->should_create_window_surface_backing_store = true;
 
@@ -739,6 +774,31 @@ struct compositor *compositor_new(
 
 	fail_return_null:
 	return NULL;
+}
+
+int compositor_setup_flutter_views(
+	struct compositor *compositor,
+	FlutterEngine engine
+) {
+	FlutterEngineResult engine_result;
+
+	engine_result = compositor->view_interface.send_window_metrics_event(
+		engine,
+		&(FlutterWindowMetricsEvent) {
+			.struct_size = sizeof(FlutterWindowMetricsEvent),
+			.width = display_get_width(compositor->main_display),
+			.height = display_get_height(compositor->main_display),
+			.pixel_ratio = display_get_flutter_pixel_ratio(compositor->main_display),
+			.top = 0,
+			.left = 0
+		}
+	);
+	if (engine_result != kSuccess) {
+		LOG_COMPOSITOR_ERROR("Couldn't send window metrics event to flutter. FlutterEngineSendWindowMetricsEvent: %s\n", FLUTTER_RESULT_TO_STRING(engine_result));
+		return EINVAL;
+	}
+
+	return 0;
 }
 
 struct renderer *compositor_get_renderer(struct compositor *compositor) {
@@ -1277,10 +1337,11 @@ static void on_scanout(
 	uint64_t ns,
 	void *userdata
 ) {
-	struct compositor *compositor = userdata;
+	//struct compositor *compositor = userdata;
 	(void) display;
-	DEBUG_ASSERT(compositor != NULL);
-	signal_vblank(compositor, ns);
+	(void) ns;
+	(void) userdata;
+	//signal_vblank(compositor, ns);
 }
 
 static bool on_present_layers_sw(
@@ -1380,6 +1441,7 @@ static bool on_present_layers_gl(
 
 	presenter_set_scanout_callback(presenter, on_scanout, compositor);
 
+	/// This may call the scanout callback and any buffer release callbacks internally.
 	ok = presenter_flush(presenter);
 	if (ok != 0) {
 		goto fail_destroy_presenter;
@@ -1387,7 +1449,7 @@ static bool on_present_layers_gl(
 
 	presenter_destroy(presenter);
 
-	signal_presenting_complete(compositor);
+	//signal_presenting_complete(compositor);
 
 	return true;
 

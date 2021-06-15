@@ -29,7 +29,7 @@ if(NOT CMAKE_BUILD_TYPE)
     message(STATUS "CMAKE_BUILD_TYPE not set, defaulting to Release.")
 endif()
 
-project(flutter-pi LANGUAGES C)
+project(flutter-pi LANGUAGES C CXX)
 
 message(STATUS "Generator .............. ${CMAKE_GENERATOR}")
 message(STATUS "Build Type ............. ${CMAKE_BUILD_TYPE}")
@@ -193,7 +193,7 @@ target_compile_options(flutter-pi PRIVATE
   ${LIBSSL_CFLAGS}
   ${LIBCRYPTO_CFLAGS}
   ${LIBGSTREAMER_CFLAGS}
-  $<$<CONFIG:DEBUG>:-O0 -ggdb -Werror -Wall -Wextra -Wno-error=missing-field-initializers -fsanitize=undefined -fno-omit-frame-pointer>
+  $<$<CONFIG:DEBUG>:-O0 -ggdb -Werror -Wall -Wextra -Wno-error=missing-field-initializers -Wno-error=unused-function -fsanitize=undefined -fno-omit-frame-pointer>
 )
 
 if (BUILD_TEXT_INPUT_PLUGIN)

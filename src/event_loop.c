@@ -43,7 +43,6 @@ static struct trampoline *trampoline_new(int fd, void *userdata) {
     trampoline->fd = fd;
     trampoline->events = 0;
     trampoline->userdata = userdata;
-
     return trampoline;
 }
 
@@ -193,7 +192,6 @@ int event_loop_post_task_with_time(
         ok = ENOMEM;
         goto fail_close_timer_fd;
     }
-
     trampoline->timed_task_callback = callback;
 
     ok = timerfd_settime(
@@ -269,7 +267,9 @@ int event_loop_add_io(
         fd,
         &(struct epoll_event) {
             .events = events,
-            .data.ptr = userdata
+            .data = {
+                .ptr = trampoline
+            }
         }
     );
     if (ok < 0) {

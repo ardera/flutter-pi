@@ -78,12 +78,6 @@ struct presenter {
     int (*set_logical_zpos)(struct presenter *presenter, int logical_zpos);
     int (*get_zpos)(struct presenter *presenter);
     int (*set_scanout_callback)(struct presenter *presenter, presenter_scanout_callback_t cb, void *userdata);
-#ifdef HAS_KMS
-    int (*push_drm_fb_layer)(struct presenter *presenter, const struct drm_fb_layer *layer);
-#endif
-#ifdef HAS_GBM
-    int (*push_gbm_bo_layer)(struct presenter *presenter, const struct gbm_bo_layer *layer);
-#endif
     int (*push_sw_fb_layer)(struct presenter *presenter, const struct sw_fb_layer *layer);
     int (*push_placeholder_layer)(struct presenter *presenter, int n_reserved_layers);
     int (*push_display_buffer_layer)(struct presenter *presenter, const struct display_buffer_layer *layer);
@@ -97,8 +91,8 @@ struct presenter {
  *                               PRESENTERS                                  *
  *****************************************************************************/
 struct display *presenter_get_display(struct presenter *presenter) {
-    DEBUG_ASSERT(presenter != NULL);
-    DEBUG_ASSERT(presenter->display != NULL);
+    DEBUG_ASSERT_NOT_NULL(presenter);
+    DEBUG_ASSERT_NOT_NULL(presenter->display);
     return presenter->display;
 }
 
@@ -133,36 +127,6 @@ int presenter_get_zpos(struct presenter *presenter) {
     return presenter->get_zpos(presenter);
 }
 
-#ifdef HAS_KMS
-/**
- * @brief Presents a DRM framebuffer, can be used only for KMS.
- */
-int presenter_push_drm_fb_layer(
-    struct presenter *presenter,
-    const struct drm_fb_layer *layer
-) {
-    DEBUG_ASSERT(presenter != NULL);
-    DEBUG_ASSERT(layer != NULL);
-    DEBUG_ASSERT(presenter->push_drm_fb_layer != NULL);
-    return presenter->push_drm_fb_layer(presenter, layer);
-}
-#endif
-
-#ifdef HAS_GBM
-/**
- * @brief Presents a GBM buffer object, can be used for both fbdev and KMS.
- */
-int presenter_push_gbm_bo_layer(
-    struct presenter *presenter,
-    const struct gbm_bo_layer *layer
-) {
-    DEBUG_ASSERT(presenter != NULL);
-    DEBUG_ASSERT(layer != NULL);
-    DEBUG_ASSERT(presenter->push_gbm_bo_layer != NULL);
-    return presenter->push_gbm_bo_layer(presenter, layer);
-}
-#endif
-
 /**
  * @brief Presents a software framebuffer (i.e. some malloced memory).
  * 
@@ -174,7 +138,7 @@ int presenter_push_sw_fb_layer(
 ) {
     DEBUG_ASSERT(presenter != NULL);
     DEBUG_ASSERT(layer != NULL);
-    DEBUG_ASSERT(presenter->push_gbm_bo_layer != NULL);
+    DEBUG_ASSERT(presenter->push_sw_fb_layer != NULL);
     return presenter->push_sw_fb_layer(presenter, layer);
 }
 
@@ -249,6 +213,7 @@ struct display {
     double refresh_rate;
     bool has_dimensions;
     int width_mm, height_mm;
+    double flutter_pixel_ratio;
     bool supports_gbm;
     struct gbm_device *gbm_device;
     bool supported_buffer_types_for_import[kDisplayBufferTypeLast + 1];
@@ -288,6 +253,11 @@ void display_get_dimensions(struct display *display, int *width_mm_out, int *hei
     if (height_mm_out) {
         *height_mm_out = display->height_mm;
     }
+}
+
+double display_get_flutter_pixel_ratio(struct display *display) {
+    DEBUG_ASSERT_NOT_NULL(display);
+    return display->flutter_pixel_ratio;
 }
 
 #ifdef HAS_GBM
@@ -481,19 +451,6 @@ static int fbdev_presenter_get_zpos(struct presenter *presenter) {
     return 0;
 }
 
-static int fbdev_presenter_push_drm_fb_layer(struct presenter *presenter, const struct drm_fb_layer *layer) {
-    (void) presenter;
-    (void) layer;
-    return EOPNOTSUPP;
-}
-
-static int fbdev_presenter_push_gbm_bo_layer(struct presenter *presenter, const struct gbm_bo_layer *layer) {
-    (void) presenter;
-    (void) layer;
-    /// TODO: Implement
-    return EINVAL;
-}
-
 static int fbdev_presenter_push_sw_fb_layer(struct presenter *presenter, const struct sw_fb_layer *layer) {
     struct fbdev_presenter *private = PRESENTER_PRIVATE_FBDEV(presenter);
 
@@ -635,18 +592,19 @@ static struct presenter *fbdev_display_create_presenter(struct display *display)
     }
 
     presenter_private->fbdev_display = private;
-
+    presenter_private->display = display;
+    presenter_private->scanout_cb = NULL;
+    presenter_private->scanout_cb_userdata = NULL;
     presenter->private = (struct presenter_private *) presenter_private;
     presenter->set_logical_zpos = fbdev_presenter_set_logical_zpos;
     presenter->get_zpos = fbdev_presenter_get_zpos;
     presenter->set_scanout_callback = fbdev_presenter_set_scanout_callback;
-    presenter->push_drm_fb_layer = fbdev_presenter_push_drm_fb_layer;
-    presenter->push_gbm_bo_layer = fbdev_presenter_push_gbm_bo_layer;
     presenter->push_sw_fb_layer = fbdev_presenter_push_sw_fb_layer;
     presenter->push_placeholder_layer = fbdev_presenter_push_placeholder_layer;
     presenter->flush = fbdev_presenter_flush;
     presenter->destroy = fbdev_presenter_destroy;
-    
+    presenter->display = display;
+
     return presenter;
 }
 
@@ -746,6 +704,9 @@ struct display *fbdev_display_new_from_fd(int fd, const struct fbdev_display_con
     display->has_dimensions = config->has_explicit_dimensions;
     display->width_mm = config->width_mm;
     display->height_mm = config->height_mm;
+    display->flutter_pixel_ratio = config->has_explicit_dimensions
+        ? (10.0 * private->varinfo.width) / (config->width_mm * 38.0)
+        : 1.0f;
     display->supports_gbm = false;
     display->gbm_device = NULL;
     display->supported_buffer_types_for_import[kDisplayBufferTypeSw] = true;
@@ -791,10 +752,10 @@ struct display *fbdev_display_new_from_path(const char *path, const struct fbdev
 #include <xf86drmMode.h>
 #include <gbm.h>
 
-#define IS_VALID_ZPOS(kms_presenter, zpos) (((kms_presenter)->kms_display->crtc->min_zpos <= zpos) && ((kms_presenter)->kms_display->crtc->max_zpos >= zpos))
+#define IS_VALID_ZPOS(kms_presenter, zpos) (((kms_presenter)->kms_display->crtc->min_zpos <= (zpos)) && ((kms_presenter)->kms_display->crtc->max_zpos >= (zpos)))
 #define DEBUG_ASSERT_VALID_ZPOS(kms_presenter, zpos) DEBUG_ASSERT(IS_VALID_ZPOS(kms_presenter, zpos))
 #define CHECK_VALID_ZPOS_OR_RETURN_EINVAL(kms_presenter, zpos) do { \
-        if (IS_VALID_ZPOS(kms_presenter, zpos)) { \
+        if (!IS_VALID_ZPOS(kms_presenter, zpos)) { \
             LOG_MODESETTING_ERROR("%s: Invalid zpos\n", __func__); \
             return EINVAL; \
         } \
@@ -969,18 +930,24 @@ struct kms_presenter {
      * The lowest framebuffer layer in a legacy modesetting compatible format.
      */
     bool has_primary_layer;
-    struct drm_fb_layer primary_layer;
+    struct display_buffer_layer primary_layer;
 
     /**
-     * If true, @ref on_present_layers will commit blockingly.
+     * If true, @ref kms_presenter_flush will commit blockingly.
      * 
      * It will also schedule a simulated page flip event on the main thread
      * afterwards so the frame queue works.
      * 
-     * If false, @ref on_present_layers will commit nonblocking using page flip events,
+     * If false, @ref kms_presenter_flush will commit nonblocking using page flip events,
      * like usual.
      */
     bool do_blocking_atomic_commits;
+
+    /**
+     * If true, @ref kms_presenter_flush will commit any new framebuffers
+     * blockingly, if the display is configured to use atomic modesetting too.
+     */
+    bool do_blocking_legacy_pageflips;
 };
 
 static int fetch_connectors(struct kmsdev *dev, struct drm_connector **connectors_out, size_t *n_connectors_out) {
@@ -2194,7 +2161,9 @@ static int kms_presenter_push_display_buffer_layer(struct presenter *presenter, 
     plane = &private->dev->planes[plane_index];
     plane_id = plane->plane->plane_id;
 
-    if (layer && (plane->property_ids.rotation == DRM_NO_PROPERTY_ID)) {
+    /// FIXME: this should check whether the rotation is unequal to the previous one
+    /// rather than checking if it is unequal 0.
+    if ((layer->rotation != kDspBufLayerRotationNone) && (plane->property_ids.rotation == DRM_NO_PROPERTY_ID)) {
         LOG_MODESETTING_ERROR("Rotation was requested but is not supported.\n");
         ok = EINVAL;
         goto fail_unreserve_plane;
@@ -2285,7 +2254,7 @@ static int kms_presenter_push_display_buffer_layer(struct presenter *presenter, 
         }
     }
 
-    /// TODO: Keep track of the last rotation of the plane, so we unrotate it again if it was at some other rotation than 0 before
+    /// FIXME: Keep track of the last rotation of the plane, so we unrotate it again if it was at some other rotation than 0 before
     if (layer->rotation != kDspBufLayerRotationNone) {
         ok = drmModeAtomicAddProperty(private->req, plane_id, plane->property_ids.rotation, layer->rotation);
         if (ok < 0) {
@@ -2296,7 +2265,7 @@ static int kms_presenter_push_display_buffer_layer(struct presenter *presenter, 
     }
 
     if (private->has_primary_layer == false) {
-        memcpy(&private->primary_layer, layer, sizeof(struct drm_fb_layer));
+        memcpy(&private->primary_layer, layer, sizeof(*layer));
     }
 
     return 0;
@@ -2307,156 +2276,6 @@ static int kms_presenter_push_display_buffer_layer(struct presenter *presenter, 
 
     fail_return_ok:
     return ok;
-}
-
-static int kms_presenter_push_drm_fb_layer(struct presenter *presenter, const struct drm_fb_layer *layer) {
-    struct kms_presenter *private;
-    struct drm_plane *plane;
-    uint32_t plane_id;
-    int ok, plane_index;
-    
-    DEBUG_ASSERT(presenter != NULL);
-    DEBUG_ASSERT(layer != NULL);
-    private = PRESENTER_PRIVATE_KMS(presenter);
-    CHECK_VALID_ZPOS_OR_RETURN_EINVAL(private, private->current_zpos);
-
-    plane_index = reserve_plane(private, private->has_primary_layer? 1 : 0);
-    if (plane_index < 0) {
-        LOG_MODESETTING_ERROR("Couldn't find unused plane for framebuffer layer.\n");
-        ok = EINVAL;
-        goto fail_return_ok;
-    }
-
-    plane = &private->dev->planes[plane_index];
-    plane_id = plane->plane->plane_id;
-
-    if (layer && (plane->property_ids.rotation == DRM_NO_PROPERTY_ID)) {
-        LOG_MODESETTING_ERROR("Rotation was requested but is not supported.\n");
-        ok = EINVAL;
-        goto fail_unreserve_plane;
-    }
-
-    if ((plane->property_ids.zpos == DRM_NO_PROPERTY_ID) && private->has_primary_layer) {
-        LOG_MODESETTING_ERROR("Plane doesn't support zpos but that's necessary for overlay planes.\n");
-        ok = EINVAL;
-        goto fail_unreserve_plane;
-    }
-
-    ok = drmModeAtomicAddProperty(private->req, plane_id, plane->property_ids.fb_id, layer->fb_id);
-    if (ok < 0) {
-        LOG_MODESETTING_ERROR("Couldn't add property to atomic request. drmModeAtomicAddProperty: %s\n", strerror(-ok));
-        ok = -ok;
-        goto fail_unreserve_plane;
-    }
-
-    ok = drmModeAtomicAddProperty(private->req, plane_id, plane->property_ids.crtc_id, private->kms_display->crtc->crtc->crtc_id);
-    if (ok < 0) {
-        LOG_MODESETTING_ERROR("Couldn't add property to atomic request. drmModeAtomicAddProperty: %s\n", strerror(-ok));
-        ok = -ok;
-        goto fail_unreserve_plane;
-    }
-
-    ok = drmModeAtomicAddProperty(private->req, plane_id, plane->property_ids.src_x, layer->src_x);
-    if (ok < 0) {
-        LOG_MODESETTING_ERROR("Couldn't add property to atomic request. drmModeAtomicAddProperty: %s\n", strerror(-ok));
-        ok = -ok;
-        goto fail_unreserve_plane;
-    }
-
-    ok = drmModeAtomicAddProperty(private->req, plane_id, plane->property_ids.src_y, layer->src_y);
-    if (ok < 0) {
-        LOG_MODESETTING_ERROR("Couldn't add property to atomic request. drmModeAtomicAddProperty: %s\n", strerror(-ok));
-        ok = -ok;
-        goto fail_unreserve_plane;
-    }
-
-    ok = drmModeAtomicAddProperty(private->req, plane_id, plane->property_ids.src_w, layer->src_w);
-    if (ok < 0) {
-        LOG_MODESETTING_ERROR("Couldn't add property to atomic request. drmModeAtomicAddProperty: %s\n", strerror(-ok));
-        ok = -ok;
-        goto fail_unreserve_plane;
-    }
-
-    ok = drmModeAtomicAddProperty(private->req, plane_id, plane->property_ids.src_h, layer->src_h);
-    if (ok < 0) {
-        LOG_MODESETTING_ERROR("Couldn't add property to atomic request. drmModeAtomicAddProperty: %s\n", strerror(-ok));
-        ok = -ok;
-        goto fail_unreserve_plane;
-    }
-
-    ok = drmModeAtomicAddProperty(private->req, plane_id, plane->property_ids.crtc_x, layer->crtc_x);
-    if (ok < 0) {
-        LOG_MODESETTING_ERROR("Couldn't add property to atomic request. drmModeAtomicAddProperty: %s\n", strerror(-ok));
-        ok = -ok;
-        goto fail_unreserve_plane;
-    }
-
-    ok = drmModeAtomicAddProperty(private->req, plane_id, plane->property_ids.crtc_y, layer->crtc_y);
-    if (ok < 0) {
-        LOG_MODESETTING_ERROR("Couldn't add property to atomic request. drmModeAtomicAddProperty: %s\n", strerror(-ok));
-        ok = -ok;
-        goto fail_unreserve_plane;
-    }
-    
-    ok = drmModeAtomicAddProperty(private->req, plane_id, plane->property_ids.crtc_w, layer->crtc_w);
-    if (ok < 0) {
-        LOG_MODESETTING_ERROR("Couldn't add property to atomic request. drmModeAtomicAddProperty: %s\n", strerror(-ok));
-        ok = -ok;
-        goto fail_unreserve_plane;
-    }
-
-    ok = drmModeAtomicAddProperty(private->req, plane_id, plane->property_ids.crtc_h, layer->crtc_h);
-    if (ok < 0) {
-        LOG_MODESETTING_ERROR("Couldn't add property to atomic request. drmModeAtomicAddProperty: %s\n", strerror(-ok));
-        ok = -ok;
-        goto fail_unreserve_plane;
-    }
-
-    if (plane->property_ids.zpos != DRM_NO_PROPERTY_ID) {
-        ok = drmModeAtomicAddProperty(private->req, plane_id, plane->property_ids.zpos, private->current_zpos);
-        if (ok < 0) {
-            LOG_MODESETTING_ERROR("Couldn't add property to atomic request. drmModeAtomicAddProperty: %s\n", strerror(-ok));
-            ok = -ok;
-            goto fail_unreserve_plane;
-        }
-    }
-
-    if (layer->has_rotation) {
-        ok = drmModeAtomicAddProperty(private->req, plane_id, plane->property_ids.rotation, layer->rotation);
-        if (ok < 0) {
-            LOG_MODESETTING_ERROR("Couldn't add property to atomic request. drmModeAtomicAddProperty: %s\n", strerror(-ok));
-            ok = -ok;
-            goto fail_unreserve_plane;
-        }
-    }
-
-    if (private->has_primary_layer == false) {
-        memcpy(&private->primary_layer, layer, sizeof(struct drm_fb_layer));
-    }
-
-    return 0;
-
-
-    fail_unreserve_plane:
-    unreserve_plane(private, plane_index);
-
-    fail_return_ok:
-    return ok;
-}
-
-static int kms_presenter_push_gbm_bo_layer(struct presenter *presenter, const struct gbm_bo_layer *layer) {
-    (void) presenter;
-    (void) layer;
-    /// TODO: Implement
-    return EINVAL;
-}
-
-static int kms_presenter_push_sw_fb_layer(struct presenter *presenter, const struct sw_fb_layer *layer) {
-    (void) presenter;
-    (void) layer;
-    /// NOTE: We _could_ copy the software framebuffer contents into a real framebuffer here.
-    /// But really, the code using this should rather create a GBM BO, map it, and render into that directly.
-    return ENOTSUP;
 }
 
 static int kms_presenter_push_placeholder_layer(struct presenter *presenter, int n_reserved_layers) {
@@ -2473,24 +2292,81 @@ static int kms_presenter_push_placeholder_layer(struct presenter *presenter, int
 
 static int kms_presenter_flush(struct presenter *presenter) {
     struct kms_presenter *private = PRESENTER_PRIVATE_KMS(presenter);
+    bool flipped = false;
+    int ok;
 
     /// TODO: hookup callback
     if (private->dev->use_atomic_modesetting) {
-        return drmModeAtomicCommit(
+        uint32_t flags = DRM_MODE_ATOMIC_ALLOW_MODESET;
+        if (!private->do_blocking_atomic_commits) {
+            flags |= DRM_MODE_ATOMIC_NONBLOCK;
+        }
+        ok = drmModeAtomicCommit(
             private->dev->fd,
             private->req,
-            DRM_MODE_ATOMIC_NONBLOCK | DRM_MODE_ATOMIC_ALLOW_MODESET,
+            flags,
             NULL
         );
+        if (ok < 0) {
+            LOG_MODESETTING_ERROR("Couldn't commit atomic request. drmModeAtomicCommit: %s\n", strerror(-ok));
+            return -ok;
+        }
+
+        if (private->do_blocking_atomic_commits) {
+            flipped = true;
+        }
     } else {
-        return drmModePageFlip(
-            private->dev->fd,
-            private->kms_display->crtc->crtc->crtc_id,
-            private->primary_layer.fb_id,
-            DRM_MODE_PAGE_FLIP_EVENT,
-            NULL
+        if (private->do_blocking_legacy_pageflips) {
+            // Some resources say drmModeSetPlane is actually non-blocking and not vsynced,
+            // however that's not the case anywhere I tested. At least on all platforms
+            // where the legacy drmMode* calls are just emulated on top of atomic modesetting,
+            // drmModeSetPlane is blocking and vsynced.
+            /// FIXME: valid plane id
+            ok = drmModeSetPlane(
+                private->dev->fd,
+                0,
+                private->kms_display->crtc->crtc->crtc_id,
+                private->primary_layer.buffer->resources.kms_fb_id,
+                0,
+                private->primary_layer.display_x,
+                private->primary_layer.display_y,
+                private->primary_layer.display_w,
+                private->primary_layer.display_h,
+                private->primary_layer.buffer_x << 16,
+                private->primary_layer.buffer_y << 16,
+                private->primary_layer.buffer_w << 16,
+                private->primary_layer.buffer_h << 16
+            );
+            if (ok < 0) {
+                LOG_MODESETTING_ERROR("Couldn't execute blocking legacy pageflip. drmModeSetPlane: %s\n", strerror(-ok));
+                return -ok;
+            }
+
+            flipped = true;            
+        } else {
+            ok = drmModePageFlip(
+                private->dev->fd,
+                private->kms_display->crtc->crtc->crtc_id,
+                private->primary_layer.buffer->resources.kms_fb_id,
+                DRM_MODE_PAGE_FLIP_EVENT,
+                NULL
+            );
+            if (ok < 0) {
+                LOG_MODESETTING_ERROR("Couldn't execute legacy pageflip. drmModePageFlip: %s\n", strerror(-ok));
+                return -ok;
+            }
+        }
+    }
+
+    if (flipped && private->kms_display->crtc->scanout_cb != NULL) {
+        private->kms_display->crtc->scanout_cb(
+            private->kms_display->crtc->scanout_cb_display,
+            get_monotonic_time(),
+            private->kms_display->crtc->scanout_cb_userdata
         );
     }
+
+    return 0;
 }
 
 static void kms_presenter_destroy(struct presenter *presenter) {
@@ -2584,28 +2460,34 @@ static struct presenter *kms_display_create_presenter(struct display *display) {
         return NULL;
     }
 
+    free_planes = 0;
     for (unsigned int i = 0; i < dev->n_planes; i++) {
-        if ((dev->planes[i].type == DRM_PLANE_TYPE_PRIMARY) || (dev->planes[i].type == DRM_PLANE_TYPE_OVERLAY)) {
+        if ((display_private->assigned_planes & (1 << i)) &&
+            ((dev->planes[i].type == DRM_PLANE_TYPE_PRIMARY) || (dev->planes[i].type == DRM_PLANE_TYPE_OVERLAY)))
+        {
             free_planes |= (1 << i);
         }
     }
 
     private->dev = dev;
+    private->kms_display = display_private;
     private->free_planes = free_planes;
+    private->current_zpos = display_private->crtc->min_zpos;
     private->req = req;
     private->has_primary_layer = false;
+    private->do_blocking_atomic_commits = true;
+    
     memset(&private->primary_layer, 0, sizeof(private->primary_layer));
     presenter->private = (struct presenter_private*) private;
     presenter->set_logical_zpos = kms_presenter_set_logical_zpos;
     presenter->get_zpos = kms_presenter_get_zpos;
     presenter->set_scanout_callback = kms_presenter_set_scanout_callback;
     presenter->push_display_buffer_layer = kms_presenter_push_display_buffer_layer;
-    presenter->push_drm_fb_layer = kms_presenter_push_drm_fb_layer;
-    presenter->push_gbm_bo_layer = kms_presenter_push_gbm_bo_layer;
-    presenter->push_sw_fb_layer = kms_presenter_push_sw_fb_layer;
+    presenter->push_sw_fb_layer = NULL /*kms_presenter_push_sw_fb_layer*/;
     presenter->push_placeholder_layer = kms_presenter_push_placeholder_layer;
     presenter->flush = kms_presenter_flush;
     presenter->destroy = kms_presenter_destroy;
+    presenter->display = display;
 
     return presenter;
 }
@@ -2683,6 +2565,9 @@ static struct display *create_kms_display(
     display->has_dimensions = has_dimensions;
     display->width_mm = width_mm;
     display->height_mm = height_mm;
+    display->flutter_pixel_ratio = display->has_dimensions
+        ? (10.0 * display->width) / (display->width_mm * 38.0)
+        : 1.0;
     display->supports_gbm = true;
     display->gbm_device = dev->gbm_device;
     display->supported_buffer_types_for_import[kDisplayBufferTypeSw] = false;

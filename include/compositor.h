@@ -129,19 +129,23 @@ struct graphics_output {
 };
 
 struct flutter_tracing_interface {
-    flutter_engine_get_current_time_t get_current_time;
-	flutter_engine_trace_event_duration_begin_t trace_event_begin;
-	flutter_engine_trace_event_duration_end_t trace_event_end;
-	flutter_engine_trace_event_instant_t trace_event_instant;
+    FlutterEngineGetCurrentTimeFnPtr get_current_time;
+	FlutterEngineTraceEventDurationBeginFnPtr trace_event_begin;
+	FlutterEngineTraceEventDurationEndFnPtr trace_event_end;
+	FlutterEngineTraceEventInstantFnPtr trace_event_instant;
 };
 
+struct flutter_view_interface {
+    FlutterEngineSendWindowMetricsEventFnPtr send_window_metrics_event;
+    FlutterEngineNotifyDisplayUpdateFnPtr notify_display_update;
+};
 
 struct flutter_renderer_gl_interface;
 struct flutter_renderer_sw_interface;
 struct libgl;
 
 /**
- * @brief Create a new compositor, basically 
+ * @brief Create a new compositor
  */
 struct compositor *compositor_new(
 	struct display *const *displays,
@@ -152,7 +156,8 @@ struct compositor *compositor_new(
 	struct event_loop *evloop,
 	const struct flutter_renderer_gl_interface *gl_interface,
 	const struct flutter_renderer_sw_interface *sw_interface,
-	const struct flutter_tracing_interface *tracing_interface
+	const struct flutter_tracing_interface *tracing_interface,
+	const struct flutter_view_interface *view_interface
 );
 
 struct renderer *compositor_get_renderer(
@@ -179,6 +184,15 @@ void compositor_fill_flutter_compositor(
 void compositor_fill_flutter_renderer_config(
     struct compositor *compositor,
     FlutterRendererConfig *config
+);
+
+/**
+ * @brief Setup the flutter engine view configuration by invoking the FlutterEngineSendWindowMetricsEvent
+ * callback from the view_interface that was passed into the compositor constructor.
+ */
+int compositor_setup_flutter_views(
+	struct compositor *compositor,
+	FlutterEngine engine
 );
 
 /**

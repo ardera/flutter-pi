@@ -885,6 +885,17 @@ struct renderer *gl_renderer_new(
 	return NULL;
 }
 
+struct gbm_surface *gl_renderer_get_main_gbm_surface(
+	struct renderer *renderer
+) {
+	struct gl_renderer *private;
+
+	DEBUG_ASSERT_GL_RENDERER(renderer);
+	private = RENDERER_PRIVATE_GL(renderer);
+
+	return private->gbm_surface;
+}
+
 struct renderer *sw_renderer_new(
 	const struct flutter_renderer_sw_interface *sw_dispatcher
 ) {

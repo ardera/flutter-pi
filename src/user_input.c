@@ -221,9 +221,10 @@ static void emit_pointer_events(struct user_input *input, const FlutterPointerEv
 
         // advance n_events so it's now the number of remaining unemitted events
         n_events -= to_copy;
-
         // advance events so it points to the first remaining unemitted event
         events += to_copy;
+        
+        input->n_collected_flutter_pointer_events += to_copy;
     }
 }
 

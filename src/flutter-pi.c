@@ -820,7 +820,6 @@ static void on_flutter_pointer_event(void *userdata, const FlutterPointerEvent *
 		events,
 		n_events
 	);
-
 	if (engine_result != kSuccess) {
 		LOG_FLUTTERPI_ERROR("Error sending touchscreen / mouse events to flutter. FlutterEngineSendPointerEvent: %s\n", FLUTTER_RESULT_TO_STRING(engine_result));
 		flutterpi_schedule_exit(flutterpi);
@@ -1010,166 +1009,17 @@ static int setup_paths(
 #	undef PATH_EXISTS
 }
 
-/*
-static int create_drmdev_egl_output(
-	struct drmdev *drmdev,
-	struct libegl *libegl,
-	struct egl_client_info *egl_client_info,
-	struct gbm_device **gbm_device_out,
-	struct gbm_surface **gbm_surface_out,
-	EGLDisplay *egl_display_out,
-	struct egl_display_info **egl_display_info_out,
-	EGLConfig *egl_config_out,
-	EGLSurface *egl_surface_out,
-	EGLContext *egl_context_out
-) {
-	struct egl_display_info *egl_display_info;
-	struct gbm_surface *gbm_surface;
-	struct gbm_device *gbm_device;
-	EGLDisplay egl_display;
-	EGLSurface egl_surface;
-	EGLContext egl_context;
-	EGLBoolean egl_ok;
-	EGLConfig egl_config;
-	EGLint major, minor, egl_error, n_matched;
-	int ok;
-
-	static const EGLint config_attribs[] = {
-		EGL_SURFACE_TYPE, EGL_WINDOW_BIT,
-		EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
-		EGL_NATIVE_VISUAL_ID, DRM_FORMAT_ARGB8888,
-		EGL_NONE
-	};
-
-	static const EGLint context_attribs[] = {
-		EGL_CONTEXT_CLIENT_VERSION, 2,
-		EGL_NONE
-	};
+static bool on_user_input_fd_ready(int fd, uint32_t events, void *userdata) {
+	struct user_input *input = userdata;
 	
-	gbm_device = gbm_create_device(drmdev->fd);
-	if (gbm_device == NULL) {
-		LOG_FLUTTERPI_ERROR("Could not create GBM device. gbm_create_device: %s\n", strerror(errno));
-		ok = errno;
-		goto fail_return_ok;
-	}
-
-	gbm_surface = gbm_surface_create_with_modifiers(
-		gbm_device,
-		drmdev->selected_mode->hdisplay,
-		drmdev->selected_mode->vdisplay,
-		DRM_FORMAT_ARGB8888,
-		(uint64_t[1]) {DRM_FORMAT_MOD_LINEAR},
-		1
-	);
-	if (gbm_surface == NULL) {
-		LOG_FLUTTERPI_ERROR("Could not create GBM Surface. gbm_surface_create_with_modifiers: %s\n", strerror(errno));
-		ok = errno;
-		goto fail_destroy_gbm_device;
-	}
-
-	if (libegl->eglGetPlatformDisplay != NULL) {
-		egl_display = libegl->eglGetPlatformDisplay(EGL_PLATFORM_GBM_KHR, gbm_device, NULL);
-		if (egl_error = eglGetError(), egl_display == EGL_NO_DISPLAY || egl_error != EGL_SUCCESS) {
-			LOG_FLUTTERPI_ERROR("Could not get EGL display! eglGetPlatformDisplay: 0x%08X\n", egl_error);
-			ok = EIO;
-			goto fail_destroy_gbm_surface;
-		}
-	} else if (egl_client_info->supports_ext_platform_base && egl_client_info->supports_khr_platform_gbm) {
-		egl_display = libegl->eglGetPlatformDisplayEXT(EGL_PLATFORM_GBM_KHR, gbm_device, NULL);
-		if (egl_error = eglGetError(), egl_display == EGL_NO_DISPLAY || egl_error != EGL_SUCCESS) {
-			LOG_FLUTTERPI_ERROR("Could not get EGL display! eglGetPlatformDisplayEXT: 0x%08X\n", egl_error);
-			ok = EIO;
-			goto fail_destroy_gbm_surface;
-		}
-	} else {
-		egl_display = eglGetDisplay((void*) gbm_device);
-		if (egl_error = eglGetError(), egl_display == EGL_NO_DISPLAY || egl_error != EGL_SUCCESS) {
-			LOG_FLUTTERPI_ERROR("Could not get EGL display! eglGetDisplay: 0x%08X\n", egl_error);
-			ok = EIO;
-			goto fail_destroy_gbm_surface;
-		}
-	}
-
-	egl_ok = eglInitialize(egl_display, &major, &minor);
-	if (egl_error = eglGetError(), egl_ok == EGL_FALSE || egl_error != EGL_SUCCESS) {
-		LOG_FLUTTERPI_ERROR("Could not initialize EGL display! eglInitialize: 0x%08X\n", egl_error);
-		ok = EIO;
-		goto fail_destroy_gbm_surface;
-	}
-
-	egl_display_info = egl_display_info_new(libegl, major, minor, egl_display);
-	if (egl_display_info == NULL) {
-		LOG_FLUTTERPI_ERROR("Could not create EGL display info!\n");
-		ok = EIO;
-		goto fail_terminate_display;
-	}
-
-	// We take the first config with ARGB8888. EGL orders all matching configs
-	// so the top ones are most "desirable", so we should be fine
-	// with just fetching the first config.
-	egl_ok = eglChooseConfig(egl_display, config_attribs, &egl_config, 1, &n_matched);
-	if (egl_error = eglGetError(), egl_ok == EGL_FALSE || egl_error != EGL_SUCCESS) {
-		LOG_FLUTTERPI_ERROR("Error finding a hardware accelerated EGL framebuffer configuration. eglChooseConfig: 0x%08X\n", egl_error);
-		ok = EIO;
-		goto fail_destroy_egl_display_info;
-	}
-
-	if (n_matched == 0) {
-		LOG_FLUTTERPI_ERROR("Couldn't configure a hardware accelerated EGL framebuffer configuration.\n");
-		ok = EIO;
-		goto fail_destroy_egl_display_info;
-	}
-
-	egl_ok = eglBindAPI(EGL_OPENGL_ES_API);
-	if (egl_error = eglGetError(), egl_ok == EGL_FALSE || egl_error != EGL_SUCCESS) {
-		LOG_FLUTTERPI_ERROR("Failed to bind OpenGL ES API! eglBindAPI: 0x%08X\n", egl_error);
-		ok = EIO;
-		goto fail_destroy_egl_display_info;
-	}
-
-	egl_context = eglCreateContext(egl_display, egl_config, EGL_NO_CONTEXT, context_attribs);
-	if (egl_error = eglGetError(), egl_context == EGL_NO_CONTEXT || egl_error != EGL_SUCCESS) {
-		LOG_FLUTTERPI_ERROR("Could not create OpenGL ES context. eglCreateContext: 0x%08X\n", egl_error);
-		ok = EIO;
-		goto fail_destroy_egl_display_info;
-	}
-
-	egl_surface = eglCreateWindowSurface(egl_display, egl_config, (EGLNativeWindowType) gbm_surface, NULL);
-	if (egl_error = eglGetError(), egl_surface == EGL_NO_SURFACE || egl_error != EGL_SUCCESS) {
-		LOG_FLUTTERPI_ERROR("Could not create EGL window surface. eglCreateWindowSurface: 0x%08X\n", egl_error);
-		ok = EIO;
-		goto fail_destroy_egl_context;
-	}
-
-	*gbm_device_out = gbm_device;
-	*gbm_surface_out = gbm_surface;
-	*egl_display_out = egl_display;
-	*egl_display_info_out = egl_display_info;
-	*egl_config_out = egl_config;
-	*egl_surface_out = egl_surface;
-	*egl_context_out = egl_context;
+	(void) fd;
+	(void) events;
+	DEBUG_ASSERT_NOT_NULL(userdata);
 	
-	return 0;
-
-	fail_destroy_egl_context:
-	eglDestroyContext(egl_display, egl_context);
-
-	fail_destroy_egl_display_info:
-	egl_display_info_destroy(egl_display_info);
-
-	fail_terminate_display:
-	eglTerminate(egl_display);
-
-	fail_destroy_gbm_surface:
-	gbm_surface_destroy(gbm_surface);
-
-	fail_destroy_gbm_device:
-	gbm_device_destroy(gbm_device);
-
-	fail_return_ok:
-	return ok;
+	user_input_on_fd_ready(input);
+	
+	return true;
 }
-*/
 
 struct flutterpi *flutterpi_new_from_args(
 	enum flutter_runtime_mode runtime_mode,
@@ -1378,6 +1228,10 @@ struct flutterpi *flutterpi_new_from_args(
 			.trace_event_begin = engine_lib->FlutterEngineTraceEventDurationBegin,
 			.trace_event_end = engine_lib->FlutterEngineTraceEventDurationEnd,
 			.trace_event_instant = engine_lib->FlutterEngineTraceEventInstant
+		},
+		&(struct flutter_view_interface) {
+			.send_window_metrics_event = engine_lib->FlutterEngineSendWindowMetricsEvent,
+			.notify_display_update = NULL
 		}
 	);
 	if (compositor == NULL) {
@@ -1460,7 +1314,7 @@ struct flutterpi *flutterpi_new_from_args(
 			.update_semantics_custom_action_callback = NULL,
 			.persistent_cache_path = NULL,
 			.is_persistent_cache_read_only = false,
-			.vsync_callback = on_frame_request,
+			.vsync_callback = NULL /*on_frame_request*/,
 			.custom_dart_entrypoint = NULL,
 			.custom_task_runners = &(FlutterCustomTaskRunners) {
 				.struct_size = sizeof(FlutterCustomTaskRunners),
@@ -1509,12 +1363,21 @@ struct flutterpi *flutterpi_new_from_args(
 		&user_input_interface,
 		flutterpi,
 		&FLUTTER_TRANSLATION_TRANSFORMATION(0, 0),
-		0, 0
+		display_get_width(displays[0]),
+		display_get_height(displays[0])
 	);
 	if (input == NULL) {
 		LOG_FLUTTERPI_ERROR("ERROR: Couldn't initialize user input.\n");
 		goto fail_destroy_messenger;
 	}
+
+	event_loop_add_io(
+		platform,
+		user_input_get_fd(input),
+		EPOLLIN | EPOLLPRI,
+		on_user_input_fd_ready,
+		input
+	);
 
 	// initialize the plugin registry
 	plugin_registry = plugin_registry_new(flutterpi);
@@ -1772,7 +1635,23 @@ struct flutterpi *flutterpi_new_from_cmdline(
 }
 
 int flutterpi_run(struct flutterpi *flutterpi) {
-	flutterpi->flutter.libflutter_engine->FlutterEngineRunInitialized(flutterpi->flutter.engine);
+	FlutterEngineResult engine_result;
+	int ok;
+
+	engine_result = flutterpi->flutter.libflutter_engine->FlutterEngineRunInitialized(flutterpi->flutter.engine);
+	if (engine_result != kSuccess) {
+		LOG_FLUTTERPI_ERROR("Could not run flutter engine. FlutterEngineRunInitialized: %s\n", FLUTTER_RESULT_TO_STRING(engine_result));
+		return EINVAL;
+	}
+
+	ok = compositor_setup_flutter_views(
+		flutterpi->compositor,
+		flutterpi->flutter.engine
+	);
+	if (ok != 0) {
+		return ok;
+	}
+
 	return run_main_loop(flutterpi);
 }
 
