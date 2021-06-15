@@ -60,18 +60,22 @@ struct omxplayer_mgr_task {
 	union {
 		struct {
 			int orientation;
-			char *omxplayer_dbus_name;
-			bool omxplayer_online;
+			union {
+				struct {
+					char *omxplayer_dbus_name;
+					bool omxplayer_online;
+				};
+				struct {
+					bool visible;
+					int offset_x, offset_y;
+					int width, height;
+					int zpos;
+				};
+			};
 		};
 		bool loop;
 		float volume;
 		int64_t position;
-		struct {
-			bool visible;
-			int offset_x, offset_y;
-			int width, height;
-			int zpos;
-		};
 	};
 };
 

@@ -100,7 +100,7 @@ static int on_receive_platform(char *channel, struct platch_obj *object, Flutter
 
             // if the list contains the current orientation, we just return and don't change the current orientation at all.
             if (o == flutterpi.view.orientation) {
-                return 0;
+                return platch_respond_success_json(responsehandle, NULL);
             }
 
             preferred_orientations[o] = true;
@@ -114,7 +114,7 @@ static int on_receive_platform(char *channel, struct platch_obj *object, Flutter
 
                 flutterpi_fill_view_properties(true, i, false, 0);
 
-                compositor_apply_cursor_state(true, flutterpi.view.rotation, flutterpi.display.pixel_ratio);
+                compositor_apply_cursor_state(false, flutterpi.view.rotation, flutterpi.display.pixel_ratio);
 
                 // send updated window metrics to flutter
                 result = flutterpi.flutter.libflutter_engine.FlutterEngineSendWindowMetricsEvent(flutterpi.flutter.engine, &(const FlutterWindowMetricsEvent) {

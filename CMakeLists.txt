@@ -34,6 +34,8 @@ project(flutter-pi LANGUAGES C VERSION "1.0.0")
 message(STATUS "Generator .............. ${CMAKE_GENERATOR}")
 message(STATUS "Build Type ............. ${CMAKE_BUILD_TYPE}")
 
+OPTION(OMXPLAYER_SUPPORTS_RUNTIME_ROTATION "Whether omxplayer supports runtime rotation." OFF)
+
 if(NOT FLUTTER_EMBEDDER_HEADER)
 
   include(FetchContent)
@@ -178,6 +180,9 @@ if (BUILD_TEST_PLUGIN)
 endif()
 if (BUILD_OMXPLAYER_VIDEO_PLAYER_PLUGIN)
   target_compile_definitions(flutter-pi PRIVATE "BUILD_OMXPLAYER_VIDEO_PLAYER_PLUGIN")
+endif()
+if (OMXPLAYER_SUPPORTS_RUNTIME_ROTATION)
+  target_compile_definitions(flutter-pi PRIVATE "OMXPLAYER_SUPPORTS_RUNTIME_ROTATION")
 endif()
 
 target_link_options(flutter-pi PRIVATE

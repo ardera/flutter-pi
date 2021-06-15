@@ -1,6 +1,8 @@
+#define _GNU_SOURCE
 #include <stdio.h>
 #include <errno.h>
 #include <sys/mman.h>
+#include <math.h>
 
 #include <xf86drm.h>
 #include <xf86drmMode.h>
@@ -950,6 +952,89 @@ static int execute_simulate_page_flip_event(void *userdata) {
 	return 0;
 }
 
+static void fill_platform_view_params(
+	struct platform_view_params *params_out,
+	const FlutterPoint *offset,
+	const FlutterSize *size,
+	const FlutterPlatformViewMutation **mutations,
+	size_t n_mutations,
+	const FlutterTransformation *display_to_view_transform,
+	const FlutterTransformation *view_to_display_transform,
+	double device_pixel_ratio
+) {
+	/**
+	 * inversion for
+	 * ```
+	 * const auto transformed_layer_bounds =
+     *     root_surface_transformation_.mapRect(layer_bounds);
+	 * ```
+	 */
+
+	struct quad quad = apply_transform_to_aa_rect(
+		*display_to_view_transform,
+		(struct aa_rect) {
+			.offset.x = offset->x,
+			.offset.y = offset->y,
+			.size.x = size->width,
+			.size.y = size->height
+		}
+	);
+
+	struct aa_rect rect = get_aa_bounding_rect(quad);
+
+	/**
+	 * inversion for
+	 * ```
+	 * const auto layer_bounds =
+     *     SkRect::MakeXYWH(params.finalBoundingRect().x(),
+     *                      params.finalBoundingRect().y(),
+     *                      params.sizePoints().width() * device_pixel_ratio_,
+     *                      params.sizePoints().height() * device_pixel_ratio_
+     *     );
+	 * ```
+	 */
+
+	rect.size.x /= device_pixel_ratio;
+	rect.size.y /= device_pixel_ratio;
+
+	// okay, now we have the params.finalBoundingRect().x() in aa_back_transformed.x and
+	// params.finalBoundingRect().y() in aa_back_transformed.y.
+	// those are flutter view coordinates, so we still need to transform them to display coordinates.
+
+	// However, there are also calculated as a side-product of calculating the size of the quadrangle.
+	// So we'll avoid calculating them for now. Calculation of the size may fail when the offset
+	// given to `SceneBuilder.addPlatformView` (https://api.flutter.dev/flutter/dart-ui/SceneBuilder/addPlatformView.html)
+	// is not zero. (Don't really know what to do in that case)
+
+	rect.offset.x = 0;
+	rect.offset.y = 0;
+	quad = get_quad(rect);
+
+	double rotation = 0, opacity = 1;
+	for (int i = n_mutations - 1; i >= 0; i--) {
+        if (mutations[i]->type == kFlutterPlatformViewMutationTypeTransformation) {
+			apply_transform_to_quad(mutations[i]->transformation, &quad);
+			
+			double rotz = atan2(mutations[i]->transformation.skewX, mutations[i]->transformation.scaleX) * 180.0 / M_PI;
+            if (rotz < 0) {
+                rotz += 360;
+            }
+
+            rotation += rotz;
+        } else if (mutations[i]->type == kFlutterPlatformViewMutationTypeOpacity) {
+			opacity *= mutations[i]->opacity;
+		}
+    }
+
+	rotation = fmod(rotation, 360.0);
+
+	params_out->rect = quad;
+	params_out->opacity = 0;
+	params_out->rotation = rotation;
+	params_out->clip_rects = NULL;
+	params_out->n_clip_rects = 0;
+}
+
 /// PRESENT FUNCS
 static bool on_present_layers(
 	const FlutterLayer **layers,
@@ -1140,6 +1225,8 @@ static bool on_present_layers(
 				if (ok != 0) {
 					fprintf(stderr, "[compositor] Could not unmount platform view. unmount: %s\n", strerror(ok));
 				}
+
+				cb_data->was_present_last_frame = false;
 			}
 		}
 
@@ -1156,15 +1243,22 @@ static bool on_present_layers(
 				}
 			}
 
+			struct platform_view_params params;
+			fill_platform_view_params(
+				&params,
+				&layer->offset,
+				&layer->size,
+				layer->platform_view->mutations,
+				layer->platform_view->mutations_count,
+				&flutterpi.view.display_to_view_transform,
+				&flutterpi.view.view_to_display_transform,
+				flutterpi.display.pixel_ratio
+			);
+
 			ok = cb_data->update_view(
 				cb_data->view_id,
 				req,
-				layer->platform_view->mutations,
-				layer->platform_view->mutations_count,
-				(int) round(layer->offset.x),
-				(int) round(layer->offset.y),
-				(int) round(layer->size.width),
-				(int) round(layer->size.height),
+				&params,
 				zpos,
 				cb_data->userdata
 			);
@@ -1194,16 +1288,23 @@ static bool on_present_layers(
 				}
 			}
 
+			struct platform_view_params params;
+			fill_platform_view_params(
+				&params,
+				&layer->offset,
+				&layer->size,
+				layer->platform_view->mutations,
+				layer->platform_view->mutations_count,
+				&flutterpi.view.display_to_view_transform,
+				&flutterpi.view.view_to_display_transform,
+				flutterpi.display.pixel_ratio
+			);
+
 			if (cb_data->mount != NULL) {
 				ok = cb_data->mount(
 					layer->platform_view->identifier,
 					req,
-					layer->platform_view->mutations,
-					layer->platform_view->mutations_count,
-					(int) round(layer->offset.x),
-					(int) round(layer->offset.y),
-					(int) round(layer->size.width),
-					(int) round(layer->size.height),
+					&params,
 					zpos,
 					cb_data->userdata
 				);
@@ -1212,6 +1313,7 @@ static bool on_present_layers(
 				}
 			}
 
+			cb_data->was_present_last_frame = true;
 			cb_data->last_zpos = zpos;
 			cb_data->last_size = layer->size;
 			cb_data->last_offset = layer->offset;
@@ -1314,15 +1416,22 @@ static bool on_present_layers(
 			cb_data = get_cbs_for_view_id_locked(layers[i]->platform_view->identifier);
 
 			if ((cb_data != NULL) && (cb_data->present != NULL)) {
+				struct platform_view_params params;
+				fill_platform_view_params(
+					&params,
+					&layers[i]->offset,
+					&layers[i]->size,
+					layers[i]->platform_view->mutations,
+					layers[i]->platform_view->mutations_count,
+					&flutterpi.view.display_to_view_transform,
+					&flutterpi.view.view_to_display_transform,
+					flutterpi.display.pixel_ratio
+				);
+
 				ok = cb_data->present(
 					cb_data->view_id,
 					req,
-					layers[i]->platform_view->mutations,
-					layers[i]->platform_view->mutations_count,
-					(int) round(layers[i]->offset.x),
-					(int) round(layers[i]->offset.y),
-					(int) round(layers[i]->size.width),
-					(int) round(layers[i]->size.height),
+					&params,
 					i + min_zpos,
 					cb_data->userdata
 				);
