@@ -1,5 +1,6 @@
 #pragma once
 #include <memory>
+#include <set>
 
 #ifdef HAS_GBM
 #   include <gbm.h>
@@ -16,11 +17,90 @@ enum pixfmt {
     kRGBA8888,
 };
 
-struct display_buffer_layer {
-    int buffer_x, buffer_y, buffer_w, buffer_h;
-    int display_x, display_y, display_w, display_h;
-    std::shared_ptr<display_buffer> buffer;
+template<typename T>
+struct point {
+    T x, y;
 };
+
+template<typename T>
+struct quadrangle {
+    point<T> left_top, right_top, bottom_right, bottom_left;
+
+    rect bounding_rect() const {
+        return rect::make_ltrb(
+            std::min({left_top.x, right_top.x, bottom_right.x, bottom_left.x}),
+            std::min({left_top.y, right_top.y, bottom_right.y, bottom_left.y}),
+            std::max({left_top.x, right_top.x, bottom_right.x, bottom_left.x}),
+            std::max({left_top.y, right_top.y, bottom_right.y, bottom_left.y})
+        );
+    }
+};
+
+template<typename T>
+struct rect {
+    static rect make_ltwh(T l, T t, T w, T h) {
+        return {
+            {l, t},
+            {l + w, l + h}
+        };
+    }
+
+    static rect make_ltrb(T l, T t, T r, T b) {
+        return {
+            {l, t},
+            {r, b}
+        };
+    }
+
+    T left() const { return left_top.x; }
+    T top() const { return left_top.y; }
+    T right() const { return bottom_right.x; }
+    T bottom() const { return bottom_right.y; }
+    T width() const { return right() - left(); }
+    T height() const { return bottom() - top(); }
+
+    point<T> left_top, bottom_right;
+};
+
+enum display_buffer_layer_rotation {
+    kDspBufLayerRotation0,
+    kDspBufLayerRotation90,
+    kDspBufLayerRotation180,
+    kDspBufLayerRotation270,
+};
+
+enum display_buffer_layer_reflection {
+    kDspBufLayerReflectX,
+    kDspBufLayerReflectY
+};
+
+struct display_buffer_layer {
+    display_buffer_layer(
+        const rect<int>& buffer_rect_,
+        const rect<int>& display_rect_,
+        std::shared_ptr<display_buffer> buffer_
+    )   : buffer_rect(buffer_rect_),
+          display_rect(display_rect_),
+          buffer(buffer_) {}
+    
+    display_buffer_layer(
+        const rect<int>& buffer_rect_,
+        const rect<int>& display_rect_,
+        std::shared_ptr<display_buffer> buffer_,
+        display_buffer_layer_rotation rotation_,
+        display_buffer_layer_reflection reflection_
+    )   : buffer_rect(buffer_rect_),
+          display_rect(display_rect_),
+          buffer(buffer_),
+          rotation(rotation_),
+          reflection(reflection_) {}
+
+    rect<int> buffer_rect;
+    rect<int> display_rect;
+    std::shared_ptr<display_buffer> buffer;
+    std::optional<display_buffer_layer_rotation> rotation;
+    std::optional<display_buffer_layer_reflection> reflection;
+}; 
 
 struct software_buffer {
     int width, height, stride;
@@ -84,13 +164,16 @@ class display {
 
 class presenter {
     public:
-        virtual void push_display_buffer_layer(const display_buffer_layer& layer);
-        virtual void push_placeholder_layer();
-        const display& display() const { return display_; }
-    
+        virtual void push_display_buffer_layer(const display_buffer_layer& layer) = 0;
+        virtual void push_placeholder_layer() = 0;
+        virtual void present() = 0;
+
+        const class display& display() const { return display_; }
+        class display& display() { return display_; }
+
     protected:
-        presenter(const class display& display)
+        presenter(class display& display)
             : display_(display) {}
 
-        const class display& display_;
+        class display& display_;
 };

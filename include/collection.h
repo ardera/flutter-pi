@@ -1,5 +1,5 @@
-#ifndef _COLLECTION_H
-#define _COLLECTION_H
+#ifndef _FLUTTERPI_INCLUDE_COLLECTION_H
+#define _FLUTTERPI_INCLUDE_COLLECTION_H
 
 #if !defined(_POSIX_C_SOURCE) || (_POSIX_C_SOURCE <= 199309L)
 #define _POSIX_C_SOURCE 199309L
@@ -432,9 +432,19 @@ static inline uint64_t get_monotonic_time(void) {
 #ifdef DEBUG
 #define DEBUG_ASSERT(condition) assert(condition)
 #define DEBUG_ASSERT_NOT_NULL(ptr) assert((ptr) != NULL && "Expected " # ptr " to be non-null.")
+#define LOG_ERROR_WITH_PREFIX(prefix, fmtstring, ...) fprintf(stderr, prefix " %s: " fmtstring, __func__, ##__VA_ARGS__)
 #else
 #define DEBUG_ASSERT(condition) do {} while (0)
 #define DEBUG_ASSERT_NOT_NULL(ptr) do {} while (0)
+#define LOG_ERROR_WITH_PREFIX(prefix, fmtstring, ...) do {} while (0)
 #endif
 
+
+#if !(201112L <= __STDC_VERSION__ || (!defined __STRICT_ANSI__ && (__GNUC__ > 4) || ((__GNUC__ == 4) && (__GNUC_MINOR >= 6))))
+#	error "Needs C11 or later or GCC (not in pedantic mode) 4.6.0 or later for compile time asserts."
 #endif
+
+#define COMPILE_ASSERT_MSG(expression, msg) _Static_assert(expression, msg)
+#define COMPILE_ASSERT(expression) COMPILE_ASSERT_MSG(expression, "Expression evaluates to false")
+
+#endif // _FLUTTERPI_INCLUDE_COLLECTION_H

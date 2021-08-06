@@ -94,12 +94,12 @@ pkg_check_modules(LIBSYSTEMD REQUIRED libsystemd)
 pkg_check_modules(LIBINPUT REQUIRED libinput)
 pkg_check_modules(LIBXKBCOMMON REQUIRED xkbcommon)
 pkg_check_modules(LIBUDEV REQUIRED libudev)
-pkg_check_modules(LIBUSB REQUIRED libusb-1.0)
-pkg_check_modules(LIBSSL REQUIRED libssl)
-pkg_check_modules(LIBCRYPTO REQUIRED libcrypto)
-pkg_check_modules(LIBGSTREAMER REQUIRED gstreamer-1.0)
-pkg_check_modules(LIBGSTREAMER-APP REQUIRED gstreamer-app-1.0)
-pkg_check_modules(LIBGSTREAMER-PLUGINS-BASE REQUIRED gstreamer-plugins-base-1.0)
+pkg_check_modules(LIBUSB libusb-1.0)
+pkg_check_modules(LIBSSL libssl)
+pkg_check_modules(LIBCRYPTO libcrypto)
+pkg_check_modules(LIBGSTREAMER gstreamer-1.0)
+pkg_check_modules(LIBGSTREAMER-APP gstreamer-app-1.0)
+pkg_check_modules(LIBGSTREAMER-PLUGINS-BASE gstreamer-plugins-base-1.0)
 
 set(BUILD_TEXT_INPUT_PLUGIN ON CACHE BOOL "Include the text input plugin in the finished binary. Enables text input (to flutter text fields, for example) via attached keyboards.")
 set(BUILD_RAW_KEYBOARD_PLUGIN ON CACHE BOOL "Include the raw keyboard plugin in the finished binary. Enables raw keycode listening in flutter via the flutter RawKeyboard interface.")
@@ -116,10 +116,15 @@ set(FLUTTER_PI_SRC
   src/flutter-pi.c
   src/keyboard.c
   src/messenger.c
-  src/modesetting.c
+  src/modesetting/modesetting.c
+  src/modesetting/modesetting_fbdev.c
+  src/modesetting/modesetting_kms.c
+  src/renderer/renderer.c
+  src/renderer/renderer_gl.c
+  src/renderer/renderer_sw.c
+  src/pixel_format.c
   src/platformchannel.c
   src/pluginregistry.c
-  src/renderer.c
   src/texture_registry.c
   src/user_input.c
 	src/plugins/services.c
@@ -193,7 +198,7 @@ target_compile_options(flutter-pi PRIVATE
   ${LIBSSL_CFLAGS}
   ${LIBCRYPTO_CFLAGS}
   ${LIBGSTREAMER_CFLAGS}
-  $<$<CONFIG:DEBUG>:-O0 -ggdb -Werror -Wall -Wextra -Wno-error=missing-field-initializers -Wno-error=unused-function -fsanitize=undefined -fno-omit-frame-pointer>
+  $<$<CONFIG:DEBUG>:-O0 -ggdb>#-Werror -Wall -Wextra -Wno-error=missing-field-initializers -Wno-error=unused-function -fsanitize=undefined -fno-omit-frame-pointer>
 )
 
 if (BUILD_TEXT_INPUT_PLUGIN)
@@ -212,10 +217,11 @@ if (BUILD_ANDROID_AUTO_HEADUNIT_PLUGIN)
   target_compile_definitions(flutter-pi PRIVATE "BUILD_ANDROID_AUTO_HEADUNIT_PLUGIN")
 endif()
 
-target_compile_definitions(flutter-pi PRIVATE "HAS_FBDEV")
-target_compile_definitions(flutter-pi PRIVATE "HAS_KMS")
-target_compile_definitions(flutter-pi PRIVATE "HAS_GBM")
-target_compile_definitions(flutter-pi PRIVATE "HAS_EGL")
+target_compile_definitions(flutter-pi PRIVATE HAS_FBDEV)
+target_compile_definitions(flutter-pi PRIVATE HAS_KMS)
+target_compile_definitions(flutter-pi PRIVATE HAS_GBM)
+target_compile_definitions(flutter-pi PRIVATE HAS_EGL)
+target_compile_definitions(flutter-pi PRIVATE HAS_GL)
 
 target_link_options(flutter-pi PRIVATE
   -rdynamic

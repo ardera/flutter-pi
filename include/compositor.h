@@ -1,5 +1,5 @@
-#ifndef _COMPOSITOR_H
-#define _COMPOSITOR_H
+#ifndef _FLUTTERPI_INCLUDE_COMPOSITOR_H
+#define _FLUTTERPI_INCLUDE_COMPOSITOR_H
 
 #include <stdint.h>
 
@@ -8,7 +8,7 @@
 #include <event_loop.h>
 
 #include <collection.h>
-#include <modesetting.h>
+#include <modesetting/modesetting.h>
 
 #define LOG_COMPOSITOR_ERROR(format_str, ...) fprintf(stderr, "[compositor] %s: " format_str, __func__, ##__VA_ARGS__)
 
@@ -235,4 +235,4 @@ int compositor_set_cursor_state(
 
 int compositor_set_cursor_pos(struct compositor *compositor, int x, int y);
 
-#endif
+#endif // _FLUTTERPI_INCLUDE_COMPOSITOR_H

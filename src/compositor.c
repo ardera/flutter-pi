@@ -19,7 +19,7 @@
 #include <compositor.h>
 #include <cursor.h>
 #include <dylib_deps.h>
-#include <renderer.h>
+#include <renderer/renderer.h>
 
 struct view_cb_data {
 	int64_t view_id;

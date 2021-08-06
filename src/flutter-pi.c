@@ -50,7 +50,7 @@
 #include <texture_registry.h>
 #include <dylib_deps.h>
 #include <user_input.h>
-#include <renderer.h>
+#include <renderer/renderer.h>
 #include <event_loop.h>
 
 #include <plugins/text_input.h>
@@ -1057,7 +1057,6 @@ struct flutterpi *flutterpi_new_from_args(
 	size_t n_displays;
 	char **engine_argv_dup;
 	char *app_elf_path, *icu_data_path;
-	bool use_kms;
 	int ok;
 	
 	// allocate memory for our flutterpi instance
@@ -1117,12 +1116,11 @@ struct flutterpi *flutterpi_new_from_args(
 		goto fail_free_platform_event_loop;
 	}
 
-	use_kms = true;
-
 	// initialize the display
-	kmsdev = NULL;
-	if (use_kms) {
-		kmsdev = kmsdev_new_auto(render);
+	if (false) {
+#ifdef HAS_KMS
+	} else if (true) {
+		kmsdev = kmsdev_new_auto(NULL);
 		if (kmsdev == NULL) {
 			goto fail_free_render_event_loop;
 		}
@@ -1172,6 +1170,7 @@ struct flutterpi *flutterpi_new_from_args(
 		}
 
 		kmsdev_get_displays(kmsdev, &displays, &n_displays);
+#endif // HAS_KMS
 	} else {
 		struct display *display = fbdev_display_new_from_path(
 			"/dev/fb0",

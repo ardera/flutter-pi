@@ -13,17 +13,14 @@
 
 #include <collection.h>
 #include <dylib_deps.h>
-#include <renderer.h>
-#include <modesetting.h>
-
-#define LOG_RENDERER_ERROR(format_str, ...) fprintf(stderr, "[renderer] %s: " format_str, __func__, ##__VA_ARGS__)
+#include <pixel_format.h>
+#include <renderer/renderer.h>
+#include <renderer/renderer_private.h>
+#include <renderer/renderer_gl.h>
 
 #define DEBUG_ASSERT_GL_RENDERER(r) DEBUG_ASSERT((r)->type == kOpenGL && "Expected renderer to be an OpenGL renderer.")
-#define DEBUG_ASSERT_SW_RENDERER(r) DEBUG_ASSERT((r)->type == kSoftware && "Expected renderer to be a software renderer.")
-
 #define RENDERER_PRIVATE_GL(renderer) ((struct gl_renderer*) (renderer->private))
-#define RENDERER_PRIVATE_SW(renderer) ((struct sw_renderer*) (renderer->private))
-
+#define LOG_ERROR(fmt, ...) fprintf(stderr, "[gl renderer] " fmt, #__VA_ARGS__)
 
 struct gl_renderer {
 	struct libegl *libegl;
@@ -45,35 +42,59 @@ struct gl_renderer {
 	char *gl_extensions_override;
 };
 
-struct sw_renderer {
-	/**
-	 * @brief The dispatcher functions. When the FlutterSoftwareRendererConfig is filled
-	 * using @ref renderer_fill_flutter_renderer_config, these functions will be filled.
-	 * The functions should then call the sw_renderer_flutter_* functions with the correct
-	 * renderer instance.
-	 * 
-	 * This is needed because the both the global flutter config and the flutter renderer config
-	 * callbacks share the userdata.
-	 */
-	const struct flutter_renderer_sw_interface *sw_dispatcher;
-};
+static EGLConfig get_matching_config(EGLDisplay display, enum pixfmt format) {
+	EGLConfig *configs;
+	EGLint egl_ok, n_matched, attrib_value;
 
-struct renderer_private;
+	static const EGLint attributes[] = {
+		EGL_SURFACE_TYPE, EGL_WINDOW_BIT,
+		EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
+		EGL_NONE
+	};
 
-struct renderer {
-	FlutterRendererType type;
-	struct renderer_private *private;
+	egl_ok = eglChooseConfig(
+		display,
+		attributes,
+		NULL, 0,
+		&n_matched
+	);
+	if (egl_ok == EGL_FALSE) {
+		LOG_ERROR("Could not query number of EGL configs: eglChooseConfig: %s\n", eglGetErrorString());
+		return EGL_NO_CONFIG_KHR;
+	}
 
-	void (*destroy)(struct renderer *renderer);
-	void (*fill_flutter_renderer_config)(struct renderer *renderer, FlutterRendererConfig *config);
-	int (*flush_rendering)(struct renderer *renderer);
-};
+	configs = alloca(sizeof(EGLConfig) * n_matched);
 
+	egl_ok = eglChooseConfig(
+		display,
+		attributes,
+		configs, n_matched,
+		&n_matched
+	);
+	if (egl_ok == EGL_FALSE) {
+		LOG_ERROR("Could not query EGL configs: eglChooseConfig: %s\n", eglGetErrorString());
+		return EGL_NO_CONFIG_KHR;
+	}
 
-void renderer_destroy(struct renderer *renderer) {
-	DEBUG_ASSERT(renderer != NULL);
-	DEBUG_ASSERT(renderer->destroy != NULL);
-	return renderer->destroy(renderer);
+	for (int i = 0; i < n_matched; i++) {
+		egl_ok = eglGetConfigAttrib(
+			display,
+			configs[i],
+			EGL_NATIVE_VISUAL_ID,
+			&attrib_value
+		);
+		if (egl_ok == EGL_FALSE) {
+			LOG_ERROR("Could not query EGL config attribute: eglGetConfigAttrib: %s\n", eglGetErrorString());
+			return EGL_NO_CONFIG_KHR;
+		}
+
+		if (*((uint32_t*) &attrib_value) == get_pixfmt_info(format)->gbm_format) {
+			return configs[i];
+		}
+	}
+
+	LOG_ERROR("Could not find EGL framebuffer config for pixel format %s.\n", get_pixfmt_info(format)->name);
+	return EGL_NO_CONFIG_KHR;
 }
 
 /**
@@ -87,17 +108,6 @@ static void gl_renderer_destroy(struct renderer *renderer) {
 	free(private);
 	free(renderer);
 }
-
-static void sw_renderer_destroy(struct renderer *renderer) {
-	struct sw_renderer *private = RENDERER_PRIVATE_SW(renderer);
-
-	/// TODO: Implement sw_renderer_destroy
-
-	free(private);
-	free(renderer);
-}
-
-
 
 /**
  * @brief Create a new EGL context with a random EGL already constructed
@@ -132,7 +142,7 @@ static EGLContext create_egl_context(struct gl_renderer *private) {
 		}
 	);
 	if (context == EGL_NO_CONTEXT) {
-		LOG_RENDERER_ERROR("Could not create additional EGL context. eglCreateContext: %s\n", eglGetErrorString());
+		LOG_ERROR("Could not create additional EGL context. eglCreateContext: %s\n", eglGetErrorString());
 		cpset_unlock(&private->egl_contexts);
 		return EGL_NO_CONTEXT;
 	}
@@ -190,7 +200,7 @@ int gl_renderer_make_current(struct renderer *renderer, bool surfaceless) {
 		context
 	);
 	if (egl_ok != EGL_TRUE) {
-		LOG_RENDERER_ERROR("Could not make EGL context current. eglMakeCurrent: %s\n", eglGetErrorString());
+		LOG_ERROR("Could not make EGL context current. eglMakeCurrent: %s\n", eglGetErrorString());
 		return EINVAL;
 	}
 
@@ -210,13 +220,13 @@ int gl_renderer_clear_current(struct renderer *renderer) {
 
 	context = private->libegl->eglGetCurrentContext();
 	if (context == EGL_NO_CONTEXT) {
-		LOG_RENDERER_ERROR("in gl_renderer_clear_current: No EGL context is current, so none can be cleared.\n");
+		LOG_ERROR("in gl_renderer_clear_current: No EGL context is current, so none can be cleared.\n");
 		return EINVAL;
 	}
 
 	egl_ok = eglMakeCurrent(private->egl_display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
 	if (egl_ok != EGL_TRUE) {
-		LOG_RENDERER_ERROR("Could not clear the current EGL context. eglMakeCurrent");
+		LOG_ERROR("Could not clear the current EGL context. eglMakeCurrent");
 		return EIO;
 	}
 
@@ -224,7 +234,7 @@ int gl_renderer_clear_current(struct renderer *renderer) {
 
 	ok = put_unused_egl_context(private, context);
 	if (ok != 0) {
-		LOG_RENDERER_ERROR("Could not mark the cleared EGL context as unused. put_unused_egl_context: %s\n", strerror(ok));
+		LOG_ERROR("Could not mark the cleared EGL context as unused. put_unused_egl_context: %s\n", strerror(ok));
 		return ok;
 	}
 
@@ -264,7 +274,7 @@ int gl_renderer_reserved_make_current(struct renderer *renderer, EGLContext cont
 		context
 	);
 	if (egl_ok != EGL_TRUE) {
-		LOG_RENDERER_ERROR("Could not make EGL context current. eglMakeCurrent: %s\n", eglGetErrorString());
+		LOG_ERROR("Could not make EGL context current. eglMakeCurrent: %s\n", eglGetErrorString());
 		return EINVAL;
 	}
 
@@ -281,7 +291,7 @@ int gl_renderer_reserved_clear_current(struct renderer *renderer) {
 
 	egl_ok = eglMakeCurrent(private->egl_display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
 	if (egl_ok != EGL_TRUE) {
-		LOG_RENDERER_ERROR("Could not clear the current EGL context. eglMakeCurrent: %s\n", eglGetErrorString());
+		LOG_ERROR("Could not clear the current EGL context. eglMakeCurrent: %s\n", eglGetErrorString());
 		return EIO;
 	}
 
@@ -317,7 +327,7 @@ int gl_renderer_create_scanout_fbo(
 	glGetError();
 
 	if (!private->display_info->supports_mesa_drm_image) {
-		LOG_RENDERER_ERROR("EGL doesn't support MESA_drm_image. Can't create DRM image backed OpenGL renderbuffer.\n");
+		LOG_ERROR("EGL doesn't support MESA_drm_image. Can't create DRM image backed OpenGL renderbuffer.\n");
 		ok = ENOTSUP;
 		goto fail_return_ok;
 	}
@@ -330,28 +340,28 @@ int gl_renderer_create_scanout_fbo(
 		EGL_NONE
 	});
 	if (image == EGL_NO_IMAGE) {
-		LOG_RENDERER_ERROR("Error creating DRM EGL Image for flutter backing store. eglCreateDRMImageMESA: %s\n", eglGetErrorString());
+		LOG_ERROR("Error creating DRM EGL Image for flutter backing store. eglCreateDRMImageMESA: %s\n", eglGetErrorString());
 		ok = EIO;
 		goto fail_return_ok;
 	}
 
 	egl_ok = private->libegl->eglExportDRMImageMESA(private->egl_display, image, NULL, (EGLint*) &handle, (EGLint*) &stride);
 	if (egl_ok == false) {
-		LOG_RENDERER_ERROR("Error getting handle & stride for DRM EGL Image. eglExportDRMImageMESA: %s\n", eglGetErrorString());
+		LOG_ERROR("Error getting handle & stride for DRM EGL Image. eglExportDRMImageMESA: %s\n", eglGetErrorString());
 		ok = EIO;
 		goto fail_destroy_egl_image;
 	}
 
 	glGenRenderbuffers(1, &rbo);
 	if ((gl_error = glGetError())) {
-		LOG_RENDERER_ERROR("Error generating renderbuffers for flutter backing store. glGenRenderbuffers: %u\n", gl_error);
+		LOG_ERROR("Error generating renderbuffers for flutter backing store. glGenRenderbuffers: %u\n", gl_error);
 		ok = EIO;
 		goto fail_destroy_egl_image;
 	}
 
 	glBindRenderbuffer(GL_RENDERBUFFER, rbo);
 	if ((gl_error = glGetError())) {
-		LOG_RENDERER_ERROR("Error binding renderbuffer. glBindRenderbuffer: %u\n", gl_error);
+		LOG_ERROR("Error binding renderbuffer. glBindRenderbuffer: %u\n", gl_error);
 		ok = EIO;
 		goto fail_delete_rbo;
 	}
@@ -360,28 +370,28 @@ int gl_renderer_create_scanout_fbo(
 	eglGetProcAddress("glEGLImageTargetRenderbufferStorageOES");
 	//flutterpi.gl.EGLImageTargetRenderbufferStorageOES(GL_RENDERBUFFER, fbo.egl_image);
 	if ((gl_error = glGetError())) {
-		LOG_RENDERER_ERROR("Error binding DRM EGL Image to renderbuffer, glEGLImageTargetRenderbufferStorageOES: %u\n", gl_error);
+		LOG_ERROR("Error binding DRM EGL Image to renderbuffer, glEGLImageTargetRenderbufferStorageOES: %u\n", gl_error);
 		ok = EIO;
 		goto fail_delete_rbo;
 	}
 
 	glGenFramebuffers(1, &fbo);
 	if ((gl_error = glGetError())) {
-		LOG_RENDERER_ERROR("Error generating OpenGL framebuffer. glGenFramebuffers: %u\n", gl_error);
+		LOG_ERROR("Error generating OpenGL framebuffer. glGenFramebuffers: %u\n", gl_error);
 		ok = EIO;
 		goto fail_delete_rbo;
 	}
 
 	glBindFramebuffer(GL_FRAMEBUFFER, fbo);
 	if ((gl_error = glGetError())) {
-		LOG_RENDERER_ERROR("Error binding OpenGL framebuffer. glBindFramebuffer: %u\n", gl_error);
+		LOG_ERROR("Error binding OpenGL framebuffer. glBindFramebuffer: %u\n", gl_error);
 		ok = EIO;
 		goto fail_delete_fbo;
 	}
 
 	glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, rbo);
 	if ((gl_error = glGetError())) {
-		LOG_RENDERER_ERROR("Error attaching renderbuffer to framebuffer. glFramebufferRenderbuffer: %u\n", gl_error);
+		LOG_ERROR("Error attaching renderbuffer to framebuffer. glFramebufferRenderbuffer: %u\n", gl_error);
 		ok = EIO;
 		goto fail_delete_fbo;
 	}
@@ -545,7 +555,7 @@ void *gl_renderer_flutter_resolve_gl_proc(struct renderer *renderer, const char 
 		}
 
 		if (address == NULL) {
-			LOG_RENDERER_ERROR("Could not find the GL proc with name \"%s\".\n", name);
+			LOG_ERROR("Could not find the GL proc with name \"%s\".\n", name);
 		}
 
 		return address;
@@ -567,28 +577,6 @@ bool gl_renderer_flutter_present_with_info(struct renderer *renderer, const Flut
 }
 
 
-bool sw_renderer_flutter_present(
-	struct renderer *renderer,
-	const void *allocation,
-	size_t bytes_per_row,
-	size_t height
-) {
-	(void) renderer;
-	(void) allocation;
-	(void) bytes_per_row;
-	(void) height;
-
-	printf("sw_renderer_flutter_present\n");
-
-	return true;
-}
-
-int renderer_flush_rendering(struct renderer *renderer) {
-	DEBUG_ASSERT(renderer != NULL);
-	DEBUG_ASSERT(renderer->flush_rendering != NULL);
-	return renderer->flush_rendering(renderer);
-}
-
 static int gl_renderer_flush_rendering(struct renderer *renderer) {
 	struct gl_renderer *private;
 	EGLBoolean egl_ok;
@@ -598,39 +586,11 @@ static int gl_renderer_flush_rendering(struct renderer *renderer) {
 
 	egl_ok = eglSwapBuffers(private->egl_display, private->egl_surface);
 	if (egl_ok == EGL_FALSE) {
-		LOG_RENDERER_ERROR("Couldn't flush rendering. eglSwapBuffers: %s\n", eglGetErrorString());
+		LOG_ERROR("Couldn't flush rendering. eglSwapBuffers: %s\n", eglGetErrorString());
 		return EIO;
 	}
 
 	return 0;
-}
-
-static int sw_renderer_flush_rendering(struct renderer *renderer) {
-	(void) renderer;
-	return 0;
-}
-
-
-void renderer_fill_flutter_renderer_config(struct renderer *renderer, FlutterRendererConfig *config) {
-	DEBUG_ASSERT(renderer != NULL);
-	DEBUG_ASSERT(config != NULL);
-	DEBUG_ASSERT(renderer->fill_flutter_renderer_config != NULL);
-	return renderer->fill_flutter_renderer_config(renderer, config);
-}
-
-static void sw_renderer_fill_flutter_renderer_config(struct renderer *renderer, FlutterRendererConfig *config) {
-	struct sw_renderer *private;
-
-	(void) renderer;
-
-	DEBUG_ASSERT_SW_RENDERER(renderer);
-	private = RENDERER_PRIVATE_SW(renderer);
-
-	config->type = kSoftware;
-	config->software = (FlutterSoftwareRendererConfig) {
-		.struct_size = sizeof(FlutterSoftwareRendererConfig),
-		.surface_present_callback = private->sw_dispatcher->surface_present_callback
-	};
 }
 
 static void gl_renderer_fill_flutter_renderer_config(struct renderer *renderer, FlutterRendererConfig *config) {
@@ -656,59 +616,15 @@ static void gl_renderer_fill_flutter_renderer_config(struct renderer *renderer, 
 	};
 }
 
-static EGLConfig get_matching_config(EGLDisplay display, enum pixfmt format) {
-	EGLConfig *configs;
-	EGLint egl_ok, n_matched, attrib_value;
+struct gbm_surface *gl_renderer_get_main_gbm_surface(
+	struct renderer *renderer
+) {
+	struct gl_renderer *private;
 
-	static const EGLint attributes[] = {
-		EGL_SURFACE_TYPE, EGL_WINDOW_BIT,
-		EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
-		EGL_NONE
-	};
+	DEBUG_ASSERT_GL_RENDERER(renderer);
+	private = RENDERER_PRIVATE_GL(renderer);
 
-	egl_ok = eglChooseConfig(
-		display,
-		attributes,
-		NULL, 0,
-		&n_matched
-	);
-	if (egl_ok == EGL_FALSE) {
-		LOG_RENDERER_ERROR("Could not query number of EGL configs: eglChooseConfig: %s\n", eglGetErrorString());
-		return EGL_NO_CONFIG_KHR;
-	}
-
-	configs = alloca(sizeof(EGLConfig) * n_matched);
-
-	egl_ok = eglChooseConfig(
-		display,
-		attributes,
-		configs, n_matched,
-		&n_matched
-	);
-	if (egl_ok == EGL_FALSE) {
-		LOG_RENDERER_ERROR("Could not query EGL configs: eglChooseConfig: %s\n", eglGetErrorString());
-		return EGL_NO_CONFIG_KHR;
-	}
-
-	for (int i = 0; i < n_matched; i++) {
-		egl_ok = eglGetConfigAttrib(
-			display,
-			configs[i],
-			EGL_NATIVE_VISUAL_ID,
-			&attrib_value
-		);
-		if (egl_ok == EGL_FALSE) {
-			LOG_RENDERER_ERROR("Could not query EGL config attribute: eglGetConfigAttrib: %s\n", eglGetErrorString());
-			return EGL_NO_CONFIG_KHR;
-		}
-
-		if (*((uint32_t*) &attrib_value) == get_pixfmt_info(format)->gbm_format) {
-			return configs[i];
-		}
-	}
-
-	LOG_RENDERER_ERROR("Could not find EGL framebuffer config for pixel format %s.\n", get_pixfmt_info(format)->name);
-	return EGL_NO_CONFIG_KHR;
+	return private->gbm_surface;
 }
 
 struct renderer *gl_renderer_new(
@@ -760,39 +676,39 @@ struct renderer *gl_renderer_new(
 		1
 	);
 	if (gbm_surface == NULL) {
-		LOG_RENDERER_ERROR("Couldn't create GBM surface. gbm_surface_create_with_modifiers: %s\n", strerror(errno));
+		LOG_ERROR("Couldn't create GBM surface. gbm_surface_create_with_modifiers: %s\n", strerror(errno));
 		goto fail_deinit_unused_contexts;
 	}
 	
 	if (libegl->eglGetPlatformDisplay != NULL) {
 		egl_display = libegl->eglGetPlatformDisplay(EGL_PLATFORM_GBM_KHR, gbmdev, NULL);
 		if (egl_display == EGL_NO_DISPLAY) {
-			LOG_RENDERER_ERROR("Could not get EGL display! eglGetPlatformDisplay: %s\n", eglGetErrorString());
+			LOG_ERROR("Could not get EGL display! eglGetPlatformDisplay: %s\n", eglGetErrorString());
 			goto fail_destroy_gbm_surface;
 		}
 	} else if (egl_client_info->supports_ext_platform_base && egl_client_info->supports_khr_platform_gbm) {
 		egl_display = libegl->eglGetPlatformDisplayEXT(EGL_PLATFORM_GBM_KHR, gbmdev, NULL);
 		if (egl_display == EGL_NO_DISPLAY) {
-			LOG_RENDERER_ERROR("Could not get EGL display! eglGetPlatformDisplayEXT: %s\n", eglGetErrorString());
+			LOG_ERROR("Could not get EGL display! eglGetPlatformDisplayEXT: %s\n", eglGetErrorString());
 			goto fail_destroy_gbm_surface;
 		}
 	} else {
 		egl_display = eglGetDisplay((void*) gbmdev);
 		if (egl_display == EGL_NO_DISPLAY) {
-			LOG_RENDERER_ERROR("Could not get EGL display! eglGetDisplay: %s\n", eglGetErrorString());
+			LOG_ERROR("Could not get EGL display! eglGetDisplay: %s\n", eglGetErrorString());
 			goto fail_destroy_gbm_surface;
 		}
 	}
 
 	egl_ok = eglInitialize(egl_display, &major, &minor);
 	if (egl_ok == EGL_FALSE) {
-		LOG_RENDERER_ERROR("Could not initialize EGL display! eglInitialize: %s\n", eglGetErrorString());
+		LOG_ERROR("Could not initialize EGL display! eglInitialize: %s\n", eglGetErrorString());
 		goto fail_destroy_gbm_surface;
 	}
 
 	egl_display_info = egl_display_info_new(libegl, major, minor, egl_display);
 	if (egl_display_info == NULL) {
-		LOG_RENDERER_ERROR("Could not create EGL display info!\n");
+		LOG_ERROR("Could not create EGL display info!\n");
 		goto fail_terminate_display;
 	}
 
@@ -803,7 +719,7 @@ struct renderer *gl_renderer_new(
 
 	egl_ok = eglBindAPI(EGL_OPENGL_ES_API);
 	if (egl_ok == EGL_FALSE) {
-		LOG_RENDERER_ERROR("Failed to bind OpenGL ES API! eglBindAPI: %s\n", eglGetErrorString());
+		LOG_ERROR("Failed to bind OpenGL ES API! eglBindAPI: %s\n", eglGetErrorString());
 		goto fail_destroy_egl_display_info;
 	}
 	
@@ -817,13 +733,13 @@ struct renderer *gl_renderer_new(
 		}
 	);
 	if (root_context == EGL_NO_CONTEXT) {
-		LOG_RENDERER_ERROR("Could not create OpenGL ES context. eglCreateContext: %s\n", eglGetErrorString());
+		LOG_ERROR("Could not create OpenGL ES context. eglCreateContext: %s\n", eglGetErrorString());
 		goto fail_destroy_egl_display_info;
 	}
 
 	egl_surface = eglCreateWindowSurface(egl_display, egl_config, (EGLNativeWindowType) gbm_surface, NULL);
 	if (egl_surface == EGL_NO_SURFACE) {
-		LOG_RENDERER_ERROR("Could not create EGL window surface. eglCreateWindowSurface: %s\n", eglGetErrorString());
+		LOG_ERROR("Could not create EGL window surface. eglCreateWindowSurface: %s\n", eglGetErrorString());
 		goto fail_destroy_egl_context;
 	}
 
@@ -843,14 +759,15 @@ struct renderer *gl_renderer_new(
 	private->flutter_resource_context = EGL_NO_CONTEXT;
 	private->libgl = libgl;
 
-	renderer->type = kOpenGL;
+	renderer->is_sw = false;
+	renderer->is_gl = true;
 	renderer->private = (struct renderer_private *) private;
 	renderer->destroy = gl_renderer_destroy;
 	renderer->fill_flutter_renderer_config = gl_renderer_fill_flutter_renderer_config;
 	renderer->flush_rendering = gl_renderer_flush_rendering;
 
 	if (private->display_info->supports_14 == false) {
-		LOG_RENDERER_ERROR("Flutter-pi requires EGL version 1.4 or newer, which is not supported by your system.\n");
+		LOG_ERROR("Flutter-pi requires EGL version 1.4 or newer, which is not supported by your system.\n");
 		goto fail_destroy_egl_context;
 	}
 
@@ -877,50 +794,6 @@ struct renderer *gl_renderer_new(
 
 	fail_free_private:
 	free(private);
-
-	fail_free_renderer:
-	free(renderer);
-
-	fail_return_null:
-	return NULL;
-}
-
-struct gbm_surface *gl_renderer_get_main_gbm_surface(
-	struct renderer *renderer
-) {
-	struct gl_renderer *private;
-
-	DEBUG_ASSERT_GL_RENDERER(renderer);
-	private = RENDERER_PRIVATE_GL(renderer);
-
-	return private->gbm_surface;
-}
-
-struct renderer *sw_renderer_new(
-	const struct flutter_renderer_sw_interface *sw_dispatcher
-) {
-	struct sw_renderer *private;
-	struct renderer *renderer;
-
-	renderer = malloc(sizeof *renderer);
-	if (renderer == NULL) {
-		goto fail_return_null;
-	}
-
-	private = malloc(sizeof *private);
-	if (private == NULL) {
-		goto fail_free_renderer;
-	}
-
-	private->sw_dispatcher = sw_dispatcher;
-	renderer->type = kSoftware;
-	renderer->private = (struct renderer_private *) private;
-	renderer->destroy = sw_renderer_destroy;
-	renderer->fill_flutter_renderer_config = sw_renderer_fill_flutter_renderer_config;
-	renderer->flush_rendering = sw_renderer_flush_rendering;
-
-	return renderer;
-
 
 	fail_free_renderer:
 	free(renderer);
