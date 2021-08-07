@@ -1093,7 +1093,9 @@ static bool on_present_layers(
 	if (compositor->has_applied_modeset == false) {
 		if (use_atomic_modesetting) {
 			ok = drmdev_atomic_req_put_modeset_props(req, &req_flags);
-			if (ok != 0) return false;
+			if (ok != 0) {
+				return false;
+			}
 		} else {
 			legacy_rendertarget_set_mode = true;
 			schedule_fake_page_flip_event = true;
@@ -1480,6 +1482,8 @@ static bool on_present_layers(
 		drmdev_destroy_atomic_req(req);	
 	}
 
+	cpset_unlock(&compositor->cbs);
+
 	if (schedule_fake_page_flip_event) {
 		uint64_t time = flutterpi.flutter.libflutter_engine.FlutterEngineGetCurrentTime();
 
@@ -1493,8 +1497,6 @@ static bool on_present_layers(
 
 		flutterpi_post_platform_task(execute_simulate_page_flip_event, data);
 	}
-
-	cpset_unlock(&compositor->cbs);
 
 	return true;
 }
@@ -1548,15 +1550,13 @@ int compositor_remove_view_callbacks(int64_t view_id) {
 
 	entry = get_cbs_for_view_id_locked(view_id);
 	if (entry == NULL) {
+		cpset_unlock(&compositor.cbs);
 		return EINVAL;
 	}
 
 	cpset_remove_locked(&compositor.cbs, entry);
-
 	free(entry);
-
 	cpset_unlock(&compositor.cbs);
-
 	return 0;
 }
 
