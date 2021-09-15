@@ -415,6 +415,9 @@ struct flutterpi {
 	/// IO
 	sd_event_source *user_input_event_source;
 	struct user_input *user_input;
+
+	/// Locales
+	struct locales *locales;
 	
 	/// flutter stuff
 	struct {
@@ -423,6 +426,9 @@ struct flutterpi {
 		char *app_elf_path;
 		void *app_elf_handle;
 		char *icu_data_path;
+
+		FlutterLocale **locales;
+		size_t n_locales;
 
 		int engine_argc;
 		char **engine_argv;

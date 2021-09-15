@@ -113,6 +113,7 @@ set(FLUTTER_PI_SRC
   src/cursor.c
   src/keyboard.c
   src/user_input.c
+  src/locales.c
 	src/plugins/services.c
 )
 

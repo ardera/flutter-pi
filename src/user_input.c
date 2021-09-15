@@ -761,8 +761,48 @@ static int on_mouse_button_event(struct user_input *input, struct libinput_event
 }
 
 static int on_mouse_axis_event(struct user_input *input, struct libinput_event *event) {
+    struct libinput_event_pointer *pointer_event;
+    struct input_device_data *data;
+    struct libinput_device *device;
+    uint64_t timestamp;
+
     DEBUG_ASSERT(input != NULL);
     DEBUG_ASSERT(event != NULL);
+
+    pointer_event = libinput_event_get_pointer_event(event);
+    device = libinput_event_get_device(event);
+    data = libinput_device_get_user_data(device);
+    timestamp = libinput_event_pointer_get_time_usec(pointer_event);
+
+    double x = input->cursor_x;
+    double y = input->cursor_y;
+    
+    // since the stored coords are in display, not view coordinates,
+    // we need to transform them again
+    apply_flutter_transformation(input->display_to_view_transform, &x, &y);
+
+    double scroll_x = libinput_event_pointer_has_axis(pointer_event, LIBINPUT_POINTER_AXIS_SCROLL_HORIZONTAL)
+        ? libinput_event_pointer_get_axis_value(pointer_event, LIBINPUT_POINTER_AXIS_SCROLL_HORIZONTAL)
+        : 0.0;
+
+    double scroll_y = libinput_event_pointer_get_axis_value(pointer_event, LIBINPUT_POINTER_AXIS_SCROLL_VERTICAL)
+        ? libinput_event_pointer_get_axis_value(pointer_event, LIBINPUT_POINTER_AXIS_SCROLL_VERTICAL)
+        : 0.0;
+
+    emit_pointer_events(
+        input,
+        &FLUTTER_POINTER_MOUSE_SCROLL_EVENT(
+            timestamp,
+            x,
+            y,
+            data->flutter_device_id_offset,
+            scroll_x / 15.0 * 53.0,
+            scroll_y / 15.0 * 53.0,
+            data->buttons
+        ),
+        1
+    );
+
     return 0;
 }
 

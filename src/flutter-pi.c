@@ -19,7 +19,9 @@
 #include <assert.h>
 #include <time.h>
 #include <getopt.h>
+#include <locale.h>
 #include <elf.h>
+#include <langinfo.h>
 #include <sys/eventfd.h>
 #include <sys/types.h>
 #include <sys/mman.h>
@@ -46,6 +48,7 @@
 #include <compositor.h>
 #include <keyboard.h>
 #include <user_input.h>
+#include <locales.h>
 #include <platformchannel.h>
 #include <pluginregistry.h>
 #include <texture_registry.h>
@@ -1193,6 +1196,10 @@ int flutterpi_fill_view_properties(
 	return 0;
 }
 
+static const FlutterLocale* on_compute_platform_resolved_locales(const FlutterLocale **locales, size_t n_locales) {
+	return locales_on_compute_platform_resolved_locale(flutterpi.locales, locales, n_locales);
+}
+
 static int load_egl_gl_procs(void) {
 	LOAD_EGL_PROC(flutterpi, getPlatformDisplay);
 	LOAD_EGL_PROC(flutterpi, createPlatformWindowSurface);
@@ -1676,19 +1683,19 @@ static int init_application(void) {
 	if (flutterpi.flutter.runtime_mode == kRelease) {
 		libflutter_engine_handle = dlopen("libflutter_engine.so.release", RTLD_LOCAL | RTLD_NOW);
 		if (libflutter_engine_handle == NULL) {
-			printf("[flutter-pi] Warning: Could not load libflutter_engine.so.release. Trying to open libflutter_engine.so...\n");
+			LOG_FLUTTERPI_ERROR("[flutter-pi] Warning: Could not load libflutter_engine.so.release: %s. Trying to open libflutter_engine.so...\n", dlerror());
 		}
 	} else if (flutterpi.flutter.runtime_mode == kDebug) {
 		libflutter_engine_handle = dlopen("libflutter_engine.so.debug", RTLD_LOCAL | RTLD_NOW);
 		if (libflutter_engine_handle == NULL) {
-			printf("[flutter-pi] Warning: Could not load libflutter_engine.so.debug. Trying to open libflutter_engine.so...\n");
+			LOG_FLUTTERPI_ERROR("[flutter-pi] Warning: Could not load libflutter_engine.so.debug: %s. Trying to open libflutter_engine.so...\n", dlerror());
 		}
 	}
 
 	if (libflutter_engine_handle == NULL) {
 		libflutter_engine_handle = dlopen("libflutter_engine.so", RTLD_LOCAL | RTLD_NOW);
 		if (libflutter_engine_handle == NULL) {
-			perror("[flutter-pi] Could not load libflutter_engine.so. dlopen");
+			LOG_FLUTTERPI_ERROR("Could not load libflutter_engine.so. dlopen: %s", dlerror());
 			fprintf(stderr, "[flutter-pi] Could not find a fitting libflutter_engine.\n");
 			return EINVAL;
 		}
@@ -1848,10 +1855,21 @@ static int init_application(void) {
 	}
 
 	// spin up the engine
-	engine_result = libflutter_engine->FlutterEngineRun(FLUTTER_ENGINE_VERSION, &renderer_config, &project_args, NULL, &flutterpi.flutter.engine);
+	engine_result = libflutter_engine->FlutterEngineInitialize(FLUTTER_ENGINE_VERSION, &renderer_config, &project_args, NULL, &flutterpi.flutter.engine);
 	if (engine_result != kSuccess) {
-		LOG_FLUTTERPI_ERROR("Could not run the flutter engine. FlutterEngineRun: %s\n", FLUTTER_RESULT_TO_STRING(engine_result));
+		LOG_FLUTTERPI_ERROR("Could not initialize the flutter engine. FlutterEngineInitialize: %s\n", FLUTTER_RESULT_TO_STRING(engine_result));
 		return EINVAL;
+	}
+	
+	engine_result = libflutter_engine->FlutterEngineRunInitialized(flutterpi.flutter.engine);
+	if (engine_result != kSuccess) {
+		LOG_FLUTTERPI_ERROR("Could not run the flutter engine. FlutterEngineRunInitialized: %s\n", FLUTTER_RESULT_TO_STRING(engine_result));
+		return EINVAL;
+	}
+
+	ok = locales_add_to_fl_engine(flutterpi.locales, flutterpi.flutter.engine, libflutter_engine->FlutterEngineUpdateLocales);
+	if (ok != 0) {
+		return ok;
 	}
 
 	engine_result = libflutter_engine->FlutterEngineNotifyDisplayUpdate(
@@ -1884,7 +1902,7 @@ static int init_application(void) {
 		LOG_FLUTTERPI_ERROR("Could not send window metrics to flutter engine. FlutterEngineSendWindowMetricsEvent: %s\n", FLUTTER_RESULT_TO_STRING(engine_result));
 		return EINVAL;
 	}
-	
+
 	return 0;
 }
 
@@ -2249,6 +2267,12 @@ int init(int argc, char **argv) {
 	ok = init_main_loop();
 	if (ok != 0) {
 		return ok;
+	}
+
+	flutterpi.locales = locales_new();
+	if (flutterpi.locales == NULL) {
+		LOG_FLUTTERPI_ERROR("Couldn't setup locales.\n");
+		return EINVAL;
 	}
 
 	ok = init_user_input();

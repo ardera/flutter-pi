@@ -42,6 +42,9 @@
 #define FLUTTER_POINTER_MOUSE_ADD_EVENT(_timestamp, _x, _y, _device_id, _buttons) \
     FLUTTER_POINTER_EVENT(kAdd, _timestamp, _x, _y, _device_id, kFlutterPointerSignalKindNone, 0.0, 0.0, kFlutterPointerDeviceKindMouse, _buttons)
 
+#define FLUTTER_POINTER_MOUSE_SCROLL_EVENT(_timestamp, _x, _y, _device_id, _scroll_x, _scroll_y, _buttons) \
+    FLUTTER_POINTER_EVENT(((_buttons) != 0) ? kMove : kHover, _timestamp, _x, _y, _device_id, kFlutterPointerSignalKindScroll, _scroll_x, _scroll_y, kFlutterPointerDeviceKindMouse, _buttons)
+
 #define FLUTTER_POINTER_MOUSE_REMOVE_EVENT(_timestamp, _x, _y, _device_id, _buttons) \
     FLUTTER_POINTER_EVENT(kRemove, _timestamp, _x, _y, _device_id, kFlutterPointerSignalKindNone, 0.0, 0.0, kFlutterPointerDeviceKindMouse, _buttons)
 
