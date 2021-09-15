@@ -9,7 +9,7 @@
 #include <stdlib.h>
 #include <flutter-pi.h>
 
-#define LOG_LOCALES_MESSAGE(fmtstring, ...) fprintf(stderr, "[locales] " fmtstring, __VA_ARGS__);
+#define LOG_LOCALES_ERROR(fmtstring, ...) fprintf(stderr, "[locales] " fmtstring # __VA_ARGS__);
 
 struct locale {
     char *language;
@@ -311,6 +311,10 @@ struct locales *locales_new(void) {
         i++;
     }
 
+    if (strcmp(fl_locales[0]->language_code, "C") == 0) {
+        LOG_LOCALES_ERROR("Warning: The system has no configured locale. The default \"C\" locale may or may not be supported by the app.\n");
+    }
+
     locales->flutter_locales = fl_locales;
     locales->n_locales = n_locales;
     locales->default_locale = NULL;
@@ -387,7 +391,7 @@ int locales_add_to_fl_engine(struct locales *locales, FlutterEngine engine, Flut
     
     engine_result = update_locales(engine, locales->flutter_locales, locales->n_locales);
     if (engine_result != kSuccess) {
-        LOG_LOCALES_MESSAGE("Couldn't update flutter engine locales. FlutterEngineUpdateLocales: %s\n", FLUTTER_RESULT_TO_STRING(engine_result));
+        LOG_LOCALES_ERROR("Couldn't update flutter engine locales. FlutterEngineUpdateLocales: %s\n", FLUTTER_RESULT_TO_STRING(engine_result));
         return EINVAL;
     }
 
