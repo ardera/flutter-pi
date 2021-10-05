@@ -883,6 +883,27 @@ int flutterpi_respond_to_platform_message(
 	return 0;
 }
 
+struct texture_registry *flutterpi_get_texture_registry(
+	struct flutterpi *flutterpi
+) {
+	return flutterpi->texture_registry;
+}
+
+struct texture *flutterpi_create_texture(
+	struct flutterpi *flutterpi,
+	void *texture_userdata
+) {
+	return texreg_create_texture(
+		flutterpi_get_texture_registry(flutterpi),
+		texture_userdata
+	);
+}
+
+const char *flutterpi_get_asset_bundle_path(
+	struct flutterpi *flutterpi
+) {
+	return flutterpi->flutter.asset_bundle_path;
+}
 
 static bool runs_platform_tasks_on_current_thread(void* userdata) {
 	return pthread_equal(pthread_self(), flutterpi.event_loop_thread) != 0;
@@ -1670,6 +1691,7 @@ static int init_display(void) {
 static int init_application(void) {
 	FlutterEngineAOTDataSource aot_source;
 	struct libflutter_engine *libflutter_engine;
+	struct texture_registry *texture_registry;
 	FlutterRendererConfig renderer_config = {0};
 	FlutterEngineAOTData aot_data;
 	FlutterEngineResult engine_result;
@@ -1746,7 +1768,6 @@ static int init_application(void) {
 	LOAD_LIBFLUTTER_ENGINE_PROC(FlutterEngineNotifyDisplayUpdate);
 
 #	undef LOAD_LIBFLUTTER_ENGINE_PROC
-
 
 	ok = plugin_registry_init();
 	if (ok != 0) {
@@ -1869,6 +1890,16 @@ static int init_application(void) {
 	if (ok != 0) {
 		return ok;
 	}
+
+	texture_registry = texture_registry_new(
+		&(const struct flutter_external_texture_interface) {
+			.register_external_texture = libflutter_engine->FlutterEngineRegisterExternalTexture,
+			.unregister_external_texture = libflutter_engine->FlutterEngineUnregisterExternalTexture,
+			.mark_external_texture_frame_available = libflutter_engine->FlutterEngineMarkExternalTextureFrameAvailable,
+			.engine = flutterpi.flutter.engine
+		}
+	);
+	flutterpi.texture_registry = texture_registry;
 
 	engine_result = libflutter_engine->FlutterEngineNotifyDisplayUpdate(
 		flutterpi.flutter.engine,

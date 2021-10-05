@@ -101,7 +101,8 @@ pkg_check_modules(LIBUDEV REQUIRED libudev)
 set(BUILD_TEXT_INPUT_PLUGIN ON CACHE BOOL "Include the text input plugin in the finished binary. Enables text input (to flutter text fields, for example) via attached keyboards.")
 set(BUILD_RAW_KEYBOARD_PLUGIN ON CACHE BOOL "Include the raw keyboard plugin in the finished binary. Enables raw keycode listening in flutter via the flutter RawKeyboard interface.")
 set(BUILD_TEST_PLUGIN OFF CACHE BOOL "Include the test plugin in the finished binary. Allows testing platform channel communication.")
-set(BUILD_OMXPLAYER_VIDEO_PLAYER_PLUGIN ON CACHE BOOL "Include the omxplayer_video_player plugin in the finished binary. Allows for hardware accelerated video playback in flutter using omxplayer.")
+set(BUILD_OMXPLAYER_VIDEO_PLAYER_PLUGIN OFF CACHE BOOL "Include the omxplayer_video_player plugin in the finished binary. Allows for hardware accelerated video playback in flutter using omxplayer.")
+set(BUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN ON CACHE BOOL "Include the gstreamer_video_player plugin in the finished binary. Allows for more stable, hardware accelerated video playback in flutter using gstreamer.")
 
 set(FLUTTER_PI_SRC
   src/flutter-pi.c
@@ -129,6 +130,15 @@ if (BUILD_TEST_PLUGIN)
 endif()
 if (BUILD_OMXPLAYER_VIDEO_PLAYER_PLUGIN)
   list(APPEND FLUTTER_PI_SRC src/plugins/omxplayer_video_player.c)
+endif()
+if (BUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN)
+  list(APPEND FLUTTER_PI_SRC src/plugins/gstreamer_video_player/plugin.c)
+  list(APPEND FLUTTER_PI_SRC src/plugins/gstreamer_video_player/player.c)
+  pkg_check_modules(LIBGSTREAMER REQUIRED gstreamer-1.0)
+  pkg_check_modules(LIBGSTREAMER_PLUGINS_BASE REQUIRED gstreamer-plugins-base-1.0)
+  pkg_check_modules(LIBGSTREAMER_APP REQUIRED gstreamer-app-1.0)
+  pkg_check_modules(LIBGSTREAMER_ALLOCATORS REQUIRED gstreamer-allocators-1.0)
+  pkg_check_modules(LIBGSTREAMER_VIDEO REQUIRED gstreamer-video-1.0)
 endif()
 
 add_executable(flutter-pi ${FLUTTER_PI_SRC})
@@ -185,6 +195,31 @@ if (BUILD_OMXPLAYER_VIDEO_PLAYER_PLUGIN)
 endif()
 if (OMXPLAYER_SUPPORTS_RUNTIME_ROTATION)
   target_compile_definitions(flutter-pi PRIVATE "OMXPLAYER_SUPPORTS_RUNTIME_ROTATION")
+endif()
+if (BUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN)
+  target_compile_definitions(flutter-pi PRIVATE "BUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN")
+  
+  target_link_libraries(flutter-pi
+    ${LIBGSTREAMER_LDFLAGS}
+    ${LIBGSTREAMER_PLUGINS_BASE_LDFLAGS}
+    ${LIBGSTREAMER_APP_LDFLAGS}
+    ${LIBGSTREAMER_ALLOCATORS_LDFLAGS}
+    ${LIBGSTREAMER_VIDEO_LDFLAGS}
+  )
+  target_include_directories(flutter-pi PRIVATE
+    ${LIBGSTREAMER_INCLUDE_DIRS}
+    ${LIBGSTREAMER_PLUGINS_BASE_INCLUDE_DIRS}
+    ${LIBGSTREAMER_APP_INCLUDE_DIRS}
+    ${LIBGSTREAMER_ALLOCATORS_INCLUDE_DIRS}
+    ${LIBGSTREAMER_VIDEO_INCLUDE_DIRS}
+  )
+  target_compile_options(flutter-pi PRIVATE
+    ${LIBGSTREAMER_CFLAGS}
+    ${LIBGSTREAMER_PLUGINS_BASE_CFLAGS}
+    ${LIBGSTREAMER_APP_CFLAGS}
+    ${LIBGSTREAMER_ALLOCATORS_CFLAGS}
+    ${LIBGSTREAMER_VIDEO_CFLAGS}
+  )
 endif()
 
 target_link_options(flutter-pi PRIVATE

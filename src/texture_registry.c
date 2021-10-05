@@ -10,6 +10,8 @@
 #include <texture_registry.h>
 #include <flutter-pi.h>
 
+#define LOG_ERROR(...) fprintf(stderr, "[texture registry] " __VA_ARGS__)
+
 struct {
     struct texture_map_entry *entries;
     size_t size_entries;
@@ -21,6 +23,90 @@ struct {
     .n_entries = 0,
     .last_id = 0
 };
+
+struct texture_registry {
+    const struct flutter_external_texture_interface texture_interface;
+    pthread_mutex_t next_unused_id_mutex;
+    int64_t next_unused_id;
+    struct concurrent_pointer_set textures;
+};
+
+struct texture_registry *texture_registry_new(
+    const struct flutter_external_texture_interface *texture_interface
+) {
+    struct texture_registry *reg;
+    int ok;
+
+    reg = malloc(sizeof *reg);
+    if (reg == NULL) {
+        return NULL;
+    }
+
+    pthread_mutex_init(&reg->next_unused_id_mutex, NULL);
+
+    memcpy(&reg->texture_interface, texture_interface, sizeof(*texture_interface));
+    reg->next_unused_id = 1;
+    
+    ok = cpset_init(&reg->textures, CPSET_DEFAULT_MAX_SIZE);
+    if (ok != 0) {
+        free(reg);
+        return NULL;
+    }
+
+    return reg;
+}
+
+void texture_registry_destroy(struct texture_registry *reg) {
+    cpset_lock(&reg);
+    int count = cpset_get_count_pointers_locked(&reg->textures);
+    if (count > 0) {
+        LOG_ERROR("Error destroying texture registry: There are still %d textures registered. This is an application bug.\n", count);
+    }
+    cpset_unlock(&reg);
+
+    cpset_deinit(&reg->textures);
+    pthread_mutex_destroy(&reg->next_unused_id_mutex);
+    free(reg);
+}
+
+int64_t texture_registry_allocate_id(struct texture_registry *reg) {
+    pthread_mutex_lock(&reg->next_unused_id_mutex);
+
+    int64_t id = reg->next_unused_id++;
+
+    pthread_mutex_unlock(&reg->next_unused_id_mutex);
+
+    return id;
+}
+
+bool texture_gl_external_texture_frame_callback(
+    struct texture *texture,
+    size_t width,
+    size_t height,
+    FlutterOpenGLTexture *texture_out
+);
+
+bool texture_registry_gl_external_texture_frame_callback(
+    struct texture_registry *reg,
+    int64_t texture_id,
+    size_t width,
+    size_t height,
+    FlutterOpenGLTexture *texture_out
+) {
+    struct texture *t;
+    bool result;
+
+    cpset_lock(&reg->textures);
+    for_each_pointer_in_cpset(&reg->textures, t) {
+        if (t->id == texture_id) {
+            break;
+        }
+    }
+    result = texture_gl_external_texture_frame_callback(t, width, height, texture_out);
+    cpset_unlock(&reg->textures);
+
+    return result;
+}
 
 static int add_texture_details(const struct texture_details const *details, int64_t *tex_id_out) {
     if (texreg.n_entries == texreg.size_entries) {
@@ -212,6 +298,189 @@ int texreg_register_texture(
 
     return 0;
 }
+
+
+
+struct counted_texture_frame {
+    struct texture *texture;
+    size_t n_uses;
+    struct texture_frame frame;
+};
+
+#define TEXTURE_N_FRAMES 4
+#define TEXTURE_FRAME_INDEX_MASK 0b11
+#define DEBUG_ASSERT_HAS_SPACE(texture) DEBUG_ASSERT((((texture)->end_frames + 1) & TEXTURE_FRAME_INDEX_MASK) != (texture)->start_frames)
+
+struct texture {
+    struct texture_registry *registry;
+
+    pthread_mutex_t lock;
+
+    int64_t id;
+    
+    // ring buffer of the frames
+    struct counted_texture_frame frames[TEXTURE_N_FRAMES];
+
+    // the index of the first frame inside [frames]
+    size_t start_frames;
+    
+    // the index after the last frame inside [frames]
+    size_t end_frames;
+
+    // The frame that's scheduled to be displayed next.
+    // The texture only holds a reference to this frame, not the frames inside the
+    // frames ringbuffer.
+    // If a new frame is scheduled while next_frame still was not acquired by the engine,
+    // next_frame will be dereferenced (and since the use count is 1, it will then be destroyed).
+    struct counted_texture_frame *next_frame;
+
+    // userdata which will be passed to any frame destroy callback (as texture_userdata)
+    void *userdata;
+};
+
+static inline void texture_lock(struct texture *t) {
+    pthread_mutex_lock(&t->lock);
+}
+
+static inline void texture_unlock(struct texture *t) {
+    pthread_mutex_unlock(&t->lock);
+}
+
+
+static inline bool has_frame_locked(struct texture *t) {
+    return t->start_frames != t->end_frames;
+}
+
+static inline void push_locked(struct texture *t, const struct counted_texture_frame frame) {
+    DEBUG_ASSERT_HAS_SPACE(t);
+    t->frames[t->end_frames] = frame;
+    t->end_frames = (t->end_frames + 1) & TEXTURE_FRAME_INDEX_MASK;
+}
+
+static inline struct counted_texture_frame *peek_front_locked(struct texture *t) {
+    DEBUG_ASSERT(has_frame_locked(t));
+    return t->frames + t->start_frames;
+}
+
+static inline struct counted_texture_frame *peek_back_locked(struct texture *t) {
+    DEBUG_ASSERT(has_frame_locked(t));
+    return t->frames + t->end_frames - 1;
+}
+
+static inline void pop_front_locked(struct texture *t) {
+    DEBUG_ASSERT(has_frame_locked(t));
+    t->start_frames = (t->start_frames + 1) & TEXTURE_FRAME_INDEX_MASK;
+}
+
+static inline void pop_back_locked(struct texture *t) {
+    DEBUG_ASSERT(has_frame_locked(t));
+    t->end_frames = (t->end_frames - 1) & TEXTURE_FRAME_INDEX_MASK;   
+}
+
+static inline bool frame_deref_locked(struct counted_texture_frame *frame) {
+    if ((frame->n_uses == 0) || (frame->n_uses == 1)) {
+        frame->frame.destroy(frame->frame, frame->texture->userdata, frame->frame.frame_userdata);
+        frame->n_uses = 0;
+        return true;
+    } else {
+        frame->n_uses--;
+        return false;
+    }
+}
+
+static inline void deref_front_locked(struct texture *t) {
+    if (frame_deref_locked(peek_front_locked(t))) {
+        pop_front_locked(t);
+    }
+}
+
+static inline void deref_back_locked(struct texture *t) {
+    if (frame_deref_locked(peek_back_locked(t))) {
+        pop_back_locked(t);
+    }
+}
+
+
+struct texture *texreg_create_texture(
+    struct texture_registry *reg,
+    void *userdata
+) {
+    FlutterEngineResult engine_result;
+    struct texture *t;
+    int64_t id;
+
+    t = malloc(sizeof *t);
+
+    id = texture_registry_allocate_id(reg);
+
+    engine_result = reg->texture_interface.register_external_texture(reg->texture_interface.engine, id);
+    if (engine_result != kSuccess) {
+        LOG_ERROR("Couldn't add texture with id %" PRId64 " to flutter engine: %s\n", FLUTTER_RESULT_TO_STRING(engine_result));
+        free(t);
+        return NULL;
+    }
+    
+    pthread_mutex_init(&t->lock, NULL);
+    t->registry = reg;
+    t->id = id;
+    memset(t->frames, 0, sizeof(t->frames));
+    t->start_frames = 0;
+    t->end_frames = 0;
+    t->next_frame = NULL;
+    t->userdata = userdata;
+    return t;
+}
+
+int64_t texture_get_id(struct texture *texture) {
+    return texture->id;
+}
+
+void texture_push_frame(
+    struct texture *texture,
+    const struct texture_frame *frame
+) {
+    struct counted_texture_frame *next;
+
+    texture_lock(texture);
+
+    if (has_frame_locked(texture))
+        deref_back_locked(texture);
+    }
+
+    push_locked(
+        texture,
+        (struct counted_texture_frame) {
+            .texture = texture,
+            .frame = *frame,
+            .n_uses = 0
+        }
+    );
+}
+
+void texture_destroy(
+    struct texture *texture
+) {
+    
+}
+
+static void on_deref_frame(void *userdata) {
+    struct counted_texture_frame *frame;
+
+    DEBUG_ASSERT(userdata != NULL);
+
+    frame = userdata;
+    
+}
+
+bool texture_gl_external_texture_frame_callback(
+    struct texture *texture,
+    size_t width,
+    size_t height,
+    FlutterOpenGLTexture *texture_out
+) {
+    
+}
+
 
 int texreg_mark_texture_frame_available(int64_t texture_id) {
     FlutterEngineResult engine_result;

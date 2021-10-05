@@ -1227,12 +1227,10 @@ int platch_respond_success_pigeon(
 			.std_value = {
 				.type = kStdMap,
 				.size = 1,
-				.keys = (struct std_value[1]) {
-					STDSTRING("result")
-				},
-				.values = return_value != NULL ?
-					return_value :
-					(struct std_value[1]) {STDNULL}
+				.keys = &STDSTRING("result"),
+				.values = return_value != NULL
+					? return_value
+					: &STDNULL
 			}
 		}
 	);
