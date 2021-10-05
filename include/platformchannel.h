@@ -7,18 +7,6 @@
 
 #define JSON_DECODE_TOKENLIST_SIZE  128
 
-// andrew
-// only 32bit support for now.
-//#define __ALIGN4_REMAINING(value, remaining, ...) __align(value, 4, remaining)
-//#define __ALIGN8_REMAINING(value, remaining, ...) __align(value, 8, remaining)
-//#define align4(...) __ALIGN4_REMAINING(__VA_ARGS__, NULL)
-//#define align8(...) __ALIGN8_REMAINING(__VA_ARGS__, NULL)
-
-//#define alignmentDiff(value, alignment) __alignmentDiff(value, alignment)
-
-//#define __ADVANCE_REMAINING(value, n, remaining, ...) __advance(value, n, remaining)
-//#define advance(...) __ADVANCE_REMAINING(__VA_ARGS__, NULL)
-
 
 /*
  * It may be simpler for plugins if the two message value types were unified.

@@ -310,6 +310,9 @@ enum flutter_runtime_mode {
 	kDebug, kRelease
 };
 
+struct plugin_registry;
+struct texture_registry;
+
 struct flutterpi {
 	/// graphics stuff
 	struct {
@@ -439,6 +442,7 @@ struct flutterpi {
 
 	/// flutter-pi internal stuff
 	struct plugin_registry *plugin_registry;
+	struct texture_registry *texture_registry;
 };
 
 struct platform_task {
@@ -499,6 +503,19 @@ int flutterpi_respond_to_platform_message(
 	const uint8_t *restrict message,
 	size_t message_size
 );
+
+struct texture_registry *flutterpi_get_texture_registry(
+	struct flutterpi *flutterpi
+);
+
+struct texture *flutterpi_create_texture(
+	struct flutterpi *flutterpi,
+	void *texture_userdata
+);
+
+const char *flutterpi_get_asset_bundle_path(
+	struct flutterpi *flutterpi
+)
 
 int flutterpi_schedule_exit(void);
 

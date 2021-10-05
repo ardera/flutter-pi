@@ -427,4 +427,6 @@ static inline uint64_t get_monotonic_time(void) {
 #define DEBUG_ASSERT_MSG(__cond, __msg) do {} while (false)
 #endif
 
+#define UNIMPLEMENTED() assert(0 && "Unimplemented")
+
 #endif
