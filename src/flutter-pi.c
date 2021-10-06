@@ -56,7 +56,7 @@
 #include <plugins/text_input.h>
 #include <plugins/raw_keyboard.h>
 
-const char const* usage ="\
+const char *const usage ="\
 flutter-pi - run flutter apps on your Raspberry Pi.\n\
 \n\
 USAGE:\n\
@@ -148,6 +148,8 @@ static bool runs_platform_tasks_on_current_thread(void *userdata);
 static bool on_make_current(void* userdata) {
 	EGLint egl_error;
 
+	(void) userdata;
+
 	eglGetError();
 
 	eglMakeCurrent(flutterpi.egl.display, flutterpi.egl.surface, flutterpi.egl.surface, flutterpi.egl.flutter_render_context);
@@ -163,6 +165,8 @@ static bool on_make_current(void* userdata) {
 /// clear the EGLContext.
 static bool on_clear_current(void* userdata) {
 	EGLint egl_error;
+
+	(void) userdata;
 
 	eglGetError();
 
@@ -180,7 +184,7 @@ static bool on_clear_current(void* userdata) {
 /// (Won't be called since we're supplying a compositor,
 /// still needs to be present)
 static bool on_present(void *userdata) {
-	// no-op
+	(void) userdata;
 	return true;
 }
 
@@ -189,6 +193,7 @@ static bool on_present(void *userdata) {
 /// (Won't be called since we're supplying a compositor,
 /// still needs to be present)
 static uint32_t fbo_callback(void* userdata) {
+	(void) userdata;
 	return 0;
 }
 
@@ -196,6 +201,8 @@ static uint32_t fbo_callback(void* userdata) {
 /// resource uploading EGLContext should be made current.
 static bool on_make_resource_current(void *userdata) {
 	EGLint egl_error;
+
+	(void) userdata;
 
 	eglGetError();
 
@@ -323,6 +330,8 @@ static void *proc_resolver(
 	static int is_VC4 = -1;
 	void      *address;
 
+	(void) userdata;
+
 	/*  
 	 * The mesa V3D driver reports some OpenGL ES extensions as supported and working
 	 * even though they aren't. hacked_glGetString is a workaround for this, which will
@@ -355,6 +364,8 @@ static void on_platform_message(
 ) {
 	int ok;
 
+	(void) userdata;
+
 	ok = plugin_registry_on_platform_message((FlutterPlatformMessage *) message);
 	if (ok != 0) {
 		fprintf(stderr, "[flutter-pi] Error handling platform message. plugin_registry_on_platform_message: %s\n", strerror(ok));
@@ -371,6 +382,7 @@ static int on_execute_frame_request(
 	struct frame *peek;
 	int ok;
 
+	(void) userdata;
 	cqueue_lock(&flutterpi.frame_queue);
 
 	ok = cqueue_peek_locked(&flutterpi.frame_queue, (void**) &peek);
@@ -422,10 +434,10 @@ static void on_frame_request(
 	void* userdata,
 	intptr_t baton
 ) {
-	sd_event_source *event_source;
 	struct frame *peek;
 	int ok;
 
+	(void) userdata;
 	cqueue_lock(&flutterpi.frame_queue);
 
 	ok = cqueue_peek_locked(&flutterpi.frame_queue, (void**) &peek);
@@ -456,6 +468,7 @@ static void on_frame_request(
 }
 
 static FlutterTransformation on_get_transformation(void *userdata) {
+	(void) userdata;
 	return flutterpi.view.view_to_display_transform;
 }
 
@@ -545,6 +558,8 @@ static int on_execute_platform_task_with_time(
 	struct platform_task *task;
 	int ok;
 
+	(void) usec;
+
 	task = userdata;
 	ok = task->callback(task->userdata);
 	if (ok != 0) {
@@ -615,10 +630,7 @@ int flutterpi_post_platform_task_with_time(
 	if (pthread_self() != flutterpi.event_loop_thread) {
 		pthread_mutex_unlock(&flutterpi.event_loop_mutex);
 	}
-
-	fail_free_task:
 	free(task);
-
 	return ok;
 }
 
@@ -668,6 +680,7 @@ int flutterpi_sd_event_add_io(
 	if (pthread_self() != flutterpi.event_loop_thread) {
 		pthread_mutex_unlock(&flutterpi.event_loop_mutex);
 	}
+	return ok;
 }
 
 /// flutter tasks
@@ -696,9 +709,10 @@ static void on_post_flutter_task(
 	uint64_t target_time,
 	void *userdata
 ) {
-	sd_event_source *source;
 	FlutterTask *dup_task;
 	int ok;
+
+	(void) userdata;
 
 	dup_task = malloc(sizeof *dup_task);
 	if (dup_task == NULL) {
@@ -906,6 +920,7 @@ const char *flutterpi_get_asset_bundle_path(
 }
 
 static bool runs_platform_tasks_on_current_thread(void* userdata) {
+	(void) userdata;
 	return pthread_equal(pthread_self(), flutterpi.event_loop_thread) != 0;
 }
 
@@ -924,12 +939,16 @@ static int run_main_loop(void) {
 	evloop_fd = ok;
 
 	{
-		fd_set fds;
+		fd_set rfds, wfds, xfds;
 		int state;
-		FD_ZERO(&fds);
-		FD_SET(evloop_fd, &fds);
+		FD_ZERO(&rfds);
+		FD_ZERO(&wfds);
+		FD_ZERO(&xfds);
+		FD_SET(evloop_fd, &rfds);
+		FD_SET(evloop_fd, &wfds);
+		FD_SET(evloop_fd, &xfds);
 
-		const fd_set const_fds = fds;
+		const fd_set const_fds = rfds;
 
 		pthread_mutex_lock(&flutterpi.event_loop_mutex);
 		 
@@ -948,8 +967,10 @@ static int run_main_loop(void) {
 					pthread_mutex_unlock(&flutterpi.event_loop_mutex);
 
 					do {
-						fds = const_fds;
-						ok = select(evloop_fd + 1, &fds, &fds, &fds, NULL);
+						rfds = const_fds;
+						wfds = const_fds;
+						xfds = const_fds;
+						ok = select(evloop_fd + 1, &rfds, &wfds, &xfds, NULL);
 						if ((ok < 0) && (errno != EINTR)) {
 							perror("[flutter-pi] Could not wait for event loop events. select");
 							return errno;
@@ -993,6 +1014,10 @@ static int run_main_loop(void) {
 static int on_wakeup_main_loop(sd_event_source *s, int fd, uint32_t revents, void *userdata) {
 	uint8_t buffer[8];
 	int ok;
+
+	(void) s;
+	(void) revents;
+	(void) userdata;
 
 	ok = read(fd, buffer, 8);
 	if (ok < 0) {
@@ -1055,6 +1080,10 @@ void on_pageflip_event(
 	struct frame presented_frame, *peek;
 	int ok;
 
+	(void) fd;
+	(void) frame;
+	(void) userdata;
+
 	flutterpi.flutter.libflutter_engine.FlutterEngineTraceEventInstant("pageflip");
 
 	cqueue_lock(&flutterpi.frame_queue);
@@ -1110,6 +1139,10 @@ void on_pageflip_event(
 
 static int on_drm_fd_ready(sd_event_source *s, int fd, uint32_t revents, void *userdata) {
 	int ok;
+
+	(void) s;
+	(void) revents;
+	(void) userdata;
 
 	ok = drmHandleEvent(fd, &flutterpi.drm.evctx);
 	if (ok < 0) {
@@ -1821,7 +1854,8 @@ static int init_application(void) {
 				.user_data = NULL,
 				.runs_task_on_current_thread_callback = runs_platform_tasks_on_current_thread,
 				.post_task_callback = on_post_flutter_task
-			}
+			},
+			.render_task_runner = NULL
 		},
 		.shutdown_dart_vm_when_done = true,
 		.compositor = &flutter_compositor,
@@ -1980,11 +2014,12 @@ static void on_flutter_pointer_event(void *userdata, const FlutterPointerEvent *
 }
 
 static void on_utf8_character(void *userdata, uint8_t *character) {
-	FlutterEngineResult engine_result;
 	struct flutterpi *flutterpi;
 	int ok;
 
 	flutterpi = userdata;
+
+	(void) flutterpi;
 
 #ifdef BUILD_TEXT_INPUT_PLUGIN
 	ok = textin_on_utf8_char(character);
@@ -1996,11 +2031,11 @@ static void on_utf8_character(void *userdata, uint8_t *character) {
 }
 
 static void on_xkb_keysym(void *userdata, xkb_keysym_t keysym) {
-	FlutterEngineResult engine_result;
 	struct flutterpi *flutterpi;
 	int ok;
 
 	flutterpi = userdata;
+	(void) flutterpi;
 
 #ifdef BUILD_TEXT_INPUT_PLUGIN
 	ok = textin_on_xkb_keysym(keysym);
@@ -2019,11 +2054,11 @@ static void on_gtk_keyevent(
     uint32_t modifiers,
     bool is_down
 ) {
-	FlutterEngineResult engine_result;
 	struct flutterpi *flutterpi;
 	int ok;
 
 	flutterpi = userdata;
+	(void) flutterpi;
 
 #ifdef BUILD_RAW_KEYBOARD_PLUGIN
 	ok = rawkb_send_gtk_keyevent(
@@ -2061,6 +2096,7 @@ static void on_move_cursor(void *userdata, unsigned int x, unsigned int y) {
 	int ok;
 
 	flutterpi = userdata;
+	(void) flutterpi;
 
 	ok = compositor_set_cursor_pos(x, y);
 	if (ok != 0) {
@@ -2068,7 +2104,7 @@ static void on_move_cursor(void *userdata, unsigned int x, unsigned int y) {
 	}
 }
 
-const static struct user_input_interface user_input_interface = {
+static const struct user_input_interface user_input_interface = {
     .on_flutter_pointer_event = on_flutter_pointer_event,
     .on_utf8_character = on_utf8_character,
     .on_xkb_keysym = on_xkb_keysym,
@@ -2078,7 +2114,14 @@ const static struct user_input_interface user_input_interface = {
 };
 
 static int on_user_input_fd_ready(sd_event_source *s, int fd, uint32_t revents, void *userdata) {
-	struct user_input *input = userdata;
+	struct user_input *input;
+	
+	(void) s;
+	(void) fd;
+	(void) revents;
+
+	input = userdata;
+
 	return user_input_on_fd_ready(input);
 }
 
@@ -2162,7 +2205,6 @@ static bool setup_paths(void) {
 }
 
 static bool parse_cmd_args(int argc, char **argv) {
-	bool input_specified = false;
 	int opt;
 	int longopt_index = 0;
 	int runtime_mode_int = kDebug;

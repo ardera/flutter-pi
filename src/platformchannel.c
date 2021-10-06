@@ -433,10 +433,7 @@ int platch_write_value_to_buffer_json(struct json_value* value, uint8_t **pbuffe
 }
 int platch_decode_value_std(uint8_t **pbuffer, size_t *premaining, struct std_value *value_out) {
 	enum std_value_type type = 0;
-	int64_t *longArray = 0;
-	int32_t *intArray = 0;
-	uint8_t *byteArray = 0, type_byte = 0;
-	char *c_string = 0; 
+	uint8_t type_byte = 0;
 	uint32_t size = 0;
 	int ok;
 	
@@ -816,7 +813,7 @@ int platch_decode(uint8_t *buffer, size_t size, enum platch_codec codec, struct 
 }
 int platch_encode(struct platch_obj *object, uint8_t **buffer_out, size_t *size_out) {
 	struct std_value stdmethod, stderrcode, stderrmessage;
-	struct json_value jsmethod, jserrcode, jserrmessage, jsroot;
+	struct json_value jsroot;
 	uint8_t *buffer, *buffer_cursor;
 	size_t   size = 0;
 	int		 ok = 0;
@@ -1066,7 +1063,6 @@ int platch_send(char *channel, struct platch_obj *object, enum platch_codec resp
 		free(handlerdata);
 	}
 
-	fail_return_ok:
 	return ok;
 }
 
@@ -1222,17 +1218,14 @@ int platch_respond_success_pigeon(
 ) {
 	return platch_respond(
 		handle,
-		&(struct platch_obj) {
-			.codec = kStandardMessageCodec,
-			.std_value = {
-				.type = kStdMap,
-				.size = 1,
-				.keys = &STDSTRING("result"),
-				.values = return_value != NULL
-					? return_value
-					: &STDNULL
-			}
-		}
+		&PLATCH_OBJ_STD_MSG(
+			STDMAP1(
+				STDSTRING("result"),
+				return_value != NULL
+					? *return_value
+					: STDNULL
+			)
+		)
 	);
 }
 
@@ -1244,34 +1237,18 @@ int platch_respond_error_pigeon(
 ) {
 	return platch_respond(
 		handle,
-		&(struct platch_obj) {
-			.codec = kStandardMessageCodec,
-			.std_value = {
-				.type = kStdMap,
-				.size = 1,
-				.keys = (struct std_value[1]) {
-					STDSTRING("error")
-				},
-				.values = (struct std_value[1]) {
-					{
-						.type = kStdMap,
-						.size = 3,
-						.keys = (struct std_value[3]) {
-							STDSTRING("code"),
-							STDSTRING("message"),
-							STDSTRING("details")
-						},
-						.values = (struct std_value[3]) {
-							STDSTRING(error_code),
-							STDSTRING(error_msg),
-							error_details != NULL ?
-								*error_details :
-								STDNULL
-						}
-					}
-				}
-			}
-		}
+		&PLATCH_OBJ_STD_MSG(
+			STDMAP1(
+				STDSTRING("error"),
+				STDMAP3(
+					STDSTRING("code"),    STDSTRING(error_code),
+					STDSTRING("message"), STDSTRING(error_msg),
+					STDSTRING("details"), error_details != NULL
+											? *error_details
+											: STDNULL
+				)
+			)
+		)
 	);
 }
 
@@ -1386,12 +1363,12 @@ bool jsvalue_equals(struct json_value *a, struct json_value *b) {
 				if (!jsvalue_equals(&a->array[i], &b->array[i]))
 					return false;
 			return true;
-		case kJsonObject:
+		case kJsonObject: {
 			if (a->size != b->size) return false;
 			if ((a->keys == b->keys) && (a->values == b->values)) return true;
 
 			bool _keyInBAlsoInA[a->size];
-			memset(_keyInBAlsoInA, false, a->size * sizeof(bool));
+			memset(_keyInBAlsoInA, 0, a->size * sizeof(bool));
 
 			for (int i = 0; i < a->size; i++) {
 				// The key we're searching for in b.
@@ -1415,7 +1392,12 @@ bool jsvalue_equals(struct json_value *a, struct json_value *b) {
 			}
 
 			return true;
+		}
+		default:
+			return false;
 	}
+
+	return 0;	
 }
 struct json_value *jsobject_get(struct json_value *object, char *key) {
 	int i;

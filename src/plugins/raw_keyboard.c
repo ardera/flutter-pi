@@ -41,6 +41,8 @@ int rawkb_send_android_keyevent(
      * type: is_down? "keydown" : "keyup"
      * character: character
      */
+
+    (void) plain_code_point;
     
     return platch_send(
         KEY_EVENT_CHANNEL,

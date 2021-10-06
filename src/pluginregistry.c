@@ -27,6 +27,9 @@
 #ifdef BUILD_OMXPLAYER_VIDEO_PLAYER_PLUGIN
 #	include <plugins/omxplayer_video_player.h>
 #endif
+#ifdef BUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN
+#	include <plugins/gstreamer_video_player.h>
+#endif
 
 
 struct platch_obj_cb_data {
@@ -62,6 +65,10 @@ struct flutterpi_plugin hardcoded_plugins[] = {
 
 #ifdef BUILD_OMXPLAYER_VIDEO_PLAYER_PLUGIN
 	{.name = "omxplayer_video_player", .init = omxpvidpp_init, .deinit = omxpvidpp_deinit},
+#endif
+
+#ifdef BUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN
+	{.name = "gstreamer_video_player", .init = gstplayer_init, .deinit = gstplayer_deinit},
 #endif
 };
 

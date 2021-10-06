@@ -98,12 +98,16 @@ static int destroy_stale_rendertargets(void) {
 	}
 
 	cpset_unlock(&compositor.stale_rendertargets);
+
+	return 0;
 }
 
 static void destroy_gbm_bo(
 	struct gbm_bo *bo,
 	void *userdata
 ) {
+	(void) bo;
+
 	struct drm_fb *fb = userdata;
 
 	if (fb && fb->fb_id)
@@ -196,31 +200,31 @@ static int create_drm_rbo(
 		EGL_NONE
 	});
 	if ((egl_error = eglGetError()) != EGL_SUCCESS) {
-		fprintf(stderr, "[compositor] error creating DRM EGL Image for flutter backing store, eglCreateDRMImageMESA: %ld\n", egl_error);
+		fprintf(stderr, "[compositor] error creating DRM EGL Image for flutter backing store, eglCreateDRMImageMESA: %" PRId32 "\n", egl_error);
 		return EINVAL;
 	}
 
-	flutterpi.egl.exportDRMImageMESA(flutterpi.egl.display, fbo.egl_image, NULL, &fbo.gem_handle, &fbo.gem_stride);
+	flutterpi.egl.exportDRMImageMESA(flutterpi.egl.display, fbo.egl_image, NULL, (EGLint*) &fbo.gem_handle, (EGLint*) &fbo.gem_stride);
 	if ((egl_error = eglGetError()) != EGL_SUCCESS) {
 		fprintf(stderr, "[compositor] error getting handle & stride for DRM EGL Image, eglExportDRMImageMESA: %d\n", egl_error);
 		return EINVAL;
 	}
 
 	glGenRenderbuffers(1, &fbo.gl_rbo_id);
-	if (gl_error = glGetError()) {
-		fprintf(stderr, "[compositor] error generating renderbuffers for flutter backing store, glGenRenderbuffers: %ld\n", gl_error);
+	if ((gl_error = glGetError())) {
+		fprintf(stderr, "[compositor] error generating renderbuffers for flutter backing store, glGenRenderbuffers: %u\n", gl_error);
 		return EINVAL;
 	}
 
 	glBindRenderbuffer(GL_RENDERBUFFER, fbo.gl_rbo_id);
-	if (gl_error = glGetError()) {
+	if ((gl_error = glGetError())) {
 		fprintf(stderr, "[compositor] error binding renderbuffer, glBindRenderbuffer: %d\n", gl_error);
 		return EINVAL;
 	}
 
 	flutterpi.gl.EGLImageTargetRenderbufferStorageOES(GL_RENDERBUFFER, fbo.egl_image);
-	if (gl_error = glGetError()) {
-		fprintf(stderr, "[compositor] error binding DRM EGL Image to renderbuffer, glEGLImageTargetRenderbufferStorageOES: %ld\n", gl_error);
+	if ((gl_error = glGetError())) {
+		fprintf(stderr, "[compositor] error binding DRM EGL Image to renderbuffer, glEGLImageTargetRenderbufferStorageOES: %u\n", gl_error);
 		return EINVAL;
 	}
 
@@ -288,26 +292,25 @@ static int attach_drm_rbo_to_fbo(
 	GLuint fbo_id,
 	struct drm_rbo *rbo
 ) {
-	EGLint egl_error;
 	GLenum gl_error;
 
 	eglGetError();
 	glGetError();
 
 	glBindFramebuffer(GL_FRAMEBUFFER, fbo_id);
-	if (gl_error = glGetError()) {
+	if ((gl_error = glGetError())) {
 		fprintf(stderr, "[compositor] error binding FBO for attaching the renderbuffer, glBindFramebuffer: %d\n", gl_error);
 		return EINVAL;
 	}
 
 	glBindRenderbuffer(GL_RENDERBUFFER, rbo->gl_rbo_id);
-	if (gl_error = glGetError()) {
+	if ((gl_error = glGetError())) {
 		fprintf(stderr, "[compositor] error binding renderbuffer, glBindRenderbuffer: %d\n", gl_error);
 		return EINVAL;
 	}
 
 	glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, rbo->gl_rbo_id);
-	if (gl_error = glGetError()) {
+	if ((gl_error = glGetError())) {
 		fprintf(stderr, "[compositor] error attaching renderbuffer to FBO, glFramebufferRenderbuffer: %d\n", gl_error);
 		return EINVAL;
 	}
@@ -329,7 +332,7 @@ static void destroy_drm_rbo(
 	glGetError();
 
 	glDeleteRenderbuffers(1, &rbo->gl_rbo_id);
-	if (gl_error = glGetError()) {
+	if ((gl_error = glGetError())) {
 		fprintf(stderr, "[compositor] error destroying OpenGL RBO, glDeleteRenderbuffers: 0x%08X\n", gl_error);
 	}
 
@@ -363,6 +366,11 @@ static int rendertarget_gbm_present(
 	uint32_t next_front_fb_id;
 	bool supported;
 	int ok;
+
+	(void)offset_x;
+	(void)offset_y;
+	(void)width;
+	(void)height;
 
 	gbm_target = &target->gbm;
 
@@ -440,8 +448,13 @@ static int rendertarget_gbm_present_legacy(
 	struct rendertarget_gbm *gbm_target;
 	struct gbm_bo *next_front_bo;
 	uint32_t next_front_fb_id;
-	bool supported, is_primary;
-	int ok;
+	bool is_primary;
+
+	(void)offset_x;
+	(void)offset_y;
+	(void)width;
+	(void)height;
+	(void)zpos;
 
 	gbm_target = &target->gbm;
 
@@ -517,7 +530,6 @@ static int rendertarget_gbm_new(
 	struct compositor *compositor
 ) {
 	struct rendertarget *target;
-	int ok;
 
 	target = calloc(1, sizeof *target);
 	if (target == NULL) {
@@ -563,6 +575,11 @@ static int rendertarget_nogbm_present(
 	struct rendertarget_nogbm *nogbm_target;
 	bool supported;
 	int ok;
+
+	(void)offset_x;
+	(void)offset_y;
+	(void)width;
+	(void)height;
 
 	nogbm_target = &target->nogbm;
 
@@ -634,6 +651,11 @@ static int rendertarget_nogbm_present_legacy(
 	uint32_t fb_id;
 	bool supported, is_primary;
 	int ok;
+
+	(void)offset_x;
+	(void)offset_y;
+	(void)width;
+	(void)height;
 
 	nogbm_target = &target->nogbm;
 
@@ -725,7 +747,6 @@ static int rendertarget_nogbm_new(
 	struct compositor *compositor
 ) {
 	struct rendertarget *target;
-	EGLint egl_error;
 	GLenum gl_error;
 	int ok;
 
@@ -744,7 +765,7 @@ static int rendertarget_nogbm_new(
 	glGetError();
 
 	glGenFramebuffers(1, &target->nogbm.gl_fbo_id);
-	if (gl_error = glGetError()) {
+	if ((gl_error = glGetError())) {
 		fprintf(stderr, "[compositor] error generating FBOs for flutter backing store, glGenFramebuffers: %d\n", gl_error);
 		ok = EINVAL;
 		goto fail_free_target;
@@ -831,6 +852,8 @@ static bool on_collect_backing_store(
 ) {
 	struct flutterpi_backing_store *store;
 	struct compositor *compositor;
+
+	(void) userdata;
 	
 	store = backing_store->user_data;
 	compositor = store->target->compositor;
@@ -864,6 +887,7 @@ static bool on_create_backing_store(
 	struct compositor *compositor;
 	int ok;
 
+	(void) config;
 	compositor = userdata;
 
 	store = calloc(1, sizeof *store);
@@ -969,6 +993,8 @@ static void fill_platform_view_params(
 	const FlutterTransformation *view_to_display_transform,
 	double device_pixel_ratio
 ) {
+	(void) view_to_display_transform;
+
 	/**
 	 * inversion for
 	 * ```
@@ -1158,8 +1184,6 @@ static bool on_present_layers(
 			legacy_rendertarget_set_mode = true;
 			schedule_fake_page_flip_event = true;
 		}
-
-		int64_t max_zpos = 0;
 
 		if (use_atomic_modesetting) {
 			for_each_unreserved_plane_in_atomic_req(req, plane) {
@@ -1564,6 +1588,8 @@ int compositor_on_page_flip(
 	uint32_t sec,
 	uint32_t usec
 ) {
+	(void) sec;
+	(void) usec;
 	return 0;
 }
 
@@ -1873,7 +1899,11 @@ int compositor_apply_cursor_state(
 		compositor.cursor.x = 0;
 		compositor.cursor.y = 0;
 		compositor.cursor.is_enabled = false;
+
+		return 0;
 	}
+
+	return 0;
 }
 
 int compositor_set_cursor_pos(int x, int y) {

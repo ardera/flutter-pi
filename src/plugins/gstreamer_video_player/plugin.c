@@ -34,12 +34,12 @@ static struct plugin {
 } plugin;
 
 /// Add a player instance to the player collection.
-int add_player(struct gstplayer *player) {
+static int add_player(struct gstplayer *player) {
     return cpset_put_(&plugin.players, player);
 }
 
 /// Get a player instance by its id.
-struct gstplayer *get_player_by_texture_id(int64_t texture_id) {
+static struct gstplayer *get_player_by_texture_id(int64_t texture_id) {
     struct gstplayer *player;
     
     cpset_lock(&plugin.players);
@@ -55,7 +55,7 @@ struct gstplayer *get_player_by_texture_id(int64_t texture_id) {
 }
 
 /// Get a player instance by its event channel name.
-struct gstplayer *get_player_by_evch(const char *const event_channel_name) {
+static struct gstplayer *get_player_by_evch(const char *const event_channel_name) {
     struct gstplayer_meta *meta;
     struct gstplayer *player;
     
@@ -88,7 +88,7 @@ static int get_texture_id_from_map_arg(
     int ok;
 
     if (arg->type != kStdMap) {
-        ok = platch_respond_illegal_arg_std(
+        ok = platch_respond_illegal_arg_pigeon(
             responsehandle,
             "Expected `arg` to be a Map"
         );
@@ -99,7 +99,7 @@ static int get_texture_id_from_map_arg(
 
     struct std_value *id = stdmap_get_str(arg, "playerId");
     if (id == NULL || !STDVALUE_IS_INT(*id)) {
-        ok = platch_respond_illegal_arg_std(
+        ok = platch_respond_illegal_arg_pigeon(
             responsehandle,
             "Expected `arg['playerId']` to be an integer"
         );
@@ -133,7 +133,7 @@ static int get_player_from_map_arg(
 
     player = get_player_by_texture_id(player_id);
     if (player == NULL) {
-        ok = platch_respond_illegal_arg_std(responsehandle, "Expected `arg['playerId']` to be a valid player id.");
+        ok = platch_respond_illegal_arg_pigeon(responsehandle, "Expected `arg['playerId']` to be a valid player id.");
         if (ok != 0) return ok;
 
         return EINVAL;
@@ -162,6 +162,15 @@ static int ensure_initialized() {
     return 0;
 }
 
+static int respond_init_failed(FlutterPlatformMessageResponseHandle *handle) {
+    return platch_respond_error_pigeon(
+        handle,
+        "couldnotinit",
+        "omxplayer_video_player plugin failed to initialize libsystemd bindings. See flutter-pi log for details.",
+        NULL
+    );
+}
+
 /*******************************************************
  * CHANNEL HANDLERS                                    *
  * handle method calls on the method and event channel *
@@ -173,7 +182,6 @@ static int on_receive_evch(
 ) {
     struct gstplayer *player;
     const char *method;
-    int ok;
 
     method = object->method;
 
@@ -189,14 +197,19 @@ static int on_receive_evch(
     } else {
         return platch_respond_not_implemented(responsehandle);
     }
+
+    return 0;
 }
 
 static int on_initialize(
-	const char *channel,
+	char *channel,
 	struct platch_obj *object, 
 	FlutterPlatformMessageResponseHandle *responsehandle
 ) {
     int ok;
+
+    (void) channel;
+    (void) object;
 
     ok = ensure_initialized();
     if (ok != 0) {
@@ -205,7 +218,7 @@ static int on_initialize(
 
     // listen to event channel here
 
-    return platch_respond_success_std(responsehandle, NULL);
+    return platch_respond_success_pigeon(responsehandle, NULL);
 }
 
 static int check_headers(
@@ -217,7 +230,7 @@ static int check_headers(
     if (headers == NULL || STDVALUE_IS_NULL(*headers)) {
         return 0;
     } else if (headers->type != kStdMap) {
-        platch_respond_illegal_arg_std(
+        platch_respond_illegal_arg_pigeon(
             responsehandle,
             "Expected `arg['httpHeaders']` to be a map of strings or null."
         );
@@ -235,7 +248,7 @@ static int check_headers(
             // valid too
             continue;
         } else {
-            platch_respond_illegal_arg_std(
+            platch_respond_illegal_arg_pigeon(
                 responsehandle,
                 "Expected `arg['httpHeaders']` to be a map of strings or null."
             );
@@ -248,7 +261,7 @@ static int check_headers(
 
 static int add_headers_to_player(
     const struct std_value *headers,
-    struct gst_player *player
+    struct gstplayer *player
 ) {
     const struct std_value *key, *value;
 
@@ -310,7 +323,7 @@ static void destroy_meta(struct gstplayer_meta *meta) {
 /// Creates a new video player.
 /// Should respond to the platform message when the player has established its viewport.
 static int on_create(
-	const char *channel,
+	char *channel,
 	struct platch_obj *object, 
 	FlutterPlatformMessageResponseHandle *responsehandle
 ) {
@@ -320,6 +333,9 @@ static int on_create(
     struct std_value *arg, *temp;
     char *asset, *uri, *package_name, *format_hint;
     int ok;
+
+    (void) channel;
+    (void) source_type;
 
     arg = &(object->std_arg);
 
@@ -346,7 +362,7 @@ static int on_create(
     } else {
         invalid_source_type:
 
-        return platch_respond_illegal_arg_std(
+        return platch_respond_illegal_arg_pigeon(
             responsehandle,
             "Expected `arg['sourceType']` to be a stringification of the [DataSourceType] enum."
         );
@@ -358,7 +374,7 @@ static int on_create(
     } else if (temp != NULL && temp->type == kStdString) {
         asset = temp->string_value;
     } else {
-        return platch_respond_illegal_arg_std(
+        return platch_respond_illegal_arg_pigeon(
             responsehandle,
             "Expected `arg['asset']` to be a String or null."
         );
@@ -370,7 +386,7 @@ static int on_create(
     } else if (temp != NULL && temp->type == kStdString) {
         uri = temp->string_value;
     } else {
-        return platch_respond_illegal_arg_std(
+        return platch_respond_illegal_arg_pigeon(
             responsehandle,
             "Expected `arg['uri']` to be a String or null."
         );
@@ -382,7 +398,7 @@ static int on_create(
     } else if (temp != NULL && temp->type == kStdString) {
         package_name = temp->string_value;
     } else {
-        return platch_respond_illegal_arg_std(
+        return platch_respond_illegal_arg_pigeon(
             responsehandle,
             "Expected `arg['packageName']` to be a String or null."
         );
@@ -394,7 +410,7 @@ static int on_create(
     } else if (temp != NULL && temp->type == kStdString) {
         format_hint = temp->string_value;
     } else {
-        return platch_respond_illegal_arg_std(
+        return platch_respond_illegal_arg_pigeon(
             responsehandle,
             "Expected `arg['formatHint']` to be a String or null."
         );
@@ -417,7 +433,7 @@ static int on_create(
     if (player == NULL) {
         LOG_ERROR("Couldn't create gstreamer video player.\n");
         ok = EIO;
-        goto fail_free_duped_headers;
+        goto fail_destroy_player;
     }
 
     // create a meta object so we can store the event channel name
@@ -450,11 +466,10 @@ static int on_create(
     }
 
     // should we wait for it to be initialized here?
-    // return platch_respond_success_std(responsehandle, NULL);
+    // return platch_respond_success_pigeon(responsehandle, NULL);
     return 0;
 
 
-    fail_remove_evch_listener:
     plugin_registry_remove_receiver(meta->event_channel_name);
 
     fail_remove_player:
@@ -465,23 +480,19 @@ static int on_create(
 
     fail_destroy_player:
     gstplayer_destroy(player);
-    goto fail_respond_native_error;
-
-    fail_free_duped_headers:
-    duped_headers_free(headers, size_headers);
-
-    fail_respond_native_error:
-    return platch_respond_native_error_std(responsehandle, ok);
+    return platch_respond_native_error_pigeon(responsehandle, ok);
 }
 
 static int on_dispose(
-	const char *channel,
+	char *channel,
 	struct platch_obj *object, 
 	FlutterPlatformMessageResponseHandle *responsehandle
 ) {
     struct gstplayer *player;
     struct std_value *arg;
     int ok;
+
+    (void) channel;
 
     arg = &object->std_arg;
 
@@ -492,11 +503,11 @@ static int on_dispose(
 
     remove_player(player);
     gstplayer_destroy(player);
-    return platch_respond_success_std(responsehandle, NULL);
+    return platch_respond_success_pigeon(responsehandle, NULL);
 }
 
 static int on_set_looping(
-	const char *channel,
+	char *channel,
 	struct platch_obj *object, 
 	FlutterPlatformMessageResponseHandle *responsehandle
 ) {
@@ -504,6 +515,8 @@ static int on_set_looping(
     struct std_value *arg, *temp;
     bool loop;
     int ok;
+
+    (void) channel;
 
     arg = &object->std_arg;
 
@@ -514,18 +527,18 @@ static int on_set_looping(
     if (STDVALUE_IS_BOOL(*temp)) {
         loop = STDVALUE_AS_BOOL(*temp);
     } else {
-        return platch_respond_illegal_arg_std(
+        return platch_respond_illegal_arg_pigeon(
             responsehandle,
             "Expected `arg['looping']` to be a boolean."
         );
     }
     
     gstplayer_set_looping(player, loop);
-    return platch_respond_success_std(responsehandle, NULL);
+    return platch_respond_success_pigeon(responsehandle, NULL);
 }
 
 static int on_set_volume(
-	const char *channel,
+	char *channel,
 	struct platch_obj *object, 
 	FlutterPlatformMessageResponseHandle *responsehandle
 ) {
@@ -533,6 +546,8 @@ static int on_set_volume(
     struct std_value *arg, *temp;
     double volume;
     int ok;
+
+    (void) channel;
 
     arg = &object->std_arg;
 
@@ -543,18 +558,18 @@ static int on_set_volume(
     if (STDVALUE_IS_FLOAT(*temp)) {
         volume = STDVALUE_AS_FLOAT(*temp);
     } else {
-        return platch_respond_illegal_arg_std(
+        return platch_respond_illegal_arg_pigeon(
             responsehandle,
             "Expected `arg['volume']` to be a float/double."
         );
     }
 
     gstplayer_set_volume(player, volume);
-    return platch_respond_success_std(responsehandle, NULL);
+    return platch_respond_success_pigeon(responsehandle, NULL);
 }
 
 static int on_set_playback_speed(
-	const char *channel,
+	char *channel,
 	struct platch_obj *object, 
 	FlutterPlatformMessageResponseHandle *responsehandle
 ) {
@@ -562,6 +577,8 @@ static int on_set_playback_speed(
     struct std_value *arg, *temp;
     double speed;
     int ok;
+
+    (void) channel;
 
     arg = &object->std_arg;
 
@@ -572,24 +589,26 @@ static int on_set_playback_speed(
     if (STDVALUE_IS_FLOAT(*temp)) {
         speed = STDVALUE_AS_FLOAT(*temp);
     } else {
-        return platch_respond_illegal_arg_std(
+        return platch_respond_illegal_arg_pigeon(
             responsehandle,
             "Expected `arg['speed']` to be a float/double."
         );
     }
 
     gstplayer_set_playback_speed(player, speed);
-    return platch_respond_success_std(responsehandle, NULL);
+    return platch_respond_success_pigeon(responsehandle, NULL);
 }
 
 static int on_play(
-	const char *channel,
+	char *channel,
 	struct platch_obj *object, 
 	FlutterPlatformMessageResponseHandle *responsehandle
 ) {
     struct gstplayer *player;
     struct std_value *arg;
     int ok;
+
+    (void) channel;
 
     arg = &object->std_arg;
 
@@ -597,11 +616,11 @@ static int on_play(
     if (ok != 0) return ok;
 
     gstplayer_play(player);
-    return platch_respond_success_std(responsehandle, NULL);
+    return platch_respond_success_pigeon(responsehandle, NULL);
 }
 
 static int on_get_position(
-	const char *channel,
+	char *channel,
 	struct platch_obj *object, 
 	FlutterPlatformMessageResponseHandle *responsehandle
 ) {
@@ -609,6 +628,9 @@ static int on_get_position(
     struct std_value *arg;
     int64_t position;
     int ok;
+
+    (void) channel;
+    (void) position;
 
     arg = &object->std_arg;
 
@@ -618,11 +640,11 @@ static int on_get_position(
     position = gstplayer_get_position(player);
 
     /// TODO: Implement
-    return platch_respond_success_std(responsehandle, NULL);
+    return platch_respond_success_pigeon(responsehandle, NULL);
 }
 
 static int on_seek_to(
-	const char *channel,
+	char *channel,
 	struct platch_obj *object, 
 	FlutterPlatformMessageResponseHandle *responsehandle
 ) {
@@ -630,6 +652,8 @@ static int on_seek_to(
     struct std_value *arg, *temp;
     int64_t position;
     int ok;
+
+    (void) channel;
 
     arg = &(object->std_arg);
 
@@ -640,24 +664,26 @@ static int on_seek_to(
     if (STDVALUE_IS_INT(*temp)) {
         position = STDVALUE_AS_INT(*temp);
     } else {
-        return platch_respond_illegal_arg_std(
+        return platch_respond_illegal_arg_pigeon(
             responsehandle,
             "Expected `arg['position']` to be an integer."
         );
     }
 
     gstplayer_seek_to(player, position);
-    return platch_respond_success_std(responsehandle, NULL);
+    return platch_respond_success_pigeon(responsehandle, NULL);
 }
 
 static int on_pause(
-	const char *channel,
+	char *channel,
 	struct platch_obj *object, 
 	FlutterPlatformMessageResponseHandle *responsehandle
 ) {
     struct gstplayer *player;
     struct std_value *arg;
     int ok;
+
+    (void) channel;
     
     arg = &object->std_arg;
 
@@ -665,17 +691,19 @@ static int on_pause(
     if (ok != 0) return ok;
 
     gstplayer_pause(player);
-    return platch_respond_success_std(responsehandle, NULL);
+    return platch_respond_success_pigeon(responsehandle, NULL);
 }
 
 static int on_set_mix_with_others(
-    const char *channel,
+    char *channel,
     struct platch_obj *object,
     FlutterPlatformMessageResponseHandle *responsehandle
 ) {
     struct gstplayer *player;
     struct std_value *arg;
     int ok;
+
+    (void) channel;
     
     arg = &object->std_arg;
 

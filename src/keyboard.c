@@ -61,8 +61,6 @@ static int find_var_offset_in_string(const char *varname, const char *buffer, re
         match->rm_so = -1;
         match->rm_eo = -1;
     }
-
-    fail_return_ok:
     return ok;
 }
 
@@ -219,8 +217,6 @@ struct keyboard_config *keyboard_config_new(void) {
     struct xkb_compose_table *compose_table;
     struct xkb_context *ctx;
     struct xkb_keymap *keymap;
-    struct xkb_state *plain_state;
-    int ok;
     
     cfg = malloc(sizeof *cfg);
     if (cfg == NULL) {
@@ -249,9 +245,6 @@ struct keyboard_config *keyboard_config_new(void) {
     cfg->default_keymap = keymap;
 
     return cfg;
-
-    fail_free_keymap:
-    xkb_keymap_unref(keymap);
 
     fail_free_compose_table:
     xkb_compose_table_unref(compose_table);
@@ -304,7 +297,7 @@ struct keyboard_state *keyboard_state_new(
     compose_state = xkb_compose_state_new(compose_table_override != NULL ? compose_table_override : config->default_compose_table, XKB_COMPOSE_STATE_NO_FLAGS);
     if (compose_state == NULL) {
         LOG_KEYBOARD_ERROR("Could not create new XKB compose state.\n");
-        goto fail_free_xkb_state;
+        goto fail_free_plain_xkb_state;
     }
 
     state->config = config;
