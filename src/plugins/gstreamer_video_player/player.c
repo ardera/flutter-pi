@@ -26,7 +26,7 @@ struct gstplayer {
     pthread_mutex_t lock;
     
     void *userdata;
-    const char *video_uri;
+    char *video_uri;
     GstStructure *headers;
     
     bool looping;
@@ -65,7 +65,7 @@ void gstplayer_unlock(struct gstplayer *player) {
 static struct gstplayer *gstplayer_new(struct flutterpi *flutterpi, const char *uri, void *userdata) {
     struct gstplayer *player;
     struct texture *texture;
-    const char *uri_owned;
+    char *uri_owned;
     GstStructure *gst_headers;
     int64_t texture_id;
     int ok;
@@ -106,8 +106,6 @@ static struct gstplayer *gstplayer_new(struct flutterpi *flutterpi, const char *
 
     fail_free_gst_headers:
     gst_structure_free(gst_headers);
-
-    fail_free_uri_owned:
     free(uri_owned);
 
     fail_destroy_texture:
@@ -128,12 +126,14 @@ struct gstplayer *gstplayer_new_from_asset(
     struct gstplayer *player;
     char *uri;
 
+    (void) package_name;
+
     asprintf(&uri, "%s/%s", flutterpi_get_asset_bundle_path(flutterpi), asset_path);
     if (uri == NULL) {
         return NULL;
     }
 
-    player = gstplayer_new(flutterpi, uri, NULL, userdata);
+    player = gstplayer_new(flutterpi, uri, userdata);
 
     free(uri);
 
@@ -146,7 +146,8 @@ struct gstplayer *gstplayer_new_from_network(
     const char *format_hint,
     void *userdata
 ) {
-    return gstplayer_new(flutterpi, uri, http_headers, userdata);
+    (void) format_hint;
+    return gstplayer_new(flutterpi, uri, userdata);
 }
 
 struct gstplayer *gstplayer_new_from_file(
@@ -154,7 +155,7 @@ struct gstplayer *gstplayer_new_from_file(
     const char *uri,
     void *userdata
 ) {
-    return gstplayer_new(flutterpi, uri, NULL, userdata);
+    return gstplayer_new(flutterpi, uri, userdata);
 }
 
 struct gstplayer *gstplayer_new_from_content_uri(
@@ -162,14 +163,13 @@ struct gstplayer *gstplayer_new_from_content_uri(
     const char *uri,
     void *userdata
 ) {
-    return gstplayer_new(flutterpi, uri, NULL, userdata);
+    return gstplayer_new(flutterpi, uri, userdata);
 }   
 
 void gstplayer_destroy(struct gstplayer *player) {
     pthread_mutex_destroy(&player->lock);
     if (player->headers != NULL) free(player->headers);
     free(player->video_uri);
-    free(player->event_channel_name);
     texture_destroy(player->texture);
     free(player);
 }
@@ -181,7 +181,7 @@ int64_t gstplayer_get_texture_id(struct gstplayer *player) {
 void gstplayer_set_info_callback(struct gstplayer *player, gstplayer_info_callback_t cb, void *userdata) {
     player->info_cb = cb;
     player->info_cb_userdata = userdata;
-    return 0;
+    return;
 }
 
 void gstplayer_put_http_header(struct gstplayer *player, const char *key, const char *value) {
@@ -191,8 +191,6 @@ void gstplayer_put_http_header(struct gstplayer *player, const char *key, const 
 }
 
 static void on_bus_message(struct gstplayer *player, GstMessage *msg) {
-    const gchar *prefix;
-    struct gstplayer *player;
     GstState old, current, pending, requested;
     GError *error;
     gchar *debug_info;
@@ -215,7 +213,7 @@ static void on_bus_message(struct gstplayer *player, GstMessage *msg) {
                 gst_element_state_get_name(requested),
                 GST_MESSAGE_SRC_NAME(msg)
             );
-            gst_element_set_state(GST_ELEMENT(dec->pipeline), requested);
+            gst_element_set_state(GST_ELEMENT(player->pipeline), requested);
             break;
 
         case GST_MESSAGE_LATENCY:
@@ -248,12 +246,16 @@ static void on_bus_message(struct gstplayer *player, GstMessage *msg) {
             break;
     }
 
-    return TRUE;
+    return;
 }
 
 static int on_bus_fd_ready(sd_event_source *s, int fd, uint32_t revents, void *userdata) {
     struct gstplayer *player;
     GstMessage *msg;
+
+    (void) s;
+    (void) fd;
+    (void) revents;
 
     player = userdata;
     
@@ -262,6 +264,8 @@ static int on_bus_fd_ready(sd_event_source *s, int fd, uint32_t revents, void *u
         on_bus_message(player, msg);
         gst_message_unref(msg);
     }
+
+    return 0;
 }
 
 static GstPadProbeReturn on_query_appsink(GstPad *pad, GstPadProbeInfo *info, void *userdata) {
@@ -345,7 +349,7 @@ static GstPadProbeReturn on_probe_pad(GstPad *pad, GstPadProbeInfo *info, void *
             player->drm_format = DRM_FORMAT_YUYV;
             break;
         default:
-            LOG_ERROR("unknown video format: %s\n", GST_VIDEO_INFO_NAME(&info));
+            LOG_ERROR("unknown video format: %s\n", GST_VIDEO_INFO_NAME(&vinfo));
             break;
     }
 
@@ -381,11 +385,11 @@ int gstplayer_initialize(struct gstplayer *player) {
     GError *error;
     int ok;
     
-    static const char *pipeline = "uridecodebin name=\"src\" ! decodebin name=\"decode\" ! video/x-raw ! appsink sync=false name=\"sink\"";
+    static const char *pipeline_descr = "uridecodebin name=\"src\" ! decodebin name=\"decode\" ! video/x-raw ! appsink sync=false name=\"sink\"";
 
-    pipeline = gst_parse_launch(pipeline, NULL);
+    pipeline = gst_parse_launch(pipeline_descr, &error);
     if (pipeline == NULL) {
-        LOG_ERROR("Could create GStreamer pipeline from description: %s (pipeline: `%s`)\n", error->message, pipeline);
+        LOG_ERROR("Could create GStreamer pipeline from description: %s (pipeline: `%s`)\n", error->message, pipeline_descr);
         return error->code;
     }
 
@@ -436,7 +440,7 @@ int gstplayer_initialize(struct gstplayer *player) {
     if (decodebin == NULL) {
         LOG_ERROR("Couldn't find decodebin in pipeline bin.\n");
         ok = EINVAL;
-        goto fail_unref_sink;
+        goto fail_unref_src;
     }
 
     g_signal_connect(decodebin, "element-added", G_CALLBACK(on_element_added), player);
@@ -467,7 +471,6 @@ int gstplayer_initialize(struct gstplayer *player) {
     gst_object_unref(pad);
     return 0;
 
-
     fail_unref_src:
     gst_object_unref(src);
 
@@ -494,16 +497,28 @@ int gstplayer_set_looping(struct gstplayer *player, bool looping) {
 }
 
 int gstplayer_set_volume(struct gstplayer *player, double volume) {
+    (void) player;
+    (void) volume;
+    /// TODO: Implement
+    return 0;
+}
+
+int64_t gstplayer_get_position(struct gstplayer *player) {
+    (void) player;
     /// TODO: Implement
     return 0;
 }
 
 int gstplayer_seek_to(struct gstplayer *player, double position) {
+    (void) player;
+    (void) position;
     /// TODO: Implement
     return 0;
 }
 
 int gstplayer_set_playback_speed(struct gstplayer *player, double playback_speed) {
+    (void) player;
+    (void) playback_speed;
     /// TODO: Implement
     return 0;
 }

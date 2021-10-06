@@ -14,10 +14,13 @@ static struct {
 
 
 static int on_receive_navigation(char *channel, struct platch_obj *object, FlutterPlatformMessageResponseHandle *responsehandle) {
+    (void) channel;
+    (void) object;
     return platch_respond_not_implemented(responsehandle);
 }
 
 static int on_receive_isolate(char *channel, struct platch_obj *object, FlutterPlatformMessageResponseHandle *responsehandle) {
+    (void) channel;
     if (object->binarydata_size > sizeof(services.isolate_id)) {
         return EINVAL;
     } else {
@@ -30,7 +33,8 @@ static int on_receive_isolate(char *channel, struct platch_obj *object, FlutterP
 static int on_receive_platform(char *channel, struct platch_obj *object, FlutterPlatformMessageResponseHandle *responsehandle) {
     struct json_value *value;
     struct json_value *arg = &(object->json_arg);
-    int ok;
+
+    (void) channel;
 
     if (strcmp(object->method, "Clipboard.setData") == 0) {
         /*
@@ -191,14 +195,14 @@ static int on_receive_platform(char *channel, struct platch_obj *object, Flutter
 }
 
 static int on_receive_accessibility(char *channel, struct platch_obj *object, FlutterPlatformMessageResponseHandle *responsehandle) {
+    (void) channel;
+    (void) object;
     return platch_respond_not_implemented(responsehandle);
 }
 
 static int on_receive_platform_views(char *channel, struct platch_obj *object, FlutterPlatformMessageResponseHandle *responsehandle) {
-    struct json_value *value;
-    struct json_value *arg = &(object->json_arg);
-    int ok;
-    
+    (void) channel;
+    (void) object;
     if STREQ("create", object->method) {
         return platch_respond_not_implemented(responsehandle);
     } else if STREQ("dispose", object->method) {
@@ -243,10 +247,6 @@ int services_init(void) {
     }
 
     return 0;
-
-
-    fail_remove_platform_views_receiver:
-    plugin_registry_remove_receiver("flutter/platform_views");
 
     fail_remove_accessibility_receiver:
     plugin_registry_remove_receiver("flutter/accessibility");

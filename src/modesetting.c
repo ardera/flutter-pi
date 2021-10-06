@@ -92,7 +92,6 @@ static int fetch_connectors(struct drmdev *drmdev, struct drm_connector **connec
         drmModeFreeConnector(connectors[i].connector);
     }
 
-    fail_free_result:
     free(connectors);
 
     *connectors_out = NULL;
@@ -150,7 +149,6 @@ static int fetch_encoders(struct drmdev *drmdev, struct drm_encoder **encoders_o
         drmModeFreeEncoder(encoders[i].encoder);
     }
 
-    fail_free_result:
     free(encoders);
 
     *encoders_out = NULL;
@@ -245,7 +243,6 @@ static int fetch_crtcs(struct drmdev *drmdev, struct drm_crtc **crtcs_out, size_
         drmModeFreeCrtc(crtcs[i].crtc);
     }
 
-    fail_free_result:
     free(crtcs);
 
     *crtcs_out = NULL;
@@ -351,7 +348,6 @@ static int fetch_planes(struct drmdev *drmdev, struct drm_plane **planes_out, si
         drmModeFreePlane(planes[i].plane);
     }
 
-    fail_free_result:
     free(planes);
 
     *planes_out = NULL;
@@ -828,7 +824,6 @@ int drmdev_new_atomic_req(
 ) {
     struct drmdev_atomic_req *req;
     struct drm_plane *plane;
-    int ok;
 
     if (drmdev->supports_atomic_modesetting == false) {
         return EOPNOTSUPP;

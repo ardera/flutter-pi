@@ -132,8 +132,10 @@ if (BUILD_OMXPLAYER_VIDEO_PLAYER_PLUGIN)
   list(APPEND FLUTTER_PI_SRC src/plugins/omxplayer_video_player.c)
 endif()
 if (BUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN)
-  list(APPEND FLUTTER_PI_SRC src/plugins/gstreamer_video_player/plugin.c)
-  list(APPEND FLUTTER_PI_SRC src/plugins/gstreamer_video_player/player.c)
+  list(APPEND FLUTTER_PI_SRC
+    src/plugins/gstreamer_video_player/plugin.c
+    src/plugins/gstreamer_video_player/player.c
+  )
   pkg_check_modules(LIBGSTREAMER REQUIRED gstreamer-1.0)
   pkg_check_modules(LIBGSTREAMER_PLUGINS_BASE REQUIRED gstreamer-plugins-base-1.0)
   pkg_check_modules(LIBGSTREAMER_APP REQUIRED gstreamer-app-1.0)
@@ -178,7 +180,7 @@ target_compile_options(flutter-pi PRIVATE
   ${LIBINPUT_CFLAGS}
   ${LIBUDEV_CFLAGS}
   ${LIBXKBCOMMON_CFLAGS}
-  $<$<CONFIG:DEBUG>:-O0 -ggdb -DDEBUG>
+  $<$<CONFIG:DEBUG>:-O0 -Wall -Wextra -Wno-unused-function -Wno-sign-compare -Wno-missing-field-initializers -ggdb -DDEBUG>
 )
 
 if (BUILD_TEXT_INPUT_PLUGIN)

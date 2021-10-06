@@ -9,7 +9,7 @@
 #include <stdlib.h>
 #include <flutter-pi.h>
 
-#define LOG_LOCALES_ERROR(fmtstring, ...) fprintf(stderr, "[locales] " fmtstring # __VA_ARGS__);
+#define LOG_LOCALES_ERROR(...) fprintf(stderr, "[locales] " __VA_ARGS__);
 
 struct locale {
     char *language;
@@ -203,7 +203,7 @@ static int add_locale_variants(struct concurrent_pointer_set *locales, const cha
     }
 
     // then append all possible combinations
-    for (uint8_t i = 0b111; i >= 0; i++) {
+    for (int i = 0b111; i >= 0; i--) {
         char *territory_2 = NULL, *codeset_2 = NULL, *modifier_2 = NULL;
 
         if ((i & 1) != 0) {
@@ -236,12 +236,6 @@ static int add_locale_variants(struct concurrent_pointer_set *locales, const cha
             locale_destroy(locale);
             goto fail_free_language;
         }
-
-        continue;
-
-
-        fail_free_locale:
-        locale_destroy(locale);
     }
 
     return 0;
@@ -287,7 +281,7 @@ struct locales *locales_new(void) {
 
     system_locales_modifiable = strdup(system_locales);
     if (system_locales_modifiable == NULL) {
-        goto fail_free_locales;
+        goto fail_deinit_cpset;
     }
 
     syslocale = strtok(system_locales_modifiable, ":");
@@ -327,10 +321,6 @@ struct locales *locales_new(void) {
     for_each_pointer_in_cpset(&locales->locales, locale) {
         locale_destroy(locale);
     }
-    goto fail_deinit_cpset;
-
-    fail_free_system_locales_dup:
-    free(system_locales_modifiable);
 
     fail_deinit_cpset:
     cpset_deinit(&locales->locales);

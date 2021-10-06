@@ -102,7 +102,6 @@ struct user_input *user_input_new(
 ) {
 	struct keyboard_config *kbdcfg;
 	struct user_input *input;
-	sd_event_source *libinput_event_source;
 	struct libinput *libinput;
 	struct udev *udev;
 	int ok;
@@ -318,7 +317,6 @@ static int on_device_added(struct user_input *input, struct libinput_event *even
     struct input_device_data *data;
     struct libinput_device *device;
     int64_t device_id;
-    int ok;
 
     DEBUG_ASSERT(input != NULL);
     DEBUG_ASSERT(event != NULL);
@@ -426,7 +424,6 @@ static int on_key_event(struct user_input *input, struct libinput_event *event) 
     struct libinput_event_keyboard *key_event;
     struct input_device_data *data;
     struct libinput_device *device;
-    struct keyboard_modifier_state mods;
     enum libinput_key_state key_state;
     xkb_keysym_t keysym;
     uint32_t codepoint, plain_codepoint;
@@ -1027,8 +1024,6 @@ static int process_libinput_events(struct user_input *input, uint64_t timestamp)
 
     fail_destroy_event:
     libinput_event_destroy(event);
-
-    fail_return_ok:
     return ok;
 }
 

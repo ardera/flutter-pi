@@ -140,6 +140,7 @@ int cqueue_deinit(struct concurrent_queue *queue) {
     pthread_mutex_destroy(&queue->mutex);
     pthread_cond_destroy(&queue->is_enqueueable);
     pthread_cond_destroy(&queue->is_dequeueable);
+	return 0;
 }
 
 int cqueue_try_enqueue_locked(
@@ -217,6 +218,8 @@ int cqueue_try_dequeue_locked(
     if (ok == 0) {
         pthread_cond_signal(&queue->is_enqueueable);
     }
+
+	return 0;
 }
 
 int cqueue_dequeue_locked(
@@ -439,6 +442,8 @@ int pset_copy(
 	}
 
 	dest->count_pointers = src->count_pointers;
+
+	return 0;
 }
 
 void pset_intersect(

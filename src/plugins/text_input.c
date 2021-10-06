@@ -49,7 +49,7 @@ static inline uint8_t utf8_symbol_length(uint8_t c) {
 }
 
 static inline uint8_t *symbol_at(unsigned int symbol_index) {
-    uint8_t *cursor = text_input.text;
+    uint8_t *cursor = (uint8_t*) text_input.text;
 
     for (; symbol_index && *cursor; symbol_index--)
         cursor += utf8_symbol_length(*cursor);
@@ -91,10 +91,13 @@ static int on_set_client(
 ) {
     enum text_input_action input_action;
     enum text_input_type input_type;
-    struct json_value jsvalue, *temp, *temp2, *state, *config;
-    int64_t transaction_id;
+    struct json_value *temp, *temp2, *config;
     bool autocorrect, allow_signs, allow_decimal, has_allow_signs, has_allow_decimal;
-    int ok;
+
+    (void) allow_signs;
+    (void) allow_decimal;
+    (void) has_allow_signs;
+    (void) has_allow_decimal;
 
     /*
      *  TextInput.setClient(List)
@@ -208,7 +211,7 @@ static int on_set_client(
         has_allow_decimal = false;
     } else if (temp2->type == kJsonTrue || temp2->type == kJsonFalse) {
         has_allow_decimal = true;
-        allow_signs = temp2->type == kJsonTrue;
+        allow_decimal = temp2->type == kJsonTrue;
     } else {
         return platch_respond_illegal_arg_json(
             responsehandle,
@@ -287,6 +290,8 @@ static int on_hide(
      * 
      */
 
+    (void) object;
+
     // do nothing since we use a physical keyboard.
     return platch_respond(
         responsehandle,
@@ -310,6 +315,8 @@ static int on_clear_client(
      * 
      */
 
+    (void) object;
+
     text_input.connection_id = -1;
 
     return platch_respond(
@@ -326,11 +333,10 @@ static int on_set_editing_state(
     struct platch_obj *object,
     FlutterPlatformMessageResponseHandle *responsehandle
 ) {
-    struct json_value jsvalue, *temp, *temp2, *state, *config;
+    struct json_value *temp, *state;
     char *text;
     bool selection_affinity_is_downstream, selection_is_directional;
     int selection_base, selection_extent, composing_base, composing_extent;
-    int ok;
 
     /*
      *  TextInput.setEditingState(Map<String, dynamic> textEditingValue)
@@ -457,6 +463,8 @@ static int on_show(
      * 
      */
 
+    (void) object;
+
     // do nothing since we use a physical keyboard.
     return platch_respond(
         responsehandle,
@@ -472,6 +480,7 @@ static int on_request_autofill(
     struct platch_obj *object,
     FlutterPlatformMessageResponseHandle *responsehandle
 ) {
+    (void) object;
     return platch_respond(
         responsehandle,
         &(struct platch_obj) {
@@ -486,6 +495,7 @@ static int on_set_editable_size_and_transform(
     struct platch_obj *object,
     FlutterPlatformMessageResponseHandle *responsehandle
 ) {
+    (void) object;
     return platch_respond(
         responsehandle,
         &(struct platch_obj) {
@@ -500,6 +510,7 @@ static int on_set_style(
     struct platch_obj *object,
     FlutterPlatformMessageResponseHandle *responsehandle
 ) {
+    (void) object;
     return platch_respond(
         responsehandle,
         &(struct platch_obj) {
@@ -514,6 +525,7 @@ static int on_finish_autofill_context(
     struct platch_obj *object,
     FlutterPlatformMessageResponseHandle *responsehandle
 ) {
+    (void) object;
     return platch_respond(
         responsehandle,
         &(struct platch_obj) {
@@ -529,6 +541,9 @@ static int on_receive(
     struct platch_obj *object,
     FlutterPlatformMessageResponseHandle *responsehandle
 ) {
+    (void) channel;
+    (void) object;
+
     if STREQ("TextInput.setClient", object->method) {
         return on_set_client(object, responsehandle);
     } else if STREQ("TextInput.hide", object->method) {
@@ -762,11 +777,11 @@ static inline int selection_end(void) {
 static int  model_erase(unsigned int start, unsigned int end) {
     // 0 <= start <= end < len
 
-    char *start_str     = symbol_at(start);
-    char *after_end_str = symbol_at(end+1);
+    uint8_t *start_str     = symbol_at(start);
+    uint8_t *after_end_str = symbol_at(end+1);
 
     if (start_str && after_end_str)
-        memmove(start_str, after_end_str, strlen(after_end_str) + 1 /* null byte */);
+        memmove(start_str, after_end_str, strlen((char*) after_end_str) + 1 /* null byte */);
 
     return start;
 }
@@ -796,7 +811,7 @@ static bool model_add_utf8_char(uint8_t *c) {
     // move the string behind the insertion position to
     // make place for the utf8 charactercursor
 
-    memmove(to_move + symbol_length, to_move, strlen(to_move) + 1 /* null byte */);
+    memmove(to_move + symbol_length, to_move, strlen((char*) to_move) + 1 /* null byte */);
 
     // after the move, to_move points to the memory
     // where c should be inserted
@@ -959,7 +974,7 @@ int textin_on_xkb_keysym(xkb_keysym_t keysym) {
         case XKB_KEY_KP_Enter:
         case XKB_KEY_ISO_Enter:
             if (text_input.input_type == kInputTypeMultiline)
-                needs_sync = model_add_utf8_char("\n");
+                needs_sync = model_add_utf8_char((uint8_t*) "\n");
             
             perform_action = true;
             break;
