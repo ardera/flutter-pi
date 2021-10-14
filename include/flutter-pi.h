@@ -508,10 +508,7 @@ struct texture_registry *flutterpi_get_texture_registry(
 	struct flutterpi *flutterpi
 );
 
-struct texture *flutterpi_create_texture(
-	struct flutterpi *flutterpi,
-	void *texture_userdata
-);
+struct texture *flutterpi_create_texture(struct flutterpi *flutterpi);
 
 const char *flutterpi_get_asset_bundle_path(
 	struct flutterpi *flutterpi
