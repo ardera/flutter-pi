@@ -68,7 +68,7 @@ struct flutterpi_plugin hardcoded_plugins[] = {
 #endif
 
 #ifdef BUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN
-	{.name = "gstreamer_video_player", .init = gstplayer_init, .deinit = gstplayer_deinit},
+	{.name = "gstreamer_video_player", .init = gstplayer_plugin_init, .deinit = gstplayer_plugin_deinit},
 #endif
 };
 

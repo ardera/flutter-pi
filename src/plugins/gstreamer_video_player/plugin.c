@@ -14,7 +14,7 @@
 
 #include <gst/gst.h>
 
-#define LOG_ERROR(...) fprintf(stderr, "[gstreamer video player] " __VA_ARGS__)
+#define LOG_ERROR(...) fprintf(stderr, "[gstreamer video player plugin] " __VA_ARGS__)
 
 enum data_source_type {
 	kDataSourceTypeAsset,
@@ -331,7 +331,8 @@ static int on_create(
     struct gstplayer *player;
     enum   data_source_type source_type;
     struct std_value *arg, *temp;
-    char *asset, *uri, *package_name, *format_hint;
+    enum format_hint format_hint;
+    char *asset, *uri, *package_name;
     int ok;
 
     (void) channel;
@@ -406,13 +407,27 @@ static int on_create(
 
     temp = stdmap_get_str(arg, "formatHint");
     if (temp == NULL || temp->type == kStdNull) {
-        format_hint = NULL;
+        format_hint = kNoFormatHint;
     } else if (temp != NULL && temp->type == kStdString) {
-        format_hint = temp->string_value;
+        char *format_hint_str = temp->string_value;
+
+        if STREQ("ss", format_hint_str) {
+            format_hint = kSS_FormatHint;
+        } else if STREQ("hls", format_hint_str) {
+            format_hint = kHLS_FormatHint;
+        } else if STREQ("dash", format_hint_str) {
+            format_hint = kMpegDash_FormatHint;
+        } else if STREQ("other", format_hint_str) {
+            format_hint = kOther_FormatHint;
+        } else {
+            goto invalid_format_hint;
+        }
     } else {
+        invalid_format_hint:
+
         return platch_respond_illegal_arg_pigeon(
             responsehandle,
-            "Expected `arg['formatHint']` to be a String or null."
+            "Expected `arg['formatHint']` to be one of 'ss', 'hls', 'dash', 'other' or null."
         );
     }
 
@@ -719,7 +734,7 @@ int8_t gstplayer_is_present(void) {
     return plugin_registry_is_plugin_present("gstreamer_video_player");
 }
 
-int gstplayer_init() {
+int gstplayer_plugin_init() {
     int ok;
 
     ok = plugin_registry_set_receiver("dev.flutter.pigeon.VideoPlayerApi.initialize", kStandardMessageCodec, on_initialize);
@@ -758,6 +773,6 @@ int gstplayer_init() {
     return 0;
 }
 
-int gstplayer_deinit() {
+int gstplayer_plugin_deinit() {
     return 0;
 }

@@ -45,6 +45,23 @@ struct gstplayer {
     uint32_t drm_format;
 };
 
+#define MAX_N_PLANES 4
+#define MAX_N_EGL_DMABUF_IMAGE_ATTRIBUTES 6 + 6*MAX_N_PLANES + 1
+
+struct frame_interface {
+    EGLDisplay display;
+    EGLContext context;
+    PFNEGLCREATEIMAGEKHRPROC eglCreateImageKHR;
+    PFNEGLDESTROYIMAGEKHRPROC eglDestroyImageKHR;
+    PFNGLEGLIMAGETARGETTEXTURE2DOESPROC glEGLImageTargetTexture2DOES;
+
+    bool supports_extended_imports;
+    PFNEGLQUERYDMABUFFORMATSEXTPROC eglQueryDmaBufFormatsEXT;
+    PFNEGLQUERYDMABUFMODIFIERSEXTPROC eglQueryDmaBufModifiersEXT;
+};
+
+
+
 static inline void lock(struct gstplayer *player) {
     pthread_mutex_lock(&player->lock);
 }
@@ -53,14 +70,7 @@ static inline void unlock(struct gstplayer *player) {
     pthread_mutex_unlock(&player->lock);
 }
 
-void gstplayer_lock(struct gstplayer *player) {
-    return lock(player);
-}
-
-void gstplayer_unlock(struct gstplayer *player) {
-    return unlock(player);
-}
-
+DEFINE_LOCK_OPS(gstplayer, lock)
 
 static struct gstplayer *gstplayer_new(struct flutterpi *flutterpi, const char *uri, void *userdata) {
     struct gstplayer *player;
@@ -73,7 +83,7 @@ static struct gstplayer *gstplayer_new(struct flutterpi *flutterpi, const char *
     player = malloc(sizeof *player);
     if (player == NULL) return NULL;
     
-    texture = flutterpi_create_texture(flutterpi, player);
+    texture = flutterpi_create_texture(flutterpi);
     if (texture == NULL) goto fail_free_player;
 
     texture_id = texture_get_id(texture);
@@ -143,7 +153,7 @@ struct gstplayer *gstplayer_new_from_asset(
 struct gstplayer *gstplayer_new_from_network(
     struct flutterpi *flutterpi,
     const char *uri,
-    const char *format_hint,
+    enum format_hint format_hint,
     void *userdata
 ) {
     (void) format_hint;
@@ -167,6 +177,7 @@ struct gstplayer *gstplayer_new_from_content_uri(
 }   
 
 void gstplayer_destroy(struct gstplayer *player) {
+    sd_event_source_unref(player->busfd_events);
     pthread_mutex_destroy(&player->lock);
     if (player->headers != NULL) free(player->headers);
     free(player->video_uri);
@@ -509,7 +520,7 @@ int64_t gstplayer_get_position(struct gstplayer *player) {
     return 0;
 }
 
-int gstplayer_seek_to(struct gstplayer *player, double position) {
+int gstplayer_seek_to(struct gstplayer *player, int64_t position) {
     (void) player;
     (void) position;
     /// TODO: Implement

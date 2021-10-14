@@ -903,14 +903,8 @@ struct texture_registry *flutterpi_get_texture_registry(
 	return flutterpi->texture_registry;
 }
 
-struct texture *flutterpi_create_texture(
-	struct flutterpi *flutterpi,
-	void *texture_userdata
-) {
-	return texreg_create_texture(
-		flutterpi_get_texture_registry(flutterpi),
-		texture_userdata
-	);
+struct texture *flutterpi_create_texture(struct flutterpi *flutterpi) {
+	return texture_new(flutterpi_get_texture_registry(flutterpi));
 }
 
 const char *flutterpi_get_asset_bundle_path(
@@ -1252,6 +1246,28 @@ int flutterpi_fill_view_properties(
 
 static const FlutterLocale* on_compute_platform_resolved_locales(const FlutterLocale **locales, size_t n_locales) {
 	return locales_on_compute_platform_resolved_locale(flutterpi.locales, locales, n_locales);
+}
+
+static bool on_gl_external_texture_frame_callback(
+	void* userdata,
+	int64_t texture_id,
+    size_t width,
+	size_t height,
+	FlutterOpenGLTexture *texture_out
+) {
+	struct flutterpi *flutterpi;
+
+	DEBUG_ASSERT_NOT_NULL(userdata);
+
+	flutterpi = userdata;
+
+	return texture_registry_gl_external_texture_frame_callback(
+		flutterpi->texture_registry,
+		texture_id,
+		width,
+		height,
+		texture_out
+	);
 }
 
 static int load_egl_gl_procs(void) {
@@ -1820,7 +1836,7 @@ static int init_application(void) {
 			.make_resource_current = on_make_resource_current,
 			.gl_proc_resolver = proc_resolver,
 			.surface_transformation = on_get_transformation,
-			.gl_external_texture_frame_callback = texreg_gl_external_texture_frame_callback,
+			.gl_external_texture_frame_callback = on_gl_external_texture_frame_callback,
 		}
 	};
 
