@@ -73,7 +73,7 @@ static struct gstplayer *gstplayer_new(struct flutterpi *flutterpi, const char *
     struct texture *texture;
     GstStructure *gst_headers;
     EGLDisplay display;
-    EGLContext context;
+    EGLContext create_context, destroy_context;
     int64_t texture_id;
     char *uri_owned;
     int ok;
@@ -89,15 +89,20 @@ static struct gstplayer *gstplayer_new(struct flutterpi *flutterpi, const char *
         goto fail_destroy_texture;
     }
 
-    context = flutterpi_create_egl_context(flutterpi);
-    if (context == EGL_NO_CONTEXT) {
+    create_context = flutterpi_create_egl_context(flutterpi);
+    if (create_context == EGL_NO_CONTEXT) {
         goto fail_destroy_texture;
+    }
+
+    destroy_context = flutterpi_create_egl_context(flutterpi);
+    if (destroy_context == EGL_NO_CONTEXT) {
+        goto fail_destroy_create_context;
     }
 
     texture_id = texture_get_id(texture);
 
     uri_owned = strdup(uri);
-    if (uri_owned == NULL) goto fail_destroy_egl_context;
+    if (uri_owned == NULL) goto fail_destroy_destroy_context;
 
     gst_headers = gst_structure_new_empty("http-headers");
 
@@ -118,7 +123,8 @@ static struct gstplayer *gstplayer_new(struct flutterpi *flutterpi, const char *
     player->texture_id = texture_id;
     player->frame_interface = (struct frame_interface) {
         .display = display,
-        .context = context,
+        .create_context = create_context,
+        .destroy_context = destroy_context,
         .eglCreateImageKHR = (PFNEGLCREATEIMAGEKHRPROC) eglGetProcAddress("eglCreateImageKHR"),
         .eglDestroyImageKHR = (PFNEGLDESTROYIMAGEKHRPROC) eglGetProcAddress("eglDestroyImageKHR"),
         .glEGLImageTargetTexture2DOES = (PFNGLEGLIMAGETARGETTEXTURE2DOESPROC) eglGetProcAddress("glEGLImageTargetTexture2DOES"),
@@ -137,8 +143,11 @@ static struct gstplayer *gstplayer_new(struct flutterpi *flutterpi, const char *
     gst_structure_free(gst_headers);
     free(uri_owned);
 
-    fail_destroy_egl_context:
-    eglDestroyContext(display, context);
+    fail_destroy_destroy_context:
+    eglDestroyContext(display, destroy_context);
+
+    fail_destroy_create_context:
+    eglDestroyContext(display, create_context);
 
     fail_destroy_texture:
     texture_destroy(texture);
@@ -567,8 +576,10 @@ int gstplayer_initialize(struct gstplayer *player) {
 
     gst_base_sink_set_max_lateness(GST_BASE_SINK(sink), 20 * GST_MSECOND);
     gst_base_sink_set_qos_enabled(GST_BASE_SINK(sink), TRUE);
+    gst_base_sink_set_sync(GST_BASE_SINK(sink), TRUE);
     gst_app_sink_set_max_buffers(GST_APP_SINK(sink), 2);
     gst_app_sink_set_emit_signals(GST_APP_SINK(sink), TRUE);
+    gst_app_sink_set_drop(GST_APP_SINK(sink), FALSE);
 
     gst_app_sink_set_callbacks(
         GST_APP_SINK(sink),

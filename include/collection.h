@@ -3,6 +3,7 @@
 
 #include <string.h>
 #include <stdlib.h>
+#include <stdio.h>
 #include <errno.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -446,7 +447,7 @@ static inline int refcount_inc(refcount_t *refcount) {
 /// Decrement the reference count, return true if the refcount afterwards
 /// is still non-zero.
 static inline bool refcount_dec(refcount_t *refcount) {
-	return atomic_fetch_sub_explicit(refcount, 1, memory_order_acq_rel) != 0;
+	return atomic_fetch_sub_explicit(refcount, 1, memory_order_acq_rel) != 1;
 }
 
 /// Returns true if the reference count is one.
@@ -480,12 +481,18 @@ void obj_name ## _unrefp(struct obj_name **obj); \
 
 #define DEFINE_REF_OPS(obj_name, refcount_member_name) \
 struct obj_name *obj_name ## _ref(struct obj_name *obj) { \
+	printf(#obj_name "_ref(%p)\n  before: %d\n", obj, refcount_get_for_debug(&obj->refcount_member_name)); \
 	refcount_inc(&obj->refcount_member_name); \
+	printf("   after: %d\n", refcount_get_for_debug(&obj->refcount_member_name)); \
 	return obj; \
 } \
 void obj_name ## _unref(struct obj_name *obj) { \
+	printf(#obj_name "_unref(%p)\n  before: %d\n", obj, refcount_get_for_debug(&obj->refcount_member_name)); \
 	if (refcount_dec(&obj->refcount_member_name) == false) { \
+		printf("   after: %d\n", refcount_get_for_debug(&obj->refcount_member_name)); \
 		obj_name ## _destroy(obj); \
+	} else { \
+		printf("   after: %d\n", refcount_get_for_debug(&obj->refcount_member_name)); \
 	} \
 } \
 void obj_name ## _unrefp(struct obj_name **obj) { \

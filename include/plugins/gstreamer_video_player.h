@@ -133,7 +133,7 @@ struct video_frame;
 
 struct frame_interface {
     EGLDisplay display;
-    EGLContext context;
+    EGLContext create_context, destroy_context;
     PFNEGLCREATEIMAGEKHRPROC eglCreateImageKHR;
     PFNEGLDESTROYIMAGEKHRPROC eglDestroyImageKHR;
     PFNGLEGLIMAGETARGETTEXTURE2DOESPROC glEGLImageTargetTexture2DOES;
