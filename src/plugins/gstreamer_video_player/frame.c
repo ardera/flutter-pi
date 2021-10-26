@@ -208,7 +208,7 @@ struct video_frame *frame_new(
         goto fail_close_dmabuf_fd;
     }
 
-    egl_ok = eglMakeCurrent(interface->display, EGL_NO_SURFACE, EGL_NO_SURFACE, interface->context);
+    egl_ok = eglMakeCurrent(interface->display, EGL_NO_SURFACE, EGL_NO_SURFACE, interface->create_context);
     if (egl_ok == EGL_FALSE) {
         egl_error = eglGetError();
         LOG_ERROR("Could not make EGL context current. eglMakeCurrent: %" PRId32 "\n", egl_error);
@@ -241,7 +241,7 @@ struct video_frame *frame_new(
     frame->image = egl_image;
     frame->gl_frame.target = GL_TEXTURE_EXTERNAL_OES;
     frame->gl_frame.name = texture;
-    frame->gl_frame.format = GL_NONE;
+    frame->gl_frame.format = GL_RGBA8_OES;
     frame->gl_frame.width = 0;
     frame->gl_frame.height = 0;
 
@@ -270,13 +270,16 @@ struct video_frame *frame_new(
 }
 
 void frame_destroy(struct video_frame *frame) {
+    printf("frame_destroy(%p)\n", frame);
     gst_buffer_unref(frame->buffer);
-    eglMakeCurrent(frame->interface.display, EGL_NO_SURFACE, EGL_NO_SURFACE, frame->interface.context);
+    assert(EGL_TRUE == eglMakeCurrent(frame->interface.display, EGL_NO_SURFACE, EGL_NO_SURFACE, frame->interface.destroy_context));
     glDeleteTextures(1, &frame->gl_frame.name);
-    eglMakeCurrent(frame->interface.display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
-    frame->interface.eglDestroyImageKHR(frame->interface.display, frame->image);
-    for (int i = 0; i < frame->n_dmabuf_fds; i++)
-        close(frame->dmabuf_fds[i]);
+    DEBUG_ASSERT(GL_NO_ERROR == glGetError());
+    assert(EGL_TRUE == eglMakeCurrent(frame->interface.display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT));
+    assert(EGL_TRUE == frame->interface.eglDestroyImageKHR(frame->interface.display, frame->image));
+    for (int i = 0; i < frame->n_dmabuf_fds; i++) {
+        assert(0 == close(frame->dmabuf_fds[i]));
+    }
     free(frame);
 }
 
