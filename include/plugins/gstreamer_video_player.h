@@ -15,7 +15,10 @@ enum format_hint {
     kOther_FormatHint
 };
 
-typedef void (*gstplayer_info_callback_t)(const struct video_info *info, void *userdata);
+struct video_info;
+
+struct sd_event_source_generic;
+typedef int (*gstplayer_info_callback_t)(struct sd_event_source_generic *generic, void *video_info, void *userdata);
 
 struct gstplayer;
 struct flutterpi;
@@ -87,6 +90,12 @@ void gstplayer_put_http_header(struct gstplayer *player, const char *key, const 
 ///     @returns 0 if initialization was successfull, errno-style error code if an error ocurred.
 int gstplayer_initialize(struct gstplayer *player);
 
+/// Get the video info. If the video info (format, size, etc) is already known, @arg callback will be called
+/// synchronously, inside this call. If the video info is not known, @arg callback will be called on the flutter-pi
+/// platform thread as soon as the info is known.
+///     @returns The handle for the deferred callback.
+struct sd_event_source_generic *gstplayer_probe_video_info(struct gstplayer *player, gstplayer_info_callback_t callback, void *userdata);
+
 /// Set the current playback state to "playing" if that's not the case already.
 ///     @returns 0 if initialization was successfull, errno-style error code if an error ocurred.
 int gstplayer_play(struct gstplayer *player);
@@ -118,7 +127,9 @@ int gstplayer_seek_to(struct gstplayer *player, int64_t position);
 ///   2.0: double playback speed
 int gstplayer_set_playback_speed(struct gstplayer *player, double playback_speed);
 
-struct frame;
+
+
+struct video_frame;
 
 struct frame_interface {
     EGLDisplay display;
@@ -144,18 +155,22 @@ struct video_info {
 struct frame_info {
     const GstVideoInfo *gst_info;
     uint32_t drm_format;
-    uint64_t drm_modifier;
     EGLint egl_color_space;
-    int width, height;
 };
 
-struct frame *frame_new(
+struct _GstBuffer;
+
+struct video_frame *frame_new(
     const struct frame_interface *interface,
     const struct frame_info *meta,
-    GstBuffer *buffer
+    struct _GstBuffer *buffer
 );
 
-void frame_destroy(struct frame *frame);
+void frame_destroy(struct video_frame *frame);
+
+struct gl_texture_frame;
+
+const struct gl_texture_frame *frame_get_gl_frame(struct video_frame *frame);
 
 int gstplayer_plugin_init();
 int gstplayer_plugin_deinit();

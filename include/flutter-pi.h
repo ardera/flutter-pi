@@ -29,6 +29,7 @@
 #include <modesetting.h>
 #include <collection.h>
 #include <keyboard.h>
+#include <event_loop.h>
 
 #define LOAD_EGL_PROC(flutterpi_struct, name, full_name) \
     do { \
@@ -52,6 +53,7 @@ enum device_orientation {
 	kPortraitUp, kLandscapeLeft, kPortraitDown, kLandscapeRight
 };
 
+/// TODO: Use flutter_embedder.h proctable instead
 struct libflutter_engine {
 	FlutterEngineResult (*FlutterEngineCreateAOTData)(const FlutterEngineAOTDataSource* source, FlutterEngineAOTData* data_out);
 	FlutterEngineResult (*FlutterEngineCollectAOTData)(FlutterEngineAOTData data);
@@ -89,6 +91,7 @@ struct libflutter_engine {
 	FlutterEngineResult (*FlutterEngineNotifyDisplayUpdate)(FlutterEngine engine, FlutterEngineDisplaysUpdateType update_type, const FlutterEngineDisplay* displays, size_t display_count);
 };
 
+/// TODO: Remove this
 struct libudev {
 	struct udev *(*udev_ref)(struct udev *udev);
 	struct udev *(*udev_unref)(struct udev *udev);
@@ -336,6 +339,16 @@ struct flutterpi {
 		EGLContext flutter_render_context;
 		EGLContext flutter_resource_uploading_context;
 		EGLContext compositor_context;
+		
+		/// Used to lock the @ref temp_context, to be sure we only try to make it current on
+		/// one thread.
+		pthread_mutex_t temp_context_lock;
+		
+		/// An EGL context that's only made current to create new contexts,
+		/// for example when some native code calls @ref flutterpi_create_egl_context
+		/// to get a new context.
+		EGLContext temp_context;
+		
 		EGLSurface surface;
 
 		char      *renderer;
@@ -515,5 +528,15 @@ const char *flutterpi_get_asset_bundle_path(
 );
 
 int flutterpi_schedule_exit(void);
+
+sd_event_source_generic *flutterpi_sd_event_add_generic(
+	struct flutterpi *flutterpi,
+	sd_event_generic_handler_t handler,
+	void *userdata
+);
+
+EGLDisplay flutterpi_get_egl_display(struct flutterpi *flutterpi);
+
+EGLContext flutterpi_create_egl_context(struct flutterpi *flutterpi);
 
 #endif

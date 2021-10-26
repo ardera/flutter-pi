@@ -4,12 +4,14 @@
 #include <pthread.h>
 #include <stdio.h>
 #include <inttypes.h>
-#include <flutter-pi.h>
+#include <sys/eventfd.h>
 
+#include <flutter-pi.h>
 #include <collection.h>
 #include <pluginregistry.h>
 #include <platformchannel.h>
 #include <texture_registry.h>
+#include <event_loop.h>
 #include <plugins/gstreamer_video_player.h>
 
 #include <drm_fourcc.h>
@@ -25,6 +27,7 @@
 struct gstplayer {
     pthread_mutex_t lock;
     
+    struct flutterpi *flutterpi;
     void *userdata;
     char *video_uri;
     GstStructure *headers;
@@ -34,33 +37,26 @@ struct gstplayer {
     bool has_info;
     GstVideoInfo info;
 
+    sd_event_source_generic *info_evsrc;
     gstplayer_info_callback_t info_cb;
     void *info_cb_userdata;
 
     struct texture *texture;
     int64_t texture_id;
+
+    struct frame_interface frame_interface;
+
     GstElement *pipeline, *sink;
     GstBus *bus;
     sd_event_source *busfd_events;
     uint32_t drm_format;
+    bool has_drm_modifier;
+    uint64_t drm_modifier;
+    EGLint egl_color_space;
 };
 
 #define MAX_N_PLANES 4
 #define MAX_N_EGL_DMABUF_IMAGE_ATTRIBUTES 6 + 6*MAX_N_PLANES + 1
-
-struct frame_interface {
-    EGLDisplay display;
-    EGLContext context;
-    PFNEGLCREATEIMAGEKHRPROC eglCreateImageKHR;
-    PFNEGLDESTROYIMAGEKHRPROC eglDestroyImageKHR;
-    PFNGLEGLIMAGETARGETTEXTURE2DOESPROC glEGLImageTargetTexture2DOES;
-
-    bool supports_extended_imports;
-    PFNEGLQUERYDMABUFFORMATSEXTPROC eglQueryDmaBufFormatsEXT;
-    PFNEGLQUERYDMABUFMODIFIERSEXTPROC eglQueryDmaBufModifiersEXT;
-};
-
-
 
 static inline void lock(struct gstplayer *player) {
     pthread_mutex_lock(&player->lock);
@@ -75,9 +71,11 @@ DEFINE_LOCK_OPS(gstplayer, lock)
 static struct gstplayer *gstplayer_new(struct flutterpi *flutterpi, const char *uri, void *userdata) {
     struct gstplayer *player;
     struct texture *texture;
-    char *uri_owned;
     GstStructure *gst_headers;
+    EGLDisplay display;
+    EGLContext context;
     int64_t texture_id;
+    char *uri_owned;
     int ok;
 
     player = malloc(sizeof *player);
@@ -86,26 +84,48 @@ static struct gstplayer *gstplayer_new(struct flutterpi *flutterpi, const char *
     texture = flutterpi_create_texture(flutterpi);
     if (texture == NULL) goto fail_free_player;
 
+    display = flutterpi_get_egl_display(flutterpi);
+    if (display == EGL_NO_DISPLAY) {
+        goto fail_destroy_texture;
+    }
+
+    context = flutterpi_create_egl_context(flutterpi);
+    if (context == EGL_NO_CONTEXT) {
+        goto fail_destroy_texture;
+    }
+
     texture_id = texture_get_id(texture);
 
     uri_owned = strdup(uri);
-    if (uri_owned == NULL) goto fail_destroy_texture;
+    if (uri_owned == NULL) goto fail_destroy_egl_context;
 
-    gst_headers = gst_structure_new_empty("http headers");
+    gst_headers = gst_structure_new_empty("http-headers");
 
     ok = pthread_mutex_init(&player->lock, NULL);
     if (ok != 0) goto fail_free_gst_headers;
 
+    player->flutterpi = flutterpi;
     player->userdata = userdata;
     player->video_uri = uri_owned;
     player->headers = gst_headers;
     player->looping = false;
     player->has_info = false;
     memset(&player->info, 0, sizeof(player->info));
+    player->info_evsrc = NULL;
     player->info_cb = (gstplayer_info_callback_t) NULL;
     player->info_cb_userdata = NULL;
     player->texture = texture;
     player->texture_id = texture_id;
+    player->frame_interface = (struct frame_interface) {
+        .display = display,
+        .context = context,
+        .eglCreateImageKHR = (PFNEGLCREATEIMAGEKHRPROC) eglGetProcAddress("eglCreateImageKHR"),
+        .eglDestroyImageKHR = (PFNEGLDESTROYIMAGEKHRPROC) eglGetProcAddress("eglDestroyImageKHR"),
+        .glEGLImageTargetTexture2DOES = (PFNGLEGLIMAGETARGETTEXTURE2DOESPROC) eglGetProcAddress("glEGLImageTargetTexture2DOES"),
+        .supports_extended_imports = false,
+        .eglQueryDmaBufFormatsEXT = (PFNEGLQUERYDMABUFFORMATSEXTPROC) eglGetProcAddress("eglQueryDmaBufFormatsEXT"),
+        .eglQueryDmaBufModifiersEXT = (PFNEGLQUERYDMABUFMODIFIERSEXTPROC) eglGetProcAddress("eglQueryDmaBufModifiersEXT")
+    };
     player->pipeline = NULL;
     player->sink = NULL;
     player->bus = NULL;
@@ -113,10 +133,12 @@ static struct gstplayer *gstplayer_new(struct flutterpi *flutterpi, const char *
     player->drm_format = 0;
     return player;
 
-
     fail_free_gst_headers:
     gst_structure_free(gst_headers);
     free(uri_owned);
+
+    fail_destroy_egl_context:
+    eglDestroyContext(display, context);
 
     fail_destroy_texture:
     texture_destroy(texture);
@@ -360,20 +382,29 @@ static GstPadProbeReturn on_probe_pad(GstPad *pad, GstPadProbeInfo *info, void *
             player->drm_format = DRM_FORMAT_YUYV;
             break;
         default:
-            LOG_ERROR("unknown video format: %s\n", GST_VIDEO_INFO_NAME(&vinfo));
+            LOG_ERROR("unsupported video format: %s\n", GST_VIDEO_INFO_NAME(&vinfo));
+            player->drm_format = 0;
             break;
     }
 
     const GstVideoColorimetry *color = &GST_VIDEO_INFO_COLORIMETRY(&vinfo);
     
     if (gst_video_colorimetry_matches(color, GST_VIDEO_COLORIMETRY_BT601)) {
-
+        player->egl_color_space = EGL_ITU_REC601_EXT;
     } else if (gst_video_colorimetry_matches(color, GST_VIDEO_COLORIMETRY_BT709)) {
-
+        player->egl_color_space = EGL_ITU_REC709_EXT;
     } else if (gst_video_colorimetry_matches(color, GST_VIDEO_COLORIMETRY_BT2020)) {
-
+        player->egl_color_space = EGL_ITU_REC2020_EXT;
     } else {
+        LOG_ERROR("unsupported video colorimetry: %s\n", gst_video_colorimetry_to_string(color));
+        player->egl_color_space = EGL_NONE;
+    }
 
+    memcpy(&player->info, &vinfo, sizeof vinfo);
+    player->has_info = true;
+
+    if (player->info_evsrc != NULL) {
+        sd_event_source_generic_signal(player->info_evsrc, &player->info);
     }
 
     return GST_PAD_PROBE_OK;
@@ -387,13 +418,112 @@ void *gstplayer_get_userdata_locked(struct gstplayer *player) {
     return player->userdata;
 }
 
+static void on_destroy_texture_frame(const struct texture_frame *texture_frame, void *userdata) {
+    struct video_frame *frame;
+
+    (void) texture_frame;
+
+    DEBUG_ASSERT_NOT_NULL(texture_frame);
+    DEBUG_ASSERT_NOT_NULL(userdata);
+
+    frame = userdata;
+
+    frame_destroy(frame);
+}
+
+static void on_appsink_eos(GstAppSink *appsink, void *userdata) {
+    struct gstplayer *player;
+
+    DEBUG_ASSERT_NOT_NULL(appsink);
+    DEBUG_ASSERT_NOT_NULL(userdata);
+
+    player = userdata;
+
+    (void) player;
+
+    /// TODO: Implement
+}
+
+static GstFlowReturn on_appsink_new_preroll(GstAppSink *appsink, void *userdata) {
+    struct gstplayer *player;
+    GstSample *sample;
+
+    DEBUG_ASSERT_NOT_NULL(appsink);
+    DEBUG_ASSERT_NOT_NULL(userdata);
+
+    player = userdata;
+
+    LOG_ERROR("on_appsink_new_preroll\n");
+
+    sample = gst_app_sink_try_pull_preroll(appsink, 0);
+
+    /// TODO: Implement
+    (void) player;
+    (void) sample;
+    
+    gst_sample_unref(sample);
+
+    return GST_FLOW_OK;
+}
+
+static GstFlowReturn on_appsink_new_sample(GstAppSink *appsink, void *userdata) {
+    struct gstplayer *player;
+    struct video_frame *frame;
+    GstSample *sample;
+
+    DEBUG_ASSERT_NOT_NULL(appsink);
+    DEBUG_ASSERT_NOT_NULL(userdata);
+
+    player = userdata;
+
+    LOG_ERROR("on_appsink_new_sample\n");
+
+    sample = gst_app_sink_try_pull_sample(appsink, 0);
+    if (sample == NULL) {
+        LOG_ERROR("gstreamer returned a NULL sample.\n");
+        return GST_FLOW_ERROR;
+    }
+
+    frame = frame_new(
+        &player->frame_interface,
+        &(struct frame_info) {
+            .drm_format = player->drm_format,
+            .egl_color_space = player->egl_color_space,
+            .gst_info = &player->info
+        },
+        gst_buffer_ref(gst_sample_get_buffer(sample))
+    );
+
+    if (frame != NULL) {
+        texture_push_frame(player->texture, &(struct texture_frame) {
+            .gl = *frame_get_gl_frame(frame),
+            .destroy = on_destroy_texture_frame,
+            .userdata = frame,
+        });
+    }
+
+    gst_sample_unref(sample);
+
+    return GST_FLOW_OK;
+}
+
+static void on_appsink_cbs_destroy(void *userdata) {
+    struct gstplayer *player;
+
+    DEBUG_ASSERT_NOT_NULL(userdata);
+
+    player = userdata;
+
+    (void) player;
+}
+
 int gstplayer_initialize(struct gstplayer *player) {
     sd_event_source *busfd_event_source;
     GstElement *pipeline, *sink, *src, *decodebin;
     GstBus *bus;
     GstPad *pad;
     GPollFD fd;
-    GError *error;
+    GError *error = NULL;
     int ok;
     
     static const char *pipeline_descr = "uridecodebin name=\"src\" ! decodebin name=\"decode\" ! video/x-raw ! appsink sync=false name=\"sink\"";
@@ -438,6 +568,19 @@ int gstplayer_initialize(struct gstplayer *player) {
     gst_base_sink_set_max_lateness(GST_BASE_SINK(sink), 20 * GST_MSECOND);
     gst_base_sink_set_qos_enabled(GST_BASE_SINK(sink), TRUE);
     gst_app_sink_set_max_buffers(GST_APP_SINK(sink), 2);
+    gst_app_sink_set_emit_signals(GST_APP_SINK(sink), TRUE);
+
+    gst_app_sink_set_callbacks(
+        GST_APP_SINK(sink),
+        &(GstAppSinkCallbacks) {
+            .eos = on_appsink_eos,
+            .new_preroll = on_appsink_new_preroll,
+            .new_sample = on_appsink_new_sample,
+            ._gst_reserved = {0}
+        },
+        player,
+        on_appsink_cbs_destroy
+    );
 
     gst_pad_add_probe(
         pad,
@@ -492,6 +635,23 @@ int gstplayer_initialize(struct gstplayer *player) {
     gst_object_unref(pipeline);
 
     return ok;
+}
+
+sd_event_source_generic *gstplayer_probe_video_info(struct gstplayer *player, gstplayer_info_callback_t callback, void *userdata) {
+    sd_event_source_generic *s;
+
+    s = flutterpi_sd_event_add_generic(player->flutterpi, callback, userdata);
+    if (s == NULL) {
+        return NULL;
+    }
+
+    if (player->has_info) {
+        sd_event_source_generic_signal(s, &player->info);
+    } else {
+        player->info_evsrc = s;
+    }
+
+    return s;
 }
 
 int gstplayer_play(struct gstplayer *player) {
