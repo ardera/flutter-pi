@@ -52,6 +52,7 @@
 #include <platformchannel.h>
 #include <pluginregistry.h>
 #include <texture_registry.h>
+#include <event_loop.h>
 //#include <plugins/services.h>
 #include <plugins/text_input.h>
 #include <plugins/raw_keyboard.h>
@@ -683,6 +684,45 @@ int flutterpi_sd_event_add_io(
 	return ok;
 }
 
+sd_event_source_generic *flutterpi_sd_event_add_generic(
+	struct flutterpi *flutterpi,
+	sd_event_generic_handler_t handler,
+	void *userdata
+) {
+	sd_event_source_generic *source;
+	int ok;
+
+	if (pthread_self() != flutterpi->event_loop_thread) {
+		pthread_mutex_lock(&flutterpi->event_loop_mutex);
+	}
+
+	source = sd_event_add_generic(
+		flutterpi->event_loop,
+		handler,
+		userdata
+	);
+
+	if (pthread_self() != flutterpi->event_loop_thread) {
+		ok = write(flutterpi->wakeup_event_loop_fd, (uint8_t[8]) {0, 0, 0, 0, 0, 0, 0, 1}, 8);
+		if (ok < 0) {
+			perror("[flutter-pi] Error arming main loop for io callback. write");
+			ok = errno;
+			goto fail_unlock_event_loop;
+		}
+
+		pthread_mutex_unlock(&flutterpi->event_loop_mutex);
+	}
+
+	return source;
+
+
+	fail_unlock_event_loop:
+	if (pthread_self() != flutterpi->event_loop_thread) {
+		pthread_mutex_unlock(&flutterpi->event_loop_mutex);
+	}
+	return NULL;
+}
+
 /// flutter tasks
 static int on_execute_flutter_task(
 	void *userdata
@@ -911,6 +951,38 @@ const char *flutterpi_get_asset_bundle_path(
 	struct flutterpi *flutterpi
 ) {
 	return flutterpi->flutter.asset_bundle_path;
+}
+
+EGLDisplay flutterpi_get_egl_display(struct flutterpi *flutterpi) {
+	return flutterpi->egl.display;
+}
+
+EGLContext flutterpi_create_egl_context(struct flutterpi *flutterpi) {
+	EGLContext context;
+	
+	pthread_mutex_lock(&flutterpi->egl.temp_context_lock);
+
+	context = eglCreateContext(
+		flutterpi->egl.display, 
+		flutterpi->egl.config, 
+		flutterpi->egl.temp_context, 
+		(EGLint[]) {
+			EGL_CONTEXT_CLIENT_VERSION, 2,
+			EGL_NONE
+		}
+	);
+	if (context == EGL_NO_CONTEXT) {
+		LOG_FLUTTERPI_ERROR("Could not create new EGL context from temp context. eglCreateContext: %" PRId32 "\n", eglGetError());
+		goto fail_unlock_mutex;
+	}
+
+	pthread_mutex_unlock(&flutterpi->egl.temp_context_lock);
+
+	return context;
+
+	fail_unlock_mutex:
+	pthread_mutex_unlock(&flutterpi->egl.temp_context_lock);
+	return EGL_NO_CONTEXT;
 }
 
 static bool runs_platform_tasks_on_current_thread(void* userdata) {
@@ -1651,26 +1723,34 @@ static int init_display(void) {
 	 * OPENGL ES INITIALIZATION *
 	 ****************************/
 	flutterpi.egl.root_context = eglCreateContext(flutterpi.egl.display, flutterpi.egl.config, EGL_NO_CONTEXT, context_attribs);
-	if ((egl_error = eglGetError()) != EGL_SUCCESS) {
-		fprintf(stderr, "[flutter-pi] Could not create OpenGL ES root context. eglCreateContext: 0x%08X\n", egl_error);
+	if (flutterpi.egl.root_context == EGL_NO_CONTEXT) {
+		LOG_FLUTTERPI_ERROR("Could not create OpenGL ES root context. eglCreateContext: 0x%08X\n", egl_error);
 		return EIO;
 	}
 
 	flutterpi.egl.flutter_render_context = eglCreateContext(flutterpi.egl.display, flutterpi.egl.config, flutterpi.egl.root_context, context_attribs);
-	if ((egl_error = eglGetError()) != EGL_SUCCESS) {
-		fprintf(stderr, "[flutter-pi] Could not create OpenGL ES context for flutter rendering. eglCreateContext: 0x%08X\n", egl_error);
+	if (flutterpi.egl.flutter_render_context == EGL_NO_CONTEXT) {
+		LOG_FLUTTERPI_ERROR("Could not create OpenGL ES context for flutter rendering. eglCreateContext: 0x%08X\n", egl_error);
 		return EIO;
 	}
 
 	flutterpi.egl.flutter_resource_uploading_context = eglCreateContext(flutterpi.egl.display, flutterpi.egl.config, flutterpi.egl.root_context, context_attribs);
-	if ((egl_error = eglGetError()) != EGL_SUCCESS) {
-		fprintf(stderr, "[flutter-pi] Could not create OpenGL ES context for flutter resource uploads. eglCreateContext: 0x%08X\n", egl_error);
+	if (flutterpi.egl.flutter_resource_uploading_context == EGL_NO_CONTEXT) {
+		LOG_FLUTTERPI_ERROR("Could not create OpenGL ES context for flutter resource uploads. eglCreateContext: 0x%08X\n", egl_error);
 		return EIO;
 	}
 
 	flutterpi.egl.compositor_context = eglCreateContext(flutterpi.egl.display, flutterpi.egl.config, flutterpi.egl.root_context, context_attribs);
-	if ((egl_error = eglGetError()) != EGL_SUCCESS) {
-		fprintf(stderr, "[flutter-pi] Could not create OpenGL ES context for compositor. eglCreateContext: 0x%08X\n", egl_error);
+	if (flutterpi.egl.compositor_context == EGL_NO_CONTEXT) {
+		LOG_FLUTTERPI_ERROR("Could not create OpenGL ES context for compositor. eglCreateContext: 0x%08X\n", egl_error);
+		return EIO;
+	}
+
+	pthread_mutex_init(&flutterpi.egl.temp_context_lock, NULL);
+
+	flutterpi.egl.temp_context = eglCreateContext(flutterpi.egl.display, flutterpi.egl.config, flutterpi.egl.root_context, context_attribs);
+	if (flutterpi.egl.temp_context == EGL_NO_CONTEXT) {
+		LOG_FLUTTERPI_ERROR("Could not create OpenGL ES context for creating new contexts. eglCreateContext: 0x%08X\n", egl_error);
 		return EIO;
 	}
 
@@ -1924,7 +2004,7 @@ static int init_application(void) {
 	}
 
 	// spin up the engine
-	engine_result = libflutter_engine->FlutterEngineInitialize(FLUTTER_ENGINE_VERSION, &renderer_config, &project_args, NULL, &flutterpi.flutter.engine);
+	engine_result = libflutter_engine->FlutterEngineInitialize(FLUTTER_ENGINE_VERSION, &renderer_config, &project_args, &flutterpi, &flutterpi.flutter.engine);
 	if (engine_result != kSuccess) {
 		LOG_FLUTTERPI_ERROR("Could not initialize the flutter engine. FlutterEngineInitialize: %s\n", FLUTTER_RESULT_TO_STRING(engine_result));
 		return EINVAL;

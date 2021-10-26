@@ -1,15 +1,23 @@
 #include <stdint.h>
+#include <stdio.h>
 #include <stdbool.h>
 #include <inttypes.h>
+#include <unistd.h>
 
 #include <drm_fourcc.h>
+#include <texture_registry.h>
 #include <gst/video/video.h>
+#include <gst/allocators/allocators.h>
 #include <plugins/gstreamer_video_player.h>
+
+#define LOG_ERROR(...) fprintf(stderr, "[gstreamer video player] " __VA_ARGS__)
 
 #define MAX_N_PLANES 4
 
-struct frame {
-    const struct frame_interface interface;
+struct video_frame {
+    GstBuffer *buffer;
+
+    struct frame_interface interface;
 
     uint32_t drm_format;
 
@@ -17,19 +25,18 @@ struct frame {
     int dmabuf_fds[MAX_N_PLANES];
 
     EGLImage image;
-    GLuint gl_name;
-    GLuint gl_target;
-    GLuint gl_format;
     size_t width, height;
+
+    struct gl_texture_frame gl_frame;
 };
 
-struct frame *frame_new(
+struct video_frame *frame_new(
     const struct frame_interface *interface,
     const struct frame_info *info,
     GstBuffer *buffer
 ) {
 #   define PUT_ATTR(_key, _value) do { *attr_cursor++ = _key; *attr_cursor++ = _value; } while (false)
-    struct frame *frame;
+    struct video_frame *frame;
     GstVideoMeta *meta;
     EGLBoolean egl_ok;
     EGLImage egl_image;
@@ -51,11 +58,12 @@ struct frame *frame_new(
 
     frame = malloc(sizeof *frame);
     if (frame == NULL) {
-        return NULL;
+        goto fail_unref_buffer;
     }
 
     memory = gst_buffer_peek_memory(buffer, 0);
     is_dmabuf_memory = gst_is_dmabuf_memory(memory);
+    n_mems = gst_buffer_n_memory(buffer);
 
     if (!is_dmabuf_memory) {
         LOG_ERROR("Only dmabuf memory is supported for video frame buffers right now, but gstreamer didn't provide a dmabuf memory buffer.\n");
@@ -138,7 +146,7 @@ struct frame *frame_new(
             PUT_ATTR(EGL_DMA_BUF_PLANE0_MODIFIER_HI_EXT, uint32_to_int32(planes[0].modifier >> 32));
         } else {
             LOG_ERROR("video frame buffer uses modified format but EGL doesn't support the EGL_EXT_image_dma_buf_import_modifiers extension.\n");
-            return NULL;
+            goto fail_close_dmabuf_fd;
         }
     }
 
@@ -152,7 +160,7 @@ struct frame *frame_new(
                 PUT_ATTR(EGL_DMA_BUF_PLANE1_MODIFIER_HI_EXT, uint32_to_int32(planes[1].modifier >> 32));
             } else {
                 LOG_ERROR("video frame buffer uses modified format but EGL doesn't support the EGL_EXT_image_dma_buf_import_modifiers extension.\n");
-                return NULL;
+                goto fail_close_dmabuf_fd;
             }
         }
     }
@@ -167,7 +175,7 @@ struct frame *frame_new(
                 PUT_ATTR(EGL_DMA_BUF_PLANE2_MODIFIER_HI_EXT, uint32_to_int32(planes[2].modifier >> 32));
             } else {
                 LOG_ERROR("video frame buffer uses modified format but EGL doesn't support the EGL_EXT_image_dma_buf_import_modifiers extension.\n");
-                return NULL;
+                goto fail_close_dmabuf_fd;
             }
         }
     }
@@ -187,7 +195,7 @@ struct frame *frame_new(
                 PUT_ATTR(EGL_DMA_BUF_PLANE3_MODIFIER_HI_EXT, uint32_to_int32(planes[3].modifier >> 32));
             } else {
                 LOG_ERROR("video frame buffer uses modified format but EGL doesn't support the EGL_EXT_image_dma_buf_import_modifiers extension.\n");
-                return NULL;
+                goto fail_close_dmabuf_fd;
             }
         }
     }
@@ -197,7 +205,7 @@ struct frame *frame_new(
 
     egl_image = interface->eglCreateImageKHR(interface->display, EGL_NO_CONTEXT, EGL_LINUX_DMA_BUF_EXT, NULL, attributes);
     if (egl_image == EGL_NO_IMAGE_KHR) {
-        goto fail_free_frame;
+        goto fail_close_dmabuf_fd;
     }
 
     egl_ok = eglMakeCurrent(interface->display, EGL_NO_SURFACE, EGL_NO_SURFACE, interface->context);
@@ -225,14 +233,17 @@ struct frame *frame_new(
         goto fail_delete_texture;
     }
 
+    frame->buffer = buffer;
     memcpy(&frame->interface, interface, sizeof *interface);
     frame->drm_format = info->drm_format;
     frame->n_dmabuf_fds = 1;
     frame->dmabuf_fds[0] = dmabuf_fd;
     frame->image = egl_image;
-    frame->gl_name = texture;
-    frame->gl_target = GL_TEXTURE_EXTERNAL_OES;
-    frame->gl_format = GL_NONE;
+    frame->gl_frame.target = GL_TEXTURE_EXTERNAL_OES;
+    frame->gl_frame.name = texture;
+    frame->gl_frame.format = GL_NONE;
+    frame->gl_frame.width = 0;
+    frame->gl_frame.height = 0;
 
     return frame;
 
@@ -250,17 +261,25 @@ struct frame *frame_new(
 
     fail_free_frame:
     free(frame);
+
+    fail_unref_buffer:
+    gst_buffer_unref(buffer);
     return NULL;
 
 #   undef PUT_ATTR
 }
 
-void frame_destroy(struct frame *frame) {
+void frame_destroy(struct video_frame *frame) {
+    gst_buffer_unref(frame->buffer);
     eglMakeCurrent(frame->interface.display, EGL_NO_SURFACE, EGL_NO_SURFACE, frame->interface.context);
-    glDeleteTextures(1, &frame->gl_name);
+    glDeleteTextures(1, &frame->gl_frame.name);
     eglMakeCurrent(frame->interface.display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
     frame->interface.eglDestroyImageKHR(frame->interface.display, frame->image);
     for (int i = 0; i < frame->n_dmabuf_fds; i++)
         close(frame->dmabuf_fds[i]);
     free(frame);
+}
+
+const struct gl_texture_frame *frame_get_gl_frame(struct video_frame *frame) {
+    return &frame->gl_frame;
 }

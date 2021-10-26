@@ -13,6 +13,7 @@
 #include <plugins/gstreamer_video_player.h>
 
 #include <gst/gst.h>
+#include <gst/video/video-info.h>
 
 #define LOG_ERROR(...) fprintf(stderr, "[gstreamer video player plugin] " __VA_ARGS__)
 
@@ -25,6 +26,19 @@ enum data_source_type {
 
 struct gstplayer_meta {
     char *event_channel_name;
+    
+    bool has_listener;
+
+    sd_event_source *probe_video_info_source;
+    bool has_video_info;
+    bool is_stream;
+    int64_t duration_ms;
+    int32_t width, height;
+
+    sd_event_source *buffering_info_source;
+    bool has_ranges;
+    int64_t *ranges;
+    size_t n_ranges;
 };
 
 static struct plugin {
@@ -97,11 +111,11 @@ static int get_texture_id_from_map_arg(
         return EINVAL;
     }
 
-    struct std_value *id = stdmap_get_str(arg, "playerId");
+    struct std_value *id = stdmap_get_str(arg, "textureId");
     if (id == NULL || !STDVALUE_IS_INT(*id)) {
         ok = platch_respond_illegal_arg_pigeon(
             responsehandle,
-            "Expected `arg['playerId']` to be an integer"
+            "Expected `arg['textureId']` to be an integer"
         );
         if (ok != 0) return ok;
 
@@ -171,6 +185,98 @@ static int respond_init_failed(FlutterPlatformMessageResponseHandle *handle) {
     );
 }
 
+
+static int send_initialized_event(struct gstplayer_meta *meta) {
+    return platch_send_success_event_std(
+        meta->event_channel_name,
+        &STDMAP4(
+            STDSTRING("event"),     STDSTRING("initialized"),
+            STDSTRING("duration"),  STDINT64(meta->is_stream? INT64_MAX : meta->duration_ms),
+            STDSTRING("width"),     STDINT32(meta->width),
+            STDSTRING("height"),    STDINT32(meta->height)
+        )
+    );
+}
+
+static int send_completed_event(struct gstplayer_meta *meta) {
+    return platch_send_success_event_std(
+        meta->event_channel_name,
+        &STDMAP1(
+            STDSTRING("event"),     STDSTRING("completed")
+        )
+    );
+}
+
+static int send_buffering_update(
+    struct gstplayer_meta *meta,
+    size_t n_ranges,
+    int64_t *ranges
+) {
+    struct std_value values;
+
+    values.type = kStdList;
+    values.size = n_ranges;
+    values.list = alloca(sizeof(struct std_value) * n_ranges);
+
+    for (size_t i = 0; i < n_ranges; i++) {
+        values.list[i].type = kStdList;
+        values.list[i].size = 2;
+        values.list[i].list = alloca(sizeof(struct std_value) * 2);
+
+        values.list[i].list[0] = STDINT32(ranges[i*2]);
+        values.list[i].list[1] = STDINT32(ranges[i*2 + 1]);
+    }
+
+    return platch_send_success_event_std(
+        meta->event_channel_name,
+        &STDMAP2(
+            STDSTRING("event"),     STDSTRING("bufferingUpdate"),
+            STDSTRING("values"),    values
+        )
+    );
+}
+
+static int send_buffering_start(struct gstplayer_meta *meta) {
+    return platch_send_success_event_std(
+        meta->event_channel_name,
+        &STDMAP1(
+            STDSTRING("event"),     STDSTRING("bufferingStart")
+        )
+    );
+}
+
+static int send_buffering_end(struct gstplayer_meta *meta) {
+    return platch_send_success_event_std(
+        meta->event_channel_name,
+        &STDMAP1(
+            STDSTRING("event"),     STDSTRING("bufferingEnd")
+        )
+    );
+}
+
+static int on_probe_video_info(sd_event_source_generic *generic, void *video_info, void *userdata) {
+    struct gstplayer_meta *meta;
+    GstVideoInfo *vinfo;
+
+    (void) generic;
+
+    meta = userdata;
+    vinfo = video_info;
+
+    /// TODO: gstplayer should only call the probe callback once
+    if (meta->has_video_info == false) {
+        meta->has_video_info = true;
+        meta->is_stream = false;
+        meta->width = GST_VIDEO_INFO_WIDTH(vinfo);
+        meta->height = GST_VIDEO_INFO_HEIGHT(vinfo);
+        meta->duration_ms = 10000;
+
+        send_initialized_event(meta);
+    }
+
+    return 0;
+}
+
 /*******************************************************
  * CHANNEL HANDLERS                                    *
  * handle method calls on the method and event channel *
@@ -180,20 +286,42 @@ static int on_receive_evch(
     struct platch_obj *object,
     FlutterPlatformMessageResponseHandle *responsehandle
 ) {
+    struct gstplayer_meta *meta;
     struct gstplayer *player;
     const char *method;
 
     method = object->method;
+
+    printf("on_receive_evch");
 
     player = get_player_by_evch(channel);
     if (player == NULL) {
         return platch_respond_not_implemented(responsehandle);
     }
 
+    meta = gstplayer_get_userdata_locked(player);
+
     if STREQ("listen", method) {
-        /// TODO: Implement
+        platch_respond_success_std(responsehandle, NULL);
+
+        if (meta->has_video_info) {
+            platch_send_success_event_std(
+                channel,
+                &STDMAP4(
+                    STDSTRING("event"),     STDSTRING("initialized"),
+                    STDSTRING("duration"),  STDINT64(meta->is_stream? INT64_MAX : meta->duration_ms),
+                    STDSTRING("width"),     STDINT32(meta->width),
+                    STDSTRING("height"),    STDINT32(meta->height)
+                )
+            );
+        } else {
+            gstplayer_probe_video_info(player, on_probe_video_info, meta);
+        }
+
+        meta->has_listener = true;
     } else if STREQ("cancel", method) {
-        /// TODO: Implement
+        platch_respond_success_std(responsehandle, NULL);
+        meta->has_listener = false;
     } else {
         return platch_respond_not_implemented(responsehandle);
     }
@@ -312,6 +440,8 @@ static struct gstplayer_meta *create_meta(int64_t texture_id) {
     }
 
     meta->event_channel_name = event_channel_name;
+    meta->has_listener = false;
+    meta->has_video_info = false;
     return meta;
 }
 
@@ -329,44 +459,18 @@ static int on_create(
 ) {
     struct gstplayer_meta *meta;
     struct gstplayer *player;
-    enum   data_source_type source_type;
     struct std_value *arg, *temp;
     enum format_hint format_hint;
     char *asset, *uri, *package_name;
     int ok;
 
     (void) channel;
-    (void) source_type;
 
-    arg = &(object->std_arg);
+    arg = &(object->std_value);
 
     ok = ensure_initialized();
     if (ok != 0) {
         return respond_init_failed(responsehandle);
-    }
-
-    temp = stdmap_get_str(arg, "sourceType");
-    if (temp != NULL && STDVALUE_IS_STRING(*temp)) {
-        char *source_type_str = temp->string_value;
-
-        if STREQ("DataSourceType.asset", source_type_str) {
-            source_type = kDataSourceTypeAsset;
-        } else if STREQ("DataSourceType.network", source_type_str) {
-            source_type = kDataSourceTypeNetwork;
-        } else if STREQ("DataSourceType.file", source_type_str) {
-            source_type = kDataSourceTypeFile;
-        } else if STREQ("DataSourceType.contentUri", source_type_str) {
-            source_type = kDataSourceTypeContentUri;
-        } else {
-            goto invalid_source_type;
-        }
-    } else {
-        invalid_source_type:
-
-        return platch_respond_illegal_arg_pigeon(
-            responsehandle,
-            "Expected `arg['sourceType']` to be a stringification of the [DataSourceType] enum."
-        );
     }
 
     temp = stdmap_get_str(arg, "asset");
@@ -448,7 +552,7 @@ static int on_create(
     if (player == NULL) {
         LOG_ERROR("Couldn't create gstreamer video player.\n");
         ok = EIO;
-        goto fail_destroy_player;
+        goto fail_respond_error;
     }
 
     // create a meta object so we can store the event channel name
@@ -480,11 +584,20 @@ static int on_create(
         goto fail_remove_player;
     }
 
-    // should we wait for it to be initialized here?
-    // return platch_respond_success_pigeon(responsehandle, NULL);
-    return 0;
+    // Finally, start initializing
+    ok = gstplayer_initialize(player);
+    if (ok != 0) {
+        goto fail_remove_receiver;
+    }
 
+    return platch_respond_success_pigeon(
+        responsehandle,
+        &STDMAP1(
+            STDSTRING("textureId"), STDINT64(gstplayer_get_texture_id(player))
+        )
+    );
 
+    fail_remove_receiver:
     plugin_registry_remove_receiver(meta->event_channel_name);
 
     fail_remove_player:
@@ -495,6 +608,8 @@ static int on_create(
 
     fail_destroy_player:
     gstplayer_destroy(player);
+
+    fail_respond_error:
     return platch_respond_native_error_pigeon(responsehandle, ok);
 }
 
@@ -509,7 +624,7 @@ static int on_dispose(
 
     (void) channel;
 
-    arg = &object->std_arg;
+    arg = &object->std_value;
 
     ok = get_player_from_map_arg(arg, &player, responsehandle);
     if (ok != 0) {
@@ -533,18 +648,18 @@ static int on_set_looping(
 
     (void) channel;
 
-    arg = &object->std_arg;
+    arg = &object->std_value;
 
     ok = get_player_from_map_arg(arg, &player, responsehandle);
     if (ok != 0) return ok;
 
-    temp = stdmap_get_str(arg, "looping");
-    if (STDVALUE_IS_BOOL(*temp)) {
+    temp = stdmap_get_str(arg, "isLooping");
+    if (temp && STDVALUE_IS_BOOL(*temp)) {
         loop = STDVALUE_AS_BOOL(*temp);
     } else {
         return platch_respond_illegal_arg_pigeon(
             responsehandle,
-            "Expected `arg['looping']` to be a boolean."
+            "Expected `arg['isLooping']` to be a boolean."
         );
     }
     
@@ -564,7 +679,7 @@ static int on_set_volume(
 
     (void) channel;
 
-    arg = &object->std_arg;
+    arg = &object->std_value;
 
     ok = get_player_from_map_arg(arg, &player, responsehandle);
     if (ok != 0) return ok;
@@ -595,7 +710,7 @@ static int on_set_playback_speed(
 
     (void) channel;
 
-    arg = &object->std_arg;
+    arg = &object->std_value;
 
     ok = get_player_from_map_arg(arg, &player, responsehandle);
     if (ok != 0) return ok;
@@ -625,7 +740,7 @@ static int on_play(
 
     (void) channel;
 
-    arg = &object->std_arg;
+    arg = &object->std_value;
 
     ok = get_player_from_map_arg(arg, &player, responsehandle);
     if (ok != 0) return ok;
@@ -647,15 +762,17 @@ static int on_get_position(
     (void) channel;
     (void) position;
 
-    arg = &object->std_arg;
+    arg = &object->std_value;
 
     ok = get_player_from_map_arg(arg, &player, responsehandle);
     if (ok != 0) return ok;
 
-    position = gstplayer_get_position(player);
-
-    /// TODO: Implement
-    return platch_respond_success_pigeon(responsehandle, NULL);
+    return platch_respond_success_pigeon(
+        responsehandle,
+        &STDMAP1(
+            STDSTRING("position"), STDINT64(gstplayer_get_position(player))
+        )
+    );
 }
 
 static int on_seek_to(
@@ -670,7 +787,7 @@ static int on_seek_to(
 
     (void) channel;
 
-    arg = &(object->std_arg);
+    arg = &(object->std_value);
 
     ok = get_player_from_map_arg(arg, &player, responsehandle);
     if (ok != 0) return 0;
@@ -700,7 +817,7 @@ static int on_pause(
 
     (void) channel;
     
-    arg = &object->std_arg;
+    arg = &object->std_value;
 
     ok = get_player_from_map_arg(arg, &player, responsehandle);
     if (ok != 0) return ok;
@@ -720,7 +837,7 @@ static int on_set_mix_with_others(
 
     (void) channel;
     
-    arg = &object->std_arg;
+    arg = &object->std_value;
 
     ok = get_player_from_map_arg(arg, &player, responsehandle);
     if (ok != 0) return ok;
@@ -736,6 +853,10 @@ int8_t gstplayer_is_present(void) {
 
 int gstplayer_plugin_init() {
     int ok;
+
+    plugin.flutterpi = NULL;
+    plugin.initialized = false;
+    cpset_init(&plugin.players, CPSET_DEFAULT_MAX_SIZE);
 
     ok = plugin_registry_set_receiver("dev.flutter.pigeon.VideoPlayerApi.initialize", kStandardMessageCodec, on_initialize);
     if (ok != 0) return ok;

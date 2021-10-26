@@ -213,6 +213,7 @@ int64_t texture_get_id(struct texture *texture) {
 
 int texture_push_frame(struct texture *texture, const struct texture_frame *frame) {
     struct counted_texture_frame *counted_frame;
+    int ok;
 
     counted_frame = malloc(sizeof *counted_frame);
     if (counted_frame == NULL) {
@@ -222,11 +223,21 @@ int texture_push_frame(struct texture *texture, const struct texture_frame *fram
     counted_frame->n_refs = REFCOUNT_INIT_1;
     counted_frame->frame = *frame;
 
+    printf("texture_push_frame(%p, %p)\n", texture, frame);
 
     texture_lock(texture);
 
-    counted_texture_frame_unref(texture->next_frame);
+    if (texture->next_frame != NULL) {
+        counted_texture_frame_unref(texture->next_frame);
+        texture->next_frame = NULL;
+    }
+
     texture->next_frame = counted_frame;
+
+    ok = texture_registry_engine_notify_frame_available(texture->registry, texture->id);
+    if (ok != 0) {
+        /// TODO: Don't really know what do to here.
+    }
 
     texture_unlock(texture);
 
@@ -235,7 +246,9 @@ int texture_push_frame(struct texture *texture, const struct texture_frame *fram
 
 void texture_destroy(struct texture *texture) {
     texture_registry_unregister_texture(texture->registry, texture);
-    counted_texture_frame_unref(texture->next_frame);
+    if (texture->next_frame != NULL) {
+        counted_texture_frame_unref(texture->next_frame);
+    }
     pthread_mutex_destroy(&texture->lock);
     free(texture);
 }
@@ -258,21 +271,41 @@ static bool texture_gl_external_texture_frame_callback(
 ) {
     struct counted_texture_frame *frame;
 
-    (void) texture;
     (void) width;
     (void) height;
-    (void) texture_out;
+
+    DEBUG_ASSERT_NOT_NULL(texture);
+    DEBUG_ASSERT_NOT_NULL(texture_out);
 
     texture_lock(texture);
-    frame = counted_texture_frame_ref(texture->next_frame);
+    if (texture->next_frame != NULL) {
+        frame = counted_texture_frame_ref(texture->next_frame);
+    } else {
+        frame = NULL;
+    }
     texture_unlock(texture);
 
-    texture_out->target = frame->frame.gl.target;
-    texture_out->name = frame->frame.gl.name;
-    texture_out->format = frame->frame.gl.format;
-    texture_out->user_data = frame;
-    texture_out->destruction_callback = on_flutter_acquired_frame_destroy;
-    texture_out->width = frame->frame.gl.width;
-    texture_out->height = frame->frame.gl.height;
-    return true;
+    // only actually fill out the frame info when we have a frame.
+    // could be this method is called before the native code has called texture_push_frame.
+    if (frame != NULL) {
+        texture_out->target = frame->frame.gl.target;
+        texture_out->name = frame->frame.gl.name;
+        texture_out->format = frame->frame.gl.format;
+        texture_out->user_data = frame;
+        texture_out->destruction_callback = on_flutter_acquired_frame_destroy;
+        texture_out->width = frame->frame.gl.width;
+        texture_out->height = frame->frame.gl.height;
+        return true;
+    } else {
+        texture_out->target = GL_TEXTURE_2D;
+        texture_out->name = 0;
+        texture_out->format = GL_RGBA8_OES;
+        texture_out->user_data = NULL;
+        texture_out->destruction_callback = NULL;
+        texture_out->width = 0;
+        texture_out->height = 0;
+
+        /// TODO: Maybe we should return true here anyway?
+        return false;
+    }
 }

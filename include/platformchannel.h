@@ -326,6 +326,22 @@ struct std_value {
 	} \
 })
 
+#define STDLIST1(val1) ((struct std_value) { \
+	.type = kStdList, \
+	.size = 1, \
+	.list = (struct std_value[1]) { \
+		(val1) \
+	} \
+})
+
+#define STDLIST2(val1, val2) ((struct std_value) { \
+	.type = kStdList, \
+	.size = 2, \
+	.list = (struct std_value[2]) { \
+		(val1), (val2) \
+	} \
+})
+
 #define JSONVALUE_IS_NULL(value) ((value).type == kJsonNull)
 #define JSONNULL ((struct json_value) {.type = kJsonNull})
 
