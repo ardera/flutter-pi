@@ -69,6 +69,12 @@ OPTIONS:\n\
                              This also requires a libflutter_engine.so that was\n\
                              built with --runtime-mode=release.\n\
                              \n\
+  --profile                  Run the app in profile mode. The AOT snapshot\n\
+                             of the app (\"app.so\") must be located inside the\n\
+                             asset bundle directory.\n\
+                             This also requires a libflutter_engine.so that was\n\
+                             built with --runtime-mode=profile.\n\
+							 \n\
   -o, --orientation <orientation>  Start the app in this orientation. Valid\n\
                              for <orientation> are: portrait_up, landscape_left,\n\
                              portrait_down, landscape_right.\n\
@@ -1341,7 +1347,7 @@ static int init_display(void) {
 
 		if (horizontal_dpi != vertical_dpi) {
 		        // See https://github.com/flutter/flutter/issues/71865 for current status of this issue.
-			fprintf(stderr, "[flutter-pi] WARNING: display has non-square pixels. Non-square-pixels are not supported by flutter.\n");
+			fprintf(stderr, "[flutter-pi] WARNING: display has non-square pixels. Non-square-pixels are  ;-).\n");
 		}
 	}
 	
@@ -1680,7 +1686,20 @@ static int init_application(void) {
 	int ok;
 
 	libflutter_engine_handle = NULL;
-	if (flutterpi.flutter.runtime_mode == kRelease) {
+
+    //libflutter_engine_handle = dlopen("libflutter_engine.so", RTLD_LOCAL | RTLD_NOW);
+
+    fprintf(stderr, strcat("hello/", "libflutter_engine.so"));
+
+    if (libflutter_engine_handle == NULL)
+    {
+        LOG_FLUTTERPI_ERROR(
+            "[flutter-pi] Warning: Could not load libflutter_engine.so inside the asset bundle : "
+            "%s. Trying to open libflutter_engine.so.${runtimeMode} ...\n",
+            dlerror());
+    }
+
+    if (flutterpi.flutter.runtime_mode == kRelease) {
 		libflutter_engine_handle = dlopen("libflutter_engine.so.release", RTLD_LOCAL | RTLD_NOW);
 		if (libflutter_engine_handle == NULL) {
 			LOG_FLUTTERPI_ERROR("[flutter-pi] Warning: Could not load libflutter_engine.so.release: %s. Trying to open libflutter_engine.so...\n", dlerror());
