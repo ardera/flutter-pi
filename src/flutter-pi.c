@@ -1687,9 +1687,7 @@ static int init_application(void) {
 
 	libflutter_engine_handle = NULL;
 
-    //libflutter_engine_handle = dlopen("libflutter_engine.so", RTLD_LOCAL | RTLD_NOW);
-
-    fprintf(stderr, strcat("hello/", "libflutter_engine.so"));
+    libflutter_engine_handle = dlopen(flutterpi.flutter.libflutter_engine_path, RTLD_LOCAL | RTLD_NOW);
 
     if (libflutter_engine_handle == NULL)
     {
@@ -2113,7 +2111,7 @@ static int init_user_input(void) {
 
 
 static bool setup_paths(void) {
-	char *kernel_blob_path, *icu_data_path, *app_elf_path;
+	char *kernel_blob_path, *icu_data_path, *app_elf_path, *libflutter_engine_path;
 	#define PATH_EXISTS(path) (access((path),R_OK)==0)
 
 	if (!PATH_EXISTS(flutterpi.flutter.asset_bundle_path)) {
@@ -2142,11 +2140,15 @@ static bool setup_paths(void) {
 		return false;
 	}
 
-	flutterpi.flutter.kernel_blob_path = kernel_blob_path;
+    asprintf(&libflutter_engine_path, "%s/libflutter_engine.so", flutterpi.flutter.asset_bundle_path);
+
+
+    flutterpi.flutter.kernel_blob_path = kernel_blob_path;
 	flutterpi.flutter.icu_data_path = icu_data_path;
 	flutterpi.flutter.app_elf_path = app_elf_path;
+    flutterpi.flutter.libflutter_engine_path = libflutter_engine_path;
 
-	return true;
+    return true;
 
 	#undef PATH_EXISTS
 }
