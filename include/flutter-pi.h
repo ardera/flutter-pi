@@ -313,7 +313,7 @@ struct frame {
 struct compositor;
 
 enum flutter_runtime_mode {
-	kDebug, kRelease
+	kDebug, kProfile, kRelease
 };
 
 struct flutterpi {
@@ -426,6 +426,7 @@ struct flutterpi {
 		char *app_elf_path;
 		void *app_elf_handle;
 		char *icu_data_path;
+		char *libflutter_engine_path;
 
 		FlutterLocale **locales;
 		size_t n_locales;
