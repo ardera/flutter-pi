@@ -270,7 +270,6 @@ struct video_frame *frame_new(
 }
 
 void frame_destroy(struct video_frame *frame) {
-    printf("frame_destroy(%p)\n", frame);
     gst_buffer_unref(frame->buffer);
     assert(EGL_TRUE == eglMakeCurrent(frame->interface.display, EGL_NO_SURFACE, EGL_NO_SURFACE, frame->interface.destroy_context));
     glDeleteTextures(1, &frame->gl_frame.name);

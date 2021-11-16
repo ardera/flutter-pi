@@ -25,7 +25,6 @@ struct counted_texture_frame {
 };
 
 void counted_texture_frame_destroy(struct counted_texture_frame *frame) {
-    printf("counted_texture_frame_destroy(%p)\n", frame);
     frame->frame.destroy(
         &frame->frame,
         frame->frame.userdata
@@ -224,8 +223,6 @@ int texture_push_frame(struct texture *texture, const struct texture_frame *fram
     counted_frame->n_refs = REFCOUNT_INIT_1;
     counted_frame->frame = *frame;
 
-    printf("texture_push_frame(%p, %p)\n", texture, frame);
-
     texture_lock(texture);
 
     if (texture->next_frame != NULL) {
@@ -261,8 +258,6 @@ static void on_flutter_acquired_frame_destroy(void *userdata) {
 
     frame = userdata;
 
-    printf("on_flutter_acquired_frame_destroy(%p)\n", frame);
-
     counted_texture_frame_unref(frame);
 }
 
@@ -281,7 +276,6 @@ static bool texture_gl_external_texture_frame_callback(
     DEBUG_ASSERT_NOT_NULL(texture_out);
 
     texture_lock(texture);
-    printf("texture_gl_external_texture_frame_callback(), texture->next_frame = %p\n", texture->next_frame);
     if (texture->next_frame != NULL) {
         /// TODO: If acquiring the texture frame fails, flutter will destroy the texture frame two times.
         /// So we'll probably have a segfault if that happens.

@@ -29,19 +29,21 @@ if(NOT CMAKE_BUILD_TYPE)
     message(STATUS "CMAKE_BUILD_TYPE not set, defaulting to Release.")
 endif()
 
-project(flutter-pi LANGUAGES C VERSION "1.0.0")
+project(flutter-pi LANGUAGES C CXX VERSION "1.0.0")
 
 message(STATUS "Generator .............. ${CMAKE_GENERATOR}")
 message(STATUS "Build Type ............. ${CMAKE_BUILD_TYPE}")
 
-option(BUILD_TEXT_INPUT_PLUGIN "Include the text input plugin in the finished binary. Enables text input (to flutter text fields, for example) via attached keyboards." ON)
-option(BUILD_RAW_KEYBOARD_PLUGIN "Include the raw keyboard plugin in the finished binary. Enables raw keycode listening in flutter via the flutter RawKeyboard interface." ON)
-option(BUILD_TEST_PLUGIN "Include the test plugin in the finished binary. Allows testing platform channel communication." OFF)
-option(BUILD_OMXPLAYER_VIDEO_PLAYER_PLUGIN "Include the omxplayer_video_player plugin in the finished binary. Allows for hardware accelerated video playback in flutter using omxplayer." OFF)
-option(BUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN "Include the gstreamer_video_player plugin in the finished binary. Allows for more stable, hardware accelerated video playback in flutter using gstreamer." ON)
-option(OMXPLAYER_SUPPORTS_RUNTIME_ROTATION "Whether omxplayer supports runtime rotation." OFF)
+option(OMXPLAYER_SUPPORTS_RUNTIME_ROTATION OFF "Whether omxplayer supports runtime rotation.")
+option(BUILD_TEXT_INPUT_PLUGIN ON "Include the text input plugin in the finished binary. Enables text input (to flutter text fields, for example) via attached keyboards.")
+option(BUILD_RAW_KEYBOARD_PLUGIN ON "Include the raw keyboard plugin in the finished binary. Enables raw keycode listening in flutter via the flutter RawKeyboard interface.")
+option(BUILD_TEST_PLUGIN OFF "Include the test plugin in the finished binary. Allows testing platform channel communication.")
+option(BUILD_OMXPLAYER_VIDEO_PLAYER_PLUGIN OFF "Include the omxplayer_video_player plugin in the finished binary. Allows for hardware accelerated video playback in flutter using omxplayer.")
+option(BUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN ON "Include the gstreamer_video_player plugin in the finished binary. Allows for more stable, hardware accelerated video playback in flutter using gstreamer.")
 option(DUMP_ENGINE_LAYERS "True if flutter-pi should dump the list of rendering layers that the flutter engine sends to flutter-pi on each draw." OFF)
-
+option(ENABLE_TSAN "True to build & link with -fsanitize=thread" OFF)
+option(ENABLE_ASAN "True to build & link with -fsanitize=address" OFF)
+option(ENABLE_UBSAN "True to build & link with -fsanitize=undefined" OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 if(NOT FLUTTER_EMBEDDER_HEADER)
@@ -105,53 +107,21 @@ pkg_check_modules(LIBINPUT REQUIRED libinput)
 pkg_check_modules(LIBXKBCOMMON REQUIRED xkbcommon)
 pkg_check_modules(LIBUDEV REQUIRED libudev)
 
-set(FLUTTER_PI_SRC
+add_executable(flutter-pi
   src/flutter-pi.c
-	src/platformchannel.c
-	src/pluginregistry.c
-	src/texture_registry.c
-	src/compositor.c
-	src/modesetting.c
-	src/collection.c
+  src/platformchannel.c
+  src/pluginregistry.c
+  src/texture_registry.c
+  src/compositor.c
+  src/modesetting.c
+  src/collection.c
   src/cursor.c
   src/keyboard.c
   src/user_input.c
   src/locales.c
   src/event_loop.c
-	src/plugins/services.c
+  src/plugins/services.c
 )
-
-if (BUILD_TEXT_INPUT_PLUGIN)
-  list(APPEND FLUTTER_PI_SRC src/plugins/text_input.c)
-endif()
-if (BUILD_RAW_KEYBOARD_PLUGIN)
-  list(APPEND FLUTTER_PI_SRC src/plugins/raw_keyboard.c)
-endif()
-if (BUILD_TEST_PLUGIN)
-  list(APPEND FLUTTER_PI_SRC src/plugins/testplugin.c)
-endif()
-if (BUILD_OMXPLAYER_VIDEO_PLAYER_PLUGIN)
-  list(APPEND FLUTTER_PI_SRC src/plugins/omxplayer_video_player.c)
-endif()
-if (BUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN)
-  list(APPEND FLUTTER_PI_SRC
-    src/plugins/gstreamer_video_player/plugin.c
-    src/plugins/gstreamer_video_player/player.c
-    src/plugins/gstreamer_video_player/frame.c
-  )
-  pkg_check_modules(LIBGSTREAMER gstreamer-1.0)
-  pkg_check_modules(LIBGSTREAMER_PLUGINS_BASE gstreamer-plugins-base-1.0)
-  pkg_check_modules(LIBGSTREAMER_APP gstreamer-app-1.0)
-  pkg_check_modules(LIBGSTREAMER_ALLOCATORS gstreamer-allocators-1.0)
-  pkg_check_modules(LIBGSTREAMER_VIDEO gstreamer-video-1.0)
-
-  if (NOT (LIBGSTREAMER_FOUND AND LIBGSTREAMER_PLUGINS_BASE_FOUND AND LIBGSTREAMER_APP_FOUND AND LIBGSTREAMER_ALLOCATORS_FOUND AND LIBGSTREAMER_VIDEO_FOUND))
-    message(STATUS "BUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN is enabled, but not all gstreamer libraries have been found. gstreamer video player won't be built.")
-    set(BUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN OFF)
-  endif()
-endif()
-
-add_executable(flutter-pi ${FLUTTER_PI_SRC})
 
 target_link_libraries(flutter-pi
   ${DRM_LDFLAGS}
@@ -192,23 +162,37 @@ target_compile_options(flutter-pi PRIVATE
 )
 
 if (BUILD_TEXT_INPUT_PLUGIN)
+  target_sources(flutter-pi PRIVATE src/plugins/text_input.c)
   target_compile_definitions(flutter-pi PRIVATE "BUILD_TEXT_INPUT_PLUGIN")
 endif()
 if (BUILD_RAW_KEYBOARD_PLUGIN)
+  target_sources(flutter-pi PRIVATE src/plugins/raw_keyboard.c)
   target_compile_definitions(flutter-pi PRIVATE "BUILD_RAW_KEYBOARD_PLUGIN")
 endif()
 if (BUILD_TEST_PLUGIN)
+  target_sources(flutter-pi PRIVATE src/plugins/testplugin.c)
   target_compile_definitions(flutter-pi PRIVATE "BUILD_TEST_PLUGIN")
 endif()
 if (BUILD_OMXPLAYER_VIDEO_PLAYER_PLUGIN)
+  target_sources(flutter-pi PRIVATE src/plugins/omxplayer_video_player.c)
   target_compile_definitions(flutter-pi PRIVATE "BUILD_OMXPLAYER_VIDEO_PLAYER_PLUGIN")
 endif()
 if (OMXPLAYER_SUPPORTS_RUNTIME_ROTATION)
   target_compile_definitions(flutter-pi PRIVATE "OMXPLAYER_SUPPORTS_RUNTIME_ROTATION")
 endif()
 if (BUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN)
+  pkg_check_modules(LIBGSTREAMER REQUIRED gstreamer-1.0)
+  pkg_check_modules(LIBGSTREAMER_PLUGINS_BASE REQUIRED gstreamer-plugins-base-1.0)
+  pkg_check_modules(LIBGSTREAMER_APP REQUIRED gstreamer-app-1.0)
+  pkg_check_modules(LIBGSTREAMER_ALLOCATORS REQUIRED gstreamer-allocators-1.0)
+  pkg_check_modules(LIBGSTREAMER_VIDEO REQUIRED gstreamer-video-1.0)
+
+  target_sources(flutter-pi PRIVATE
+    src/plugins/gstreamer_video_player/plugin.c
+    src/plugins/gstreamer_video_player/player.c
+    src/plugins/gstreamer_video_player/frame.c
+  )
   target_compile_definitions(flutter-pi PRIVATE "BUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN")
-  
   target_link_libraries(flutter-pi
     ${LIBGSTREAMER_LDFLAGS}
     ${LIBGSTREAMER_PLUGINS_BASE_LDFLAGS}
@@ -231,9 +215,27 @@ if (BUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN)
     ${LIBGSTREAMER_VIDEO_CFLAGS}
   )
 endif()
+if (ENABLE_BACKWARD_CPP)
+  add_subdirectory(third_party/backward-cpp)  
+  target_sources(flutter-pi PRIVATE ${BACKWARD_ENABLE})
+  add_backward(flutter-pi)
+endif()
 
 target_link_options(flutter-pi PRIVATE
   -rdynamic
 )
+
+if (ENABLE_TSAN)
+  target_link_options(flutter-pi PRIVATE -fsanitize=thread)
+  target_compile_options(flutter-pi PRIVATE -fsanitize=thread)
+endif()
+if (ENABLE_ASAN)
+  target_link_options(flutter-pi PRIVATE -fsanitize=address)
+  target_compile_options(flutter-pi PRIVATE -fsanitize=address)
+endif()
+if (ENABLE_UBSAN)
+  target_link_options(flutter-pi PRIVATE -fsanitize=undefined)
+  target_compile_options(flutter-pi PRIVATE -fsanitize=undefined)
+endif()
 
 install(TARGETS flutter-pi RUNTIME DESTINATION bin)

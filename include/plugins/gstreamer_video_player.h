@@ -15,10 +15,47 @@ enum format_hint {
     kOther_FormatHint
 };
 
+enum buffering_mode {
+    kStream,
+    kDownload,
+    kTimeshift,
+    kLive
+};
+
+struct buffering_range {
+    int64_t start_ms;
+    int64_t stop_ms;
+};
+
+struct buffering_state {
+    // The percentage that the buffer is filled.
+    // If this is 100 playback will resume.
+    int percent;
+
+    // The buffering mode currently used by the pipeline.
+    enum buffering_mode mode;
+
+    // The average input / consumption speed in bytes per second.
+    int avg_in, avg_out;
+
+    // Time left till buffering finishes, in ms. 
+    // 0 means not buffering right now.
+    int64_t time_left_ms;
+
+    // The ranges of already buffered video.
+    // For the kDownload and kTimeshift buffering modes, this specifies the ranges
+    // where efficient seeking is possible.
+    // For the kStream and kLive buffering modes, this describes the oldest and
+    // newest item in the buffer.
+    int n_ranges;
+    struct buffering_range *ranges;
+};
+
 struct video_info;
 
 struct sd_event_source_generic;
-typedef int (*gstplayer_info_callback_t)(struct sd_event_source_generic *generic, void *video_info, void *userdata);
+typedef int  (*gstplayer_info_callback_t)(struct sd_event_source_generic *generic, void *video_info, void *userdata);
+typedef void (*gstplayer_buffering_callback_t)(const struct buffering_state *state, void *userdata);
 
 struct gstplayer;
 struct flutterpi;
@@ -80,6 +117,8 @@ int64_t gstplayer_get_texture_id(struct gstplayer *player);
 
 void gstplayer_set_info_callback(struct gstplayer *player, gstplayer_info_callback_t cb, void *userdata);
 
+void gstplayer_set_buffering_callback(struct gstplayer *player, gstplayer_buffering_callback_t callback, void *userdata);
+
 /// Add a http header (consisting of a string key and value) to the list of http headers that
 /// gstreamer will use when playing back from a HTTP/S URI.
 /// This has no effect after @ref gstplayer_initialize was called.
@@ -127,6 +166,9 @@ int gstplayer_seek_to(struct gstplayer *player, int64_t position);
 ///   2.0: double playback speed
 int gstplayer_set_playback_speed(struct gstplayer *player, double playback_speed);
 
+int gstplayer_step_forward(struct gstplayer *player);
+
+int gstplayer_step_backward(struct gstplayer *player);
 
 
 struct video_frame;
@@ -147,9 +189,11 @@ typedef struct _GstVideoInfo GstVideoInfo;
 typedef struct _GstVideoMeta GstVideoMeta;
 
 struct video_info {
-    const GstVideoInfo *gst_info;
     int width, height;
     double fps;
+    int64_t duration_ms;
+    bool can_seek;
+    int64_t seek_begin_ms, seek_end_ms;
 };
 
 struct frame_info {

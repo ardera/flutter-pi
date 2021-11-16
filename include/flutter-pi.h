@@ -539,4 +539,10 @@ EGLDisplay flutterpi_get_egl_display(struct flutterpi *flutterpi);
 
 EGLContext flutterpi_create_egl_context(struct flutterpi *flutterpi);
 
+void flutterpi_trace_event_instant(struct flutterpi *flutterpi, const char *name);
+
+void flutterpi_trace_event_begin(struct flutterpi *flutterpi, const char *name);
+
+void flutterpi_trace_event_end(struct flutterpi *flutterpi, const char *name);
+
 #endif
