@@ -35,10 +35,7 @@ struct gstplayer_meta {
     int64_t duration_ms;
     int32_t width, height;
 
-    sd_event_source *buffering_info_source;
-    bool has_ranges;
-    int64_t *ranges;
-    size_t n_ranges;
+    bool is_buffering;
 };
 
 static struct plugin {
@@ -89,6 +86,10 @@ static struct gstplayer *get_player_by_evch(const char *const event_channel_name
 /// Remove a player instance from the player collection.
 static int remove_player(struct gstplayer *player) {
     return cpset_remove_(&plugin.players, player);
+}
+
+static struct gstplayer_meta *get_meta(struct gstplayer *player) {
+    return (struct gstplayer_meta *) gstplayer_get_userdata_locked(player);
 }
 
 /// Get the player id from the given arg, which is a kStdMap.
@@ -158,6 +159,31 @@ static int get_player_from_map_arg(
     return 0;
 }
 
+static int get_player_and_meta_from_map_arg(
+    struct std_value *arg,
+    struct gstplayer **player_out,
+    struct gstplayer_meta **meta_out,
+    FlutterPlatformMessageResponseHandle *responsehandle
+) {
+    struct gstplayer *player;
+    int ok;
+
+    ok = get_player_from_map_arg(arg, &player, responsehandle);
+    if (ok != 0) {
+        return ok;
+    }
+
+    if (player_out) {
+        *player_out = player;
+    }
+
+    if (meta_out) {
+        *meta_out = (struct gstplayer_meta*) gstplayer_get_userdata_locked(player);
+    }
+
+    return 0;
+}
+
 static int ensure_initialized() {
     GError *gst_error;
     gboolean success;
@@ -209,8 +235,8 @@ static int send_completed_event(struct gstplayer_meta *meta) {
 
 static int send_buffering_update(
     struct gstplayer_meta *meta,
-    size_t n_ranges,
-    int64_t *ranges
+    int n_ranges,
+    const struct buffering_range *ranges
 ) {
     struct std_value values;
 
@@ -223,8 +249,8 @@ static int send_buffering_update(
         values.list[i].size = 2;
         values.list[i].list = alloca(sizeof(struct std_value) * 2);
 
-        values.list[i].list[0] = STDINT32(ranges[i*2]);
-        values.list[i].list[1] = STDINT32(ranges[i*2 + 1]);
+        values.list[i].list[0] = STDINT32(ranges[i].start_ms);
+        values.list[i].list[1] = STDINT32(ranges[i].stop_ms);
     }
 
     return platch_send_success_event_std(
@@ -256,25 +282,48 @@ static int send_buffering_end(struct gstplayer_meta *meta) {
 
 static int on_probe_video_info(sd_event_source_generic *generic, void *video_info, void *userdata) {
     struct gstplayer_meta *meta;
-    GstVideoInfo *vinfo;
+    struct video_info *info;
 
     (void) generic;
 
     meta = userdata;
-    vinfo = video_info;
+    info = video_info;
 
     /// TODO: gstplayer should only call the probe callback once
     if (meta->has_video_info == false) {
         meta->has_video_info = true;
-        meta->is_stream = false;
-        meta->width = GST_VIDEO_INFO_WIDTH(vinfo);
-        meta->height = GST_VIDEO_INFO_HEIGHT(vinfo);
-        meta->duration_ms = 10000;
+        meta->is_stream = !info->can_seek;
+        meta->width = info->width;
+        meta->height = info->height;
+        meta->duration_ms = info->duration_ms;
 
+        LOG_ERROR("Sending async video info\n");
         send_initialized_event(meta);
     }
 
     return 0;
+}
+
+static void on_buffering_update(const struct buffering_state *state, void *userdata) {
+    struct gstplayer_meta *meta;
+    bool new_is_buffering;
+
+    DEBUG_ASSERT_NOT_NULL(state);
+    DEBUG_ASSERT_NOT_NULL(userdata);
+
+    meta = userdata;
+
+    new_is_buffering = state->percent != 100;
+
+    if (meta->is_buffering && !new_is_buffering) {
+        send_buffering_end(meta);
+        meta->is_buffering = false;
+    } else if (!meta->is_buffering && new_is_buffering) {
+        send_buffering_start(meta);
+        meta->is_buffering = true;
+    }
+
+    send_buffering_update(meta, state->n_ranges, state->ranges);
 }
 
 /*******************************************************
@@ -292,7 +341,7 @@ static int on_receive_evch(
 
     method = object->method;
 
-    printf("on_receive_evch");
+    LOG_ERROR("on_receive_evch\n");
 
     player = get_player_by_evch(channel);
     if (player == NULL) {
@@ -305,16 +354,10 @@ static int on_receive_evch(
         platch_respond_success_std(responsehandle, NULL);
 
         if (meta->has_video_info) {
-            platch_send_success_event_std(
-                channel,
-                &STDMAP4(
-                    STDSTRING("event"),     STDSTRING("initialized"),
-                    STDSTRING("duration"),  STDINT64(meta->is_stream? INT64_MAX : meta->duration_ms),
-                    STDSTRING("width"),     STDINT32(meta->width),
-                    STDSTRING("height"),    STDINT32(meta->height)
-                )
-            );
+            LOG_ERROR("Sending video info synchronously\n");
+            send_initialized_event(meta);
         } else {
+            LOG_ERROR("Waiting for async video info\n");
             gstplayer_probe_video_info(player, on_probe_video_info, meta);
         }
 
@@ -344,7 +387,9 @@ static int on_initialize(
         return respond_init_failed(responsehandle);
     }
 
-    // listen to event channel here
+    LOG_ERROR("on_initialize\n");
+
+    // what do we even do here?
 
     return platch_respond_success_pigeon(responsehandle, NULL);
 }
@@ -565,6 +610,8 @@ static int on_create(
     
     gstplayer_set_userdata_locked(player, meta);
 
+    gstplayer_set_buffering_callback(player, on_buffering_update, meta);
+
     // Add all our HTTP headers to gstplayer using gstplayer_put_http_header
     add_headers_to_player(temp, player);
 
@@ -589,6 +636,8 @@ static int on_create(
     if (ok != 0) {
         goto fail_remove_receiver;
     }
+
+    LOG_ERROR("respond success on_create\n");
 
     return platch_respond_success_pigeon(
         responsehandle,
@@ -844,11 +893,74 @@ static int on_set_mix_with_others(
 
     /// TODO: Implement
     UNIMPLEMENTED();
+
+    return 0;
 }
 
+static int on_step_forward(
+    struct std_value *arg,
+    FlutterPlatformMessageResponseHandle *responsehandle
+) {
+    struct gstplayer *player;
+    int ok;
 
-int8_t gstplayer_is_present(void) {
-    return plugin_registry_is_plugin_present("gstreamer_video_player");
+    ok = get_player_from_map_arg(arg, &player, responsehandle);
+    if (ok != 0) {
+        return 0;
+    }
+
+    ok = gstplayer_step_forward(player);
+    if (ok != 0) {
+        return platch_respond_native_error_std(
+            responsehandle,
+            ok
+        );
+    }
+
+    return platch_respond_success_std(responsehandle, NULL);
+}
+
+static int on_step_backward(
+    struct std_value *arg,
+    FlutterPlatformMessageResponseHandle *responsehandle
+) {
+    struct gstplayer *player;
+    int ok;
+
+    ok = get_player_from_map_arg(arg, &player, responsehandle);
+    if (ok != 0) {
+        return 0;
+    }
+
+    ok = gstplayer_step_backward(player);
+    if (ok != 0) {
+        return platch_respond_native_error_std(
+            responsehandle,
+            ok
+        );
+    }
+
+    return platch_respond_success_std(responsehandle, NULL);
+}
+
+static int on_receive_method_channel(
+    char *channel,
+    struct platch_obj *object,
+    FlutterPlatformMessageResponseHandle *responsehandle
+) {
+    const char *method;
+
+    (void) channel;
+
+    method = object->method;
+
+    if STREQ("stepForward", method) {
+        return on_step_forward(&object->std_arg, responsehandle);
+    } else if STREQ("stepBackward", method) {
+        return on_step_backward(&object->std_arg, responsehandle);
+    } else {
+        return platch_respond_not_implemented(responsehandle);
+    }
 }
 
 int gstplayer_plugin_init() {
@@ -889,6 +1001,9 @@ int gstplayer_plugin_init() {
     if (ok != 0) return ok;
 
     ok = plugin_registry_set_receiver("dev.flutter.pigeon.VideoPlayerApi.setMixWithOthers", kStandardMessageCodec, on_set_mix_with_others);
+    if (ok != 0) return ok;
+
+    ok = plugin_registry_set_receiver("flutter.io/videoPlayer/gstreamerVideoPlayer/advancedControls", kStandardMethodCall, on_receive_method_channel);
     if (ok != 0) return ok;
 
     return 0;

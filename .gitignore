@@ -1,7 +1,3 @@
 .vscode
-compile_commands.json
 .clang-format
-out
 build
-build_debug
-build_release
