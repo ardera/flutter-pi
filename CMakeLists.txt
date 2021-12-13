@@ -1,7 +1,8 @@
 #
 # MIT License
 #
-# Copyright (c) 2020 Joel Winarske
+# Original work Copyright (c) 2020 Joel Winarske
+# Modified work Copyright     2021 Hannes Winkler
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -40,10 +41,10 @@ option(BUILD_RAW_KEYBOARD_PLUGIN ON "Include the raw keyboard plugin in the fini
 option(BUILD_TEST_PLUGIN OFF "Include the test plugin in the finished binary. Allows testing platform channel communication.")
 option(BUILD_OMXPLAYER_VIDEO_PLAYER_PLUGIN OFF "Include the omxplayer_video_player plugin in the finished binary. Allows for hardware accelerated video playback in flutter using omxplayer.")
 option(BUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN ON "Include the gstreamer_video_player plugin in the finished binary. Allows for more stable, hardware accelerated video playback in flutter using gstreamer.")
-option(DUMP_ENGINE_LAYERS "True if flutter-pi should dump the list of rendering layers that the flutter engine sends to flutter-pi on each draw." OFF)
-option(ENABLE_TSAN "True to build & link with -fsanitize=thread" OFF)
-option(ENABLE_ASAN "True to build & link with -fsanitize=address" OFF)
-option(ENABLE_UBSAN "True to build & link with -fsanitize=undefined" OFF)
+option(DUMP_ENGINE_LAYERS OFF "True if flutter-pi should dump the list of rendering layers that the flutter engine sends to flutter-pi on each draw." )
+option(ENABLE_TSAN OFF "True to build & link with -fsanitize=thread")
+option(ENABLE_ASAN OFF "True to build & link with -fsanitize=address")
+option(ENABLE_UBSAN OFF "True to build & link with -fsanitize=undefined")
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 if(NOT FLUTTER_EMBEDDER_HEADER)
