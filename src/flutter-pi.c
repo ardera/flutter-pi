@@ -1201,15 +1201,13 @@ static const FlutterLocale* on_compute_platform_resolved_locales(const FlutterLo
 }
 
 static int load_egl_gl_procs(void) {
-	LOAD_EGL_PROC(flutterpi, getPlatformDisplay);
-	LOAD_EGL_PROC(flutterpi, createPlatformWindowSurface);
-	LOAD_EGL_PROC(flutterpi, createPlatformPixmapSurface);
-	LOAD_EGL_PROC(flutterpi, createDRMImageMESA);
-	LOAD_EGL_PROC(flutterpi, exportDRMImageMESA);
-
-	LOAD_GL_PROC(flutterpi, EGLImageTargetTexture2DOES);
-	LOAD_GL_PROC(flutterpi, EGLImageTargetRenderbufferStorageOES);
-
+	LOAD_EGL_PROC(flutterpi, getPlatformDisplay, eglGetPlatformDisplayEXT);
+	LOAD_EGL_PROC(flutterpi, createPlatformWindowSurface, eglCreatePlatformWindowSurface);
+	LOAD_EGL_PROC(flutterpi, createPlatformPixmapSurface, eglCreatePlatformPixmapSurface);
+	flutterpi.egl.createDRMImageMESA = (PFNEGLCREATEDRMIMAGEMESAPROC) eglGetProcAddress("eglCreateDRMImageMESA");
+	flutterpi.egl.exportDRMImageMESA = (PFNEGLEXPORTDRMIMAGEMESAPROC) eglGetProcAddress("eglExportDRMImageMESA");
+	flutterpi.gl.EGLImageTargetTexture2DOES = (PFNGLEGLIMAGETARGETTEXTURE2DOESPROC) eglGetProcAddress("glEGLImageTargetTexture2DOES");
+	flutterpi.gl.EGLImageTargetRenderbufferStorageOES = (PFNGLEGLIMAGETARGETRENDERBUFFERSTORAGEOESPROC) eglGetProcAddress("glEGLImageTargetRenderbufferStorageOES");
 	return 0;
 }
 

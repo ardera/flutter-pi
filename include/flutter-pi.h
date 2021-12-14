@@ -30,26 +30,20 @@
 #include <collection.h>
 #include <keyboard.h>
 
-#define LOAD_EGL_PROC(flutterpi_struct, name) \
+#define LOAD_EGL_PROC(flutterpi_struct, name, full_name) \
     do { \
-		char proc[256]; \
-		snprintf(proc, 256, "%s", "egl" #name); \
-		proc[3] = toupper(proc[3]); \
-        (flutterpi_struct).egl.name = (void*) eglGetProcAddress(proc); \
+        (flutterpi_struct).egl.name = (void*) eglGetProcAddress(#full_name); \
         if ((flutterpi_struct).egl.name == NULL) { \
-            fprintf(stderr, "[flutter-pi] FATAL: Could not resolve EGL procedure " #name "\n"); \
+            fprintf(stderr, "[flutter-pi] FATAL: Could not resolve EGL procedure " #full_name "\n"); \
             return EINVAL; \
         } \
     } while (false)
 
-#define LOAD_GL_PROC(flutterpi_struct, name) \
+#define LOAD_GL_PROC(flutterpi_struct, name, full_name) \
 	do { \
-		char proc_name[256]; \
-		snprintf(proc_name, 256, "gl" #name); \
-		proc_name[2] = toupper(proc_name[2]); \
-		(flutterpi_struct).gl.name = (void*) eglGetProcAddress(proc_name); \
+		(flutterpi_struct).gl.name = (void*) eglGetProcAddress(#full_name); \
 		if ((flutterpi_struct).gl.name == NULL) { \
-			fprintf(stderr, "[flutter-pi] FATAL: Could not resolve GL procedure " #name "\n"); \
+			fprintf(stderr, "[flutter-pi] FATAL: Could not resolve GL procedure " #full_name "\n"); \
 			return EINVAL; \
 		} \
 	} while (false)
