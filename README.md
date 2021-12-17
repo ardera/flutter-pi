@@ -1,5 +1,5 @@
 ## 📰 NEWS
-- The new latest flutter gallery commit for flutter 2.2 is `633be8a`
+- The new latest flutter gallery commit for flutter 2.8 is `9eb785c`
 - There's now a `#custom-embedders` channel on the [flutter discord](https://github.com/flutter/flutter/wiki/Chat) which you can use if you have any questions regarding flutter-pi or generally, anything related to embedding the engine for which you don't want to open issue about or write an email.
 
 # flutter-pi
@@ -97,7 +97,8 @@ If you encounter issues running flutter-pi on any of the supported platforms lis
 2. Switch to console mode:
    `System Options -> Boot / Auto Login` and select `Console` or `Console (Autologin)`.
 
-3. Enable the V3D graphics driver
+3. *Raspbian buster only, skip this if you're on bullseye*  
+    Enable the V3D graphics driver:  
    `Advanced Options -> GL Driver -> GL (Fake KMS)`
 
 4. Configure the GPU memory
@@ -151,7 +152,7 @@ If you encounter issues running flutter-pi on any of the supported platforms lis
 ```bash
 git clone https://github.com/flutter/gallery.git flutter_gallery
 cd flutter_gallery
-git checkout 633be8a
+git checkout 9eb785c
 flutter build bundle
 rsync -a ./build/flutter_assets/ pi@raspberrypi:/home/pi/flutter_gallery/
 ```
@@ -160,8 +161,8 @@ rsync -a ./build/flutter_assets/ pi@raspberrypi:/home/pi/flutter_gallery/
 <details>
   <summary>More information</summary>
     
-  - flutter_gallery is developed against flutter master. `633be8aa13799bf1215d03a155132025f42c7d07` is currently the latest flutter gallery
-    commit working with flutter stable.
+  - flutter_gallery is developed against flutter master. `9eb785c` is currently the latest flutter gallery
+    commit working with flutter stable (2.8).
 </details>
 
 ### Building the `app.so` (for running your app in Release/Profile mode)
