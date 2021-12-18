@@ -1005,6 +1005,7 @@ static bool runs_platform_tasks_on_current_thread(void* userdata) {
 static int run_main_loop(void) {
     int ok, evloop_fd;
 
+    LOG_FLUTTERPI_ERROR("lock\n");
     pthread_mutex_lock(&flutterpi.event_loop_mutex);
     ok = sd_event_get_fd(flutterpi.event_loop);
     if (ok < 0) {
@@ -1012,6 +1013,7 @@ static int run_main_loop(void) {
         pthread_mutex_unlock(&flutterpi.event_loop_mutex);
         return -ok;
     }
+    LOG_FLUTTERPI_ERROR("unlock\n");
     pthread_mutex_unlock(&flutterpi.event_loop_mutex);
 
     evloop_fd = ok;
@@ -1028,6 +1030,7 @@ static int run_main_loop(void) {
 
         const fd_set const_fds = rfds;
 
+        LOG_FLUTTERPI_ERROR("lock\n");
         pthread_mutex_lock(&flutterpi.event_loop_mutex);
          
         do {
@@ -1042,6 +1045,7 @@ static int run_main_loop(void) {
 
                     break;
                 case SD_EVENT_ARMED:
+                    LOG_FLUTTERPI_ERROR("unlock\n");
                     pthread_mutex_unlock(&flutterpi.event_loop_mutex);
 
                     do {
@@ -1054,7 +1058,8 @@ static int run_main_loop(void) {
                             return errno;
                         }
                     } while ((ok < 0) && (errno == EINTR));
-                    
+
+                    LOG_FLUTTERPI_ERROR("lock\n");
                     pthread_mutex_lock(&flutterpi.event_loop_mutex);
                         
                     ok = sd_event_wait(flutterpi.event_loop, 0);
@@ -1080,6 +1085,7 @@ static int run_main_loop(void) {
             }
         } while (state != SD_EVENT_FINISHED);
 
+        LOG_FLUTTERPI_ERROR("unlock\n");
         pthread_mutex_unlock(&flutterpi.event_loop_mutex);
     }
 

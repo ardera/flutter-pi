@@ -867,10 +867,16 @@ struct gstplayer *gstplayer_new_from_content_uri(
 }   
 
 void gstplayer_destroy(struct gstplayer *player) {
-    sd_event_source_unref(player->busfd_events);
+    sd_event_source_disable_unref(player->busfd_events);
+    gst_object_unref(GST_OBJECT(player->bus));
+    gst_element_set_state(GST_ELEMENT(player->pipeline), GST_STATE_NULL);
+    gst_object_unref(GST_OBJECT(player->pipeline));
+    gst_object_unref(GST_OBJECT(player->sink));
     pthread_mutex_destroy(&player->lock);
-    if (player->headers != NULL) free(player->headers);
+    if (player->headers != NULL) gst_structure_free(player->headers);
     free(player->video_uri);
+    eglDestroyContext(player->frame_interface.display, player->frame_interface.destroy_context);
+    eglDestroyContext(player->frame_interface.display, player->frame_interface.create_context);
     texture_destroy(player->texture);
     free(player);
 }
