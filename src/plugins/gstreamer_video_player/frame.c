@@ -5,9 +5,12 @@
 #include <unistd.h>
 
 #include <drm_fourcc.h>
-#include <texture_registry.h>
+#include <gbm.h>
 #include <gst/video/video.h>
 #include <gst/allocators/allocators.h>
+
+#include <flutter-pi.h>
+#include <texture_registry.h>
 #include <plugins/gstreamer_video_player.h>
 
 #define LOG_ERROR(...) fprintf(stderr, "[gstreamer video player] " __VA_ARGS__)
@@ -17,7 +20,7 @@
 struct video_frame {
     GstBuffer *buffer;
 
-    struct frame_interface interface;
+    struct frame_interface *interface;
 
     uint32_t drm_format;
 
@@ -30,8 +33,136 @@ struct video_frame {
     struct gl_texture_frame gl_frame;
 };
 
+struct frame_interface *frame_interface_new(struct flutterpi *flutterpi) {
+    struct frame_interface *interface;
+    EGLContext context;
+    EGLDisplay display;
+
+    interface = malloc(sizeof *interface);
+    if (interface == NULL) {
+        return NULL;
+    }
+
+    display = flutterpi_get_egl_display(flutterpi);
+    if (display == EGL_NO_DISPLAY) {
+        goto fail_free;
+    }
+
+    context = flutterpi_create_egl_context(flutterpi);
+    if (context == EGL_NO_CONTEXT) {
+        goto fail_free;
+    }
+
+    PFNEGLCREATEIMAGEKHRPROC create_image = (PFNEGLCREATEIMAGEKHRPROC) eglGetProcAddress("eglCreateImageKHR");
+    if (create_image == NULL) {
+        LOG_ERROR("Could not resolve eglCreateImageKHR egl procedure.\n");
+        goto fail_destroy_context;
+    }
+
+    PFNEGLDESTROYIMAGEKHRPROC destroy_image = (PFNEGLDESTROYIMAGEKHRPROC) eglGetProcAddress("eglDestroyImageKHR");
+    if (destroy_image == NULL) {
+        LOG_ERROR("Could not resolve eglDestroyImageKHR egl procedure.\n");
+        goto fail_destroy_context;
+    }
+
+    PFNGLEGLIMAGETARGETTEXTURE2DOESPROC gl_egl_image_target_texture2d = (PFNGLEGLIMAGETARGETTEXTURE2DOESPROC) eglGetProcAddress("glEGLImageTargetTexture2DOES");
+    if (gl_egl_image_target_texture2d == NULL) {
+        LOG_ERROR("Could not resolve glEGLImageTargetTexture2DOES egl procedure.\n");
+        goto fail_destroy_context;
+    }
+
+    // These two are optional.
+    // Might be useful in the future.
+    PFNEGLQUERYDMABUFFORMATSEXTPROC egl_query_dmabuf_formats = (PFNEGLQUERYDMABUFFORMATSEXTPROC) eglGetProcAddress("eglQueryDmaBufFormatsEXT");
+    PFNEGLQUERYDMABUFMODIFIERSEXTPROC egl_query_dmabuf_modifiers = (PFNEGLQUERYDMABUFMODIFIERSEXTPROC) eglGetProcAddress("eglQueryDmaBufModifiersEXT");
+
+    interface->gbm_device = flutterpi_get_gbm_device(flutterpi);
+    interface->display = display;
+    pthread_mutex_init(&interface->context_lock, NULL); 
+    interface->context = context;
+    interface->eglCreateImageKHR = create_image;
+    interface->eglDestroyImageKHR = destroy_image;
+    interface->glEGLImageTargetTexture2DOES = gl_egl_image_target_texture2d;
+    interface->supports_extended_imports = false;
+    interface->eglQueryDmaBufFormatsEXT = egl_query_dmabuf_formats;
+    interface->eglQueryDmaBufModifiersEXT = egl_query_dmabuf_modifiers;
+    interface->n_refs = REFCOUNT_INIT_1;
+    return interface;
+
+    fail_destroy_context:
+    DEBUG_ASSERT_EGL_TRUE(eglDestroyContext(display, context));
+
+    fail_free:
+    free(interface);
+    return NULL;
+}
+
+void frame_interface_destroy(struct frame_interface *interface) {
+    pthread_mutex_destroy(&interface->context_lock);
+    DEBUG_ASSERT_EGL_TRUE(eglDestroyContext(interface->display, interface->context));
+    free(interface);
+}
+
+DEFINE_REF_OPS(frame_interface, n_refs)
+
+/**
+ * @brief Create a dmabuf fd from the given GstBuffer.
+ * 
+ * Calls gst_buffer_map on the buffer, so buffer could have changed after the call.
+ * 
+ */
+int dup_gst_buffer_as_dmabuf(struct gbm_device *gbm_device, GstBuffer *buffer) {
+    struct gbm_bo *bo;
+    GstMapInfo map_info;
+    uint32_t stride;
+    gboolean gst_ok;
+    void *map, *map_data;
+    int fd;
+    
+    gst_ok = gst_buffer_map(buffer, &map_info, GST_MAP_READ);
+    if (gst_ok == FALSE) {
+        LOG_ERROR("Couldn't map gstreamer video frame buffer to copy it into a dma buffer.\n");
+        return -1;
+    }
+
+    bo = gbm_bo_create(gbm_device, map_info.size, 1, GBM_FORMAT_R8, GBM_BO_USE_LINEAR);
+    if (bo == NULL) {
+        LOG_ERROR("Couldn't create GBM BO to copy video frame into.\n");
+        goto fail_unmap_buffer;
+    }
+
+    map_data = NULL;
+    map = gbm_bo_map(bo, 0, 0, map_info.size, 1, GBM_BO_TRANSFER_WRITE, &stride, &map_data);
+    if (map == NULL) {
+        LOG_ERROR("Couldn't mmap GBM BO to copy video frame into it.\n");
+        goto fail_destroy_bo;
+    }
+
+    memcpy(map, map_info.data, map_info.size);
+
+    gbm_bo_unmap(bo, map_data);
+
+    fd = gbm_bo_get_fd(bo);
+    if (fd < 0) {
+        LOG_ERROR("Couldn't filedescriptor of video frame GBM BO.\n");
+        goto fail_destroy_bo;
+    }
+
+    /// TODO: Should we dup the fd before we destroy the bo? 
+    gbm_bo_destroy(bo);
+    gst_buffer_unmap(buffer, &map_info);
+    return fd;
+
+    fail_destroy_bo:
+    gbm_bo_destroy(bo);
+
+    fail_unmap_buffer:
+    gst_buffer_unmap(buffer, &map_info);
+    return -1;
+}
+
 struct video_frame *frame_new(
-    const struct frame_interface *interface,
+    struct frame_interface *interface,
     const struct frame_info *info,
     GstBuffer *buffer
 ) {
@@ -65,17 +196,19 @@ struct video_frame *frame_new(
     is_dmabuf_memory = gst_is_dmabuf_memory(memory);
     n_mems = gst_buffer_n_memory(buffer);
 
-    if (!is_dmabuf_memory) {
-        LOG_ERROR("Only dmabuf memory is supported for video frame buffers right now, but gstreamer didn't provide a dmabuf memory buffer.\n");
-        goto fail_free_frame;
+    if (is_dmabuf_memory) {
+        dmabuf_fd = dup(gst_dmabuf_memory_get_fd(memory));
+    } else {
+        dmabuf_fd = dup_gst_buffer_as_dmabuf(interface->gbm_device, buffer);
+        
+        //LOG_ERROR("Only dmabuf memory is supported for video frame buffers right now, but gstreamer didn't provide a dmabuf memory buffer.\n");
+        //goto fail_free_frame;
     }
 
     if (n_mems > 1) {
         LOG_ERROR("Multiple dmabufs for a single frame buffer is not supported right now.\n");
         goto fail_free_frame;
     }
-
-    dmabuf_fd = dup(gst_dmabuf_memory_get_fd(memory));
 
     width = GST_VIDEO_INFO_WIDTH(info->gst_info);
     height = GST_VIDEO_INFO_HEIGHT(info->gst_info);
@@ -208,11 +341,13 @@ struct video_frame *frame_new(
         goto fail_close_dmabuf_fd;
     }
 
-    egl_ok = eglMakeCurrent(interface->display, EGL_NO_SURFACE, EGL_NO_SURFACE, interface->create_context);
+    frame_interface_lock(interface);
+
+    egl_ok = eglMakeCurrent(interface->display, EGL_NO_SURFACE, EGL_NO_SURFACE, interface->context);
     if (egl_ok == EGL_FALSE) {
         egl_error = eglGetError();
         LOG_ERROR("Could not make EGL context current. eglMakeCurrent: %" PRId32 "\n", egl_error);
-        goto fail_destroy_egl_image;
+        goto fail_unlock_interface;
     }
 
     glGenTextures(1, &texture);
@@ -233,8 +368,10 @@ struct video_frame *frame_new(
         goto fail_delete_texture;
     }
 
+    frame_interface_unlock(interface);
+
     frame->buffer = buffer;
-    memcpy(&frame->interface, interface, sizeof *interface);
+    frame->interface = frame_interface_ref(interface);
     frame->drm_format = info->drm_format;
     frame->n_dmabuf_fds = 1;
     frame->dmabuf_fds[0] = dmabuf_fd;
@@ -253,7 +390,8 @@ struct video_frame *frame_new(
     fail_clear_context:
     eglMakeCurrent(interface->display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
 
-    fail_destroy_egl_image:
+    fail_unlock_interface:
+    frame_interface_unlock(interface);
     interface->eglDestroyImageKHR(interface->display, egl_image);
 
     fail_close_dmabuf_fd:
@@ -271,11 +409,16 @@ struct video_frame *frame_new(
 
 void frame_destroy(struct video_frame *frame) {
     gst_buffer_unref(frame->buffer);
-    assert(EGL_TRUE == eglMakeCurrent(frame->interface.display, EGL_NO_SURFACE, EGL_NO_SURFACE, frame->interface.destroy_context));
+
+    frame_interface_lock(frame->interface);
+    DEBUG_ASSERT_EGL_TRUE(eglMakeCurrent(frame->interface->display, EGL_NO_SURFACE, EGL_NO_SURFACE, frame->interface->context));
     glDeleteTextures(1, &frame->gl_frame.name);
     DEBUG_ASSERT(GL_NO_ERROR == glGetError());
-    assert(EGL_TRUE == eglMakeCurrent(frame->interface.display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT));
-    assert(EGL_TRUE == frame->interface.eglDestroyImageKHR(frame->interface.display, frame->image));
+    DEBUG_ASSERT_EGL_TRUE(eglMakeCurrent(frame->interface->display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT));
+    frame_interface_unlock(frame->interface);
+    
+    DEBUG_ASSERT_EGL_TRUE(frame->interface->eglDestroyImageKHR(frame->interface->display, frame->image));
+    frame_interface_unref(frame->interface);
     for (int i = 0; i < frame->n_dmabuf_fds; i++) {
         assert(0 == close(frame->dmabuf_fds[i]));
     }

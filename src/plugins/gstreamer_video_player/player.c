@@ -111,7 +111,7 @@ struct gstplayer {
     struct texture *texture;
     int64_t texture_id;
 
-    struct frame_interface frame_interface;
+    struct frame_interface *frame_interface;
 
     GstElement *pipeline, *sink;
     GstBus *bus;
@@ -342,6 +342,15 @@ static void update_buffering_state(struct gstplayer *player) {
     return player->buffering_cb(&state, player->buffering_cb_userdata);
 }
 
+static int init(struct gstplayer *player, bool force_sw_decoders);
+
+static void maybe_deinit(struct gstplayer *player);
+
+static void fallback_to_sw_decoding(struct gstplayer *player) {
+    maybe_deinit(player);
+    init(player, true);
+}
+
 static void on_bus_message(struct gstplayer *player, GstMessage *msg) {
     GstState old, current, pending, requested;
     GError *error;
@@ -351,7 +360,13 @@ static void on_bus_message(struct gstplayer *player, GstMessage *msg) {
     switch (GST_MESSAGE_TYPE(msg)) {
         case GST_MESSAGE_ERROR:
             gst_message_parse_error(msg, &error, &debug_info);
-            fprintf(stderr, "[gstreamer video player] gstreamer error: %s (debug info: %s)\n", error->message, debug_info);
+
+            fprintf(stderr, "[gstreamer video player] gstreamer error: code: %d, domain: %s, msg: %s (debug info: %s)\n", error->code, g_quark_to_string(error->domain), error->message, debug_info);
+            if (error->domain == GST_STREAM_ERROR && error->code == GST_STREAM_ERROR_DECODE && strcmp(error->message, "No valid frames decoded before end of stream") == 0) {
+                LOG_ERROR("Hardware decoder failed. Falling back to software decoding...\n");
+                fallback_to_sw_decoding(player);
+            }
+
             g_clear_error(&error);
             g_free(debug_info);
             break;
@@ -644,7 +659,7 @@ static GstFlowReturn on_appsink_new_preroll(GstAppSink *appsink, void *userdata)
     }
 
     frame = frame_new(
-        &player->frame_interface,
+        player->frame_interface,
         &(struct frame_info) {
             .drm_format = player->drm_format,
             .egl_color_space = player->egl_color_space,
@@ -683,7 +698,7 @@ static GstFlowReturn on_appsink_new_sample(GstAppSink *appsink, void *userdata) 
     }
 
     frame = frame_new(
-        &player->frame_interface,
+        player->frame_interface,
         &(struct frame_info) {
             .drm_format = player->drm_format,
             .egl_color_space = player->egl_color_space,
@@ -715,43 +730,149 @@ static void on_appsink_cbs_destroy(void *userdata) {
     (void) player;
 }
 
+static int init(struct gstplayer *player, bool force_sw_decoders) {
+    sd_event_source *busfd_event_source;
+    GstElement *pipeline, *sink, *src;
+    GstBus *bus;
+    GstPad *pad;
+    GPollFD fd;
+    GError *error = NULL;
+    int ok;
+    
+    static const char *pipeline_descr = "uridecodebin name=\"src\" ! video/x-raw ! appsink sync=true name=\"sink\"";
+
+    pipeline = gst_parse_launch(pipeline_descr, &error);
+    if (pipeline == NULL) {
+        LOG_ERROR("Could create GStreamer pipeline from description: %s (pipeline: `%s`)\n", error->message, pipeline_descr);
+        return error->code;
+    }
+
+    sink = gst_bin_get_by_name(GST_BIN(pipeline), "sink");
+    if (sink == NULL) {
+        LOG_ERROR("Couldn't find appsink in pipeline bin.\n");
+        ok = EINVAL;
+        goto fail_unref_pipeline;
+    }
+
+    pad = gst_element_get_static_pad(sink, "sink");
+    if (pad == NULL) {
+        LOG_ERROR("Couldn't get static pad \"sink\" from video sink.\n");
+        ok = EINVAL;
+        goto fail_unref_sink;
+    }
+    
+    gst_pad_add_probe(
+        pad,
+        GST_PAD_PROBE_TYPE_QUERY_DOWNSTREAM,
+        on_query_appsink,
+        player,
+        NULL
+    );
+
+    src = gst_bin_get_by_name(GST_BIN(pipeline), "src");
+    if (src == NULL) {
+        LOG_ERROR("Couldn't find uridecodebin in pipeline bin.\n");
+        ok = EINVAL;
+        goto fail_unref_sink;
+    }
+
+    g_object_set(G_OBJECT(src), "uri", player->video_uri, "force-sw-decoders", force_sw_decoders, NULL);
+
+    gst_base_sink_set_max_lateness(GST_BASE_SINK(sink), 20 * GST_MSECOND);
+    gst_base_sink_set_qos_enabled(GST_BASE_SINK(sink), TRUE);
+    gst_app_sink_set_max_buffers(GST_APP_SINK(sink), 2);
+    gst_app_sink_set_emit_signals(GST_APP_SINK(sink), TRUE);
+    gst_app_sink_set_drop(GST_APP_SINK(sink), FALSE);
+
+    gst_app_sink_set_callbacks(
+        GST_APP_SINK(sink),
+        &(GstAppSinkCallbacks) {
+            .eos = on_appsink_eos,
+            .new_preroll = on_appsink_new_preroll,
+            .new_sample = on_appsink_new_sample,
+            ._gst_reserved = {0}
+        },
+        player,
+        on_appsink_cbs_destroy
+    );
+
+    gst_pad_add_probe(
+        pad,
+        GST_PAD_PROBE_TYPE_EVENT_DOWNSTREAM,
+        on_probe_pad,
+        player,
+        NULL
+    );
+
+    g_signal_connect(src, "element-added", G_CALLBACK(on_element_added), player);
+
+    bus = gst_pipeline_get_bus(GST_PIPELINE(pipeline));
+
+    gst_bus_get_pollfd(bus, &fd);
+
+    flutterpi_sd_event_add_io(
+        &busfd_event_source,
+        fd.fd,
+        EPOLLIN,
+        on_bus_fd_ready,
+        player
+    );
+
+    LOG_ERROR("Setting state to paused...\n");
+    gst_element_set_state(GST_ELEMENT(pipeline), GST_STATE_PAUSED);
+
+    player->sink = sink;
+    /// FIXME: Not sure we need this here. pipeline is floating after gst_parse_launch, which
+    /// means we should take a reference, but the examples don't increase the refcount.
+    player->pipeline = pipeline; //gst_object_ref(pipeline);
+    player->bus = bus;
+    player->busfd_events = busfd_event_source;
+
+    gst_object_unref(src);
+    gst_object_unref(pad);
+    return 0;
+
+    fail_unref_sink:
+    gst_object_unref(sink);
+
+    fail_unref_pipeline:
+    gst_object_unref(pipeline);
+
+    return ok;
+}
+
+static void maybe_deinit(struct gstplayer *player) {
+    if (player->busfd_events != NULL) sd_event_source_unref(player->busfd_events);
+    if (player->sink != NULL) gst_object_unref(GST_OBJECT(player->sink));
+    if (player->bus != NULL) gst_object_unref(GST_OBJECT(player->bus));
+    if (player->pipeline != NULL) gst_element_set_state(GST_ELEMENT(player->pipeline), GST_STATE_NULL);
+    if (player->pipeline != NULL) gst_object_unref(GST_OBJECT(player->pipeline));
+}
+
 DEFINE_LOCK_OPS(gstplayer, lock)
 
 static struct gstplayer *gstplayer_new(struct flutterpi *flutterpi, const char *uri, void *userdata) {
+    struct frame_interface *frame_interface;
     struct gstplayer *player;
     struct texture *texture;
     GstStructure *gst_headers;
-    EGLDisplay display;
-    EGLContext create_context, destroy_context;
     int64_t texture_id;
     char *uri_owned;
     int ok;
 
     player = malloc(sizeof *player);
     if (player == NULL) return NULL;
-    
+
     texture = flutterpi_create_texture(flutterpi);
     if (texture == NULL) goto fail_free_player;
-
-    display = flutterpi_get_egl_display(flutterpi);
-    if (display == EGL_NO_DISPLAY) {
-        goto fail_destroy_texture;
-    }
-
-    create_context = flutterpi_create_egl_context(flutterpi);
-    if (create_context == EGL_NO_CONTEXT) {
-        goto fail_destroy_texture;
-    }
-
-    destroy_context = flutterpi_create_egl_context(flutterpi);
-    if (destroy_context == EGL_NO_CONTEXT) {
-        goto fail_destroy_create_context;
-    }
+    
+    frame_interface = frame_interface_new(flutterpi);
+    if (frame_interface == NULL) goto fail_destroy_texture;
 
     texture_id = texture_get_id(texture);
 
     uri_owned = strdup(uri);
-    if (uri_owned == NULL) goto fail_destroy_destroy_context;
+    if (uri_owned == NULL) goto fail_destroy_frame_interface;
 
     gst_headers = gst_structure_new_empty("http-headers");
 
@@ -780,17 +901,7 @@ static struct gstplayer *gstplayer_new(struct flutterpi *flutterpi, const char *
     player->info_cb_userdata = NULL;
     player->texture = texture;
     player->texture_id = texture_id;
-    player->frame_interface = (struct frame_interface) {
-        .display = display,
-        .create_context = create_context,
-        .destroy_context = destroy_context,
-        .eglCreateImageKHR = (PFNEGLCREATEIMAGEKHRPROC) eglGetProcAddress("eglCreateImageKHR"),
-        .eglDestroyImageKHR = (PFNEGLDESTROYIMAGEKHRPROC) eglGetProcAddress("eglDestroyImageKHR"),
-        .glEGLImageTargetTexture2DOES = (PFNGLEGLIMAGETARGETTEXTURE2DOESPROC) eglGetProcAddress("glEGLImageTargetTexture2DOES"),
-        .supports_extended_imports = false,
-        .eglQueryDmaBufFormatsEXT = (PFNEGLQUERYDMABUFFORMATSEXTPROC) eglGetProcAddress("eglQueryDmaBufFormatsEXT"),
-        .eglQueryDmaBufModifiersEXT = (PFNEGLQUERYDMABUFMODIFIERSEXTPROC) eglGetProcAddress("eglQueryDmaBufModifiersEXT")
-    };
+    player->frame_interface = frame_interface;
     player->pipeline = NULL;
     player->sink = NULL;
     player->bus = NULL;
@@ -802,11 +913,8 @@ static struct gstplayer *gstplayer_new(struct flutterpi *flutterpi, const char *
     gst_structure_free(gst_headers);
     free(uri_owned);
 
-    fail_destroy_destroy_context:
-    eglDestroyContext(display, destroy_context);
-
-    fail_destroy_create_context:
-    eglDestroyContext(display, create_context);
+    fail_destroy_frame_interface:
+    frame_interface_unref(frame_interface);
 
     fail_destroy_texture:
     texture_destroy(texture);
@@ -867,16 +975,15 @@ struct gstplayer *gstplayer_new_from_content_uri(
 }   
 
 void gstplayer_destroy(struct gstplayer *player) {
-    sd_event_source_disable_unref(player->busfd_events);
-    gst_object_unref(GST_OBJECT(player->bus));
-    gst_element_set_state(GST_ELEMENT(player->pipeline), GST_STATE_NULL);
-    gst_object_unref(GST_OBJECT(player->pipeline));
-    gst_object_unref(GST_OBJECT(player->sink));
+    LOG_ERROR("gstplayer_destroy(%p)\n", player);
+    if (player->info_evsrc != NULL) {
+        sd_event_source_generic_unref(player->info_evsrc);
+    }
+    maybe_deinit(player);
     pthread_mutex_destroy(&player->lock);
     if (player->headers != NULL) gst_structure_free(player->headers);
     free(player->video_uri);
-    eglDestroyContext(player->frame_interface.display, player->frame_interface.destroy_context);
-    eglDestroyContext(player->frame_interface.display, player->frame_interface.create_context);
+    frame_interface_unref(player->frame_interface);
     texture_destroy(player->texture);
     free(player);
 }
@@ -906,114 +1013,7 @@ void *gstplayer_get_userdata_locked(struct gstplayer *player) {
 }
 
 int gstplayer_initialize(struct gstplayer *player) {
-    sd_event_source *busfd_event_source;
-    GstElement *pipeline, *sink, *src;
-    GstBus *bus;
-    GstPad *pad;
-    GPollFD fd;
-    GError *error = NULL;
-    int ok;
-    
-    static const char *pipeline_descr = "uridecodebin name=\"src\" ! video/x-raw ! appsink sync=true name=\"sink\"";
-
-    pipeline = gst_parse_launch(pipeline_descr, &error);
-    if (pipeline == NULL) {
-        LOG_ERROR("Could create GStreamer pipeline from description: %s (pipeline: `%s`)\n", error->message, pipeline_descr);
-        return error->code;
-    }
-
-    sink = gst_bin_get_by_name(GST_BIN(pipeline), "sink");
-    if (sink == NULL) {
-        LOG_ERROR("Couldn't find appsink in pipeline bin.\n");
-        ok = EINVAL;
-        goto fail_unref_pipeline;
-    }
-
-    pad = gst_element_get_static_pad(sink, "sink");
-    if (pad == NULL) {
-        LOG_ERROR("Couldn't get static pad \"sink\" from video sink.\n");
-        ok = EINVAL;
-        goto fail_unref_sink;
-    }
-    
-    gst_pad_add_probe(
-        pad,
-        GST_PAD_PROBE_TYPE_QUERY_DOWNSTREAM,
-        on_query_appsink,
-        player,
-        NULL
-    );
-
-    src = gst_bin_get_by_name(GST_BIN(pipeline), "src");
-    if (src == NULL) {
-        LOG_ERROR("Couldn't find uridecodebin in pipeline bin.\n");
-        ok = EINVAL;
-        goto fail_unref_sink;
-    }
-
-    g_object_set(G_OBJECT(src), "uri", player->video_uri, NULL);
-
-    gst_base_sink_set_max_lateness(GST_BASE_SINK(sink), 20 * GST_MSECOND);
-    gst_base_sink_set_qos_enabled(GST_BASE_SINK(sink), TRUE);
-    gst_app_sink_set_max_buffers(GST_APP_SINK(sink), 2);
-    gst_app_sink_set_emit_signals(GST_APP_SINK(sink), TRUE);
-    gst_app_sink_set_drop(GST_APP_SINK(sink), FALSE);
-
-    gst_app_sink_set_callbacks(
-        GST_APP_SINK(sink),
-        &(GstAppSinkCallbacks) {
-            .eos = on_appsink_eos,
-            .new_preroll = on_appsink_new_preroll,
-            .new_sample = on_appsink_new_sample,
-            ._gst_reserved = {0}
-        },
-        player,
-        on_appsink_cbs_destroy
-    );
-
-    gst_pad_add_probe(
-        pad,
-        GST_PAD_PROBE_TYPE_EVENT_DOWNSTREAM,
-        on_probe_pad,
-        player,
-        NULL
-    );
-
-    g_signal_connect(src, "element-added", G_CALLBACK(on_element_added), player);
-
-    bus = gst_pipeline_get_bus(GST_PIPELINE(pipeline));
-
-    gst_bus_get_pollfd(bus, &fd);
-
-    flutterpi_sd_event_add_io(
-        &busfd_event_source,
-        fd.fd,
-        EPOLLIN,
-        on_bus_fd_ready,
-        player
-    );
-
-    gst_object_unref(GST_OBJECT(bus));
-
-    LOG_ERROR("Setting state to paused...\n");
-    gst_element_set_state(GST_ELEMENT(pipeline), GST_STATE_PAUSED);
-
-    player->sink = sink;
-    player->pipeline = pipeline;
-    player->bus = bus;
-    player->busfd_events = busfd_event_source;
-
-    gst_object_unref(src);
-    gst_object_unref(pad);
-    return 0;
-
-    fail_unref_sink:
-    gst_object_unref(sink);
-
-    fail_unref_pipeline:
-    gst_object_unref(pipeline);
-
-    return ok;
+    return init(player, false);
 }
 
 sd_event_source_generic *gstplayer_probe_video_info(struct gstplayer *player, gstplayer_info_callback_t callback, void *userdata) {

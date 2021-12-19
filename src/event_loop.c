@@ -20,12 +20,19 @@ struct sd_event_source_generic {
 
 static int on_eventfd_ready(sd_event_source *s, int fd, uint32_t revents, void *userdata) {
     sd_event_source_generic *t;
+    uint8_t buf[8];
+    int ok;
     
     (void) s;
     (void) fd;
     (void) revents;
 
     t = userdata;
+
+    ok = read(fd, buf, 8);
+    if (ok < 0) {
+        fprintf(stderr, "[event loop] Couldn't clear generic event source.\n");
+    }
 
     /// TODO: What to do here with our allocated memory if this returns sub-zero?
     return t->handler(t, t->argument, t->userdata);

@@ -432,6 +432,7 @@ static inline uint64_t get_monotonic_time(void) {
 #endif
 
 #define DEBUG_ASSERT_NOT_NULL(__var) DEBUG_ASSERT(__var != NULL)
+#define DEBUG_ASSERT_EGL_TRUE(__var) DEBUG_ASSERT((__var) == EGL_TRUE)
 
 #define UNIMPLEMENTED() assert(0 && "Unimplemented")
 

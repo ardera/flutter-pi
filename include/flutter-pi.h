@@ -535,6 +535,8 @@ sd_event_source_generic *flutterpi_sd_event_add_generic(
 	void *userdata
 );
 
+struct gbm_device *flutterpi_get_gbm_device(struct flutterpi *flutterpi);
+
 EGLDisplay flutterpi_get_egl_display(struct flutterpi *flutterpi);
 
 EGLContext flutterpi_create_egl_context(struct flutterpi *flutterpi);
