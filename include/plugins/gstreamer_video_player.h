@@ -174,8 +174,11 @@ int gstplayer_step_backward(struct gstplayer *player);
 struct video_frame;
 
 struct frame_interface {
+    struct gbm_device *gbm_device;
     EGLDisplay display;
-    EGLContext create_context, destroy_context;
+
+    pthread_mutex_t context_lock;
+    EGLContext context;
     PFNEGLCREATEIMAGEKHRPROC eglCreateImageKHR;
     PFNEGLDESTROYIMAGEKHRPROC eglDestroyImageKHR;
     PFNGLEGLIMAGETARGETTEXTURE2DOESPROC glEGLImageTargetTexture2DOES;
@@ -183,7 +186,15 @@ struct frame_interface {
     bool supports_extended_imports;
     PFNEGLQUERYDMABUFFORMATSEXTPROC eglQueryDmaBufFormatsEXT;
     PFNEGLQUERYDMABUFMODIFIERSEXTPROC eglQueryDmaBufModifiersEXT;
+
+    refcount_t n_refs;
 };
+
+struct frame_interface *frame_interface_new();
+
+DEFINE_INLINE_LOCK_OPS(frame_interface, context_lock)
+
+DECLARE_REF_OPS(frame_interface)
 
 typedef struct _GstVideoInfo GstVideoInfo;
 typedef struct _GstVideoMeta GstVideoMeta;
@@ -205,7 +216,7 @@ struct frame_info {
 struct _GstBuffer;
 
 struct video_frame *frame_new(
-    const struct frame_interface *interface,
+    struct frame_interface *interface,
     const struct frame_info *meta,
     struct _GstBuffer *buffer
 );
