@@ -318,32 +318,6 @@ static enum listener_return on_video_info_notify(void *arg, void *userdata) {
     return kUnlisten;
 }
 
-/*
-static int on_probe_video_info(sd_event_source_generic *generic, void *video_info, void *userdata) {
-    struct gstplayer_meta *meta;
-    struct video_info *info;
-
-    (void) generic;
-
-    meta = userdata;
-    info = video_info;
-
-    /// TODO: gstplayer should only call the probe callback once
-    if (meta->has_video_info == false) {
-        meta->has_video_info = true;
-        meta->is_stream = !info->can_seek;
-        meta->width = info->width;
-        meta->height = info->height;
-        meta->duration_ms = info->duration_ms;
-
-        LOG_ERROR("Sending async video info\n");
-        send_initialized_event(meta);
-    }
-
-    return 0;
-}
-*/
-
 static enum listener_return on_buffering_state_notify(void *arg, void *userdata) {
     struct buffering_state *state;
     struct gstplayer_meta *meta;
@@ -370,30 +344,6 @@ static enum listener_return on_buffering_state_notify(void *arg, void *userdata)
     send_buffering_update(meta, state->n_ranges, state->ranges);
     return kNoAction;
 }
-
-/*
-static void on_buffering_update(const struct buffering_state *state, void *userdata) {
-    struct gstplayer_meta *meta;
-    bool new_is_buffering;
-
-    DEBUG_ASSERT_NOT_NULL(state);
-    DEBUG_ASSERT_NOT_NULL(userdata);
-
-    meta = userdata;
-
-    new_is_buffering = state->percent != 100;
-
-    if (meta->is_buffering && !new_is_buffering) {
-        send_buffering_end(meta);
-        meta->is_buffering = false;
-    } else if (!meta->is_buffering && new_is_buffering) {
-        send_buffering_start(meta);
-        meta->is_buffering = true;
-    }
-
-    send_buffering_update(meta, state->n_ranges, state->ranges);
-}
-*/
 
 /*******************************************************
  * CHANNEL HANDLERS                                    *
@@ -761,8 +711,14 @@ static int on_dispose(
     meta = get_meta(player);
 
     remove_player(player);
-    notifier_unlisten(gstplayer_get_video_info_notifier(player), meta->video_info_listener);
-    notifier_unlisten(gstplayer_get_buffering_state_notifier(player), meta->buffering_state_listener);
+    if (meta->video_info_listener != NULL) {
+        notifier_unlisten(gstplayer_get_video_info_notifier(player), meta->video_info_listener);
+        meta->video_info_listener = NULL;
+    }
+    if (meta->buffering_state_listener != NULL) {
+        notifier_unlisten(gstplayer_get_buffering_state_notifier(player), meta->buffering_state_listener);
+        meta->buffering_state_listener = NULL;
+    }
     destroy_meta(meta);
     gstplayer_destroy(player);
     return platch_respond_success_pigeon(responsehandle, NULL);
