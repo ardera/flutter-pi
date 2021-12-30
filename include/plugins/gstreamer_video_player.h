@@ -48,8 +48,19 @@ struct buffering_state {
     // For the kStream and kLive buffering modes, this describes the oldest and
     // newest item in the buffer.
     int n_ranges;
-    struct buffering_range *ranges;
+
+    // Flexible array member.
+    // For example, if n_ranges is 2, just allocate using 
+    // `state = malloc(sizeof(struct buffering_state) + 2*sizeof(struct buffering_range))`
+    // and we can use state->ranges[0] and so on. 
+    // This is cool because we don't need to allocate two blocks of memory and we can just call
+    // `free` once to free the whole thing.
+    // More precisely, we don't need to define a new function we can give to value_notifier_init
+    // as the value destructor, we can just use `free`.
+    struct buffering_range ranges[];
 };
+
+#define BUFFERING_STATE_SIZE(n_ranges) (sizeof(struct buffering_state) + (n_ranges)*sizeof(struct buffering_range))
 
 struct video_info;
 
@@ -115,9 +126,9 @@ void *gstplayer_get_userdata_locked(struct gstplayer *player);
 /// Get the id of the flutter external texture that this player is rendering into.
 int64_t gstplayer_get_texture_id(struct gstplayer *player);
 
-void gstplayer_set_info_callback(struct gstplayer *player, gstplayer_info_callback_t cb, void *userdata);
+//void gstplayer_set_info_callback(struct gstplayer *player, gstplayer_info_callback_t cb, void *userdata);
 
-void gstplayer_set_buffering_callback(struct gstplayer *player, gstplayer_buffering_callback_t callback, void *userdata);
+//void gstplayer_set_buffering_callback(struct gstplayer *player, gstplayer_buffering_callback_t callback, void *userdata);
 
 /// Add a http header (consisting of a string key and value) to the list of http headers that
 /// gstreamer will use when playing back from a HTTP/S URI.
@@ -133,7 +144,7 @@ int gstplayer_initialize(struct gstplayer *player);
 /// synchronously, inside this call. If the video info is not known, @arg callback will be called on the flutter-pi
 /// platform thread as soon as the info is known.
 ///     @returns The handle for the deferred callback.
-struct sd_event_source_generic *gstplayer_probe_video_info(struct gstplayer *player, gstplayer_info_callback_t callback, void *userdata);
+//struct sd_event_source_generic *gstplayer_probe_video_info(struct gstplayer *player, gstplayer_info_callback_t callback, void *userdata);
 
 /// Set the current playback state to "playing" if that's not the case already.
 ///     @returns 0 if initialization was successfull, errno-style error code if an error ocurred.
@@ -169,6 +180,25 @@ int gstplayer_set_playback_speed(struct gstplayer *player, double playback_speed
 int gstplayer_step_forward(struct gstplayer *player);
 
 int gstplayer_step_backward(struct gstplayer *player);
+
+/// @brief Get the value notifier for the video info. 
+/// 
+/// Gets notified with a value of type `struct video_info*` when the video info changes.
+/// The listeners will be called on an internal gstreamer thread.
+/// So you need to make sure you do the proper rethreading in the listener callback.
+struct notifier *gstplayer_get_video_info_notifier(struct gstplayer *player);
+
+/// @brief Get the value notifier for the buffering state.
+///
+/// Gets notified with a value of type `struct buffering_state*` when the buffering state changes. 
+/// The listeners will be called on the main flutterpi platform thread.
+struct notifier *gstplayer_get_buffering_state_notifier(struct gstplayer *player);
+
+/// @brief Get the change notifier for errors.
+///
+/// Gets notified when an error happens. (Not yet implemented)
+struct notifier *gstplayer_get_error_notifier(struct gstplayer *player);
+
 
 
 struct video_frame;

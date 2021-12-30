@@ -1,19 +1,21 @@
 #define _GNU_SOURCE
 
 #include <stdint.h>
+#include <stdatomic.h>
 #include <pthread.h>
 #include <stdio.h>
 #include <inttypes.h>
-#include <flutter-pi.h>
 
+#include <gst/gst.h>
+#include <gst/video/video-info.h>
+
+#include <flutter-pi.h>
 #include <collection.h>
 #include <pluginregistry.h>
 #include <platformchannel.h>
 #include <texture_registry.h>
+#include <notifier_listener.h>
 #include <plugins/gstreamer_video_player.h>
-
-#include <gst/gst.h>
-#include <gst/video/video-info.h>
 
 #define LOG_ERROR(...) fprintf(stderr, "[gstreamer video player plugin] " __VA_ARGS__)
 
@@ -27,15 +29,21 @@ enum data_source_type {
 struct gstplayer_meta {
     char *event_channel_name;
     
+    // We have a listener to the video player event channel.
     bool has_listener;
 
+    /*
     sd_event_source *probe_video_info_source;
     bool has_video_info;
     bool is_stream;
     int64_t duration_ms;
     int32_t width, height;
+    */
 
-    bool is_buffering;
+    atomic_bool is_buffering;
+
+    struct listener *video_info_listener;
+    struct listener *buffering_state_listener;
 };
 
 static struct plugin {
@@ -212,14 +220,14 @@ static int respond_init_failed(FlutterPlatformMessageResponseHandle *handle) {
 }
 
 
-static int send_initialized_event(struct gstplayer_meta *meta) {
+static int send_initialized_event(struct gstplayer_meta *meta, bool is_stream, int width, int height, int64_t duration_ms) {
     return platch_send_success_event_std(
         meta->event_channel_name,
         &STDMAP4(
             STDSTRING("event"),     STDSTRING("initialized"),
-            STDSTRING("duration"),  STDINT64(meta->is_stream? INT64_MAX : meta->duration_ms),
-            STDSTRING("width"),     STDINT32(meta->width),
-            STDSTRING("height"),    STDINT32(meta->height)
+            STDSTRING("duration"),  STDINT64(is_stream? INT64_MAX : duration_ms),
+            STDSTRING("width"),     STDINT32(width),
+            STDSTRING("height"),    STDINT32(height)
         )
     );
 }
@@ -280,6 +288,37 @@ static int send_buffering_end(struct gstplayer_meta *meta) {
     );
 }
 
+static enum listener_return on_video_info_notify(void *arg, void *userdata) {
+    struct gstplayer_meta *meta;
+    struct video_info *info;
+
+    DEBUG_ASSERT_NOT_NULL(userdata);
+    meta = userdata;
+    info = arg;
+
+    // When the video info is not known yet, we still get informed about it.
+    // In that case arg == NULL.
+    if (arg == NULL) {
+        return kNoAction;
+    }
+
+    LOG_ERROR(
+        "Got video info: stream? %s, w x h: % 4d x % 4d, duration: %" GST_TIME_FORMAT "\n",
+        !info->can_seek ? "yes" : "no",
+        info->width, info->height,
+        GST_TIME_ARGS(info->duration_ms * GST_MSECOND)
+    );
+
+    /// on_video_info_notify is called on an internal thread,
+    /// but send_initialized_event is (should be) mt-safe
+    send_initialized_event(meta, !info->can_seek, info->width, info->height, info->duration_ms);
+
+    /// TODO: We should only send the initialized event once,
+    /// but maybe it's also okay if we send it multiple times?
+    return kUnlisten;
+}
+
+/*
 static int on_probe_video_info(sd_event_source_generic *generic, void *video_info, void *userdata) {
     struct gstplayer_meta *meta;
     struct video_info *info;
@@ -303,7 +342,36 @@ static int on_probe_video_info(sd_event_source_generic *generic, void *video_inf
 
     return 0;
 }
+*/
 
+static enum listener_return on_buffering_state_notify(void *arg, void *userdata) {
+    struct buffering_state *state;
+    struct gstplayer_meta *meta;
+    bool new_is_buffering;
+    
+    DEBUG_ASSERT_NOT_NULL(userdata);
+    meta = userdata;
+    state = arg;
+
+    if (arg == NULL) {
+        return kNoAction;
+    }
+
+    new_is_buffering = state->percent != 100;
+
+    if (meta->is_buffering && !new_is_buffering) {
+        send_buffering_end(meta);
+        meta->is_buffering = false;
+    } else if (!meta->is_buffering && new_is_buffering) {
+        send_buffering_start(meta);
+        meta->is_buffering = true;
+    }
+
+    send_buffering_update(meta, state->n_ranges, state->ranges);
+    return kNoAction;
+}
+
+/*
 static void on_buffering_update(const struct buffering_state *state, void *userdata) {
     struct gstplayer_meta *meta;
     bool new_is_buffering;
@@ -325,6 +393,7 @@ static void on_buffering_update(const struct buffering_state *state, void *userd
 
     send_buffering_update(meta, state->n_ranges, state->ranges);
 }
+*/
 
 /*******************************************************
  * CHANNEL HANDLERS                                    *
@@ -352,19 +421,29 @@ static int on_receive_evch(
 
     if STREQ("listen", method) {
         platch_respond_success_std(responsehandle, NULL);
+        meta->has_listener = true;
 
-        if (meta->has_video_info) {
-            LOG_ERROR("Sending video info synchronously\n");
-            send_initialized_event(meta);
-        } else {
-            LOG_ERROR("Waiting for async video info\n");
-            gstplayer_probe_video_info(player, on_probe_video_info, meta);
+        meta->video_info_listener = notifier_listen(gstplayer_get_video_info_notifier(player), on_video_info_notify, NULL, meta);
+        if (meta->video_info_listener == NULL) {
+            LOG_ERROR("Couldn't listen for video info events in gstplayer.\n");
         }
 
-        meta->has_listener = true;
+        meta->buffering_state_listener = notifier_listen(gstplayer_get_buffering_state_notifier(player), on_buffering_state_notify, NULL, meta);
+        if (meta->buffering_state_listener == NULL) {
+            LOG_ERROR("Couldn't listen for buffering events in gstplayer.\n");
+        }
     } else if STREQ("cancel", method) {
         platch_respond_success_std(responsehandle, NULL);
         meta->has_listener = false;
+
+        if (meta->video_info_listener != NULL) {
+            notifier_unlisten(gstplayer_get_video_info_notifier(player), meta->video_info_listener);
+            meta->video_info_listener = NULL;
+        }
+        if (meta->buffering_state_listener != NULL) {
+            notifier_unlisten(gstplayer_get_buffering_state_notifier(player), meta->buffering_state_listener);
+            meta->buffering_state_listener = NULL;
+        }
     } else {
         return platch_respond_not_implemented(responsehandle);
     }
@@ -486,7 +565,7 @@ static struct gstplayer_meta *create_meta(int64_t texture_id) {
 
     meta->event_channel_name = event_channel_name;
     meta->has_listener = false;
-    meta->has_video_info = false;
+    meta->is_buffering = false;
     return meta;
 }
 
@@ -610,8 +689,6 @@ static int on_create(
     
     gstplayer_set_userdata_locked(player, meta);
 
-    gstplayer_set_buffering_callback(player, on_buffering_update, meta);
-
     // Add all our HTTP headers to gstplayer using gstplayer_put_http_header
     add_headers_to_player(temp, player);
 
@@ -667,6 +744,7 @@ static int on_dispose(
 	struct platch_obj *object, 
 	FlutterPlatformMessageResponseHandle *responsehandle
 ) {
+    struct gstplayer_meta *meta;
     struct gstplayer *player;
     struct std_value *arg;
     int ok;
@@ -679,8 +757,13 @@ static int on_dispose(
     if (ok != 0) {
         return ok;
     }
+    
+    meta = get_meta(player);
 
     remove_player(player);
+    notifier_unlisten(gstplayer_get_video_info_notifier(player), meta->video_info_listener);
+    notifier_unlisten(gstplayer_get_buffering_state_notifier(player), meta->buffering_state_listener);
+    destroy_meta(meta);
     gstplayer_destroy(player);
     return platch_respond_success_pigeon(responsehandle, NULL);
 }
@@ -816,12 +899,23 @@ static int on_get_position(
     ok = get_player_from_map_arg(arg, &player, responsehandle);
     if (ok != 0) return ok;
 
-    return platch_respond_success_pigeon(
-        responsehandle,
-        &STDMAP1(
-            STDSTRING("position"), STDINT64(gstplayer_get_position(player))
-        )
-    );
+    position = gstplayer_get_position(player);
+
+    if (position >= 0) {
+        return platch_respond_success_pigeon(
+            responsehandle,
+            &STDMAP1(
+                STDSTRING("position"), STDINT64(position)
+            )
+        );
+    } else {
+        return platch_respond_error_pigeon(
+            responsehandle,
+            "native-error",
+            "An unexpected gstreamer error ocurred.",
+            NULL
+        );
+    }
 }
 
 static int on_seek_to(
