@@ -1697,6 +1697,8 @@ static int init_application(void) {
             dlerror());
     }
 
+	if (libflutter_engine_handle == NULL)
+    {
     if (flutterpi.flutter.runtime_mode == kRelease) {
 		libflutter_engine_handle = dlopen("libflutter_engine.so.release", RTLD_LOCAL | RTLD_NOW);
 		if (libflutter_engine_handle == NULL) {
@@ -1707,6 +1709,7 @@ static int init_application(void) {
 		if (libflutter_engine_handle == NULL) {
 			LOG_FLUTTERPI_ERROR("[flutter-pi] Warning: Could not load libflutter_engine.so.debug: %s. Trying to open libflutter_engine.so...\n", dlerror());
 		}
+	}
 	}
 
 	if (libflutter_engine_handle == NULL) {
