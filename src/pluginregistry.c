@@ -31,6 +31,7 @@
 #	include <plugins/gstreamer_video_player.h>
 #endif
 
+#define LOG_ERROR(...) fprintf(stderr, "[plugin registry] " __VA_ARGS__)
 
 struct platch_obj_cb_data {
 	char *channel;
@@ -154,6 +155,7 @@ int plugin_registry_set_receiver(
 ) {
 	struct platch_obj_cb_data *data;
 	char *channel_dup;
+	int ok;
 
 	cpset_lock(&plugin_registry.platch_obj_cbs);
 	
@@ -172,7 +174,16 @@ int plugin_registry_set_receiver(
 			return ENOMEM;
 		}
 
-		cpset_put_locked(&plugin_registry.platch_obj_cbs, data);
+		ok = cpset_put_locked(&plugin_registry.platch_obj_cbs, data);
+		if (ok != 0) {
+			if (ok == ENOSPC) {
+				LOG_ERROR("Couldn't register platform channel listener. Callback list is filled\n");
+			}
+			free(data);
+			free(channel_dup);
+			cpset_unlock(&plugin_registry.platch_obj_cbs);
+			return ok;
+		}
 	}
 
 	data->channel = channel_dup;

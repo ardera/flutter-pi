@@ -172,7 +172,20 @@ bool texture_registry_gl_external_texture_frame_callback(
             break;
         }
     }
-    result = texture_gl_external_texture_frame_callback(t, width, height, texture_out);
+    if (t != NULL) {
+        result = texture_gl_external_texture_frame_callback(t, width, height, texture_out);
+    } else {
+        // the texture was destroyed after notifying the engine of a new texture frame.
+        // just report an empty frame here.
+        result = false;
+        texture_out->target = GL_TEXTURE_2D;
+        texture_out->name = 0;
+        texture_out->format = GL_RGBA8_OES;
+        texture_out->user_data = NULL;
+        texture_out->destruction_callback = NULL;
+        texture_out->width = 0;
+        texture_out->height = 0;
+    }
     cpset_unlock(&reg->textures);
 
     return result;

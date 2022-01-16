@@ -46,6 +46,7 @@ option(DUMP_ENGINE_LAYERS "True if flutter-pi should dump the list of rendering 
 option(ENABLE_TSAN "True to build & link with -fsanitize=thread" OFF)
 option(ENABLE_ASAN "True to build & link with -fsanitize=address" OFF)
 option(ENABLE_UBSAN "True to build & link with -fsanitize=undefined" OFF)
+option(ENABLE_MTRACE "True if flutter-pi should call GNU mtrace() on startup." OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 if(NOT FLUTTER_EMBEDDER_HEADER)
@@ -135,7 +136,7 @@ target_link_libraries(flutter-pi
   ${LIBINPUT_LDFLAGS}
   ${LIBUDEV_LDFLAGS}
   ${LIBXKBCOMMON_LDFLAGS}
-  pthread dl rt m
+  pthread dl rt m atomic
 )
 
 target_include_directories(flutter-pi PRIVATE
@@ -235,12 +236,21 @@ if (ENABLE_TSAN)
   target_compile_options(flutter-pi PRIVATE -fsanitize=thread)
 endif()
 if (ENABLE_ASAN)
-  target_link_options(flutter-pi PRIVATE -fsanitize=address)
+  # when we use asan, we need to force linking against the C++ stdlib.
+  # If we don't link against it, and load a dynamic library that's linked against the C++ stdlib (like the flutter engine),
+  # and something in the dynamically loaded library triggers asan, it'll throw an error because it hasn't
+  # intercepted stdc++ yet.
+  # Also disable --as-needed so we _actually_ link against c++, even though we don't use any symbols from it.
+  target_link_libraries(flutter-pi stdc++)
+  target_link_options(flutter-pi PRIVATE -fsanitize=address -static-libasan -fno-omit-frame-pointer -Wl,--no-as-needed)
   target_compile_options(flutter-pi PRIVATE -fsanitize=address)
 endif()
 if (ENABLE_UBSAN)
   target_link_options(flutter-pi PRIVATE -fsanitize=undefined)
   target_compile_options(flutter-pi PRIVATE -fsanitize=undefined)
+endif()
+if (ENABLE_MTRACE)
+  target_compile_definitions(flutter-pi PRIVATE "ENABLE_MTRACE")
 endif()
 
 install(TARGETS flutter-pi RUNTIME DESTINATION bin)
