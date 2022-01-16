@@ -57,6 +57,10 @@
 #include <plugins/text_input.h>
 #include <plugins/raw_keyboard.h>
 
+#ifdef ENABLE_MTRACE
+#   include <mcheck.h>
+#endif
+
 const char *const usage ="\
 flutter-pi - run flutter apps on your Raspberry Pi.\n\
 \n\
@@ -473,6 +477,8 @@ static FlutterTransformation on_get_transformation(void *userdata) {
     return flutterpi.view.view_to_display_transform;
 }
 
+atomic_int_least64_t platform_task_counter = 0;
+
 /// platform tasks
 static int on_execute_platform_task(
     sd_event_source *s,
@@ -500,6 +506,7 @@ int flutterpi_post_platform_task(
     void *userdata
 ) {
     struct platform_task *task;
+    sd_event_source *src;
     int ok;
 
     task = malloc(sizeof *task);
@@ -516,15 +523,18 @@ int flutterpi_post_platform_task(
 
     ok = sd_event_add_defer(
         flutterpi.event_loop,
-        NULL,
+        &src,
         on_execute_platform_task,
         task
     );
     if (ok < 0) {
-        fprintf(stderr, "[flutter-pi] Error posting platform task to main loop. sd_event_add_defer: %s\n", strerror(-ok));
+        LOG_FLUTTERPI_ERROR("Error posting platform task to main loop. sd_event_add_defer: %s\n", strerror(-ok));
         ok = -ok;
         goto fail_unlock_event_loop;
     }
+
+    // Higher values mean lower priority. So later platform tasks are handled later too.
+    sd_event_source_set_priority(src, atomic_fetch_add(&platform_task_counter, 1));
 
     if (pthread_self() != flutterpi.event_loop_thread) {
         ok = write(flutterpi.wakeup_event_loop_fd, (uint8_t[8]) {0, 0, 0, 0, 0, 0, 0, 1}, 8);
@@ -2438,6 +2448,10 @@ static bool parse_cmd_args(int argc, char **argv) {
 int init(int argc, char **argv) {
     int ok;
 
+#ifdef ENABLE_MTRACE
+    mtrace();
+#endif
+
     ok = parse_cmd_args(argc, argv);
     if (ok == false) {
         return EINVAL;
@@ -2488,6 +2502,10 @@ void deinit() {
 
 int main(int argc, char **argv) {
     int ok;
+
+#ifdef ENABLE_MTRACE
+    mtrace();
+#endif
 
     ok = init(argc, argv);
     if (ok != 0) {

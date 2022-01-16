@@ -335,7 +335,7 @@ size_t platch_calc_value_size_json(struct json_value *value) {
 		case kJsonArray:
 			size += 2;
 			for (int i=0; i < value->size; i++) {
-				size += platch_calc_value_size_json(&(value->array[i]));
+				size += platch_calc_value_size_json(value->array + i);
 				if (i+1 != value->size) size += 1;
 			}
 			return size;
@@ -811,9 +811,9 @@ int platch_decode(uint8_t *buffer, size_t size, enum platch_codec codec, struct 
 
 	return 0;
 }
+
 int platch_encode(struct platch_obj *object, uint8_t **buffer_out, size_t *size_out) {
 	struct std_value stdmethod, stderrcode, stderrmessage;
-	struct json_value jsroot;
 	uint8_t *buffer, *buffer_cursor;
 	size_t   size = 0;
 	int		 ok = 0;
@@ -880,41 +880,36 @@ int platch_encode(struct platch_obj *object, uint8_t **buffer_out, size_t *size_
 			}
 			break;
 		case kJSONMethodCall:
-			jsroot.type = kJsonObject;
-			jsroot.size = 2;
-			jsroot.keys = (char*[]) {"method", "args"};
-			jsroot.values = (struct json_value[]) {
-				{.type = kJsonString, .string_value = object->method},
-				object->json_arg
-			};
-
-			size = platch_calc_value_size_json(&jsroot);
+			size = platch_calc_value_size_json(
+				&JSONOBJECT2(
+					"method", JSONSTRING(object->method),
+					"args", object->json_arg
+				)
+			);
 			size += 1;
 			break;
 		case kJSONMethodCallResponse:
-			jsroot.type = kJsonArray;
 			if (object->success) {
-				jsroot.size = 1;
-				jsroot.array = (struct json_value[]) {
-					object->json_result
-				};
+				size = 1 + platch_calc_value_size_json(&JSONARRAY1(object->json_result));
 			} else {
-				jsroot.size = 3;
-				jsroot.array = (struct json_value[]) {
-					{.type = kJsonString, .string_value = object->error_code},
-					{.type = (object->error_msg != NULL) ? kJsonString : kJsonNull, .string_value = object->error_msg},
-					object->json_error_details
-				};
+				size = 1 + platch_calc_value_size_json(
+					&JSONARRAY3(
+						JSONSTRING(object->error_code),
+						(object->error_msg != NULL) ? JSONSTRING(object->error_msg) : JSONNULL,
+						object->json_error_details
+					)
+				);
 			}
-
-			size = platch_calc_value_size_json(&jsroot);
-			size += 1;
 			break;
 		default:
 			return EINVAL;
 	}
 
-	if (!(buffer = malloc(size))) return ENOMEM;
+	buffer = malloc(size);
+	if (buffer == NULL) {
+		return ENOMEM;
+	}
+
 	buffer_cursor = buffer;
 	
 	switch (object->codec) {
@@ -957,10 +952,38 @@ int platch_encode(struct platch_obj *object, uint8_t **buffer_out, size_t *size_
 			if (ok != 0) goto free_buffer_and_return_ok;
 			break;
 		case kJSONMethodCall:
-		case kJSONMethodCallResponse: ;
 			size -= 1;
-			ok = platch_write_value_to_buffer_json(&jsroot, &buffer_cursor);
-			if (ok != 0) goto free_buffer_and_return_ok;
+			ok = platch_write_value_to_buffer_json(
+				&JSONOBJECT2(
+					"method", JSONSTRING(object->method),
+					"args", object->json_arg
+				),
+				&buffer_cursor
+			);
+			if (ok != 0) {
+				goto free_buffer_and_return_ok;
+			}
+			break;
+		case kJSONMethodCallResponse: 
+			if (object->success) {
+				ok = platch_write_value_to_buffer_json(
+					&JSONARRAY1(object->json_result),
+					&buffer_cursor
+				);
+			} else {
+				ok = platch_write_value_to_buffer_json(
+					&JSONARRAY3(
+						JSONSTRING(object->error_code),
+						(object->error_msg != NULL) ? JSONSTRING(object->error_msg) : JSONNULL,
+						object->json_error_details
+					),
+					&buffer_cursor
+				);
+			}
+			size -= 1;
+			if (ok != 0) {
+				goto free_buffer_and_return_ok;
+			}
 			break;
 		default:
 			return EINVAL;
@@ -1173,8 +1196,9 @@ int platch_respond_success_json(FlutterPlatformMessageResponseHandle *handle,
 		&(struct platch_obj) {
 			.codec = kJSONMethodCallResponse,
 			.success = true,
-			.json_result = return_value? *return_value
-				: (struct json_value) {.type = kJsonNull}
+			.json_result = return_value
+				? *return_value
+				: JSONNULL
 		}
 	);
 }

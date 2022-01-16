@@ -364,6 +364,28 @@ struct std_value {
 #define JSONVALUE_IS_OBJECT(value) ((value).type == kJsonObject)
 #define JSONVALUE_IS_SIZED_OBJECT(value, _size) (JSONVALUE_IS_OBJECT(value) && JSONVALUE_IS_SIZE(value, _size))
 
+#define JSONARRAY1(val1) ((struct json_value) { \
+	.type = kJsonArray, \
+	.size = 1, \
+	.array = (struct json_value[1]) { \
+		(val1) \
+	} \
+})
+#define JSONARRAY2(val1, val2) ((struct json_value) { \
+	.type = kJsonArray, \
+	.size = 2, \
+	.array = (struct json_value[2]) { \
+		(val1), (val2) \
+	} \
+})
+#define JSONARRAY3(val1, val2, val3) ((struct json_value) { \
+	.type = kJsonArray, \
+	.size = 3, \
+	.array = (struct json_value[3]) { \
+		(val1), (val2), (val3) \
+	} \
+})
+
 #define JSONOBJECT1(key1, val1) ((struct json_value) { \
 	.type = kJsonObject, \
 	.size = 1, \

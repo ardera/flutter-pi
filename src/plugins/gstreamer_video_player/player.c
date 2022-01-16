@@ -297,6 +297,8 @@ static void fetch_seeking(struct gstplayer *player) {
 
     gst_query_parse_seeking(seeking_query, NULL, &seekable, &seek_begin, &seek_end);
 
+    gst_query_unref(seeking_query);
+
     player->info.info.can_seek = seekable;
     player->info.info.seek_begin_ms = GST_TIME_AS_MSECONDS(seek_begin);
     player->info.info.seek_end_ms = GST_TIME_AS_MSECONDS(seek_end);
@@ -338,6 +340,8 @@ static void update_buffering_state(struct gstplayer *player) {
         state->ranges[i].start_ms = GST_TIME_AS_MSECONDS(start);
         state->ranges[i].stop_ms  = GST_TIME_AS_MSECONDS(stop);
     }
+
+    gst_query_unref(query);
 
     state->percent = percent;
     state->mode = (mode == GST_BUFFERING_STREAM ? kStream :

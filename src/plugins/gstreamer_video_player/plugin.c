@@ -710,6 +710,8 @@ static int on_dispose(
     
     meta = get_meta(player);
 
+    plugin_registry_remove_receiver(meta->event_channel_name);
+
     remove_player(player);
     if (meta->video_info_listener != NULL) {
         notifier_unlisten(gstplayer_get_video_info_notifier(player), meta->video_info_listener);

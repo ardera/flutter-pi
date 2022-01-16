@@ -370,6 +370,11 @@ struct video_frame *frame_new(
 
     frame_interface_unlock(interface);
 
+    /// TODO: The examples do this, but I'm not sure it's a good idea.
+    /// What if, instead of closing the underlying dmabuf fd, gstreamer decides to put
+    /// it in a pool of unused dmabufs and reuse it later?
+    gst_buffer_unref(buffer);
+
     frame->buffer = buffer;
     frame->interface = frame_interface_ref(interface);
     frame->drm_format = info->drm_format;
@@ -408,7 +413,8 @@ struct video_frame *frame_new(
 }
 
 void frame_destroy(struct video_frame *frame) {
-    gst_buffer_unref(frame->buffer);
+    /// TODO: See TODO in frame_new 
+    // gst_buffer_unref(frame->buffer);
 
     frame_interface_lock(frame->interface);
     DEBUG_ASSERT_EGL_TRUE(eglMakeCurrent(frame->interface->display, EGL_NO_SURFACE, EGL_NO_SURFACE, frame->interface->context));
