@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include <errno.h>
 #include <flutter_embedder.h>
+#include <collection.h>
 
 #define JSON_DECODE_TOKENLIST_SIZE  128
 
@@ -863,11 +864,57 @@ struct std_value *stdmap_get(struct std_value *map, struct std_value *key);
 
 struct std_value *stdmap_get_str(struct std_value *map, char *key);
 
+static inline int _check_remaining(size_t *remaining, int min_remaining) {
+	if (remaining == NULL) {
+		return 0;
+	}
+	if (*remaining < min_remaining) {
+		return EBADMSG;
+	}
+	return 0;
+}
+static inline int _read_advance(uint8_t **pbuffer, void *out, int n_bytes, size_t *remaining) {
+	int ok;
+
+	ok = _check_remaining(remaining, n_bytes);
+	if (ok != 0) {
+		return ok;
+	}
+
+	memcpy(out, *pbuffer, (size_t) n_bytes);
+	if (remaining != NULL) {
+		*remaining -= n_bytes;
+	}
+	*pbuffer += n_bytes;
+	return 0;
+}
+static inline int _write_advance(uint8_t **pbuffer, void *src, int n_bytes, size_t *remaining) {
+	int ok;
+
+	ok = _check_remaining(remaining, n_bytes);
+	if (ok != 0) {
+		return ok;
+	}
+
+	memcpy(*pbuffer, src, (size_t) n_bytes);
+	if (remaining != NULL) {
+		*remaining -= n_bytes;
+	}
+	*pbuffer += n_bytes;
+	return 0;
+}
+
 static inline int _advance(uintptr_t *value, int n_bytes, size_t *remaining) {
-    if (remaining != NULL) {
-        if (*remaining < n_bytes) return EBADMSG;
-        *remaining -= n_bytes;
-    }
+	int ok;
+
+	ok = _check_remaining(remaining, n_bytes);
+	if (ok != 0) {
+		return ok;
+	}
+
+	if (remaining != NULL) {
+    	*remaining -= n_bytes;
+	}
 
     *value += n_bytes;
     return 0;
@@ -890,79 +937,30 @@ static inline int _advance_size_bytes(uintptr_t *value, size_t size, size_t *rem
     }
 }
 
-
 static inline int _write8(uint8_t **pbuffer, uint8_t value, size_t *remaining) {
-    if ((remaining != NULL) && (*remaining < 1)) {
-        return EBADMSG;
-    }
-
-	*(uint8_t*) *pbuffer = value;
-    
-    return _advance((uintptr_t*) pbuffer, 1, remaining);
+    return _write_advance(pbuffer, &value, sizeof value, remaining);
 }
 static inline int _write16(uint8_t **pbuffer, uint16_t value, size_t *remaining) {
-    if ((remaining != NULL) && (*remaining < 2)) {
-        return EBADMSG;
-    }
-
-	*(uint16_t*) *pbuffer = value;
-    
-    return _advance((uintptr_t*) pbuffer, 2, remaining);
+    return _write_advance(pbuffer, &value, sizeof value, remaining);
 }
 static inline int _write32(uint8_t **pbuffer, uint32_t value, size_t *remaining) {
-    if ((remaining != NULL) && (*remaining < 4)) {
-        return EBADMSG;
-    }
-
-	*(uint32_t*) *pbuffer = value;
-    
-    return _advance((uintptr_t*) pbuffer, 4, remaining);
+    return _write_advance(pbuffer, &value, sizeof value, remaining);
 }
 static inline int _write64(uint8_t **pbuffer, uint64_t value, size_t *remaining) {
-	if ((remaining != NULL) && (*remaining < 8)) {
-        return EBADMSG;
-    }
-    
-    *(uint64_t*) *pbuffer = value;
-    
-    return _advance((uintptr_t*) pbuffer, 8, remaining);
+	return _write_advance(pbuffer, &value, sizeof value, remaining);
 }
 
 static inline int _read8(uint8_t **pbuffer, uint8_t* value_out, size_t *remaining) {
-	if ((remaining != NULL) && (*remaining < 1)) {
-        return EBADMSG;
-    }
-
-    *value_out = *(uint8_t *) *pbuffer;
-
-    return _advance((uintptr_t*) pbuffer, 1, remaining);
+	return _read_advance(pbuffer, value_out, sizeof *value_out, remaining);
 }
 static inline int _read16(uint8_t **pbuffer, uint16_t *value_out, size_t *remaining) {
-    if ((remaining != NULL) && (*remaining < 2)) {
-        return EBADMSG;
-    }
-
-    *value_out = *(uint16_t *) *pbuffer;
-	
-    return _advance((uintptr_t*) pbuffer, 2, remaining);
+    return _read_advance(pbuffer, value_out, sizeof *value_out, remaining);
 }
 static inline int _read32(uint8_t **pbuffer, uint32_t *value_out, size_t *remaining) {
-	if ((remaining != NULL) && (*remaining < 4)) {
-        return EBADMSG;
-    }
-    
-    *value_out = *(uint32_t *) *pbuffer;
-
-    return _advance((uintptr_t*) pbuffer, 4, remaining);
+	return _read_advance(pbuffer, value_out, sizeof *value_out, remaining);
 }
 static inline int _read64(uint8_t **pbuffer, uint64_t *value_out, size_t *remaining) {
-	if ((remaining != NULL) && (*remaining < 8)) {
-        return EBADMSG;
-    }
-    
-    *value_out = *(uint64_t *) *pbuffer;
-
-    return _advance((uintptr_t*) pbuffer, 8, remaining);
+	return _read_advance(pbuffer, (uint8_t*) value_out, sizeof *value_out, remaining);
 }
 
 static inline int _writeSize(uint8_t **pbuffer, int size, size_t *remaining) {
