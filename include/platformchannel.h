@@ -803,6 +803,12 @@ int platch_respond_illegal_arg_pigeon(
 	char *error_msg
 );
 
+int platch_respond_illegal_arg_ext_pigeon(
+	FlutterPlatformMessageResponseHandle *handle,
+	char *error_msg,
+	struct std_value *error_details
+);
+
 int platch_respond_native_error_pigeon(
 	FlutterPlatformMessageResponseHandle *handle,
 	int _errno
