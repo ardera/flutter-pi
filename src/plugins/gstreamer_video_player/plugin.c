@@ -108,23 +108,26 @@ static int get_texture_id_from_map_arg(
     int64_t *texture_id_out,
     FlutterPlatformMessageResponseHandle *responsehandle
 ) {
+    struct std_value *id;
     int ok;
 
     if (arg->type != kStdMap) {
-        ok = platch_respond_illegal_arg_pigeon(
+        ok = platch_respond_illegal_arg_ext_pigeon(
             responsehandle,
-            "Expected `arg` to be a Map"
+            "Expected `arg` to be a Map, but was: ",
+            arg
         );
         if (ok != 0) return ok;
 
         return EINVAL;
     }
 
-    struct std_value *id = stdmap_get_str(arg, "textureId");
+    id = stdmap_get_str(arg, "textureId");
     if (id == NULL || !STDVALUE_IS_INT(*id)) {
-        ok = platch_respond_illegal_arg_pigeon(
+        ok = platch_respond_illegal_arg_ext_pigeon(
             responsehandle,
-            "Expected `arg['textureId']` to be an integer"
+            "Expected `arg['textureId']` to be an integer, but was: ",
+            id
         );
         if (ok != 0) return ok;
 
@@ -145,18 +148,41 @@ static int get_player_from_map_arg(
     FlutterPlatformMessageResponseHandle *responsehandle
 ) {
     struct gstplayer *player;
-    int64_t player_id;
+    int64_t texture_id;
     int ok;
 
-    player_id = 0;
-    ok = get_texture_id_from_map_arg(arg, &player_id, responsehandle);
+    texture_id = 0;
+    ok = get_texture_id_from_map_arg(arg, &texture_id, responsehandle);
     if (ok != 0) {
         return ok;
     }
 
-    player = get_player_by_texture_id(player_id);
+    player = get_player_by_texture_id(texture_id);
     if (player == NULL) {
-        ok = platch_respond_illegal_arg_pigeon(responsehandle, "Expected `arg['playerId']` to be a valid player id.");
+        cpset_lock(&plugin.players);
+
+        int n_texture_ids = cpset_get_count_pointers_locked(&plugin.players);
+        int64_t *texture_ids = alloca(sizeof(int64_t) * n_texture_ids);
+        int64_t *texture_ids_cursor = texture_ids;
+
+        for_each_pointer_in_cpset(&plugin.players, player) {
+            *texture_ids_cursor++ = gstplayer_get_texture_id(player);    
+        }
+        
+        cpset_unlock(&plugin.players);
+
+        ok = platch_respond_illegal_arg_ext_pigeon(
+            responsehandle,
+            "Expected `arg['textureId']` to be a valid texture id.", 
+            &STDMAP2(
+                STDSTRING("textureId"), STDINT64(texture_id),
+                STDSTRING("registeredTextureIds"), ((struct std_value) {
+                    .type = kStdInt64Array,
+                    .size = n_texture_ids,
+                    .int64array = texture_ids
+                })
+            )
+        );
         if (ok != 0) return ok;
 
         return EINVAL;
@@ -214,7 +240,7 @@ static int respond_init_failed(FlutterPlatformMessageResponseHandle *handle) {
     return platch_respond_error_pigeon(
         handle,
         "couldnotinit",
-        "omxplayer_video_player plugin failed to initialize libsystemd bindings. See flutter-pi log for details.",
+        "gstreamer video player plugin failed to initialize gstreamer. See flutter-pi log for details.",
         NULL
     );
 }
@@ -553,9 +579,10 @@ static int on_create(
     } else if (temp != NULL && temp->type == kStdString) {
         asset = temp->string_value;
     } else {
-        return platch_respond_illegal_arg_pigeon(
+        return platch_respond_illegal_arg_ext_pigeon(
             responsehandle,
-            "Expected `arg['asset']` to be a String or null."
+            "Expected `arg['asset']` to be a String or null, but was:",
+            temp
         );
     }
 
@@ -565,9 +592,10 @@ static int on_create(
     } else if (temp != NULL && temp->type == kStdString) {
         uri = temp->string_value;
     } else {
-        return platch_respond_illegal_arg_pigeon(
+        return platch_respond_illegal_arg_ext_pigeon(
             responsehandle,
-            "Expected `arg['uri']` to be a String or null."
+            "Expected `arg['uri']` to be a String or null, but was:",
+            temp
         );
     }
 
@@ -577,9 +605,10 @@ static int on_create(
     } else if (temp != NULL && temp->type == kStdString) {
         package_name = temp->string_value;
     } else {
-        return platch_respond_illegal_arg_pigeon(
+        return platch_respond_illegal_arg_ext_pigeon(
             responsehandle,
-            "Expected `arg['packageName']` to be a String or null."
+            "Expected `arg['packageName']` to be a String or null, but was:",
+            temp
         );
     }
 
@@ -603,9 +632,10 @@ static int on_create(
     } else {
         invalid_format_hint:
 
-        return platch_respond_illegal_arg_pigeon(
+        return platch_respond_illegal_arg_ext_pigeon(
             responsehandle,
-            "Expected `arg['formatHint']` to be one of 'ss', 'hls', 'dash', 'other' or null."
+            "Expected `arg['formatHint']` to be one of 'ss', 'hls', 'dash', 'other' or null, but was:",
+            temp
         );
     }
 
@@ -705,7 +735,7 @@ static int on_dispose(
 
     ok = get_player_from_map_arg(arg, &player, responsehandle);
     if (ok != 0) {
-        return ok;
+        return 0;
     }
     
     meta = get_meta(player);
@@ -747,9 +777,10 @@ static int on_set_looping(
     if (temp && STDVALUE_IS_BOOL(*temp)) {
         loop = STDVALUE_AS_BOOL(*temp);
     } else {
-        return platch_respond_illegal_arg_pigeon(
+        return platch_respond_illegal_arg_ext_pigeon(
             responsehandle,
-            "Expected `arg['isLooping']` to be a boolean."
+            "Expected `arg['isLooping']` to be a boolean, but was:",
+            temp
         );
     }
     
@@ -778,9 +809,10 @@ static int on_set_volume(
     if (STDVALUE_IS_FLOAT(*temp)) {
         volume = STDVALUE_AS_FLOAT(*temp);
     } else {
-        return platch_respond_illegal_arg_pigeon(
+        return platch_respond_illegal_arg_ext_pigeon(
             responsehandle,
-            "Expected `arg['volume']` to be a float/double."
+            "Expected `arg['volume']` to be a float/double, but was:",
+            temp
         );
     }
 
@@ -809,9 +841,10 @@ static int on_set_playback_speed(
     if (STDVALUE_IS_FLOAT(*temp)) {
         speed = STDVALUE_AS_FLOAT(*temp);
     } else {
-        return platch_respond_illegal_arg_pigeon(
+        return platch_respond_illegal_arg_ext_pigeon(
             responsehandle,
-            "Expected `arg['speed']` to be a float/double."
+            "Expected `arg['speed']` to be a float/double, but was:",
+            temp
         );
     }
 
@@ -833,7 +866,7 @@ static int on_play(
     arg = &object->std_value;
 
     ok = get_player_from_map_arg(arg, &player, responsehandle);
-    if (ok != 0) return ok;
+    if (ok != 0) return 0;
 
     gstplayer_play(player);
     return platch_respond_success_pigeon(responsehandle, NULL);
@@ -855,7 +888,7 @@ static int on_get_position(
     arg = &object->std_value;
 
     ok = get_player_from_map_arg(arg, &player, responsehandle);
-    if (ok != 0) return ok;
+    if (ok != 0) return 0;
 
     position = gstplayer_get_position(player);
 
@@ -921,7 +954,7 @@ static int on_pause(
     arg = &object->std_value;
 
     ok = get_player_from_map_arg(arg, &player, responsehandle);
-    if (ok != 0) return ok;
+    if (ok != 0) return 0;
 
     gstplayer_pause(player);
     return platch_respond_success_pigeon(responsehandle, NULL);
@@ -941,7 +974,7 @@ static int on_set_mix_with_others(
     arg = &object->std_value;
 
     ok = get_player_from_map_arg(arg, &player, responsehandle);
-    if (ok != 0) return ok;
+    if (ok != 0) return 0;
 
     /// TODO: Implement
     UNIMPLEMENTED();
