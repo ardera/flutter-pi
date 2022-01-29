@@ -19,6 +19,12 @@
 
 #define LOG_ERROR(...) fprintf(stderr, "[gstreamer video player plugin] " __VA_ARGS__)
 
+#ifdef DEBUG
+#define LOG_DEBUG(...) fprintf(stderr, "[gstreamer video player plugin] " __VA_ARGS__)
+#else
+#define LOG_DEBUG(...) do {} while (0)
+#endif
+
 enum data_source_type {
 	kDataSourceTypeAsset,
 	kDataSourceTypeNetwork,
@@ -573,6 +579,14 @@ static int on_create(
         return respond_init_failed(responsehandle);
     }
 
+    if (!STDVALUE_IS_MAP(*arg)) {
+        return platch_respond_illegal_arg_ext_pigeon(
+            responsehandle,
+            "Expected `arg` to be a Map, but was:",
+            arg
+        );
+    }
+
     temp = stdmap_get_str(arg, "asset");
     if (temp == NULL || temp->type == kStdNull) {
         asset = NULL;
@@ -936,7 +950,7 @@ static int on_seek_to(
         );
     }
 
-    gstplayer_seek_to(player, position);
+    gstplayer_seek_to(player, position, false);
     return platch_respond_success_pigeon(responsehandle, NULL);
 }
 
@@ -965,21 +979,17 @@ static int on_set_mix_with_others(
     struct platch_obj *object,
     FlutterPlatformMessageResponseHandle *responsehandle
 ) {
-    struct gstplayer *player;
     struct std_value *arg;
-    int ok;
 
     (void) channel;
     
     arg = &object->std_value;
 
-    ok = get_player_from_map_arg(arg, &player, responsehandle);
-    if (ok != 0) return 0;
+    (void) arg;
 
-    /// TODO: Implement
-    UNIMPLEMENTED();
-
-    return 0;
+    /// TODO: Should we do anything other here than just returning?
+    LOG_DEBUG("on_set_mix_with_others\n");
+    return platch_respond_success_std(responsehandle, &STDNULL);
 }
 
 static int on_step_forward(
@@ -1028,6 +1038,41 @@ static int on_step_backward(
     return platch_respond_success_std(responsehandle, NULL);
 }
 
+static int on_fast_seek(
+    struct std_value *arg,
+    FlutterPlatformMessageResponseHandle *responsehandle
+) {
+    struct gstplayer *player;
+    struct std_value *temp;
+    int64_t position;
+    int ok;
+
+    ok = get_player_from_map_arg(arg, &player, responsehandle);
+    if (ok != 0) {
+        return 0;
+    }
+
+    temp = stdmap_get_str(arg, "position");
+    if (STDVALUE_IS_INT(*temp)) {
+        position = STDVALUE_AS_INT(*temp);
+    } else {
+        return platch_respond_illegal_arg_pigeon(
+            responsehandle,
+            "Expected `arg['position']` to be an integer."
+        );
+    }
+
+    ok = gstplayer_seek_to(player, position, true);
+    if (ok != 0) {
+        return platch_respond_native_error_std(
+            responsehandle,
+            ok
+        );
+    }
+
+    return platch_respond_success_std(responsehandle, NULL);
+}
+
 static int on_receive_method_channel(
     char *channel,
     struct platch_obj *object,
@@ -1043,6 +1088,8 @@ static int on_receive_method_channel(
         return on_step_forward(&object->std_arg, responsehandle);
     } else if STREQ("stepBackward", method) {
         return on_step_backward(&object->std_arg, responsehandle);
+    } else if STREQ("fastSeek", method) {
+        return on_fast_seek(&object->std_arg, responsehandle);
     } else {
         return platch_respond_not_implemented(responsehandle);
     }

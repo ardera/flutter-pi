@@ -168,8 +168,9 @@ int gstplayer_set_looping(struct gstplayer *player, bool looping);
 int gstplayer_set_volume(struct gstplayer *player, double volume);
 
 /// Seek to a specific position in the video.
-///     @arg position   Position to seek to in milliseconds from the beginning of the video.
-int gstplayer_seek_to(struct gstplayer *player, int64_t position);
+///     @arg position            Position to seek to in milliseconds from the beginning of the video.
+///     @arg nearest_keyframe    If true, seek to the nearest keyframe instead. Might be faster but less accurate.
+int gstplayer_seek_to(struct gstplayer *player, int64_t position, bool nearest_keyframe);
 
 /// Set the playback speed of the player.
 ///   1.0: normal playback speed
