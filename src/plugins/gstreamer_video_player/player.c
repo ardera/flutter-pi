@@ -27,8 +27,14 @@
 
 #ifdef DEBUG
 #   define LOG_DEBUG(...) fprintf(stderr, "[gstreamer video player] " __VA_ARGS__)
+#   define DEBUG_TRACE_BEGIN(player, name) trace_begin(player, name)
+#   define DEBUG_TRACE_END(player, name) trace_end(player, name)
+#   define DEBUG_TRACE_INSTANT(player, name) trace_instant(player, name)
 #else
 #   define LOG_DEBUG(...) do {} while (0)
+#   define DEBUG_TRACE_BEGIN(player, name) do {} while (0)
+#   define DEBUG_TRACE_END(player, name) do {} while (0)
+#   define DEBUG_TRACE_INSTANT(player, name) do {} while (0)
 #endif
 
 #define LOG_GST_SET_STATE_ERROR(_element) LOG_ERROR("setting gstreamer playback state failed. gst_element_set_state(element name: %s): GST_STATE_CHANGE_FAILURE\n", GST_ELEMENT_NAME(_element))
@@ -102,7 +108,33 @@ struct gstplayer {
      */
     double current_playback_rate;
 
+    /**
+     * @brief The position reported if gstreamer position queries fail (for example, because gstreamer is currently
+     * seeking to a new position. In that case, fallback_position_ms will be the seeking target position, so we report the
+     * new position while we're seeking to it)
+     */
     int64_t fallback_position_ms;
+
+    /**
+     * @brief True if there's a position that apply_playback_state should seek to.
+     * 
+     */
+    bool has_desired_position;
+
+    /**
+     * @brief True if gstplayer should seek to the nearest keyframe instead, which is a bit faster.
+     * 
+     */
+    bool do_fast_seeking;
+
+    /**
+     * @brief The position, if any, that apply_playback_state should seek to.
+     * 
+     */
+    int64_t desired_position_ms;
+
+    bool is_forcing_sw_decoding;
+    bool is_currently_falling_back_to_sw_decoding;
 
     struct notifier video_info_notifier, buffering_state_notifier, error_notifier;
     
@@ -147,111 +179,6 @@ static inline void trace_begin(struct gstplayer *player, const char *name) {
 
 static inline void trace_end(struct gstplayer *player, const char *name) {
     return flutterpi_trace_event_end(player->flutterpi, name);
-}
-
-static int apply_playback_state(struct gstplayer *player) {
-    GstStateChangeReturn ok;
-    GstState desired_state, current_state, pending_state;
-    double desired_rate;
-    int64_t position;
-
-    desired_state = player->playpause_state == kPlaying ? GST_STATE_PLAYING : GST_STATE_PAUSED; /* use GST_STATE_PAUSED if we're stepping */
-
-    /// Use 1.0 if we're stepping, otherwise use the stored playback rate for the current direction.
-    if (player->playpause_state == kStepping) {
-        desired_rate = player->direction == kForward ? 1.0 : -1.0;
-    } else {
-        desired_rate = player->direction == kForward ? player->playback_rate_forward : player->playback_rate_backward;
-    }
-
-    if (player->current_playback_rate != desired_rate) {
-        ok = gst_element_query_position(GST_ELEMENT(player->pipeline), GST_FORMAT_TIME, &position);
-        if (ok == FALSE) {
-            LOG_ERROR("Could not get the current playback position to apply the playback speed.\n");
-            return EIO;
-        }
-
-        if (player->direction == kForward) {
-            ok = gst_element_seek(
-                player->pipeline,
-                desired_rate,
-                GST_FORMAT_TIME,
-                GST_SEEK_FLAG_FLUSH | GST_SEEK_FLAG_ACCURATE,
-                GST_SEEK_TYPE_SET, position,
-                GST_SEEK_TYPE_SET, GST_CLOCK_TIME_NONE
-            );
-            if (ok == FALSE) {
-                LOG_ERROR("Could not set the new playback speed (%f).\n", desired_rate);
-                return EIO;
-            }
-        } else {
-            ok = gst_element_seek(
-                player->pipeline,
-                desired_rate,
-                GST_FORMAT_TIME,
-                GST_SEEK_FLAG_FLUSH | GST_SEEK_FLAG_ACCURATE,
-                GST_SEEK_TYPE_SET, 0,
-                GST_SEEK_TYPE_SET, position
-            );
-            if (ok == FALSE) {
-                LOG_ERROR("Could not set the new playback speed (%f).\n", desired_rate);
-                return EIO;
-            }
-        }
-
-        player->current_playback_rate = desired_rate;
-        player->fallback_position_ms = GST_TIME_AS_MSECONDS(position);
-    }
-
-    trace_begin(player, "gst_element_get_state");
-    ok = gst_element_get_state(player->pipeline, &current_state, &pending_state, 0);
-    trace_end(player, "gst_element_get_state");
-
-    if (ok == GST_STATE_CHANGE_FAILURE) {
-        LOG_ERROR("last gstreamer pipeline state change failed. gst_element_get_state(element name: %s): GST_STATE_CHANGE_FAILURE\n", GST_ELEMENT_NAME(player->pipeline));
-        trace_end(player, "apply_playback_state");
-        return EIO;
-    }
-
-    if (pending_state == GST_STATE_VOID_PENDING)  {
-        if (current_state == desired_state) {
-            // we're already in the desired state, and we're also not changing it
-            // no need to do anything.
-            LOG_DEBUG("apply_playback_state(playing: %s): already in desired state and none pending\n", PLAYPAUSE_STATE_AS_STRING(player->playpause_state));
-            trace_end(player, "apply_playback_state");
-            return 0;
-        }
-
-        LOG_DEBUG("apply_playback_state(playing: %s): setting state to %s\n", PLAYPAUSE_STATE_AS_STRING(player->playpause_state), gst_element_state_get_name(desired_state));
-
-        trace_begin(player, "gst_element_set_state");
-        ok = gst_element_set_state(player->pipeline, desired_state);
-        trace_end(player, "gst_element_set_state");
-
-        if (ok == GST_STATE_CHANGE_FAILURE) {
-            LOG_GST_SET_STATE_ERROR(player->pipeline);
-            trace_end(player, "apply_playback_state");
-            return EIO;
-        }
-    } else if (pending_state != desired_state) {
-        // queue to be executed when pending async state change completes
-        /// TODO: Implement properly
-
-        LOG_DEBUG("apply_playback_state(playing: %s): async state change in progress, setting state to %s\n", PLAYPAUSE_STATE_AS_STRING(player->playpause_state), gst_element_state_get_name(desired_state));
-        
-        trace_begin(player, "gst_element_set_state");
-        ok = gst_element_set_state(player->pipeline, desired_state);
-        trace_end(player, "gst_element_set_state");
-        
-        if (ok == GST_STATE_CHANGE_FAILURE) {
-            LOG_GST_SET_STATE_ERROR(player->pipeline);
-            trace_end(player, "apply_playback_state");
-            return EIO;
-        }
-    }
-
-    trace_end(player, "apply_playback_state");
-    return 0;
 }
 
 static int maybe_send_info(struct gstplayer *player) {
@@ -362,7 +289,136 @@ static void maybe_deinit(struct gstplayer *player);
 
 static void fallback_to_sw_decoding(struct gstplayer *player) {
     maybe_deinit(player);
+    player->is_currently_falling_back_to_sw_decoding = true;
     init(player, true);
+}
+
+static int apply_playback_state(struct gstplayer *player) {
+    GstStateChangeReturn ok;
+    GstState desired_state, current_state, pending_state;
+    double desired_rate;
+    int64_t position;
+
+    // if we're currently falling back to software decoding, don't do anything.
+    if (player->is_currently_falling_back_to_sw_decoding) {
+        return 0;
+    }
+
+    desired_state = player->playpause_state == kPlaying ? GST_STATE_PLAYING : GST_STATE_PAUSED; /* use GST_STATE_PAUSED if we're stepping */
+
+    /// Use 1.0 if we're stepping, otherwise use the stored playback rate for the current direction.
+    if (player->playpause_state == kStepping) {
+        desired_rate = player->direction == kForward ? 1.0 : -1.0;
+    } else {
+        desired_rate = player->direction == kForward ? player->playback_rate_forward : player->playback_rate_backward;
+    }
+
+    if (player->current_playback_rate != desired_rate || player->has_desired_position) {
+        if (player->has_desired_position) {
+            position = player->desired_position_ms * GST_MSECOND;
+        } else {
+            ok = gst_element_query_position(GST_ELEMENT(player->pipeline), GST_FORMAT_TIME, &position);
+            if (ok == FALSE) {
+                LOG_ERROR("Could not get the current playback position to apply the playback speed.\n");
+                return EIO;
+            }
+        }
+
+        if (player->direction == kForward) {
+            LOG_DEBUG("gst_element_seek(..., rate: %f, start: %"GST_TIME_FORMAT", end: %"GST_TIME_FORMAT", ...)\n", desired_rate, GST_TIME_ARGS(position), GST_TIME_ARGS(GST_CLOCK_TIME_NONE));
+            ok = gst_element_seek(
+                GST_ELEMENT(player->pipeline),
+                desired_rate,
+                GST_FORMAT_TIME,
+                GST_SEEK_FLAG_FLUSH | (player->do_fast_seeking ? GST_SEEK_FLAG_KEY_UNIT | GST_SEEK_FLAG_SNAP_NEAREST : GST_SEEK_FLAG_ACCURATE),
+                GST_SEEK_TYPE_SET, position,
+                GST_SEEK_TYPE_SET, GST_CLOCK_TIME_NONE
+            );
+            if (ok == FALSE) {
+                LOG_ERROR("Could not set the new playback speed / playback position (speed: %f, pos: %" GST_TIME_FORMAT ").\n", desired_rate, GST_TIME_ARGS(position));
+                return EIO;
+            }
+        } else {
+            LOG_DEBUG("gst_element_seek(..., rate: %f, start: %"GST_TIME_FORMAT", end: %"GST_TIME_FORMAT", ...)\n", desired_rate, GST_TIME_ARGS(0), GST_TIME_ARGS(position));
+            ok = gst_element_seek(
+                GST_ELEMENT(player->pipeline),
+                desired_rate,
+                GST_FORMAT_TIME,
+                GST_SEEK_FLAG_FLUSH | (player->do_fast_seeking ? GST_SEEK_FLAG_KEY_UNIT | GST_SEEK_FLAG_SNAP_NEAREST : GST_SEEK_FLAG_ACCURATE),
+                GST_SEEK_TYPE_SET, 0,
+                GST_SEEK_TYPE_SET, position
+            );
+
+            if (ok == FALSE) {
+                if (player->is_forcing_sw_decoding == false) {
+                    LOG_DEBUG("Could not set the new playback speed / playback position (speed: %f, pos: %" GST_TIME_FORMAT ").\n", desired_rate, GST_TIME_ARGS(position));
+                    LOG_DEBUG("Falling back to software decoding to set the new playback speed / position.\n");
+                    player->has_desired_position = true;
+                    player->desired_position_ms = GST_TIME_AS_MSECONDS(position);
+                    player->fallback_position_ms = GST_TIME_AS_MSECONDS(position);
+                    fallback_to_sw_decoding(player);
+                    return 0;
+                } else {
+                    LOG_ERROR("Could not set the new playback speed / playback position (speed: %f, pos: %" GST_TIME_FORMAT ") and player is already using software decoding.\n", desired_rate, GST_TIME_ARGS(position));
+                    return EIO;
+                }
+            }
+        }
+
+        player->current_playback_rate = desired_rate;
+        player->fallback_position_ms = GST_TIME_AS_MSECONDS(position);
+        player->has_desired_position = false;
+    }
+
+    DEBUG_TRACE_BEGIN(player, "gst_element_get_state");
+    ok = gst_element_get_state(player->pipeline, &current_state, &pending_state, 0);
+    DEBUG_TRACE_END(player, "gst_element_get_state");
+
+    if (ok == GST_STATE_CHANGE_FAILURE) {
+        LOG_ERROR("last gstreamer pipeline state change failed. gst_element_get_state(element name: %s): GST_STATE_CHANGE_FAILURE\n", GST_ELEMENT_NAME(player->pipeline));
+        DEBUG_TRACE_END(player, "apply_playback_state");
+        return EIO;
+    }
+
+    if (pending_state == GST_STATE_VOID_PENDING)  {
+        if (current_state == desired_state) {
+            // we're already in the desired state, and we're also not changing it
+            // no need to do anything.
+            LOG_DEBUG("apply_playback_state(playing: %s): already in desired state and none pending\n", PLAYPAUSE_STATE_AS_STRING(player->playpause_state));
+            DEBUG_TRACE_END(player, "apply_playback_state");
+            return 0;
+        }
+
+        LOG_DEBUG("apply_playback_state(playing: %s): setting state to %s\n", PLAYPAUSE_STATE_AS_STRING(player->playpause_state), gst_element_state_get_name(desired_state));
+
+        DEBUG_TRACE_BEGIN(player, "gst_element_set_state");
+        ok = gst_element_set_state(player->pipeline, desired_state);
+        DEBUG_TRACE_END(player, "gst_element_set_state");
+
+        if (ok == GST_STATE_CHANGE_FAILURE) {
+            LOG_GST_SET_STATE_ERROR(player->pipeline);
+            DEBUG_TRACE_END(player, "apply_playback_state");
+            return EIO;
+        }
+    } else if (pending_state != desired_state) {
+        // queue to be executed when pending async state change completes
+        /// TODO: Implement properly
+
+        LOG_DEBUG("apply_playback_state(playing: %s): async state change in progress, setting state to %s\n", PLAYPAUSE_STATE_AS_STRING(player->playpause_state), gst_element_state_get_name(desired_state));
+        
+        DEBUG_TRACE_BEGIN(player, "gst_element_set_state");
+        ok = gst_element_set_state(player->pipeline, desired_state);
+        DEBUG_TRACE_END(player, "gst_element_set_state");
+        
+        if (ok == GST_STATE_CHANGE_FAILURE) {
+            LOG_GST_SET_STATE_ERROR(player->pipeline);
+            DEBUG_TRACE_END(player, "apply_playback_state");
+            return EIO;
+        }
+    }
+
+    DEBUG_TRACE_END(player, "apply_playback_state");
+    return 0;
 }
 
 static void on_bus_message(struct gstplayer *player, GstMessage *msg) {
@@ -370,7 +426,7 @@ static void on_bus_message(struct gstplayer *player, GstMessage *msg) {
     GError *error;
     gchar *debug_info;
 
-    trace_begin(player, "on_bus_message");
+    DEBUG_TRACE_BEGIN(player, "on_bus_message");
     switch (GST_MESSAGE_TYPE(msg)) {
         case GST_MESSAGE_ERROR:
             gst_message_parse_error(msg, &error, &debug_info);
@@ -423,9 +479,9 @@ static void on_bus_message(struct gstplayer *player, GstMessage *msg) {
                 /// TODO: GST_MESSAGE_BUFFERING is only emitted when we actually need to wait on some buffering till we can resume the playback.
                 /// However, the info we send to the callback also contains information on the buffered video ranges.
                 /// That information is constantly changing, but we only notify the player about it when we actively wait for the buffer to be filled.
-                trace_begin(player, "update_buffering_state");
+                DEBUG_TRACE_BEGIN(player, "update_buffering_state");
                 update_buffering_state(player);
-                trace_end(player, "update_buffering_state");
+                DEBUG_TRACE_END(player, "update_buffering_state");
 
                 break;
             };
@@ -440,24 +496,32 @@ static void on_bus_message(struct gstplayer *player, GstMessage *msg) {
                 gst_element_state_get_name(pending)
             );
 
-            if (!player->info.has_duration && GST_MESSAGE_SRC(msg) == GST_OBJECT(player->pipeline) && (current == GST_STATE_PAUSED || current == GST_STATE_PLAYING)) {
-                // it's our pipeline that changed to either playing / paused, and we don't have info about our video duration yet.
-                // get that info now.
-                // technically we can already fetch the duration when the decodebin changed to PAUSED state.
-                trace_begin(player, "fetch video info");
-                fetch_duration(player);
-                fetch_seeking(player);
-                maybe_send_info(player);
-                trace_end(player, "fetch video info");
+            if (GST_MESSAGE_SRC(msg) == GST_OBJECT(player->pipeline)) {
+                if (!player->info.has_duration && (current == GST_STATE_PAUSED || current == GST_STATE_PLAYING)) {
+                    // it's our pipeline that changed to either playing / paused, and we don't have info about our video duration yet.
+                    // get that info now.
+                    // technically we can already fetch the duration when the decodebin changed to PAUSED state.
+                    DEBUG_TRACE_BEGIN(player, "fetch video info");
+                    fetch_duration(player);
+                    fetch_seeking(player);
+                    maybe_send_info(player);
+                    DEBUG_TRACE_END(player, "fetch video info");
+                }
             }
-
             break;
         
+        case GST_MESSAGE_ASYNC_DONE:
+            if (GST_MESSAGE_SRC(msg) == GST_OBJECT(player->pipeline) && player->is_currently_falling_back_to_sw_decoding) {
+                player->is_currently_falling_back_to_sw_decoding = false;
+                apply_playback_state(player);
+            }
+            break;
+
         case GST_MESSAGE_LATENCY:
             LOG_DEBUG("gstreamer: redistributing latency\n");
-            trace_begin(player, "gst_bin_recalculate_latency");
+            DEBUG_TRACE_BEGIN(player, "gst_bin_recalculate_latency");
             gst_bin_recalculate_latency(GST_BIN(player->pipeline));
-            trace_end(player, "gst_bin_recalculate_latency");
+            DEBUG_TRACE_END(player, "gst_bin_recalculate_latency");
             break;
 
         case GST_MESSAGE_EOS:
@@ -471,9 +535,9 @@ static void on_bus_message(struct gstplayer *player, GstMessage *msg) {
                 gst_element_state_get_name(requested),
                 GST_MESSAGE_SRC_NAME(msg)
             );
-            trace_begin(player, "gst_element_set_state");
+            DEBUG_TRACE_BEGIN(player, "gst_element_set_state");
             gst_element_set_state(GST_ELEMENT(player->pipeline), requested);
-            trace_end(player, "gst_element_set_state");
+            DEBUG_TRACE_END(player, "gst_element_set_state");
             break;
 
         case GST_MESSAGE_APPLICATION:
@@ -481,7 +545,7 @@ static void on_bus_message(struct gstplayer *player, GstMessage *msg) {
                 // we have an appsink end of stream event
                 // and we should be looping, so seek back to start
                 LOG_DEBUG("appsink eos, seeking back to segment start (flushing)\n");
-                trace_begin(player, "gst_element_seek");
+                DEBUG_TRACE_BEGIN(player, "gst_element_seek");
                 gst_element_seek(
                     GST_ELEMENT(player->pipeline),
                     player->current_playback_rate,
@@ -490,7 +554,7 @@ static void on_bus_message(struct gstplayer *player, GstMessage *msg) {
                     GST_SEEK_TYPE_SET, 0,
                     GST_SEEK_TYPE_SET, GST_CLOCK_TIME_NONE
                 );
-                trace_end(player, "gst_element_seek");
+                DEBUG_TRACE_END(player, "gst_element_seek");
 
                 apply_playback_state(player);
             }
@@ -500,7 +564,7 @@ static void on_bus_message(struct gstplayer *player, GstMessage *msg) {
             LOG_DEBUG("gstreamer message: %s, src: %s\n", GST_MESSAGE_TYPE_NAME(msg), GST_MESSAGE_SRC_NAME(msg));
             break;
     }
-    trace_end(player, "on_bus_message");
+    DEBUG_TRACE_END(player, "on_bus_message");
     return;
 }
 
@@ -514,7 +578,7 @@ static int on_bus_fd_ready(sd_event_source *s, int fd, uint32_t revents, void *u
     
     player = userdata;
     
-    trace_begin(player, "on_bus_fd_ready");
+    DEBUG_TRACE_BEGIN(player, "on_bus_fd_ready");
 
     msg = gst_bus_pop(player->bus);
     if (msg != NULL) {
@@ -522,7 +586,7 @@ static int on_bus_fd_ready(sd_event_source *s, int fd, uint32_t revents, void *u
         gst_message_unref(msg);
     }
 
-    trace_end(player, "on_bus_fd_ready");
+    DEBUG_TRACE_END(player, "on_bus_fd_ready");
 
     return 0;
 }
@@ -867,6 +931,7 @@ static int init(struct gstplayer *player, bool force_sw_decoders) {
     player->pipeline = pipeline; //gst_object_ref(pipeline);
     player->bus = bus;
     player->busfd_events = busfd_event_source;
+    player->is_forcing_sw_decoding = force_sw_decoders;
 
     gst_object_unref(src);
     gst_object_unref(pad);
@@ -971,6 +1036,11 @@ static struct gstplayer *gstplayer_new(struct flutterpi *flutterpi, const char *
     player->playpause_state = kPaused;
     player->direction = kForward;
     player->current_playback_rate = 1.0;
+    player->fallback_position_ms = 0;
+    player->has_desired_position = false;
+    player->desired_position_ms = 0;
+    player->is_forcing_sw_decoding = false;
+    player->is_currently_falling_back_to_sw_decoding = false;
     player->has_sent_info = false;
     player->info.has_resolution = false;
     player->info.has_fps = false;
@@ -1133,6 +1203,12 @@ int64_t gstplayer_get_position(struct gstplayer *player) {
     GstState current, pending;
     gboolean ok;
     int64_t position;
+
+    // If we're currently falling back to software decoding,
+    // report the position we'll make gstreamer seek to afterwards.
+    if (player->is_currently_falling_back_to_sw_decoding) {
+        return player->desired_position_ms;
+    }
     
     GstStateChangeReturn statechange = gst_element_get_state(GST_ELEMENT(player->pipeline), &current, &pending, 0); 
     if (statechange == GST_STATE_CHANGE_FAILURE) {
@@ -1146,48 +1222,26 @@ int64_t gstplayer_get_position(struct gstplayer *player) {
         return player->fallback_position_ms;
     }
 
-    trace_begin(player, "gstplayer_get_position");
-    trace_begin(player, "gst_element_query_position");
+    DEBUG_TRACE_BEGIN(player, "gstplayer_get_position");
+    DEBUG_TRACE_BEGIN(player, "gst_element_query_position");
     ok = gst_element_query_position(player->pipeline, GST_FORMAT_TIME, &position);
-    trace_end(player, "gst_element_query_position");
+    DEBUG_TRACE_END(player, "gst_element_query_position");
 
-    /// TODO: This is most likely not an error.
-    /// When we're seeking (or buffering AFAICT), gstreamer can't report a position.
-    /// So just report the last known position, or the position we're seeking to.
     if (ok == FALSE) {
         LOG_ERROR("Could not query gstreamer position. (gst_element_query_position)\n");
         return 0;
     }
 
-    trace_end(player, "gstplayer_get_position");
+    DEBUG_TRACE_END(player, "gstplayer_get_position");
     return GST_TIME_AS_MSECONDS(position);
 }
 
-int gstplayer_seek_to(struct gstplayer *player, int64_t position) {
-    gboolean ok;
-
-    trace_begin(player, "gstplayer_seek_to");
+int gstplayer_seek_to(struct gstplayer *player, int64_t position, bool nearest_keyframe) {
     LOG_DEBUG("gstplayer_seek_to(%" PRId64 ")\n", position);
-
-    trace_begin(player, "gst_element_seek");
-    ok = gst_element_seek(
-        player->pipeline,
-        player->current_playback_rate,
-        GST_FORMAT_TIME,
-        GST_SEEK_FLAG_FLUSH,
-        GST_SEEK_TYPE_SET, position * GST_MSECOND,
-        GST_SEEK_TYPE_SET, GST_CLOCK_TIME_NONE
-    );
-    trace_end(player, "gst_element_seek");
-
-    if (ok == FALSE) {
-        return EIO; 
-    }
-    player->fallback_position_ms = position;
-    apply_playback_state(player);
-
-    trace_end(player, "gstplayer_seek_to");
-    return 0;
+    player->has_desired_position = true;
+    player->desired_position_ms = position;
+    player->do_fast_seeking = nearest_keyframe;
+    return apply_playback_state(player);
 }
 
 int gstplayer_set_playback_speed(struct gstplayer *player, double playback_speed) {
@@ -1199,53 +1253,64 @@ int gstplayer_set_playback_speed(struct gstplayer *player, double playback_speed
 
 int gstplayer_step_forward(struct gstplayer *player) {
     gboolean gst_ok;
+    int ok;
 
     DEBUG_ASSERT_NOT_NULL(player);
 
     player->playpause_state = kStepping;
     player->direction = kForward;
-    apply_playback_state(player);
-
-    gst_ok = gst_element_send_event(
-        player->pipeline,
-        gst_event_new_step(
-            GST_FORMAT_BUFFERS,
-            1,
-            1,
-            TRUE,
-            FALSE
-        )
-    );
-    if (gst_ok == FALSE) {
-        LOG_ERROR("Could not send frame-step event to pipeline. (gst_element_send_event)\n");
-        return EIO;
+    ok = apply_playback_state(player);
+    if (ok != 0) {
+        return ok;
     }
 
+    if (player->is_currently_falling_back_to_sw_decoding == false) {
+        gst_ok = gst_element_send_event(
+            player->pipeline,
+            gst_event_new_step(
+                GST_FORMAT_BUFFERS,
+                1,
+                1,
+                TRUE,
+                FALSE
+            )
+        );
+        if (gst_ok == FALSE) {
+            LOG_ERROR("Could not send frame-step event to pipeline. (gst_element_send_event)\n");
+            return EIO;
+        }
+    }
     return 0;
 }
 
 int gstplayer_step_backward(struct gstplayer *player) {
     gboolean gst_ok;
+    int ok;
 
     DEBUG_ASSERT_NOT_NULL(player);
 
     player->playpause_state = kStepping;
     player->direction = kBackward;
-    apply_playback_state(player);
+    ok = apply_playback_state(player);
+    if (ok != 0) {
+        return ok;
+    }
 
-    gst_ok = gst_element_send_event(
-        player->pipeline,
-        gst_event_new_step(
-            GST_FORMAT_BUFFERS,
-            1,
-            1,
-            TRUE,
-            FALSE
-        )
-    );
-    if (gst_ok == FALSE) {
-        LOG_ERROR("Could not send frame-step event to pipeline. (gst_element_send_event)\n");
-        return EIO;
+    if (player->is_currently_falling_back_to_sw_decoding == false) {
+        gst_ok = gst_element_send_event(
+            player->pipeline,
+            gst_event_new_step(
+                GST_FORMAT_BUFFERS,
+                1,
+                1,
+                TRUE,
+                FALSE
+            )
+        );
+        if (gst_ok == FALSE) {
+            LOG_ERROR("Could not send frame-step event to pipeline. (gst_element_send_event)\n");
+            return EIO;
+        }
     }
 
     return 0;

@@ -1262,7 +1262,7 @@ static bool on_present_layers(
 		struct pointer_set updated_views = PSET_INITIALIZER_STATIC(updated_views_storage, layers_count);
 	
 		for_each_pointer_in_cpset(&compositor->cbs, cb_data) {
-			const FlutterLayer *layer;
+			const FlutterLayer *layer = NULL;
 			bool is_present = false;
 			int zpos;
 
@@ -1275,6 +1275,8 @@ static bool on_present_layers(
 					break;
 				}
 			}
+
+			DEBUG_ASSERT_NOT_NULL(layer);
 
 			if (!is_present && cb_data->was_present_last_frame) {
 				pset_put(&unmounted_views, cb_data);
@@ -1315,7 +1317,7 @@ static bool on_present_layers(
 		}
 
 		for_each_pointer_in_pset(&updated_views, cb_data) {
-			const FlutterLayer *layer;
+			const FlutterLayer *layer = NULL;
 			int zpos;
 
 			for (int i = 0; i < layers_count; i++) {
@@ -1326,6 +1328,8 @@ static bool on_present_layers(
 					break;
 				}
 			}
+
+			DEBUG_ASSERT_NOT_NULL(layer);
 
 			struct platform_view_params params;
 			fill_platform_view_params(
@@ -1360,7 +1364,7 @@ static bool on_present_layers(
 		}
 
 		for_each_pointer_in_pset(&mounted_views, cb_data) {
-			const FlutterLayer *layer;
+			const FlutterLayer *layer = NULL;
 			int zpos;
 
 			for (int i = 0; i < layers_count; i++) {
@@ -1371,6 +1375,8 @@ static bool on_present_layers(
 					break;
 				}
 			}
+
+			DEBUG_ASSERT_NOT_NULL(layer);
 
 			struct platform_view_params params;
 			fill_platform_view_params(
@@ -1840,7 +1846,8 @@ int compositor_apply_cursor_state(
 				} else if (rotation == 180) {
 					rotated_hot_x = cursor->width - cursor->hot_x - 1;
 					rotated_hot_y = cursor->width - cursor->hot_y - 1;
-				} else if (rotation == 270) {
+				} else {
+					DEBUG_ASSERT(rotation == 270);
 					rotated_hot_x = cursor->hot_y;
 					rotated_hot_y = cursor->width - cursor->hot_x - 1;
 				}

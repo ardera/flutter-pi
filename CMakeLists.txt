@@ -96,6 +96,7 @@ else()
 endif()
 
 include(ExternalProject)
+include(CheckCCompilerFlag)
 
 set(ENV{PKG_CONFIG_PATH} ${PKG_CONFIG_PATH})
 message(STATUS "PKG_CONFIG_PATH ........ $ENV{PKG_CONFIG_PATH}")
@@ -244,8 +245,13 @@ if (ENABLE_ASAN)
   # intercepted stdc++ yet.
   # Also disable --as-needed so we _actually_ link against c++, even though we don't use any symbols from it.
   target_link_libraries(flutter-pi stdc++)
-  target_link_options(flutter-pi PRIVATE -fsanitize=address -static-libasan -fno-omit-frame-pointer -Wl,--no-as-needed)
+  target_link_options(flutter-pi PRIVATE -fsanitize=address -fno-omit-frame-pointer -Wl,--no-as-needed)
   target_compile_options(flutter-pi PRIVATE -fsanitize=address)
+
+  check_c_compiler_flag(-static-libasan HAS_STATIC_LIBASAN)
+  if (HAS_STATIC_LIBASAN)
+    target_link_options(flutter-pi PRIVATE -static-libasan)
+  endif()
 endif()
 if (ENABLE_UBSAN)
   target_link_options(flutter-pi PRIVATE -fsanitize=undefined)

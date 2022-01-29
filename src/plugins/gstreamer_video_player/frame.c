@@ -35,6 +35,7 @@ struct video_frame {
 
 struct frame_interface *frame_interface_new(struct flutterpi *flutterpi) {
     struct frame_interface *interface;
+    EGLBoolean egl_ok;
     EGLContext context;
     EGLDisplay display;
 
@@ -90,7 +91,8 @@ struct frame_interface *frame_interface_new(struct flutterpi *flutterpi) {
     return interface;
 
     fail_destroy_context:
-    DEBUG_ASSERT_EGL_TRUE(eglDestroyContext(display, context));
+    egl_ok = eglDestroyContext(display, context);
+    DEBUG_ASSERT_EGL_TRUE(egl_ok);
 
     fail_free:
     free(interface);
@@ -98,8 +100,11 @@ struct frame_interface *frame_interface_new(struct flutterpi *flutterpi) {
 }
 
 void frame_interface_destroy(struct frame_interface *interface) {
+    EGLBoolean egl_ok;
+
     pthread_mutex_destroy(&interface->context_lock);
-    DEBUG_ASSERT_EGL_TRUE(eglDestroyContext(interface->display, interface->context));
+    egl_ok = eglDestroyContext(interface->display, interface->context);
+    DEBUG_ASSERT_EGL_TRUE(egl_ok);
     free(interface);
 }
 
@@ -413,20 +418,26 @@ struct video_frame *frame_new(
 }
 
 void frame_destroy(struct video_frame *frame) {
+    EGLBoolean egl_ok;
+    int ok;
     /// TODO: See TODO in frame_new 
     // gst_buffer_unref(frame->buffer);
 
     frame_interface_lock(frame->interface);
-    DEBUG_ASSERT_EGL_TRUE(eglMakeCurrent(frame->interface->display, EGL_NO_SURFACE, EGL_NO_SURFACE, frame->interface->context));
+    egl_ok = eglMakeCurrent(frame->interface->display, EGL_NO_SURFACE, EGL_NO_SURFACE, frame->interface->context);
+    DEBUG_ASSERT_EGL_TRUE(egl_ok);
     glDeleteTextures(1, &frame->gl_frame.name);
     DEBUG_ASSERT(GL_NO_ERROR == glGetError());
-    DEBUG_ASSERT_EGL_TRUE(eglMakeCurrent(frame->interface->display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT));
+    egl_ok = eglMakeCurrent(frame->interface->display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+    DEBUG_ASSERT_EGL_TRUE(egl_ok);
     frame_interface_unlock(frame->interface);
     
-    DEBUG_ASSERT_EGL_TRUE(frame->interface->eglDestroyImageKHR(frame->interface->display, frame->image));
+    egl_ok = frame->interface->eglDestroyImageKHR(frame->interface->display, frame->image);
+    DEBUG_ASSERT_EGL_TRUE(egl_ok);
     frame_interface_unref(frame->interface);
     for (int i = 0; i < frame->n_dmabuf_fds; i++) {
-        assert(0 == close(frame->dmabuf_fds[i]));
+        ok = close(frame->dmabuf_fds[i]);
+        DEBUG_ASSERT(ok == 0);
     }
     free(frame);
 }
