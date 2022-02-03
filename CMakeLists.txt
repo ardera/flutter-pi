@@ -34,7 +34,8 @@ project(flutter-pi LANGUAGES C VERSION "1.0.0")
 message(STATUS "Generator .............. ${CMAKE_GENERATOR}")
 message(STATUS "Build Type ............. ${CMAKE_BUILD_TYPE}")
 
-OPTION(OMXPLAYER_SUPPORTS_RUNTIME_ROTATION "Whether omxplayer supports runtime rotation." OFF)
+option(OMXPLAYER_SUPPORTS_RUNTIME_ROTATION "Whether omxplayer supports runtime rotation." OFF)
+option(DUMP_ENGINE_LAYERS "True if flutter-pi should dump the list of rendering layers that the flutter engine sends to flutter-pi on each draw." OFF)
 
 if(NOT FLUTTER_EMBEDDER_HEADER)
 

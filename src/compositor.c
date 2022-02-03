@@ -21,6 +21,13 @@
 #include <compositor.h>
 #include <cursor.h>
 
+#define LOG_ERROR(...) fprintf(stderr, "[compositor] " __VA_ARGS__)
+#ifdef DEBUG
+#	define LOG_DEBUG(...) fprintf(stderr, "[compositor] " __VA_ARGS__)
+#else
+#	define LOG_DEBUG(...) do {} while (0)
+#endif
+
 struct view_cb_data {
 	int64_t view_id;
 	platform_view_mount_cb mount;
@@ -1061,6 +1068,57 @@ static bool on_present_layers(
 	schedule_fake_page_flip_event = compositor->do_blocking_atomic_commits;
 	use_atomic_modesetting = drmdev->supports_atomic_modesetting;
 
+#ifdef DUMP_ENGINE_LAYERS
+	LOG_DEBUG("layers:\n");
+	for (int i = 0; i < layers_count; i++) {
+		if (layers[i]->type == kFlutterLayerContentTypeBackingStore) {
+			LOG_DEBUG("  backing store (offset: %f, %f. size: %f, %f)\n", layers[i]->offset.x, layers[i]->offset.y, layers[i]->size.width, layers[i]->size.height);
+		} else {
+			DEBUG_ASSERT(layers[i]->type == kFlutterLayerContentTypePlatformView);
+			
+			LOG_DEBUG("  platform view (id: %"PRId64", offset: %f, %f, size: %f, %f) mutations:\n", layers[i]->platform_view->identifier, layers[i]->offset.x, layers[i]->offset.y, layers[i]->size.width, layers[i]->size.height);
+			for (size_t j = 0; j < layers[i]->platform_view->mutations_count; j++) {
+				const FlutterPlatformViewMutation *mut = layers[i]->platform_view->mutations[j];
+				switch (mut->type) {
+					case kFlutterPlatformViewMutationTypeOpacity:
+						LOG_DEBUG("    opacity %f\n", mut->opacity);
+						break;
+					case kFlutterPlatformViewMutationTypeClipRect:
+						LOG_DEBUG("    clip rect (ltrb: %f, %f, %f, %f)\n", mut->clip_rect.left, mut->clip_rect.top, mut->clip_rect.right, mut->clip_rect.bottom);
+						break;
+					case kFlutterPlatformViewMutationTypeClipRoundedRect:
+						LOG_DEBUG(
+							"    clip rounded rect (ltrb: %f, %f, %f, %f, corner radii ul, ur, br, bl: %f, %f, %f, %f)\n",
+							mut->clip_rounded_rect.rect.left, mut->clip_rounded_rect.rect.top, mut->clip_rounded_rect.rect.right, mut->clip_rounded_rect.rect.bottom,
+							mut->clip_rounded_rect.upper_left_corner_radius,
+							mut->clip_rounded_rect.upper_right_corner_radius,
+							mut->clip_rounded_rect.lower_right_corner_radius,
+							mut->clip_rounded_rect.lower_left_corner_radius
+						);
+						break;
+					case kFlutterPlatformViewMutationTypeTransformation:
+						LOG_DEBUG(
+							"    transform (matrix: %f %f %f; %f %f %f; %f %f %f)\n",
+							mut->transformation.scaleX,
+							mut->transformation.skewX,
+							mut->transformation.transX,
+							mut->transformation.skewY,
+							mut->transformation.scaleY,
+							mut->transformation.transY,
+							mut->transformation.pers0,
+							mut->transformation.pers1,
+							mut->transformation.pers2
+						);
+						break;
+					default:
+						DEBUG_ASSERT_MSG(0, "invalid platform view mutation type\n");
+						break;
+				}
+			}
+		}
+	}
+#endif
+
 	req = NULL;
 	if (use_atomic_modesetting) {
 		ok = drmdev_new_atomic_req(compositor->drmdev, &req);
@@ -1414,7 +1472,8 @@ static bool on_present_layers(
 					legacy_rendertarget_set_mode && (plane->type == DRM_PLANE_TYPE_PRIMARY)
 				);
 			}
-		} else if (layers[i]->type == kFlutterLayerContentTypePlatformView) {
+		} else {
+			DEBUG_ASSERT(layers[i]->type == kFlutterLayerContentTypePlatformView);
 			cb_data = get_cbs_for_view_id_locked(layers[i]->platform_view->identifier);
 
 			if ((cb_data != NULL) && (cb_data->present != NULL)) {

@@ -421,7 +421,7 @@ static inline uint64_t get_monotonic_time(void) {
 
 #ifdef DEBUG
 #define DEBUG_ASSERT(__cond) assert(__cond)
-#define DEBUG_ASSERT_MSG(__cond, __msg) assert((__msg, (__cond))
+#define DEBUG_ASSERT_MSG(__cond, __msg) assert((__cond) && __msg)
 #else
 #define DEBUG_ASSERT(__cond) do {} while (false)
 #define DEBUG_ASSERT_MSG(__cond, __msg) do {} while (false)
