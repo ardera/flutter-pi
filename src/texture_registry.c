@@ -131,14 +131,14 @@ static int texture_registry_engine_notify_frame_available(struct texture_registr
 static int texture_registry_register_texture(struct texture_registry *reg, struct texture *texture) {
     int ok;
 
-    ok = cpset_put_(&reg->textures, texture);
+    ok = cpset_put(&reg->textures, texture);
     if (ok != 0) {
         return ok;
     }
 
     ok = texture_registry_engine_register_id(reg, texture->id);
     if (ok != 0) {
-        cpset_remove_(&reg->textures, texture);
+        cpset_remove(&reg->textures, texture);
         return ok;
     }
 
@@ -147,7 +147,7 @@ static int texture_registry_register_texture(struct texture_registry *reg, struc
 
 static void texture_registry_unregister_texture(struct texture_registry *reg, struct texture *texture) {
     texture_registry_engine_unregister_id(reg, texture->id);
-    cpset_remove_(&reg->textures, texture);
+    cpset_remove(&reg->textures, texture);
 }
 
 static bool texture_gl_external_texture_frame_callback(

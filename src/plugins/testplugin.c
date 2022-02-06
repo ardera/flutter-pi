@@ -145,9 +145,9 @@ int printStd(struct std_value *value, int indent) {
 
 #undef INDENT_STRING
 
-uint64_t testplugin_time_offset;
+static uint64_t testplugin_time_offset;
 
-int on_response_json(struct platch_obj *object, void *userdata) {
+static int on_response_json(struct platch_obj *object, void *userdata) {
     uint64_t dt = flutterpi.flutter.libflutter_engine.FlutterEngineGetCurrentTime() - *((uint64_t*) userdata);
     free(userdata);
     
@@ -172,7 +172,7 @@ int on_response_json(struct platch_obj *object, void *userdata) {
 
     return 0;
 }
-int send_json(void) {
+static int send_json(void) {
     uint64_t* time = malloc(sizeof(uint64_t));
     *time = flutterpi.flutter.libflutter_engine.FlutterEngineGetCurrentTime();
 
@@ -205,7 +205,7 @@ int send_json(void) {
     }
     return 0;
 }
-int on_response_std(struct platch_obj *object, void *userdata) {
+static int on_response_std(struct platch_obj *object, void *userdata) {
     uint64_t dt = flutterpi.flutter.libflutter_engine.FlutterEngineGetCurrentTime() - *((uint64_t*) userdata);
     free(userdata);
 
@@ -230,7 +230,7 @@ int on_response_std(struct platch_obj *object, void *userdata) {
 
     return 0;
 }
-int send_std() {
+static int send_std() {
     uint64_t *time = malloc(sizeof(uint64_t));
     *time = flutterpi.flutter.libflutter_engine.FlutterEngineGetCurrentTime();
 
@@ -266,7 +266,7 @@ int send_std() {
 }
 
 
-int on_receive_json(char *channel, struct platch_obj *object, FlutterPlatformMessageResponseHandle *responsehandle) {
+static int on_receive_json(char *channel, struct platch_obj *object, FlutterPlatformMessageResponseHandle *responsehandle) {
     printf("[test plugin] on_receive_json(channel: %s)\n"
            "  method: %s\n"
            "  args: \n", channel, object->method);
@@ -282,7 +282,7 @@ int on_receive_json(char *channel, struct platch_obj *object, FlutterPlatformMes
         }
     });
 }
-int on_receive_std(char *channel, struct platch_obj *object, FlutterPlatformMessageResponseHandle *responsehandle) {
+static int on_receive_std(char *channel, struct platch_obj *object, FlutterPlatformMessageResponseHandle *responsehandle) {
     printf("[test plugin] on_receive_std(channel: %s)\n"
            "  method: %s\n"
            "  args: \n", channel, object->method);
@@ -302,7 +302,7 @@ int on_receive_std(char *channel, struct platch_obj *object, FlutterPlatformMess
         }
     );
 }
-int on_receive_ping(char *channel, struct platch_obj *object, FlutterPlatformMessageResponseHandle *responsehandle) {
+static int on_receive_ping(char *channel, struct platch_obj *object, FlutterPlatformMessageResponseHandle *responsehandle) {
     return platch_respond(
         responsehandle,
         &(struct platch_obj) {
@@ -312,32 +312,48 @@ int on_receive_ping(char *channel, struct platch_obj *object, FlutterPlatformMes
     );
 }
 
-
-int testp_init(void) {
+enum plugin_init_result testp_init(struct flutterpi *flutterpi, void **userdata_out) {
     int ok;
 
     ok = plugin_registry_set_receiver(TESTPLUGIN_CHANNEL_JSON, kJSONMethodCall, on_receive_json);
-    if (ok != 0) return ok;
+    if (ok != 0) {
+        return kError_PluginInitResult;
+    }
 
     ok = plugin_registry_set_receiver(TESTPLUGIN_CHANNEL_STD, kStandardMethodCall, on_receive_std);
     if (ok != 0) {
-        plugin_registry_remove_receiver(TESTPLUGIN_CHANNEL_JSON);
-        return ok;
+        goto fail_remove_json_receiver;
     }
     
     ok = plugin_registry_set_receiver(TESTPLUGIN_CHANNEL_PING, kStringCodec, on_receive_ping);
     if (ok != 0) {
-        plugin_registry_remove_receiver(TESTPLUGIN_CHANNEL_STD);
-        plugin_registry_remove_receiver(TESTPLUGIN_CHANNEL_JSON);
-        return ok;
+        goto fail_remove_std_receiver;
     }
 
-    return 0;
+    *userdata_out = NULL;
+
+    return kInitialized_PluginInitResult;
+
+
+    fail_remove_std_receiver:
+    plugin_registry_remove_receiver(TESTPLUGIN_CHANNEL_STD);
+
+    fail_remove_json_receiver:
+    plugin_registry_remove_receiver(TESTPLUGIN_CHANNEL_JSON);
+
+    return kError_PluginInitResult;
 }
-int testp_deinit(void) {
+
+void testp_deinit(struct flutterpi *flutterpi, void *userdata) {
     plugin_registry_remove_receiver(TESTPLUGIN_CHANNEL_PING);
     plugin_registry_remove_receiver(TESTPLUGIN_CHANNEL_STD);
     plugin_registry_remove_receiver(TESTPLUGIN_CHANNEL_JSON);
-    
     return 0;
 }
+
+FLUTTERPI_PLUGIN(
+    "test plugin",
+    test_plugin,
+    testp_init,
+    testp_deinit
+)

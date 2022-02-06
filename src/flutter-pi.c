@@ -52,8 +52,6 @@
 #include <platformchannel.h>
 #include <pluginregistry.h>
 #include <texture_registry.h>
-#include <event_loop.h>
-//#include <plugins/services.h>
 #include <plugins/text_input.h>
 #include <plugins/raw_keyboard.h>
 
@@ -373,7 +371,7 @@ static void on_platform_message(
 
     ok = plugin_registry_on_platform_message((FlutterPlatformMessage *) message);
     if (ok != 0) {
-        fprintf(stderr, "[flutter-pi] Error handling platform message. plugin_registry_on_platform_message: %s\n", strerror(ok));
+        LOG_FLUTTERPI_ERROR("Error handling platform message. plugin_registry_on_platform_message: %s\n", strerror(ok));
     }
 }
 
@@ -692,45 +690,6 @@ int flutterpi_sd_event_add_io(
         pthread_mutex_unlock(&flutterpi.event_loop_mutex);
     }
     return ok;
-}
-
-sd_event_source_generic *flutterpi_sd_event_add_generic(
-    struct flutterpi *flutterpi,
-    sd_event_generic_handler_t handler,
-    void *userdata
-) {
-    sd_event_source_generic *source;
-    int ok;
-
-    if (pthread_self() != flutterpi->event_loop_thread) {
-        pthread_mutex_lock(&flutterpi->event_loop_mutex);
-    }
-
-    source = sd_event_add_generic(
-        flutterpi->event_loop,
-        handler,
-        userdata
-    );
-
-    if (pthread_self() != flutterpi->event_loop_thread) {
-        ok = write(flutterpi->wakeup_event_loop_fd, (uint8_t[8]) {0, 0, 0, 0, 0, 0, 0, 1}, 8);
-        if (ok < 0) {
-            perror("[flutter-pi] Error arming main loop for io callback. write");
-            ok = errno;
-            goto fail_unlock_event_loop;
-        }
-
-        pthread_mutex_unlock(&flutterpi->event_loop_mutex);
-    }
-
-    return source;
-
-
-    fail_unlock_event_loop:
-    if (pthread_self() != flutterpi->event_loop_thread) {
-        pthread_mutex_unlock(&flutterpi->event_loop_mutex);
-    }
-    return NULL;
 }
 
 /// flutter tasks

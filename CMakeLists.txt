@@ -123,7 +123,6 @@ add_executable(flutter-pi
   src/keyboard.c
   src/user_input.c
   src/locales.c
-  src/event_loop.c
   src/notifier_listener.c
   src/plugins/services.c
 )

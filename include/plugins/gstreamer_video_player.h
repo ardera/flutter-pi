@@ -258,7 +258,4 @@ struct gl_texture_frame;
 
 const struct gl_texture_frame *frame_get_gl_frame(struct video_frame *frame);
 
-int gstplayer_plugin_init();
-int gstplayer_plugin_deinit();
-
 #endif

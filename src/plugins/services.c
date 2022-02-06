@@ -204,6 +204,7 @@ static int on_receive_accessibility(char *channel, struct platch_obj *object, Fl
 static int on_receive_platform_views(char *channel, struct platch_obj *object, FlutterPlatformMessageResponseHandle *responsehandle) {
     (void) channel;
     (void) object;
+
     if STREQ("create", object->method) {
         return platch_respond_not_implemented(responsehandle);
     } else if STREQ("dispose", object->method) {
@@ -213,64 +214,73 @@ static int on_receive_platform_views(char *channel, struct platch_obj *object, F
     return platch_respond_not_implemented(responsehandle);
 }
 
-
-int services_init(void) {
+enum plugin_init_result services_init(struct flutterpi *flutterpi, void **userdata_out) {
     int ok;
 
-    ok = plugin_registry_set_receiver("flutter/navigation", kJSONMethodCall, on_receive_navigation);
+    (void) flutterpi;
+    (void) userdata_out;
+
+    ok = plugin_registry_set_receiver(FLUTTER_NAVIGATION_CHANNEL, kJSONMethodCall, on_receive_navigation);
     if (ok != 0) {
-        fprintf(stderr, "[services-plugin] could not set \"flutter/navigation\" platform message receiver: %s\n", strerror(ok));
+        fprintf(stderr, "[services-plugin] could not set \"" FLUTTER_NAVIGATION_CHANNEL "\" platform message receiver: %s\n", strerror(ok));
         goto fail_return_ok;
     }
 
-    ok = plugin_registry_set_receiver("flutter/isolate", kBinaryCodec, on_receive_isolate);
+    ok = plugin_registry_set_receiver(FLUTTER_ISOLATE_CHANNEL, kBinaryCodec, on_receive_isolate);
     if (ok != 0) {
-        fprintf(stderr, "[services-plugin] could not set \"flutter/isolate\" ChannelObject receiver: %s\n", strerror(ok));
+        fprintf(stderr, "[services-plugin] could not set \"" FLUTTER_ISOLATE_CHANNEL "\" ChannelObject receiver: %s\n", strerror(ok));
         goto fail_remove_navigation_receiver;
     }
 
-    ok = plugin_registry_set_receiver("flutter/platform", kJSONMethodCall, on_receive_platform);
+    ok = plugin_registry_set_receiver(FLUTTER_PLATFORM_CHANNEL, kJSONMethodCall, on_receive_platform);
     if (ok != 0) {
-        fprintf(stderr, "[services-plugin] could not set \"flutter/platform\" ChannelObject receiver: %s\n", strerror(ok));
+        fprintf(stderr, "[services-plugin] could not set \"" FLUTTER_PLATFORM_CHANNEL "\" ChannelObject receiver: %s\n", strerror(ok));
         goto fail_remove_isolate_receiver;
     }
 
-    ok = plugin_registry_set_receiver("flutter/accessibility", kBinaryCodec, on_receive_accessibility);
+    ok = plugin_registry_set_receiver(FLUTTER_ACCESSIBILITY_CHANNEL, kBinaryCodec, on_receive_accessibility);
     if (ok != 0) {
-        fprintf(stderr, "[services-plugin] could not set \"flutter/accessibility\" ChannelObject receiver: %s\n", strerror(ok));
+        fprintf(stderr, "[services-plugin] could not set \"" FLUTTER_ACCESSIBILITY_CHANNEL "\" ChannelObject receiver: %s\n", strerror(ok));
         goto fail_remove_platform_receiver;
     }
 
-    ok = plugin_registry_set_receiver("flutter/platform_views", kStandardMethodCall, on_receive_platform_views);
+    ok = plugin_registry_set_receiver(FLUTTER_PLATFORM_VIEWS_CHANNEL, kStandardMethodCall, on_receive_platform_views);
     if (ok != 0) {
-        fprintf(stderr, "[services-plugin] could not set \"flutter/platform_views\" ChannelObject receiver: %s\n", strerror(ok));
+        fprintf(stderr, "[services-plugin] could not set \"" FLUTTER_PLATFORM_VIEWS_CHANNEL "\" ChannelObject receiver: %s\n", strerror(ok));
         goto fail_remove_accessibility_receiver;
     }
 
     return 0;
 
     fail_remove_accessibility_receiver:
-    plugin_registry_remove_receiver("flutter/accessibility");
+    plugin_registry_remove_receiver(FLUTTER_ACCESSIBILITY_CHANNEL);
 
     fail_remove_platform_receiver:
-    plugin_registry_remove_receiver("flutter/platform");
+    plugin_registry_remove_receiver(FLUTTER_PLATFORM_CHANNEL);
 
     fail_remove_isolate_receiver:
-    plugin_registry_remove_receiver("flutter/isolate");
+    plugin_registry_remove_receiver(FLUTTER_ISOLATE_CHANNEL);
 
     fail_remove_navigation_receiver:
-    plugin_registry_remove_receiver("flutter/navigation");
+    plugin_registry_remove_receiver(FLUTTER_NAVIGATION_CHANNEL);
 
     fail_return_ok:
-    return ok;
+    return kError_PluginInitResult;
 }
 
-int services_deinit(void) {
-    plugin_registry_remove_receiver("flutter/navigation");
-    plugin_registry_remove_receiver("flutter/isolate");
-    plugin_registry_remove_receiver("flutter/platform");
-    plugin_registry_remove_receiver("flutter/accessibility");
-    plugin_registry_remove_receiver("flutter/platform_views");
-
-    return 0;
+void services_deinit(struct flutterpi *flutterpi, void *userdata) {
+    (void) flutterpi;
+    (void) userdata;
+    plugin_registry_remove_receiver(FLUTTER_NAVIGATION_CHANNEL);
+    plugin_registry_remove_receiver(FLUTTER_ISOLATE_CHANNEL);
+    plugin_registry_remove_receiver(FLUTTER_PLATFORM_CHANNEL);
+    plugin_registry_remove_receiver(FLUTTER_ACCESSIBILITY_CHANNEL);
+    plugin_registry_remove_receiver(FLUTTER_PLATFORM_VIEWS_CHANNEL);
 }
+
+FLUTTERPI_PLUGIN(
+    "services",
+    services,
+    services_init,
+    services_deinit
+)
