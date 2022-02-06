@@ -61,7 +61,7 @@ static struct {
 
 /// Add a player instance to the player collection.
 static int add_player(struct omxplayer_video_player *player) {
-    return cpset_put_(&omxpvidpp.players, player);
+    return cpset_put(&omxpvidpp.players, player);
 }
 
 /// Get a player instance by its id.
@@ -98,7 +98,7 @@ struct omxplayer_video_player *get_player_by_evch(const char *const event_channe
 
 /// Remove a player instance from the player collection.
 static int remove_player(struct omxplayer_video_player *player) {
-    return cpset_remove_(&omxpvidpp.players, player);
+    return cpset_remove(&omxpvidpp.players, player);
 }
 
 /// Get the player id from the given arg, which is a kStdMap.
@@ -1528,20 +1528,29 @@ static int on_receive_mch(
 }
 
 int8_t omxpvidpp_is_present(void) {
-    return plugin_registry_is_plugin_present("omxplayer_video_player");
+    return plugin_registry_is_plugin_present("omxplayer video_player plugin");
 }
 
-int omxpvidpp_init(void) {
+enum plugin_init_result omxpvidpp_init(struct flutterpi *flutterpi, void **userdata_out) {
     int ok;
-
+    
     ok = plugin_registry_set_receiver("flutter.io/omxplayerVideoPlayer", kStandardMethodCall, on_receive_mch);
-    if (ok != 0) return ok;
+    if (ok != 0) {
+        return kError_PluginInitResult;
+    }
 
-    return 0;
+    return kInitialized_PluginInitResult;
 }
 
-int omxpvidpp_deinit(void) {
+void omxpvidpp_deinit(struct flutterpi *flutterpi, void *userdata) {
     plugin_registry_remove_receiver("flutter.io/omxplayerVideoPlayer");
-
-    return 0;
+    (void) flutterpi;
+    (void) userdata;
 }
+
+FLUTTERPI_PLUGIN(
+    "omxplayer video_player plugin",
+    omxpvidpp,
+    omxpvidpp_init,
+    omxpvidpp_deinit
+)

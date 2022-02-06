@@ -9,7 +9,7 @@
 #include <xkbcommon/xkbcommon-keysyms.h>
 #include <plugins/text_input.h>
 
-struct {
+struct text_input {
     int64_t connection_id;
     enum text_input_type input_type;
     bool allow_signs;
@@ -580,32 +580,18 @@ static int client_update_editing_state(
     return platch_call_json(
         TEXT_INPUT_CHANNEL,
         "TextInputClient.updateEditingState",
-        &(struct json_value) {
-            .type = kJsonArray,
-            .size = 2,
-            .array = (struct json_value[2]) {
-                {.type = kJsonNumber, .number_value = connection_id},
-                {.type = kJsonObject, .size = 7,
-                    .keys = (char*[7]) {
-                        "text", "selectionBase", "selectionExtent", "selectionAffinity",
-                        "selectionIsDirectional", "composingBase", "composingExtent"
-                    },
-                    .values = (struct json_value[7]) {
-                        {.type = kJsonString, .string_value = text},
-                        {.type = kJsonNumber, .number_value = selection_base},
-                        {.type = kJsonNumber, .number_value = selection_extent},
-                        {
-                            .type = kJsonString,
-                            .string_value = selection_affinity_is_downstream ?
-                                "TextAffinity.downstream" : "TextAffinity.upstream"
-                        },
-                        {.type = selection_is_directional? kJsonTrue : kJsonFalse},
-                        {.type = kJsonNumber, .number_value = composing_base},
-                        {.type = kJsonNumber, .number_value = composing_extent}
-                    }
-                }
-            }
-        },
+        &JSONARRAY2(
+            JSONNUM(connection_id),
+            JSONOBJECT7(
+                "text", JSONSTRING(text),
+                "selectionBase", JSONNUM(selection_base),
+                "selectionExtent", JSONNUM(selection_extent),
+                "selectionAffinity", JSONSTRING(selection_affinity_is_downstream ? "TextAffinity.downstream" : "TextAffinity.upstream"),
+                "selectionIsDirectional", JSONBOOL(selection_is_directional),
+                "composingBase", JSONNUM(composing_base),
+                "composingExtent", JSONNUM(composing_extent)
+            )
+        ),
         NULL,
         NULL
     );
@@ -633,14 +619,10 @@ int client_perform_action(
     return platch_call_json(
         TEXT_INPUT_CHANNEL,
         "TextInputClient.performAction",
-        &(struct json_value) {
-            .type = kJsonArray,
-            .size = 2,
-            .array = (struct json_value[2]) {
-                {.type = kJsonNumber, .number_value = connection_id},
-                {.type = kJsonString, .string_value = action_str}
-            }
-        },
+        &JSONARRAY2(
+            JSONNUM(connection_id),
+            JSONSTRING(action_str)
+        ),
         NULL,
         NULL
     );
@@ -658,25 +640,13 @@ int client_perform_private_command(
     return platch_call_json(
         TEXT_INPUT_CHANNEL,
         "TextInputClient.performPrivateCommand",
-        &(struct json_value) {
-            .type = kJsonArray,
-            .size = 2,
-            .array = (struct json_value[2]) {
-                {.type = kJsonNumber, .number_value = connection_id},
-                {
-                    .type = kJsonObject,
-                    .size = 2,
-                    .keys = (char*[2]) {
-                        "action",
-                        "data"
-                    },
-                    .values = (struct json_value[2]) {
-                        {.type = kJsonString, .string_value = action},
-                        *data
-                    }
-                }
-            }
-        },
+        &JSONARRAY2(
+            JSONNUM(connection_id),
+            JSONOBJECT2(
+                "action", JSONSTRING(action),
+                "data", *data
+            )
+        ),
         NULL,
         NULL
     );
@@ -691,31 +661,18 @@ int client_update_floating_cursor(
     return platch_call_json(
         TEXT_INPUT_CHANNEL,
         "TextInputClient.updateFloatingCursor",
-        &(struct json_value) {
-            .type = kJsonArray,
-            .size = 3,
-            .array = (struct json_value[3]) {
-                {.type = kJsonNumber, .number_value = connection_id},
-                {
-                    .type = kJsonString,
-                    .string_value = text_cursor_action == kFloatingCursorDragStateStart ? "FloatingCursorDragState.start" :
-                        text_cursor_action == kFloatingCursorDragStateUpdate ? "FloatingCursorDragState.update" :
-                        "FloatingCursorDragState.end"
-                },
-                {
-                    .type = kJsonObject,
-                    .size = 2,
-                    .keys = (char*[2]) {
-                        "X",
-                        "Y"
-                    },
-                    .values = (struct json_value[2]) {
-                        {.type = kJsonNumber, .number_value = x},
-                        {.type = kJsonNumber, .number_value = y}
-                    }
-                }
-            }
-        },
+        &JSONARRAY3(
+            JSONNUM(connection_id),
+            JSONSTRING(
+                text_cursor_action == kFloatingCursorDragStateStart ? "FloatingCursorDragState.start" :
+                text_cursor_action == kFloatingCursorDragStateUpdate ? "FloatingCursorDragState.update" :
+                    "FloatingCursorDragState.end"
+            ),
+            JSONOBJECT2(
+                "X", JSONNUM(x),
+                "Y", JSONNUM(y)
+            )
+        ),
         NULL,
         NULL
     );
@@ -725,13 +682,9 @@ int client_on_connection_closed(double connection_id) {
     return platch_call_json(
         TEXT_INPUT_CHANNEL,
         "TextInputClient.onConnectionClosed",
-        &(struct json_value) {
-            .type = kJsonArray,
-            .size = 1,
-            .array = (struct json_value[1]) {
-                {.type = kJsonNumber, .number_value = connection_id}
-            }
-        },
+        &JSONARRAY1(
+            JSONNUM(connection_id)
+        ),
         NULL,
         NULL
     );
@@ -745,15 +698,11 @@ int client_show_autocorrection_prompt_rect(
     return platch_call_json(
         TEXT_INPUT_CHANNEL,
         "TextInputClient.showAutocorrectionPromptRect",
-        &(struct json_value) {
-            .type = kJsonArray,
-            .size = 3,
-            .array = (struct json_value[3]) {
-                {.type = kJsonNumber, .number_value = connection_id},
-                {.type = kJsonNumber, .number_value = start},
-                {.type = kJsonNumber, .number_value = end}
-            }
-        },
+        &JSONARRAY3(
+            JSONNUM(connection_id),
+            JSONNUM(start),
+            JSONNUM(end)
+        ),
         NULL,
         NULL
     );
@@ -1009,21 +958,51 @@ int textin_on_xkb_keysym(xkb_keysym_t keysym) {
     return 0;
 }
 
-
-int textin_init(void) {
+enum plugin_init_result textin_init(struct flutterpi *flutterpi, void **userdata_out) {
+    struct text_input *textin;
     int ok;
 
-    text_input.text[0] = '\0';
-    text_input.warned_about_autocorrect = false;
+    (void) flutterpi;
+
+    textin = malloc(sizeof *textin);
+    if (textin == NULL) {
+        return kError_PluginInitResult;
+    }
 
     ok = plugin_registry_set_receiver(TEXT_INPUT_CHANNEL, kJSONMethodCall, on_receive);
-    if (ok != 0) return ok;
+    if (ok != 0) {
+        free(textin);
+        return kError_PluginInitResult;
+    }
 
-    return 0;
+    textin->connection_id = -1;
+    textin->input_type = kInputTypeText;
+    textin->allow_signs = false;
+    textin->has_allow_signs = false;
+    textin->allow_decimal = false;
+    textin->has_allow_decimal = false;
+    textin->autocorrect = false;
+    textin->input_action = kTextInputActionNone;
+    textin->text[0] = '\0';
+    textin->selection_base = 0;
+    textin->selection_extent = 0;
+    textin->selection_affinity_is_downstream = false;
+    textin->selection_is_directional = false;
+    textin->composing_base = 0;
+    textin->composing_extent = 0;
+    textin->warned_about_autocorrect = false;
+    *userdata_out = textin;
+    return kInitialized_PluginInitResult;
 }
 
-int textin_deinit(void) {
+void textin_deinit(struct flutterpi *flutterpi, void *userdata) {
+    (void) flutterpi;
     plugin_registry_remove_receiver(TEXT_INPUT_CHANNEL);
-
-    return 0;
+    free(userdata);
 }
+
+FLUTTERPI_PLUGIN(
+    "text input", text_input,
+    textin_init,
+    textin_deinit
+)

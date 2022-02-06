@@ -829,7 +829,7 @@ static void on_destroy_backing_store_gl_fb(void *userdata) {
 	store = userdata;
 	compositor = store->target->compositor;
 
-	cpset_put_(&compositor->stale_rendertargets, store->target);
+	cpset_put(&compositor->stale_rendertargets, store->target);
 
 	if (store->should_free_on_next_destroy) {
 		free(store);
@@ -858,7 +858,7 @@ static bool on_collect_backing_store(
 	store = backing_store->user_data;
 	compositor = store->target->compositor;
 
-	cpset_put_(&compositor->stale_rendertargets, store->target);
+	cpset_put(&compositor->stale_rendertargets, store->target);
 
 	if (store->should_free_on_next_destroy) {
 		free(store);

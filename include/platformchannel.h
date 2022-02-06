@@ -91,6 +91,10 @@ struct std_value {
     };
 };
 
+struct std_value_v2 {
+	enum std_value_type type;
+};
+
 #define STDVALUE_IS_NULL(value) ((value).type == kStdNull)
 #define STDNULL ((struct std_value) {.type = kStdNull})
 

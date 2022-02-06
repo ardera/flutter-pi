@@ -30,7 +30,4 @@ int rawkb_send_gtk_keyevent(
     bool is_down
 );
 
-int rawkb_init(void);
-int rawkb_deinit(void);
-
 #endif

@@ -1,5 +1,5 @@
 #ifndef FLUTTER_PI_REGISTRY_H_
-#define FLUTTER_PI_REGISTRY_H_ 1
+#define FLUTTER_PI_REGISTRY_H_
 
 #include <unistd.h>
 #include <string.h>
@@ -7,12 +7,38 @@
 
 #include <platformchannel.h>
 
-#define STREQ(a, b) (strcmp(a, b) == 0)
+struct flutterpi;
+struct platform_message_response_handle;
+struct plugin_registry;
+
+typedef enum plugin_init_result (*plugin_init_t)(struct flutterpi *flutterpi, void **userdata_out);
+
+typedef void (*plugin_deinit_t)(struct flutterpi *flutterpi, void *userdata);
+
+struct flutterpi_plugin_v2 {
+	const char *name;
+	plugin_init_t init;
+	plugin_deinit_t deinit;
+};
+
+#define STREQ(a, b) (strcmp((a), (b)) == 0)
+
+/// The return value of a plugin initializer function.
+enum plugin_init_result {
+	kInitialized_PluginInitResult,   	///< The plugin was successfully initialized.
+	kNotApplicable_PluginInitResult, 	///< The plugin couldn't be initialized, because it's not compatible with the flutter-pi instance.
+										///  For example, the plugin requires OpenGL but flutter-pi is using software rendering.
+										///  This is not an error, and flutter-pi will continue initializing the other plugins.
+	kError_PluginInitResult				///< The plugin couldn't be initialized because an unexpected error ocurred.
+										///  Flutter-pi may decide to abort the startup phase of the whole flutter-pi instance at that point.
+};
 
 /// Callback for Initialization or Deinitialization.
 /// Return value is 0 for success, or anything else for an error
 ///   (uses the errno error codes)
-typedef int (*init_deinit_cb)(void);
+typedef int (*init_deinit_cb)(struct flutterpi *flutterpi, void **userdata);
+
+
 
 /// A Callback that gets called when a platform message
 /// arrives on a channel you registered it with.
@@ -22,51 +48,85 @@ typedef int (*init_deinit_cb)(void);
 /// BE AWARE that object->type can be kNotImplemented, REGARDLESS of the codec
 ///   passed to plugin_registry_set_receiver.
 typedef int (*platch_obj_recv_callback)(
-	char *channel,
-	struct platch_obj *object, 
-	FlutterPlatformMessageResponseHandle *responsehandle);
-
-/// details of a plugin for flutter-pi.
-/// All plugins are initialized (i.e. get their "init" callbacks called)
-///   when plugin_registry_init() is called by flutter-pi.
-///   In the init callback, you probably want to do stuff like
-///   register callbacks for some method channels your plugin uses,
-///   or dynamically allocate memory for your plugin if you need to.
-///   plugin_registry_init() and thus every plugins init is called
-///   BEFORE the flutter engine is set up and running. The "engine"
-///   global may even be NULL at the time "init" is called. Sending flutter messages
-///   will probably cause the application to crash.
-/// deinit is also called AFTER the engine is shut down.
-struct flutterpi_plugin {
-    const char* name;
-	init_deinit_cb init;
-	init_deinit_cb deinit;
-};
-
-
-int plugin_registry_init(void);
-
-int plugin_registry_on_platform_message(
-	FlutterPlatformMessage *message
-);
-
-/// Sets the callback that should be called when a platform message arrives on channel "channel",
-/// and the codec used to automatically decode the platform message.
-/// Call this method with NULL as the callback parameter to remove the current listener on that channel.
-int plugin_registry_set_receiver(
 	const char *channel,
-	enum platch_codec codec,
-	platch_obj_recv_callback callback
+	struct platch_obj *object, 
+	struct platform_message_response_handle *responsehandle,
+	void *userdata
 );
 
-int plugin_registry_remove_receiver(
-	const char *channel
+/**
+ * @brief Create a new plugin registry instance and add the hardcoded plugins, but don't initialize them yet.
+ */
+struct plugin_registry *plugin_registry_new(struct flutterpi *flutterpi);
+
+void plugin_registry_destroy(struct plugin_registry *registry);
+
+int plugin_registry_add_plugin(struct plugin_registry *registry, const struct flutterpi_plugin_v2 *plugin);
+
+int plugin_registry_add_plugins_from_static_registry(struct plugin_registry *registry);
+
+/**
+ * @brief Initialize all not-yet initialized plugins.
+ */
+int  plugin_registry_ensure_plugins_initialized(struct plugin_registry *registry);
+
+/**
+ * @brief Deinitialize all initialized plugins.
+ */
+void plugin_registry_ensure_plugins_deinitialized(struct plugin_registry *registry);
+
+/**
+ * @brief Called by flutter-pi when a platform message arrives.
+ */
+int plugin_registry_on_platform_message(
+	struct plugin_registry *registry,
+	const char *channel,
+	const uint8_t *message,
+	size_t message_size,
+	const struct platform_message_response_handle *responsehandle
 );
 
+void *plugin_registry_get_plugin_userdata(
+	struct plugin_registry *registry,
+	const char *plugin_name
+);
+
+/**
+ * @brief Returns true @ref registry has a plugin with name @ref plugin_name.
+ */
 bool plugin_registry_is_plugin_present(
+	struct plugin_registry *registry,
 	const char *plugin_name
 );
 
 int plugin_registry_deinit(void);
+
+int static_plugin_registry_add_plugin(const struct flutterpi_plugin_v2 *plugin);
+
+int static_plugin_registry_remove_plugin(const char *plugin_name);
+
+#define FLUTTERPI_PLUGIN(_name, _identifier_name, _init, _deinit) \
+__attribute__((constructor)) static void __reg_plugin_##_identifier_name() { \
+	static struct flutterpi_plugin_v2 plugin = { \
+		.name = (_name), \
+		.init = (_init), \
+		.deinit = (_deinit) \
+	}; \
+	int ok; \
+	\
+	ok = static_plugin_registry_add_plugin(&plugin); \
+	if (ok != 0) { \
+		fprintf(stderr, "Couldn't register plugin " _name " to plugin registry.\n"); \
+		abort(); \
+	} \
+} \
+\
+__attribute__((destructor)) static void __unreg_plugin_##_identifier_name() { \
+	int ok; \
+	ok = static_plugin_registry_remove_plugin(_name); \
+	if (ok != 0) { \
+		fprintf(stderr, "Couldn't remove plugin " _name " from plugin registry.\n"); \
+	} \
+}
 
 #endif

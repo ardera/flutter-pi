@@ -19,7 +19,6 @@
 #include <pluginregistry.h>
 #include <platformchannel.h>
 #include <texture_registry.h>
-#include <event_loop.h>
 #include <notifier_listener.h>
 #include <plugins/gstreamer_video_player.h>
 
