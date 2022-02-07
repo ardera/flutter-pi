@@ -167,6 +167,9 @@ target_compile_options(flutter-pi PRIVATE
   $<$<CONFIG:Release>:-O2 -Wall -Wextra -Wno-unused-function -Wno-sign-compare -Wno-missing-field-initializers -ggdb>
 )
 
+# TODO: We actually don't need the compile definitions anymore, except for
+# text input and raw keyboard plugin (because those have special treatment
+# in flutter-pi.c)
 if (BUILD_TEXT_INPUT_PLUGIN)
   target_sources(flutter-pi PRIVATE src/plugins/text_input.c)
   target_compile_definitions(flutter-pi PRIVATE "BUILD_TEXT_INPUT_PLUGIN")
@@ -229,6 +232,8 @@ if (ENABLE_BACKWARD_CPP)
   add_backward(flutter-pi)
 endif()
 
+# Needed so dart VM can actually resolve symbols in the same
+# executable.
 target_link_options(flutter-pi PRIVATE
   -rdynamic
 )

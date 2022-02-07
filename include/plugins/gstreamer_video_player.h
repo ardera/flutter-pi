@@ -63,11 +63,6 @@ struct buffering_state {
 #define BUFFERING_STATE_SIZE(n_ranges) (sizeof(struct buffering_state) + (n_ranges)*sizeof(struct buffering_range))
 
 struct video_info;
-
-struct sd_event_source_generic;
-typedef int  (*gstplayer_info_callback_t)(struct sd_event_source_generic *generic, void *video_info, void *userdata);
-typedef void (*gstplayer_buffering_callback_t)(const struct buffering_state *state, void *userdata);
-
 struct gstplayer;
 struct flutterpi;
 
