@@ -1227,3 +1227,10 @@ void gstplayer_plugin_deinit(struct flutterpi *flutterpi, void *userdata) {
     plugin_registry_remove_receiver("dev.flutter.pigeon.VideoPlayerApi.initialize");
     cpset_deinit(&plugin.players);
 }
+
+FLUTTERPI_PLUGIN(
+    "gstreamer video_player",
+    gstplayer,
+    gstplayer_plugin_init,
+    gstplayer_plugin_deinit
+)

@@ -8,7 +8,6 @@
 #include <platformchannel.h>
 
 struct flutterpi;
-struct platform_message_response_handle;
 struct plugin_registry;
 
 typedef enum plugin_init_result (*plugin_init_t)(struct flutterpi *flutterpi, void **userdata_out);
@@ -33,12 +32,9 @@ enum plugin_init_result {
 										///  Flutter-pi may decide to abort the startup phase of the whole flutter-pi instance at that point.
 };
 
-/// Callback for Initialization or Deinitialization.
-/// Return value is 0 for success, or anything else for an error
-///   (uses the errno error codes)
-typedef int (*init_deinit_cb)(struct flutterpi *flutterpi, void **userdata);
-
-
+struct _FlutterPlatformMessageResponseHandle;
+typedef struct _FlutterPlatformMessageResponseHandle
+    FlutterPlatformMessageResponseHandle;
 
 /// A Callback that gets called when a platform message
 /// arrives on a channel you registered it with.
@@ -48,10 +44,9 @@ typedef int (*init_deinit_cb)(struct flutterpi *flutterpi, void **userdata);
 /// BE AWARE that object->type can be kNotImplemented, REGARDLESS of the codec
 ///   passed to plugin_registry_set_receiver.
 typedef int (*platch_obj_recv_callback)(
-	const char *channel,
+	char *channel,
 	struct platch_obj *object, 
-	struct platform_message_response_handle *responsehandle,
-	void *userdata
+	FlutterPlatformMessageResponseHandle *responsehandle
 );
 
 /**
@@ -78,12 +73,19 @@ void plugin_registry_ensure_plugins_deinitialized(struct plugin_registry *regist
 /**
  * @brief Called by flutter-pi when a platform message arrives.
  */
-int plugin_registry_on_platform_message(
-	struct plugin_registry *registry,
+int plugin_registry_on_platform_message(FlutterPlatformMessage *message);
+
+/// Sets the callback that should be called when a platform message arrives on channel "channel",
+/// and the codec used to automatically decode the platform message.
+/// Call this method with NULL as the callback parameter to remove the current listener on that channel.
+int plugin_registry_set_receiver(
 	const char *channel,
-	const uint8_t *message,
-	size_t message_size,
-	const struct platform_message_response_handle *responsehandle
+	enum platch_codec codec,
+	platch_obj_recv_callback callback
+);
+
+int plugin_registry_remove_receiver(
+	const char *channel
 );
 
 void *plugin_registry_get_plugin_userdata(

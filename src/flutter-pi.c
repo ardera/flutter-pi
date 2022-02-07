@@ -1807,6 +1807,7 @@ static int init_application(void) {
     FlutterEngineAOTDataSource aot_source;
     struct libflutter_engine *libflutter_engine;
     struct texture_registry *texture_registry;
+    struct plugin_registry *plugin_registry;
     FlutterRendererConfig renderer_config = {0};
     FlutterEngineAOTData aot_data;
     FlutterEngineResult engine_result;
@@ -1884,10 +1885,24 @@ static int init_application(void) {
 
 #	undef LOAD_LIBFLUTTER_ENGINE_PROC
 
-    ok = plugin_registry_init();
+    plugin_registry = plugin_registry_new(&flutterpi);
+    if (plugin_registry == NULL) {
+        LOG_FLUTTERPI_ERROR("Could not create plugin registry.\n");
+        return EIO;
+    }
+
+    flutterpi.plugin_registry = plugin_registry;
+
+    ok = plugin_registry_add_plugins_from_static_registry(plugin_registry);
     if (ok != 0) {
-        fprintf(stderr, "[flutter-pi] Could not initialize plugin registry: %s\n", strerror(ok));
-        return ok;
+        LOG_FLUTTERPI_ERROR("Could not register plugins to plugin registry.\n");
+        return EIO;
+    }
+
+    ok = plugin_registry_ensure_plugins_initialized(plugin_registry);
+    if (ok != 0) {
+        LOG_FLUTTERPI_ERROR("Could not initialize plugins.\n");
+        return EIO;
     }
 
     // configure flutter rendering
