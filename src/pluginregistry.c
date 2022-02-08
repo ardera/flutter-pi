@@ -15,12 +15,7 @@
 #include <collection.h>
 #include <flutter-pi.h>
 
-#define LOG_ERROR(...) fprintf(stderr, "[plugin registry] " __VA_ARGS__)
-#ifdef DEBUG
-#	define LOG_DEBUG(...) fprintf(stderr, "[plugin registry] " __VA_ARGS__)
-#else
-#	define LOG_DEBUG(...) do { } while (0)
-#endif
+FILE_DESCR("plugin registry")
 
 /**
  * @brief details of a plugin for flutter-pi.
@@ -241,7 +236,7 @@ int plugin_registry_ensure_plugins_initialized(struct plugin_registry *registry)
 
 	LOG_DEBUG("Registered plugins: ");
 	for_each_pointer_in_cpset(&registry->plugins, instance) {
-		fprintf(stderr, "%s, ", instance->plugin->name);
+		LOG_DEBUG_UNPREFIXED("%s, ", instance->plugin->name);
 
 		if (instance->initialized == false) {
 			result = instance->plugin->init(registry->flutterpi, &instance->userdata);
@@ -257,7 +252,7 @@ int plugin_registry_ensure_plugins_initialized(struct plugin_registry *registry)
 			pset_put(&initialized_plugins, instance);
 		}
 	}
-	fprintf(stderr, "\n");
+	LOG_DEBUG_UNPREFIXED("\n");
 
 	cpset_unlock(&registry->plugins);
 	return 0;

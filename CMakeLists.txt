@@ -124,6 +124,7 @@ add_executable(flutter-pi
   src/user_input.c
   src/locales.c
   src/notifier_listener.c
+  src/pixel_format.c
   src/plugins/services.c
 )
 
@@ -166,6 +167,9 @@ target_compile_options(flutter-pi PRIVATE
   $<$<CONFIG:RelWithDebInfo>:-O2 -Wall -Wextra -Wno-unused-function -Wno-sign-compare -Wno-missing-field-initializers -ggdb>
   $<$<CONFIG:Release>:-O2 -Wall -Wextra -Wno-unused-function -Wno-sign-compare -Wno-missing-field-initializers -ggdb>
 )
+
+# TODO: Just unconditionally define those, make them optional later 
+target_compile_definitions(flutter-pi PRIVATE HAS_KMS HAS_EGL HAS_GBM HAS_FBDEV)
 
 # TODO: We actually don't need the compile definitions anymore, except for
 # text input and raw keyboard plugin (because those have special treatment

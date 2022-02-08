@@ -13,7 +13,7 @@
 #include <texture_registry.h>
 #include <plugins/gstreamer_video_player.h>
 
-#define LOG_ERROR(...) fprintf(stderr, "[gstreamer video player] " __VA_ARGS__)
+FILE_DESCR("gstreamer video_player")
 
 #define MAX_N_PLANES 4
 
@@ -90,9 +90,11 @@ struct frame_interface *frame_interface_new(struct flutterpi *flutterpi) {
     interface->n_refs = REFCOUNT_INIT_1;
     return interface;
 
+
     fail_destroy_context:
     egl_ok = eglDestroyContext(display, context);
     DEBUG_ASSERT_EGL_TRUE(egl_ok);
+    (void) egl_ok;
 
     fail_free:
     free(interface);
@@ -104,7 +106,7 @@ void frame_interface_destroy(struct frame_interface *interface) {
 
     pthread_mutex_destroy(&interface->context_lock);
     egl_ok = eglDestroyContext(interface->display, interface->context);
-    DEBUG_ASSERT_EGL_TRUE(egl_ok);
+    DEBUG_ASSERT_EGL_TRUE(egl_ok); (void) egl_ok;
     free(interface);
 }
 
@@ -420,12 +422,13 @@ struct video_frame *frame_new(
 void frame_destroy(struct video_frame *frame) {
     EGLBoolean egl_ok;
     int ok;
+
     /// TODO: See TODO in frame_new 
     // gst_buffer_unref(frame->buffer);
 
     frame_interface_lock(frame->interface);
     egl_ok = eglMakeCurrent(frame->interface->display, EGL_NO_SURFACE, EGL_NO_SURFACE, frame->interface->context);
-    DEBUG_ASSERT_EGL_TRUE(egl_ok);
+    DEBUG_ASSERT_EGL_TRUE(egl_ok); (void) egl_ok;
     glDeleteTextures(1, &frame->gl_frame.name);
     DEBUG_ASSERT(GL_NO_ERROR == glGetError());
     egl_ok = eglMakeCurrent(frame->interface->display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
@@ -437,7 +440,7 @@ void frame_destroy(struct video_frame *frame) {
     frame_interface_unref(frame->interface);
     for (int i = 0; i < frame->n_dmabuf_fds; i++) {
         ok = close(frame->dmabuf_fds[i]);
-        DEBUG_ASSERT(ok == 0);
+        DEBUG_ASSERT(ok == 0); (void) ok;
     }
     free(frame);
 }

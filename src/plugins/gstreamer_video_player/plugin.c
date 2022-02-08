@@ -17,13 +17,7 @@
 #include <notifier_listener.h>
 #include <plugins/gstreamer_video_player.h>
 
-#define LOG_ERROR(...) fprintf(stderr, "[gstreamer video player plugin] " __VA_ARGS__)
-
-#ifdef DEBUG
-#define LOG_DEBUG(...) fprintf(stderr, "[gstreamer video player plugin] " __VA_ARGS__)
-#else
-#define LOG_DEBUG(...) do {} while (0)
-#endif
+FILE_DESCR("gstreamer video_player plugin")
 
 enum data_source_type {
 	kDataSourceTypeAsset,

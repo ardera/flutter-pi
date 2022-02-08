@@ -392,5 +392,9 @@ const FlutterLocale *locales_on_compute_platform_resolved_locale(struct locales 
     DEBUG_ASSERT(locales != NULL);
     DEBUG_ASSERT(fl_locales != NULL);
     DEBUG_ASSERT(n_fl_locales > 0);
+
+    (void) locales;
+    (void) n_fl_locales;
+    
     return fl_locales[0];
 }

@@ -435,7 +435,7 @@ static int on_set_editing_state(
         composing_extent = (int) temp->number_value;
     }
 
-    strncpy(text_input.text, text, TEXT_INPUT_MAX_CHARS);
+    strncpy(text_input.text, text, TEXT_INPUT_MAX_CHARS - 1);
     text_input.selection_base = selection_base;
     text_input.selection_extent = selection_extent;
     text_input.selection_affinity_is_downstream = selection_affinity_is_downstream;

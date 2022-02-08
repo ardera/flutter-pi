@@ -22,15 +22,13 @@
 #include <notifier_listener.h>
 #include <plugins/gstreamer_video_player.h>
 
-#define LOG_ERROR(...) fprintf(stderr, "[gstreamer video player] " __VA_ARGS__)
+FILE_DESCR("gstreamer video_player")
 
 #ifdef DEBUG
-#   define LOG_DEBUG(...) fprintf(stderr, "[gstreamer video player] " __VA_ARGS__)
 #   define DEBUG_TRACE_BEGIN(player, name) trace_begin(player, name)
 #   define DEBUG_TRACE_END(player, name) trace_end(player, name)
 #   define DEBUG_TRACE_INSTANT(player, name) trace_instant(player, name)
 #else
-#   define LOG_DEBUG(...) do {} while (0)
 #   define DEBUG_TRACE_BEGIN(player, name) do {} while (0)
 #   define DEBUG_TRACE_END(player, name) do {} while (0)
 #   define DEBUG_TRACE_INSTANT(player, name) do {} while (0)
@@ -723,6 +721,8 @@ static void on_appsink_eos(GstAppSink *appsink, void *userdata) {
 
     DEBUG_ASSERT_NOT_NULL(appsink);
     DEBUG_ASSERT_NOT_NULL(userdata);
+
+    (void) userdata;
 
     LOG_DEBUG("on_appsink_eos()\n");
 
