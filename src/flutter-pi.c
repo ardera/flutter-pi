@@ -45,6 +45,7 @@
 #include <flutter_embedder.h>
 
 #include <flutter-pi.h>
+#include <pixel_format.h>
 #include <compositor.h>
 #include <keyboard.h>
 #include <user_input.h>
@@ -59,6 +60,8 @@
 #   include <mcheck.h>
 #endif
 
+FILE_DESCR("flutter-pi")
+
 const char *const usage ="\
 flutter-pi - run flutter apps on your Raspberry Pi.\n\
 \n\
@@ -71,7 +74,7 @@ OPTIONS:\n\
                              asset bundle directory.\n\
                              This also requires a libflutter_engine.so that was\n\
                              built with --runtime-mode=release.\n\
-                             \n\
+\n\
   -o, --orientation <orientation>  Start the app in this orientation. Valid\n\
                              for <orientation> are: portrait_up, landscape_left,\n\
                              portrait_down, landscape_right.\n\
@@ -80,20 +83,24 @@ OPTIONS:\n\
                              enum.\n\
                              Only one of the --orientation and --rotation\n\
                              options can be specified.\n\
-                             \n\
+\n\
   -r, --rotation <degrees>   Start the app with this rotation. This is just an\n\
                              alternative, more intuitive way to specify the\n\
                              startup orientation. The angle is in degrees and\n\
                              clock-wise.\n\
                              Valid values are 0, 90, 180 and 270.\n\
-                             \n\
+\n\
   -d, --dimensions \"width_mm,height_mm\" The width & height of your display in\n\
                              millimeters. Useful if your GPU doesn't provide\n\
                              valid physical dimensions for your display.\n\
                              The physical dimensions of your display are used\n\
                              to calculate the flutter device-pixel-ratio, which\n\
                              in turn basically \"scales\" the UI.\n\
-                             \n\
+\n\
+  --pixelformat <format>     Selects the pixel format to use for the framebuffers.\n\
+                             Available pixel formats:\n\
+                               RGB565, ARGB8888, XRGB8888, BGRA8888, RGBA8888\n\
+\n\
   -i, --input <glob pattern> Appends all files matching this glob pattern to the\n\
                              list of input (touchscreen, mouse, touchpad, \n\
                              keyboard) devices. Brace and tilde expansion is \n\
@@ -111,7 +118,7 @@ OPTIONS:\n\
                              Note that you need to properly escape each glob \n\
                              pattern you use as a parameter so it isn't \n\
                              implicitly expanded by your shell.\n\
-                             \n\
+\n\
   -h, --help                 Show this help and exit.\n\
 \n\
 EXAMPLES:\n\
@@ -133,6 +140,9 @@ SEE ALSO:\n\
   For a list of options you can pass to the flutter engine, look here:\n\
     https://github.com/flutter/engine/blob/master/shell/common/switches.h\n\
 ";
+
+// If this fails, update the accepted value list for --pixelformat above too.
+COMPILE_ASSERT(kCount_PixFmt == 5);
 
 struct flutterpi flutterpi;
 
@@ -157,7 +167,7 @@ static bool on_make_current(void* userdata) {
 
     eglMakeCurrent(flutterpi.egl.display, flutterpi.egl.surface, flutterpi.egl.surface, flutterpi.egl.flutter_render_context);
     if (egl_error = eglGetError(), egl_error != EGL_SUCCESS) {
-        fprintf(stderr, "[flutter-pi] Could not make the flutter rendering EGL context current. eglMakeCurrent: 0x%08X\n", egl_error);
+        LOG_ERROR("Could not make the flutter rendering EGL context current. eglMakeCurrent: 0x%08X\n", egl_error);
         return false;
     }
     
@@ -175,7 +185,7 @@ static bool on_clear_current(void* userdata) {
 
     eglMakeCurrent(flutterpi.egl.display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
     if (egl_error = eglGetError(), egl_error != EGL_SUCCESS) {
-        fprintf(stderr, "[flutter-pi] Could not clear the flutter EGL context. eglMakeCurrent: 0x%08X\n", egl_error);
+        LOG_ERROR("Could not clear the flutter EGL context. eglMakeCurrent: 0x%08X\n", egl_error);
         return false;
     }
     
@@ -211,7 +221,7 @@ static bool on_make_resource_current(void *userdata) {
 
     eglMakeCurrent(flutterpi.egl.display, EGL_NO_SURFACE, EGL_NO_SURFACE, flutterpi.egl.flutter_resource_uploading_context);
     if (egl_error = eglGetError(), egl_error != EGL_SUCCESS) {
-        fprintf(stderr, "[flutter-pi] Could not make the flutter resource uploading EGL context current. eglMakeCurrent: 0x%08X\n", egl_error);
+        LOG_ERROR("Could not make the flutter resource uploading EGL context current. eglMakeCurrent: 0x%08X\n", egl_error);
         return false;
     }
     
@@ -253,7 +263,6 @@ static const GLubyte *hacked_glGetString(GLenum name) {
         
         extensions = malloc(strlen((const char*)orig_extensions) + 1);
         if (!extensions) {
-            fprintf(stderr, "Could not allocate memory for modified GL_EXTENSIONS string\n");
             return NULL;
         }
 
@@ -345,9 +354,11 @@ static void *proc_resolver(
         return NULL;
 
     // first detect if we're running on a VideoCore 4 / using the VC4 driver.
-    if ((is_VC4 == -1) && (is_VC4 = strcmp(flutterpi.egl.renderer, "VC4 V3D 2.1") == 0))
+    if ((is_VC4 == -1) && (is_VC4 = strcmp(flutterpi.egl.renderer, "VC4 V3D 2.1") == 0)) {
         printf( "detected VideoCore IV as underlying graphics chip, and VC4 as the driver.\n"
                 "Reporting modified GL_EXTENSIONS string that doesn't contain non-working extensions.\n");
+        is_VC4 = 0;
+    }
 
     // if we do, and the symbol to resolve is glGetString, we return our hacked_glGetString.
     if (is_VC4 && (strcmp(name, "glGetString") == 0))
@@ -356,7 +367,7 @@ static void *proc_resolver(
     if ((address = dlsym(RTLD_DEFAULT, name)) || (address = eglGetProcAddress(name)))
         return address;
     
-    fprintf(stderr, "[flutter-pi] proc_resolver: Could not resolve symbol \"%s\"\n", name);
+    LOG_ERROR("proc_resolver: Could not resolve symbol \"%s\"\n", name);
 
     return NULL;
 }
@@ -371,7 +382,7 @@ static void on_platform_message(
 
     ok = plugin_registry_on_platform_message((FlutterPlatformMessage *) message);
     if (ok != 0) {
-        LOG_FLUTTERPI_ERROR("Error handling platform message. plugin_registry_on_platform_message: %s\n", strerror(ok));
+        LOG_ERROR("Error handling platform message. plugin_registry_on_platform_message: %s\n", strerror(ok));
     }
 }
 
@@ -411,7 +422,7 @@ static int on_execute_frame_request(
                 ns + (1000000000 / flutterpi.display.refresh_rate)
             );
             if (result != kSuccess) {
-                fprintf(stderr, "[flutter-pi] Could not reply to frame request. FlutterEngineOnVsync: %s\n", FLUTTER_RESULT_TO_STRING(result));
+                LOG_ERROR("Could not reply to frame request. FlutterEngineOnVsync: %s\n", FLUTTER_RESULT_TO_STRING(result));
                 cqueue_unlock(&flutterpi.frame_queue);
                 return EIO;
             }
@@ -421,7 +432,7 @@ static int on_execute_frame_request(
     } else if (ok == EAGAIN) {
         // do nothing	
     } else if (ok != 0) {
-        fprintf(stderr, "[flutter-pi] Could not get peek of frame queue. cqueue_peek_locked: %s\n", strerror(ok));
+        LOG_ERROR("Could not get peek of frame queue. cqueue_peek_locked: %s\n", strerror(ok));
         cqueue_unlock(&flutterpi.frame_queue);
         return ok;
     }
@@ -452,7 +463,7 @@ static void on_frame_request(
             .baton = baton
         });
         if (ok != 0) {
-            fprintf(stderr, "[flutter-pi] Could not enqueue frame request. cqueue_try_enqueue_locked: %s\n", strerror(ok));
+            LOG_ERROR("Could not enqueue frame request. cqueue_try_enqueue_locked: %s\n", strerror(ok));
             cqueue_unlock(&flutterpi.frame_queue);
             return;
         }
@@ -464,7 +475,7 @@ static void on_frame_request(
             );
         }
     } else if (ok != 0) {
-        fprintf(stderr, "[flutter-pi] Could not get peek of frame queue. cqueue_peek_locked: %s\n", strerror(ok));
+        LOG_ERROR("Could not get peek of frame queue. cqueue_peek_locked: %s\n", strerror(ok));
     }
 
     cqueue_unlock(&flutterpi.frame_queue);
@@ -488,7 +499,7 @@ static int on_execute_platform_task(
     task = userdata;
     ok = task->callback(task->userdata);
     if (ok != 0) {
-        fprintf(stderr, "[flutter-pi] Error executing platform task: %s\n", strerror(ok));
+        LOG_ERROR("Error executing platform task: %s\n", strerror(ok));
     }
 
     free(task);
@@ -526,7 +537,7 @@ int flutterpi_post_platform_task(
         task
     );
     if (ok < 0) {
-        LOG_FLUTTERPI_ERROR("Error posting platform task to main loop. sd_event_add_defer: %s\n", strerror(-ok));
+        LOG_ERROR("Error posting platform task to main loop. sd_event_add_defer: %s\n", strerror(-ok));
         ok = -ok;
         goto fail_unlock_event_loop;
     }
@@ -572,7 +583,7 @@ static int on_execute_platform_task_with_time(
     task = userdata;
     ok = task->callback(task->userdata);
     if (ok != 0) {
-        fprintf(stderr, "[flutter-pi] Error executing timed platform task: %s\n", strerror(ok));
+        LOG_ERROR("Error executing timed platform task: %s\n", strerror(ok));
     }
 
     free(task);
@@ -614,7 +625,7 @@ int flutterpi_post_platform_task_with_time(
         task
     );
     if (ok < 0) {
-        fprintf(stderr, "[flutter-pi] Error posting platform task to main loop. sd_event_add_time: %s\n", strerror(-ok));
+        LOG_ERROR("Error posting platform task to main loop. sd_event_add_time: %s\n", strerror(-ok));
         ok = -ok;
         goto fail_unlock_event_loop;
     }
@@ -665,7 +676,7 @@ int flutterpi_sd_event_add_io(
         userdata
     );
     if (ok < 0) {
-        fprintf(stderr, "[flutter-pi] Could not add IO callback to event loop. sd_event_add_io: %s\n", strerror(-ok));
+        LOG_ERROR("Could not add IO callback to event loop. sd_event_add_io: %s\n", strerror(-ok));
         return -ok;
     }
 
@@ -703,7 +714,7 @@ static int on_execute_flutter_task(
 
     result = flutterpi.flutter.libflutter_engine.FlutterEngineRunTask(flutterpi.flutter.engine, task);
     if (result != kSuccess) {
-        fprintf(stderr, "[flutter-pi] Error running platform task. FlutterEngineRunTask: %d\n", result);
+        LOG_ERROR("Error running platform task. FlutterEngineRunTask: %d\n", result);
         free(task);
         return EINVAL;
     }
@@ -775,7 +786,7 @@ static int on_send_platform_message(
     free(msg);
 
     if (result != kSuccess) {
-        fprintf(stderr, "[flutter-pi] Error sending platform message. FlutterEngineSendPlatformMessage: %s\n", FLUTTER_RESULT_TO_STRING(result));
+        LOG_ERROR("Error sending platform message. FlutterEngineSendPlatformMessage: %s\n", FLUTTER_RESULT_TO_STRING(result));
     }
 
     return 0;
@@ -803,7 +814,7 @@ int flutterpi_send_platform_message(
             }
         );
         if (result != kSuccess) {
-            fprintf(stderr, "[flutter-pi] Error sending platform message. FlutterEngineSendPlatformMessage: %s\n", FLUTTER_RESULT_TO_STRING(result));
+            LOG_ERROR("Error sending platform message. FlutterEngineSendPlatformMessage: %s\n", FLUTTER_RESULT_TO_STRING(result));
             return EIO;
         }
     } else {
@@ -868,7 +879,7 @@ int flutterpi_respond_to_platform_message(
             message_size
         );
         if (result != kSuccess) {
-            fprintf(stderr, "[flutter-pi] Error sending platform message response. FlutterEngineSendPlatformMessageResponse: %s\n", FLUTTER_RESULT_TO_STRING(result));
+            LOG_ERROR("Error sending platform message response. FlutterEngineSendPlatformMessageResponse: %s\n", FLUTTER_RESULT_TO_STRING(result));
             return EIO;
         }
     } else {
@@ -946,7 +957,7 @@ EGLContext flutterpi_create_egl_context(struct flutterpi *flutterpi) {
         }
     );
     if (context == EGL_NO_CONTEXT) {
-        LOG_FLUTTERPI_ERROR("Could not create new EGL context from temp context. eglCreateContext: %" PRId32 "\n", eglGetError());
+        LOG_ERROR("Could not create new EGL context from temp context. eglCreateContext: %" PRId32 "\n", eglGetError());
         goto fail_unlock_mutex;
     }
 
@@ -982,7 +993,7 @@ static int run_main_loop(void) {
     pthread_mutex_lock(&flutterpi.event_loop_mutex);
     ok = sd_event_get_fd(flutterpi.event_loop);
     if (ok < 0) {
-        fprintf(stderr, "[flutter-pi] Could not get fd for main event loop. sd_event_get_fd: %s\n", strerror(-ok));
+        LOG_ERROR("Could not get fd for main event loop. sd_event_get_fd: %s\n", strerror(-ok));
         pthread_mutex_unlock(&flutterpi.event_loop_mutex);
         return -ok;
     }
@@ -1010,7 +1021,7 @@ static int run_main_loop(void) {
                 case SD_EVENT_INITIAL:
                     ok = sd_event_prepare(flutterpi.event_loop);
                     if (ok < 0) {
-                        fprintf(stderr, "[flutter-pi] Could not prepare event loop. sd_event_prepare: %s\n", strerror(-ok));
+                        LOG_ERROR("Could not prepare event loop. sd_event_prepare: %s\n", strerror(-ok));
                         return -ok;
                     }
 
@@ -1033,7 +1044,7 @@ static int run_main_loop(void) {
                         
                     ok = sd_event_wait(flutterpi.event_loop, 0);
                     if (ok < 0) {
-                        fprintf(stderr, "[flutter-pi] Could not check for event loop events. sd_event_wait: %s\n", strerror(-ok));
+                        LOG_ERROR("Could not check for event loop events. sd_event_wait: %s\n", strerror(-ok));
                         return -ok;
                     }
 
@@ -1041,7 +1052,7 @@ static int run_main_loop(void) {
                 case SD_EVENT_PENDING:
                     ok = sd_event_dispatch(flutterpi.event_loop);
                     if (ok < 0) {
-                        fprintf(stderr, "[flutter-pi] Could not dispatch event loop events. sd_event_dispatch: %s\n", strerror(-ok));
+                        LOG_ERROR("Could not dispatch event loop events. sd_event_dispatch: %s\n", strerror(-ok));
                         return -ok;
                     }
 
@@ -1049,7 +1060,7 @@ static int run_main_loop(void) {
                 case SD_EVENT_FINISHED:
                     break;
                 default:
-                    fprintf(stderr, "[flutter-pi] Unhandled event loop state: %d. Aborting\n", state);
+                    LOG_ERROR("Unhandled event loop state: %d. Aborting\n", state);
                     abort();
             }
         } while (state != SD_EVENT_FINISHED);
@@ -1093,7 +1104,7 @@ static int init_main_loop(void) {
 
     ok = sd_event_new(&flutterpi.event_loop);
     if (ok < 0) {
-        fprintf(stderr, "[flutter-pi] Could not create main event loop. sd_event_new: %s\n", strerror(-ok));
+        LOG_ERROR("Could not create main event loop. sd_event_new: %s\n", strerror(-ok));
         return -ok;
     }
 
@@ -1106,7 +1117,7 @@ static int init_main_loop(void) {
         NULL
     );
     if (ok < 0) {
-        fprintf(stderr, "[flutter-pi] Error adding wakeup callback to main loop. sd_event_add_io: %s\n", strerror(-ok));
+        LOG_ERROR("Error adding wakeup callback to main loop. sd_event_add_io: %s\n", strerror(-ok));
         sd_event_unrefp(&flutterpi.event_loop);
         close(wakeup_fd);
         return -ok;
@@ -1142,7 +1153,7 @@ void on_pageflip_event(
     
     ok = cqueue_try_dequeue_locked(&flutterpi.frame_queue, &presented_frame);
     if (ok != 0) {
-        fprintf(stderr, "[flutter-pi] Could not dequeue completed frame from frame queue: %s\n", strerror(ok));
+        LOG_ERROR("Could not dequeue completed frame from frame queue: %s\n", strerror(ok));
         goto fail_unlock_frame_queue;
     }
 
@@ -1151,7 +1162,7 @@ void on_pageflip_event(
         // no frame queued after the one that was completed right now.
         // do nothing here.
     } else if (ok != 0) {
-        fprintf(stderr, "[flutter-pi] Could not get frame queue peek. cqueue_peek_locked: %s\n", strerror(ok));
+        LOG_ERROR("Could not get frame queue peek. cqueue_peek_locked: %s\n", strerror(ok));
         goto fail_unlock_frame_queue;
     } else {
         if (peek->state == kFramePending) {
@@ -1164,13 +1175,13 @@ void on_pageflip_event(
                 ns + (1000000000ll / flutterpi.display.refresh_rate)
             );
             if (result != kSuccess) {
-                fprintf(stderr, "[flutter-pi] Could not reply to frame request. FlutterEngineOnVsync: %s\n", FLUTTER_RESULT_TO_STRING(result));
+                LOG_ERROR("Could not reply to frame request. FlutterEngineOnVsync: %s\n", FLUTTER_RESULT_TO_STRING(result));
                 goto fail_unlock_frame_queue;
             }
 
             peek->state = kFrameRendering;
         } else {
-            fprintf(stderr, "[flutter-pi] frame queue in inconsistent state. aborting\n");
+            LOG_ERROR("frame queue in inconsistent state. aborting\n");
             abort();
         }
     }
@@ -1179,7 +1190,7 @@ void on_pageflip_event(
 
     ok = compositor_on_page_flip(sec, usec);
     if (ok != 0) {
-        fprintf(stderr, "[flutter-pi] Error notifying compositor about page flip. compositor_on_page_flip: %s\n", strerror(ok));
+        LOG_ERROR("Error notifying compositor about page flip. compositor_on_page_flip: %s\n", strerror(ok));
     }
 
     return;
@@ -1357,7 +1368,7 @@ static int init_display(void) {
     
     num_devices = drmGetDevices2(0, devices, sizeof(devices)/sizeof(*devices));
     if (num_devices < 0) {
-        fprintf(stderr, "[flutter-pi] Could not query DRM device list: %s\n", strerror(-num_devices));
+        LOG_ERROR("Could not query DRM device list: %s\n", strerror(-num_devices));
         return -num_devices;
     }
     
@@ -1375,7 +1386,7 @@ static int init_display(void) {
 
         ok = drmdev_new_from_path(&flutterpi.drm.drmdev, device->nodes[DRM_NODE_PRIMARY]);
         if (ok != 0) {
-            fprintf(stderr, "[flutter-pi] Could not create drmdev from device at \"%s\". Continuing.\n", device->nodes[DRM_NODE_PRIMARY]);
+            LOG_ERROR("Could not create drmdev from device at \"%s\". Continuing.\n", device->nodes[DRM_NODE_PRIMARY]);
             continue;
         }
 
@@ -1383,9 +1394,9 @@ static int init_display(void) {
     }
 
     if (flutterpi.drm.drmdev == NULL) {
-        fprintf(stderr, "flutter-pi couldn't find a usable DRM device.\n"
-                        "Please make sure you've enabled the Fake-KMS driver in raspi-config.\n"
-                        "If you're not using a Raspberry Pi, please make sure there's KMS support for your graphics chip.\n");
+        LOG_ERROR("flutter-pi couldn't find a usable DRM device.\n"
+                  "Please make sure you've enabled the Fake-KMS driver in raspi-config.\n"
+                  "If you're not using a Raspberry Pi, please make sure there's KMS support for your graphics chip.\n");
         return ENOENT;
     }
 
@@ -1417,7 +1428,7 @@ static int init_display(void) {
     }
 
     if (connector == NULL) {
-        fprintf(stderr, "[flutter-pi] Could not find a connected connector!\n");
+        LOG_ERROR("Could not find a connected connector!\n");
         return EINVAL;
     }
 
@@ -1444,7 +1455,7 @@ static int init_display(void) {
     }
 
     if (mode == NULL) {
-        fprintf(stderr, "[flutter-pi] Could not find a preferred output mode!\n");
+        LOG_ERROR("Could not find a preferred output mode!\n");
         return EINVAL;
     }
 
@@ -1453,11 +1464,7 @@ static int init_display(void) {
     flutterpi.display.refresh_rate = mode->vrefresh;
 
     if ((flutterpi.display.width_mm == 0) || (flutterpi.display.height_mm == 0)) {
-        fprintf(
-            stderr,
-            "[flutter-pi] WARNING: display didn't provide valid physical dimensions.\n"
-            "             The device-pixel ratio will default to 1.0, which may not be the fitting device-pixel ratio for your display.\n"
-        );
+        LOG_ERROR("WARNING: display didn't provide valid physical dimensions. The device-pixel ratio will default to 1.0, which may not be the fitting device-pixel ratio for your display.\n");
         flutterpi.display.pixel_ratio = 1.0;
     } else {
         flutterpi.display.pixel_ratio = (10.0 * flutterpi.display.width) / (flutterpi.display.width_mm * 38.0);
@@ -1467,7 +1474,7 @@ static int init_display(void) {
 
         if (horizontal_dpi != vertical_dpi) {
                 // See https://github.com/flutter/flutter/issues/71865 for current status of this issue.
-            fprintf(stderr, "[flutter-pi] WARNING: display has non-square pixels. Non-square-pixels are not supported by flutter.\n");
+            LOG_ERROR("WARNING: display has non-square pixels. Non-square-pixels are not supported by flutter.\n");
         }
     }
     
@@ -1493,7 +1500,7 @@ static int init_display(void) {
     }
 
     if (encoder == NULL) {
-        fprintf(stderr, "[flutter-pi] Could not find a suitable DRM encoder.\n");
+        LOG_ERROR("Could not find a suitable DRM encoder.\n");
         return EINVAL;
     }
 
@@ -1513,7 +1520,7 @@ static int init_display(void) {
     }
 
     if (crtc == NULL) {
-        fprintf(stderr, "[flutter-pi] Could not find a suitable DRM CRTC.\n");
+        LOG_ERROR("Could not find a suitable DRM CRTC.\n");
         return EINVAL;
     }
 
@@ -1531,22 +1538,11 @@ static int init_display(void) {
         } else {
             flutterpi.drm.platform_supports_get_sequence_ioctl = false;
             if (ok != 0) {
-                fprintf(
-                    stderr,
-                    "WARNING: Error getting last vblank timestamp. drmCrtcGetSequence: %s\n",
-                    strerror(_errno)
-                );
+                LOG_ERROR("WARNING: Error getting last vblank timestamp. drmCrtcGetSequence: %s\n", strerror(_errno));
             } else {
-                fprintf(
-                    stderr,
-                    "WARNING: Kernel didn't return a valid vblank timestamp. (timestamp == 0)\n"
-                );
+                LOG_ERROR("WARNING: Kernel didn't return a valid vblank timestamp. (timestamp == 0)\n");
             }
-            fprintf(
-                stderr,
-                "         VSync will be disabled.\n"
-                "         See https://github.com/ardera/flutter-pi/issues/38 for more info.\n"
-            );
+            LOG_ERROR("VSync will be disabled.\nSee https://github.com/ardera/flutter-pi/issues/38 for more info.\n");
         }
     }
 
@@ -1563,7 +1559,7 @@ static int init_display(void) {
         NULL
     );
     if (ok < 0) {
-        fprintf(stderr, "[flutter-pi] Could not add DRM pageflip event listener. sd_event_add_io: %s\n", strerror(-ok));
+        LOG_ERROR("Could not add DRM pageflip event listener. sd_event_add_io: %s\n", strerror(-ok));
         return -ok;
     }
 
@@ -1618,7 +1614,7 @@ static int init_display(void) {
 
     ok = load_egl_gl_procs();
     if (ok != 0) {
-        fprintf(stderr, "[flutter-pi] Could not load EGL / GL ES procedure addresses! error: %s\n", strerror(ok));
+        LOG_ERROR("Could not load EGL / GL ES procedure addresses! error: %s\n", strerror(ok));
         return ok;
     }
 
@@ -1627,20 +1623,20 @@ static int init_display(void) {
 #ifdef EGL_KHR_platform_gbm
     flutterpi.egl.display = flutterpi.egl.getPlatformDisplay(EGL_PLATFORM_GBM_KHR, flutterpi.gbm.device, NULL);
     if ((egl_error = eglGetError()) != EGL_SUCCESS) {
-        fprintf(stderr, "[flutter-pi] Could not get EGL display! eglGetPlatformDisplay: 0x%08X\n", egl_error);
+        LOG_ERROR("Could not get EGL display! eglGetPlatformDisplay: 0x%08X\n", egl_error);
         return EIO;
     }
 #else
     flutterpi.egl.display = eglGetDisplay((void*) flutterpi.gbm.device);
     if ((egl_error = eglGetError()) != EGL_SUCCESS) {
-        fprintf(stderr, "[flutter-pi] Could not get EGL display! eglGetDisplay: 0x%08X\n", egl_error);
+        LOG_ERROR("Could not get EGL display! eglGetDisplay: 0x%08X\n", egl_error);
         return EIO;
     }
 #endif
     
     eglInitialize(flutterpi.egl.display, &major, &minor);
     if ((egl_error = eglGetError()) != EGL_SUCCESS) {
-        fprintf(stderr, "[flutter-pi] Failed to initialize EGL! eglInitialize: 0x%08X\n", egl_error);
+        LOG_ERROR("Failed to initialize EGL! eglInitialize: 0x%08X\n", egl_error);
         return EIO;
     }
 
@@ -1655,7 +1651,7 @@ static int init_display(void) {
 
     eglBindAPI(EGL_OPENGL_ES_API);
     if ((egl_error = eglGetError()) != EGL_SUCCESS) {
-        fprintf(stderr, "[flutter-pi] Failed to bind OpenGL ES API! eglBindAPI: 0x%08X\n", egl_error);
+        LOG_ERROR("Failed to bind OpenGL ES API! eglBindAPI: 0x%08X\n", egl_error);
         return EIO;
     }
 
@@ -1665,7 +1661,7 @@ static int init_display(void) {
     
     eglGetConfigs(flutterpi.egl.display, NULL, 0, &count);
     if ((egl_error = eglGetError()) != EGL_SUCCESS) {
-        fprintf(stderr, "[flutter-pi] Could not get the number of EGL framebuffer configurations. eglGetConfigs: 0x%08X\n", egl_error);
+        LOG_ERROR("Could not get the number of EGL framebuffer configurations. eglGetConfigs: 0x%08X\n", egl_error);
         return EIO;
     }
 
@@ -1674,12 +1670,12 @@ static int init_display(void) {
 
     eglChooseConfig(flutterpi.egl.display, config_attribs, configs, count, &matched);
     if ((egl_error = eglGetError()) != EGL_SUCCESS) {
-        fprintf(stderr, "[flutter-pi] Could not query EGL framebuffer configurations with fitting attributes. eglChooseConfig: 0x%08X\n", egl_error);
+        LOG_ERROR("Could not query EGL framebuffer configurations with fitting attributes. eglChooseConfig: 0x%08X\n", egl_error);
         return EIO;
     }
 
     if (matched == 0) {
-        fprintf(stderr, "[flutter-pi] No fitting EGL framebuffer configuration found.\n");
+        LOG_ERROR("No fitting EGL framebuffer configuration found.\n");
         return EIO;
     }
 
@@ -1688,7 +1684,7 @@ static int init_display(void) {
 
         eglGetConfigAttrib(flutterpi.egl.display, configs[i], EGL_NATIVE_VISUAL_ID, &native_visual_id);
         if ((egl_error = eglGetError()) != EGL_SUCCESS) {
-            fprintf(stderr, "[flutter-pi] Could not query native visual ID of EGL config. eglGetConfigAttrib: 0x%08X\n", egl_error);
+            LOG_ERROR("Could not query native visual ID of EGL config. eglGetConfigAttrib: 0x%08X\n", egl_error);
             continue;
         }
 
@@ -1701,7 +1697,7 @@ static int init_display(void) {
     free(configs);
 
     if (_found_matching_config == false) {
-        fprintf(stderr, "[flutter-pi] Could not find EGL framebuffer configuration with appropriate attributes & native visual ID.\n");
+        LOG_ERROR("Could not find EGL framebuffer configuration with appropriate attributes & native visual ID.\n");
         return EIO;
     }
 
@@ -1710,25 +1706,25 @@ static int init_display(void) {
      ****************************/
     flutterpi.egl.root_context = eglCreateContext(flutterpi.egl.display, flutterpi.egl.config, EGL_NO_CONTEXT, context_attribs);
     if (flutterpi.egl.root_context == EGL_NO_CONTEXT) {
-        LOG_FLUTTERPI_ERROR("Could not create OpenGL ES root context. eglCreateContext: 0x%08X\n", egl_error);
+        LOG_ERROR("Could not create OpenGL ES root context. eglCreateContext: 0x%08X\n", egl_error);
         return EIO;
     }
 
     flutterpi.egl.flutter_render_context = eglCreateContext(flutterpi.egl.display, flutterpi.egl.config, flutterpi.egl.root_context, context_attribs);
     if (flutterpi.egl.flutter_render_context == EGL_NO_CONTEXT) {
-        LOG_FLUTTERPI_ERROR("Could not create OpenGL ES context for flutter rendering. eglCreateContext: 0x%08X\n", egl_error);
+        LOG_ERROR("Could not create OpenGL ES context for flutter rendering. eglCreateContext: 0x%08X\n", egl_error);
         return EIO;
     }
 
     flutterpi.egl.flutter_resource_uploading_context = eglCreateContext(flutterpi.egl.display, flutterpi.egl.config, flutterpi.egl.root_context, context_attribs);
     if (flutterpi.egl.flutter_resource_uploading_context == EGL_NO_CONTEXT) {
-        LOG_FLUTTERPI_ERROR("Could not create OpenGL ES context for flutter resource uploads. eglCreateContext: 0x%08X\n", egl_error);
+        LOG_ERROR("Could not create OpenGL ES context for flutter resource uploads. eglCreateContext: 0x%08X\n", egl_error);
         return EIO;
     }
 
     flutterpi.egl.compositor_context = eglCreateContext(flutterpi.egl.display, flutterpi.egl.config, flutterpi.egl.root_context, context_attribs);
     if (flutterpi.egl.compositor_context == EGL_NO_CONTEXT) {
-        LOG_FLUTTERPI_ERROR("Could not create OpenGL ES context for compositor. eglCreateContext: 0x%08X\n", egl_error);
+        LOG_ERROR("Could not create OpenGL ES context for compositor. eglCreateContext: 0x%08X\n", egl_error);
         return EIO;
     }
 
@@ -1736,19 +1732,19 @@ static int init_display(void) {
 
     flutterpi.egl.temp_context = eglCreateContext(flutterpi.egl.display, flutterpi.egl.config, flutterpi.egl.root_context, context_attribs);
     if (flutterpi.egl.temp_context == EGL_NO_CONTEXT) {
-        LOG_FLUTTERPI_ERROR("Could not create OpenGL ES context for creating new contexts. eglCreateContext: 0x%08X\n", egl_error);
+        LOG_ERROR("Could not create OpenGL ES context for creating new contexts. eglCreateContext: 0x%08X\n", egl_error);
         return EIO;
     }
 
     flutterpi.egl.surface = eglCreateWindowSurface(flutterpi.egl.display, flutterpi.egl.config, (EGLNativeWindowType) flutterpi.gbm.surface, NULL);
     if ((egl_error = eglGetError()) != EGL_SUCCESS) {
-        fprintf(stderr, "[flutter-pi] Could not create EGL window surface. eglCreateWindowSurface: 0x%08X\n", egl_error);
+        LOG_ERROR("Could not create EGL window surface. eglCreateWindowSurface: 0x%08X\n", egl_error);
         return EIO;
     }
 
     eglMakeCurrent(flutterpi.egl.display, flutterpi.egl.surface, flutterpi.egl.surface, flutterpi.egl.root_context);
     if ((egl_error = eglGetError()) != EGL_SUCCESS) {
-        fprintf(stderr, "[flutter-pi] Could not make OpenGL ES root context current to get OpenGL information. eglMakeCurrent: 0x%08X\n", egl_error);
+        LOG_ERROR("Could not make OpenGL ES root context current to get OpenGL information. eglMakeCurrent: 0x%08X\n", egl_error);
         return EIO;
     }
 
@@ -1777,7 +1773,7 @@ static int init_display(void) {
 
     eglMakeCurrent(flutterpi.egl.display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
     if ((egl_error = eglGetError()) != EGL_SUCCESS) {
-        fprintf(stderr, "[flutter-pi] Could not clear OpenGL ES context. eglMakeCurrent: 0x%08X\n", egl_error);
+        LOG_ERROR("Could not clear OpenGL ES context. eglMakeCurrent: 0x%08X\n", egl_error);
         return EIO;
     }
 
@@ -1819,20 +1815,20 @@ static int init_application(void) {
     if (flutterpi.flutter.runtime_mode == kRelease) {
         libflutter_engine_handle = dlopen("libflutter_engine.so.release", RTLD_LOCAL | RTLD_NOW);
         if (libflutter_engine_handle == NULL) {
-            LOG_FLUTTERPI_ERROR("[flutter-pi] Warning: Could not load libflutter_engine.so.release: %s. Trying to open libflutter_engine.so...\n", dlerror());
+            LOG_ERROR("[flutter-pi] Warning: Could not load libflutter_engine.so.release: %s. Trying to open libflutter_engine.so...\n", dlerror());
         }
     } else if (flutterpi.flutter.runtime_mode == kDebug) {
         libflutter_engine_handle = dlopen("libflutter_engine.so.debug", RTLD_LOCAL | RTLD_NOW);
         if (libflutter_engine_handle == NULL) {
-            LOG_FLUTTERPI_ERROR("[flutter-pi] Warning: Could not load libflutter_engine.so.debug: %s. Trying to open libflutter_engine.so...\n", dlerror());
+            LOG_ERROR("[flutter-pi] Warning: Could not load libflutter_engine.so.debug: %s. Trying to open libflutter_engine.so...\n", dlerror());
         }
     }
 
     if (libflutter_engine_handle == NULL) {
         libflutter_engine_handle = dlopen("libflutter_engine.so", RTLD_LOCAL | RTLD_NOW);
         if (libflutter_engine_handle == NULL) {
-            LOG_FLUTTERPI_ERROR("Could not load libflutter_engine.so. dlopen: %s", dlerror());
-            fprintf(stderr, "[flutter-pi] Could not find a fitting libflutter_engine.\n");
+            LOG_ERROR("Could not load libflutter_engine.so. dlopen: %s", dlerror());
+            LOG_ERROR("Could not find a fitting libflutter_engine.\n");
             return EINVAL;
         }
     }
@@ -1887,7 +1883,7 @@ static int init_application(void) {
 
     plugin_registry = plugin_registry_new(&flutterpi);
     if (plugin_registry == NULL) {
-        LOG_FLUTTERPI_ERROR("Could not create plugin registry.\n");
+        LOG_ERROR("Could not create plugin registry.\n");
         return EIO;
     }
 
@@ -1895,13 +1891,13 @@ static int init_application(void) {
 
     ok = plugin_registry_add_plugins_from_static_registry(plugin_registry);
     if (ok != 0) {
-        LOG_FLUTTERPI_ERROR("Could not register plugins to plugin registry.\n");
+        LOG_ERROR("Could not register plugins to plugin registry.\n");
         return EIO;
     }
 
     ok = plugin_registry_ensure_plugins_initialized(plugin_registry);
     if (ok != 0) {
-        LOG_FLUTTERPI_ERROR("Could not initialize plugins.\n");
+        LOG_ERROR("Could not initialize plugins.\n");
         return EIO;
     }
 
@@ -1966,25 +1962,17 @@ static int init_application(void) {
 
     bool engine_is_aot = libflutter_engine->FlutterEngineRunsAOTCompiledDartCode();
     if ((engine_is_aot == true) && (flutterpi.flutter.runtime_mode != kRelease)) {
-        fprintf(
-            stderr,
-            "[flutter-pi] The flutter engine was built for release (AOT) mode,\n"
-            "             but flutter-pi was not started up in release mode. \n"
-            "             Either you swap out the libflutter_engine.so \n"
-            "             with one that was built for debug mode, or you start\n"
-            "             flutter-pi with the --release flag and make sure\n"
-            "             a valid \"app.so\" is located inside the asset bundle\n"
-            "             directory.\n"
+        LOG_ERROR(
+            "The flutter engine was built for release (AOT) mode, but flutter-pi was not started up in release mode.\n"
+            "Either you swap out the libflutter_engine.so with one that was built for debug mode, or you start"
+            "flutter-pi with the --release flag and make sure a valid \"app.so\" is located inside the asset bundle directory.\n"
         );
         return EINVAL;
     } else if ((engine_is_aot == false) && (flutterpi.flutter.runtime_mode != kDebug)) {
-        fprintf(
-            stderr,
-            "[flutter-pi] The flutter engine was built for debug mode,\n"
-            "             but flutter-pi was started up in release mode.\n"
-            "             Either you swap out the libflutter_engine.so\n"
-            "             with one that was built for release mode, or you\n"
-            "             start flutter-pi without the --release flag.\n"
+        LOG_ERROR(
+            "The flutter engine was built for debug mode, but flutter-pi was started up in release mode.\n"
+            "Either you swap out the libflutter_engine.so with one that was built for release mode,"
+            "or you start flutter-pi without the --release flag.\n"
         );
         return EINVAL;
     }
@@ -1997,7 +1985,7 @@ static int init_application(void) {
 
         engine_result = libflutter_engine->FlutterEngineCreateAOTData(&aot_source, &aot_data);
         if (engine_result != kSuccess) {
-            fprintf(stderr, "[flutter-pi] Could not load AOT data. FlutterEngineCreateAOTData: %s\n", FLUTTER_RESULT_TO_STRING(engine_result));
+            LOG_ERROR("Could not load AOT data. FlutterEngineCreateAOTData: %s\n", FLUTTER_RESULT_TO_STRING(engine_result));
             return EIO;
         }
 
@@ -2007,13 +1995,13 @@ static int init_application(void) {
     // spin up the engine
     engine_result = libflutter_engine->FlutterEngineInitialize(FLUTTER_ENGINE_VERSION, &renderer_config, &project_args, &flutterpi, &flutterpi.flutter.engine);
     if (engine_result != kSuccess) {
-        LOG_FLUTTERPI_ERROR("Could not initialize the flutter engine. FlutterEngineInitialize: %s\n", FLUTTER_RESULT_TO_STRING(engine_result));
+        LOG_ERROR("Could not initialize the flutter engine. FlutterEngineInitialize: %s\n", FLUTTER_RESULT_TO_STRING(engine_result));
         return EINVAL;
     }
     
     engine_result = libflutter_engine->FlutterEngineRunInitialized(flutterpi.flutter.engine);
     if (engine_result != kSuccess) {
-        LOG_FLUTTERPI_ERROR("Could not run the flutter engine. FlutterEngineRunInitialized: %s\n", FLUTTER_RESULT_TO_STRING(engine_result));
+        LOG_ERROR("Could not run the flutter engine. FlutterEngineRunInitialized: %s\n", FLUTTER_RESULT_TO_STRING(engine_result));
         return EINVAL;
     }
 
@@ -2044,7 +2032,7 @@ static int init_application(void) {
         1
     );
     if (engine_result != kSuccess) {
-        LOG_FLUTTERPI_ERROR("Could not send display update to flutter engine. FlutterEngineNotifyDisplayUpdate: %s\n", FLUTTER_RESULT_TO_STRING(engine_result));
+        LOG_ERROR("Could not send display update to flutter engine. FlutterEngineNotifyDisplayUpdate: %s\n", FLUTTER_RESULT_TO_STRING(engine_result));
         return EINVAL;
     }
 
@@ -2059,7 +2047,7 @@ static int init_application(void) {
         }
     );
     if (engine_result != kSuccess) {
-        LOG_FLUTTERPI_ERROR("Could not send window metrics to flutter engine. FlutterEngineSendWindowMetricsEvent: %s\n", FLUTTER_RESULT_TO_STRING(engine_result));
+        LOG_ERROR("Could not send window metrics to flutter engine. FlutterEngineSendWindowMetricsEvent: %s\n", FLUTTER_RESULT_TO_STRING(engine_result));
         return EINVAL;
     }
 
@@ -2075,7 +2063,7 @@ int flutterpi_schedule_exit(void) {
     
     ok = sd_event_exit(flutterpi.event_loop, 0);
     if (ok < 0) {
-        fprintf(stderr, "[flutter-pi] Could not schedule application exit. sd_event_exit: %s\n", strerror(-ok));
+        LOG_ERROR("Could not schedule application exit. sd_event_exit: %s\n", strerror(-ok));
         if (pthread_self() != flutterpi.event_loop_thread) {
             pthread_mutex_unlock(&flutterpi.event_loop_mutex);
         }
@@ -2105,7 +2093,7 @@ static void on_flutter_pointer_event(void *userdata, const FlutterPointerEvent *
     );
 
     if (engine_result != kSuccess) {
-        LOG_FLUTTERPI_ERROR("Error sending touchscreen / mouse events to flutter. FlutterEngineSendPointerEvent: %s\n", FLUTTER_RESULT_TO_STRING(engine_result));
+        LOG_ERROR("Error sending touchscreen / mouse events to flutter. FlutterEngineSendPointerEvent: %s\n", FLUTTER_RESULT_TO_STRING(engine_result));
         //flutterpi_schedule_exit(flutterpi);
     }
 }
@@ -2121,7 +2109,7 @@ static void on_utf8_character(void *userdata, uint8_t *character) {
 #ifdef BUILD_TEXT_INPUT_PLUGIN
     ok = textin_on_utf8_char(character);
     if (ok != 0) {
-        LOG_FLUTTERPI_ERROR("Error handling keyboard event. textin_on_utf8_char: %s\n", strerror(ok));
+        LOG_ERROR("Error handling keyboard event. textin_on_utf8_char: %s\n", strerror(ok));
         //flutterpi_schedule_exit(flutterpi);
     }
 #endif
@@ -2137,7 +2125,7 @@ static void on_xkb_keysym(void *userdata, xkb_keysym_t keysym) {
 #ifdef BUILD_TEXT_INPUT_PLUGIN
     ok = textin_on_xkb_keysym(keysym);
     if (ok != 0) {
-        LOG_FLUTTERPI_ERROR("Error handling keyboard event. textin_on_xkb_keysym: %s\n", strerror(ok));
+        LOG_ERROR("Error handling keyboard event. textin_on_xkb_keysym: %s\n", strerror(ok));
         //flutterpi_schedule_exit(flutterpi);
     }
 #endif
@@ -2166,7 +2154,7 @@ static void on_gtk_keyevent(
         is_down
     );
     if (ok != 0) {
-        LOG_FLUTTERPI_ERROR("Error handling keyboard event. rawkb_send_gtk_keyevent: %s\n", strerror(ok));
+        LOG_ERROR("Error handling keyboard event. rawkb_send_gtk_keyevent: %s\n", strerror(ok));
         //flutterpi_schedule_exit(flutterpi);
     }
 #endif
@@ -2184,7 +2172,7 @@ static void on_set_cursor_enabled(void *userdata, bool enabled) {
         flutterpi->display.pixel_ratio
     );
     if (ok != 0) {
-        LOG_FLUTTERPI_ERROR("Error enabling / disabling mouse cursor. compositor_apply_cursor_state: %s\n", strerror(ok));
+        LOG_ERROR("Error enabling / disabling mouse cursor. compositor_apply_cursor_state: %s\n", strerror(ok));
     }
 }
 
@@ -2197,7 +2185,7 @@ static void on_move_cursor(void *userdata, unsigned int x, unsigned int y) {
 
     ok = compositor_set_cursor_pos(x, y);
     if (ok != 0) {
-        LOG_FLUTTERPI_ERROR("Error moving mouse cursor. compositor_set_cursor_pos: %s\n", strerror(ok));
+        LOG_ERROR("Error moving mouse cursor. compositor_set_cursor_pos: %s\n", strerror(ok));
     }
 }
 
@@ -2238,7 +2226,7 @@ static int init_user_input(void) {
         flutterpi.display.height
     );
     if (input == NULL) {
-        LOG_FLUTTERPI_ERROR("Couldn't initialize user input. flutter-pi will run without user input.\n");
+        LOG_ERROR("Couldn't initialize user input. flutter-pi will run without user input.\n");
     } else {
         ok = sd_event_add_io(
             flutterpi.event_loop,
@@ -2249,7 +2237,7 @@ static int init_user_input(void) {
             input
         );
         if (ok < 0) {
-            LOG_FLUTTERPI_ERROR("Couldn't listen for user input. flutter-pi will run without user input. sd_event_add_io: %s\n", strerror(-ok));
+            LOG_ERROR("Couldn't listen for user input. flutter-pi will run without user input. sd_event_add_io: %s\n", strerror(-ok));
             user_input_destroy(input);
             input = NULL;
         }
@@ -2267,7 +2255,7 @@ static bool setup_paths(void) {
     #define PATH_EXISTS(path) (access((path),R_OK)==0)
 
     if (!PATH_EXISTS(flutterpi.flutter.asset_bundle_path)) {
-        fprintf(stderr, "Asset Bundle Directory \"%s\" does not exist\n", flutterpi.flutter.asset_bundle_path);
+        LOG_ERROR("Asset Bundle Directory \"%s\" does not exist\n", flutterpi.flutter.asset_bundle_path);
         return false;
     }
     
@@ -2276,19 +2264,19 @@ static bool setup_paths(void) {
 
     if (flutterpi.flutter.runtime_mode == kDebug) {
         if (!PATH_EXISTS(kernel_blob_path)) {
-            fprintf(stderr, "[flutter-pi] Could not find \"kernel.blob\" file inside \"%s\", which is required for debug mode.\n", flutterpi.flutter.asset_bundle_path);
+            LOG_ERROR("Could not find \"kernel.blob\" file inside \"%s\", which is required for debug mode.\n", flutterpi.flutter.asset_bundle_path);
             return false;
         }
     } else if (flutterpi.flutter.runtime_mode == kRelease) {
         if (!PATH_EXISTS(app_elf_path)) {
-            fprintf(stderr, "[flutter-pi] Could not find \"app.so\" file inside \"%s\", which is required for release and profile mode.\n", flutterpi.flutter.asset_bundle_path);
+            LOG_ERROR("Could not find \"app.so\" file inside \"%s\", which is required for release and profile mode.\n", flutterpi.flutter.asset_bundle_path);
             return false;
         }
     }
 
     asprintf(&icu_data_path, "/usr/lib/icudtl.dat");
     if (!PATH_EXISTS(icu_data_path)) {
-        fprintf(stderr, "[flutter-pi] Could not find \"icudtl.dat\" file inside \"/usr/lib/\".\n");
+        LOG_ERROR("Could not find \"icudtl.dat\" file inside \"/usr/lib/\".\n");
         return false;
     }
 
@@ -2302,10 +2290,10 @@ static bool setup_paths(void) {
 }
 
 static bool parse_cmd_args(int argc, char **argv) {
-    int opt;
-    int longopt_index = 0;
+    bool finished_parsing_options;
     int runtime_mode_int = kDebug;
-    int ok;
+    int longopt_index = 0;
+    int opt, ok;
 
     struct option long_options[] = {
         {"release", no_argument, &runtime_mode_int, kRelease},
@@ -2314,10 +2302,11 @@ static bool parse_cmd_args(int argc, char **argv) {
         {"rotation", required_argument, NULL, 'r'},
         {"dimensions", required_argument, NULL, 'd'},
         {"help", no_argument, 0, 'h'},
+        {"pixelformat", required_argument, NULL, 'p'},
         {0, 0, 0, 0}
     };
 
-    bool finished_parsing_options = false;
+    finished_parsing_options = false;
     while (!finished_parsing_options) {
         longopt_index = 0;
         opt = getopt_long(argc, argv, "+i:o:r:d:h", long_options, &longopt_index);
@@ -2341,8 +2330,7 @@ static bool parse_cmd_args(int argc, char **argv) {
                     flutterpi.view.orientation = kLandscapeRight;
                     flutterpi.view.has_orientation = true;
                 } else {
-                    fprintf(
-                        stderr, 
+                    LOG_ERROR(
                         "ERROR: Invalid argument for --orientation passed.\n"
                         "Valid values are \"portrait_up\", \"landscape_left\", \"portrait_down\", \"landscape_right\".\n"
                         "%s", 
@@ -2356,8 +2344,7 @@ static bool parse_cmd_args(int argc, char **argv) {
                 errno = 0;
                 long rotation = strtol(optarg, NULL, 0);
                 if ((errno != 0) || ((rotation != 0) && (rotation != 90) && (rotation != 180) && (rotation != 270))) {
-                    fprintf(
-                        stderr,
+                    LOG_ERROR(
                         "ERROR: Invalid argument for --rotation passed.\n"
                         "Valid values are 0, 90, 180, 270.\n"
                         "%s",
@@ -2375,7 +2362,7 @@ static bool parse_cmd_args(int argc, char **argv) {
 
                 ok = sscanf(optarg, "%u,%u", &width_mm, &height_mm);
                 if ((ok == 0) || (ok == EOF)) {
-                    fprintf(stderr, "ERROR: Invalid argument for --dimensions passed.\n%s", usage);
+                    LOG_ERROR("ERROR: Invalid argument for --dimensions passed.\n%s", usage);
                     return false;
                 }
 
@@ -2384,13 +2371,35 @@ static bool parse_cmd_args(int argc, char **argv) {
                 
                 break;
             
+            case 'p':
+                for (int i = 0; i < n_pixfmt_infos; i++) {
+                    if (strcmp(optarg, pixfmt_infos[i].arg_name) == 0) {
+                        flutterpi.gbm.format = pixfmt_infos[i].gbm_format;
+                        goto valid_format;
+                    }
+                }
+
+                LOG_ERROR(
+                    "ERROR: Invalid argument for --pixelformat passed.\n"
+                    "Valid values are: RGB565, ARGB8888, XRGB8888, BGRA8888, RGBA8888\n"
+                    "%s", 
+                    usage
+                );
+
+                // Just so we get a compile error when we update the pixel format list
+                // but don't update the valid values above.
+                COMPILE_ASSERT(kCount_PixFmt == 5);
+
+                valid_format:
+                break;
+            
             case 'h':
                 printf("%s", usage);
                 return false;
 
             case '?':
             case ':':
-                printf("Invalid option specified.\n%s", usage);
+                LOG_ERROR("Invalid option specified.\n%s", usage);
                 return false;
             
             case -1:
@@ -2404,7 +2413,7 @@ static bool parse_cmd_args(int argc, char **argv) {
     
 
     if (optind >= argc) {
-        fprintf(stderr, "error: expected asset bundle path after options.\n");
+        LOG_ERROR("ERROR: Expected asset bundle path after options.\n");
         printf("%s", usage);
         return false;
     }
@@ -2443,7 +2452,7 @@ int init(int argc, char **argv) {
 
     flutterpi.locales = locales_new();
     if (flutterpi.locales == NULL) {
-        LOG_FLUTTERPI_ERROR("Couldn't setup locales.\n");
+        LOG_ERROR("Couldn't setup locales.\n");
         return EINVAL;
     }
 

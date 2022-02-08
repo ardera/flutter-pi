@@ -4,7 +4,6 @@
 #include <xkbcommon/xkbcommon.h>
 #include <flutter_embedder.h>
 
-#define LOG_USER_INPUT_ERROR(...) fprintf(stderr, "[user input] " __VA_ARGS__)
 #define MAX_COLLECTED_FLUTTER_POINTER_EVENTS 64
 
 #define FLUTTER_POINTER_EVENT(_phase, _timestamp, _x, _y, _device, _signal_kind, _scroll_delta_x, _scroll_delta_y, _device_kind, _buttons) \

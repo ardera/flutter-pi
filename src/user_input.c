@@ -16,6 +16,8 @@
 #include <keyboard.h>
 #include <user_input.h>
 
+FILE_DESCR("user input")
+
 struct input_device_data {
 	int64_t flutter_device_id_offset;
 	struct keyboard_state *keyboard_state;
@@ -50,7 +52,6 @@ struct user_input {
     FlutterTransformation view_to_display_transform_nontranslating;
 	unsigned int display_width;
 	unsigned int display_height;
-	
     
     /**
      * @brief The number of devices connected that want a mouse cursor.
@@ -131,14 +132,14 @@ struct user_input *user_input_new(
 
 	ok = libinput_udev_assign_seat(libinput, "seat0");
 	if (ok < 0) {
-		fprintf(stderr, "[flutter-pi] Could not assign udev seat to libinput instance. libinput_udev_assign_seat: %s\n", strerror(-ok));
+		LOG_ERROR("Could not assign udev seat to libinput instance. libinput_udev_assign_seat: %s\n", strerror(-ok));
 		goto fail_unref_libinput;
 	}
 
 #ifdef BUILD_TEXT_INPUT_PLUGIN
 	kbdcfg = keyboard_config_new();
 	if (kbdcfg == NULL) {
-		fprintf(stderr, "[flutter-pi] Could not initialize keyboard configuration. Flutter-pi will run without text/raw keyboard input.\n");
+		LOG_ERROR("Could not initialize keyboard configuration. Flutter-pi will run without text/raw keyboard input.\n");
 	}
 #else
     kbdcfg = NULL;
@@ -916,6 +917,10 @@ static int on_touch_motion(struct user_input *input, struct libinput_event *even
 static int on_touch_cancel(struct user_input *input, struct libinput_event *event) {
     DEBUG_ASSERT(input != NULL);
     DEBUG_ASSERT(event != NULL);
+    
+    (void) input;
+    (void) event;
+    
     /// TODO: Implement touch cancel
     return 0;
 }
@@ -923,6 +928,10 @@ static int on_touch_cancel(struct user_input *input, struct libinput_event *even
 static int on_touch_frame(struct user_input *input, struct libinput_event *event) {
     DEBUG_ASSERT(input != NULL);
     DEBUG_ASSERT(event != NULL);
+
+    (void) input;
+    (void) event;
+    
     /// TODO: Implement touch frame
     return 0;
 }
@@ -1043,7 +1052,7 @@ int user_input_on_fd_ready(struct user_input *input) {
     // tell libinput about new events
     ok = libinput_dispatch(input->libinput);
     if (ok < 0) {
-        LOG_USER_INPUT_ERROR("Could not notify libinput about new input events. libinput_dispatch: %s\n", strerror(-ok));
+        LOG_ERROR("Could not notify libinput about new input events. libinput_dispatch: %s\n", strerror(-ok));
         return -ok;
     }
 
@@ -1055,7 +1064,7 @@ int user_input_on_fd_ready(struct user_input *input) {
     // handle all available libinput events
     ok = process_libinput_events(input, timestamp);
     if (ok != 0) {
-        LOG_USER_INPUT_ERROR("Could not process libinput events. process_libinput_events: %s\n", strerror(ok));
+        LOG_ERROR("Could not process libinput events. process_libinput_events: %s\n", strerror(ok));
         return ok;
     }
 

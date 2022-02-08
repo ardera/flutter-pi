@@ -10,7 +10,7 @@
 #include <texture_registry.h>
 #include <flutter-pi.h>
 
-#define LOG_ERROR(...) fprintf(stderr, "[texture registry] " __VA_ARGS__)
+FILE_DESCR("texture registry")
 
 struct texture_registry {
     struct flutter_external_texture_interface texture_interface;

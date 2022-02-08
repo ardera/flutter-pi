@@ -173,7 +173,7 @@ void notifier_notify(struct notifier *notifier, void *arg) {
         r = listener_notify(l, arg);
         if (r == kUnlisten) {
             ok = pset_remove(&notifier->listeners, l);
-            DEBUG_ASSERT(ok == 0);
+            DEBUG_ASSERT(ok == 0); (void) ok;
 
             listener_destroy(l);
 
