@@ -130,6 +130,7 @@ add_executable(flutter-pi
   src/notifier_listener.c
   src/pixel_format.c
   src/filesystem_layout.c
+  src/compositor_ng.c
   src/plugins/services.c
 )
 
