@@ -36,7 +36,6 @@ message(STATUS "Generator .............. ${CMAKE_GENERATOR}")
 message(STATUS "Build Type ............. ${CMAKE_BUILD_TYPE}")
 
 option(OMXPLAYER_SUPPORTS_RUNTIME_ROTATION "Whether omxplayer supports runtime rotation." OFF)
-option(ENABLE_BACKWARD_CPP "Set to true if flutter-pi should be compiled with backward-cpp, to provide nice stracktraces on crash. (Useful for bug reports.)" OFF)
 option(BUILD_TEXT_INPUT_PLUGIN "Include the text input plugin in the finished binary. Enables text input (to flutter text fields, for example) via attached keyboards." ON)
 option(BUILD_RAW_KEYBOARD_PLUGIN "Include the raw keyboard plugin in the finished binary. Enables raw keycode listening in flutter via the flutter RawKeyboard interface." ON)
 option(BUILD_TEST_PLUGIN "Include the test plugin in the finished binary. Allows testing platform channel communication." OFF)
@@ -227,13 +226,6 @@ if (BUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN)
     ${LIBGSTREAMER_ALLOCATORS_CFLAGS}
     ${LIBGSTREAMER_VIDEO_CFLAGS}
   )
-endif()
-if (ENABLE_BACKWARD_CPP)
-  add_subdirectory(third_party/backward-cpp)
-  target_sources(flutter-pi PRIVATE ${BACKWARD_ENABLE})
-  target_compile_options(flutter-pi PRIVATE -funwind-tables)
-  target_link_options(flutter-pi PRIVATE -funwind-tables)
-  add_backward(flutter-pi)
 endif()
 
 # Needed so dart VM can actually resolve symbols in the same
