@@ -428,15 +428,11 @@ static const char *__file_logging_name = _logging_name;
 
 #ifdef DEBUG
 #define DEBUG_ASSERT(__cond) assert(__cond)
-<<<<<<< HEAD
-#define DEBUG_ASSERT_MSG(__cond, __msg) assert((__cond) && __msg)
-=======
 #define DEBUG_ASSERT_MSG(__cond, __msg) assert((__cond) && (__msg))
 #define LOG_ERROR(fmtstring, ...) fprintf(stderr, "[%s] " fmtstring, __file_logging_name, ##__VA_ARGS__)
 #define LOG_ERROR_UNPREFIXED(fmtstring, ...) fprintf(stderr, fmtstring, ##__VA_ARGS__)
 #define LOG_DEBUG(fmtstring, ...) fprintf(stderr, "[%s] " fmtstring, __file_logging_name, ##__VA_ARGS__)
 #define LOG_DEBUG_UNPREFIXED(fmtstring, ...) fprintf(stderr, fmtstring, ##__VA_ARGS__)
->>>>>>> 0289437 (improve logging a bit)
 #else
 #define DEBUG_ASSERT(__cond) do {} while (0)
 #define DEBUG_ASSERT_MSG(__cond, __msg) do {} while (0)
