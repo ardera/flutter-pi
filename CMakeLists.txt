@@ -39,7 +39,7 @@ option(OMXPLAYER_SUPPORTS_RUNTIME_ROTATION "Whether omxplayer supports runtime r
 option(BUILD_TEXT_INPUT_PLUGIN "Include the text input plugin in the finished binary. Enables text input (to flutter text fields, for example) via attached keyboards." ON)
 option(BUILD_RAW_KEYBOARD_PLUGIN "Include the raw keyboard plugin in the finished binary. Enables raw keycode listening in flutter via the flutter RawKeyboard interface." ON)
 option(BUILD_TEST_PLUGIN "Include the test plugin in the finished binary. Allows testing platform channel communication." OFF)
-option(BUILD_OMXPLAYER_VIDEO_PLAYER_PLUGIN "Include the omxplayer_video_player plugin in the finished binary. Allows for hardware accelerated video playback in flutter using omxplayer." OFF)
+option(BUILD_OMXPLAYER_VIDEO_PLAYER_PLUGIN "Include the omxplayer_video_player plugin in the finished binary. Allows for hardware accelerated video playback in flutter using omxplayer." ON)
 option(BUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN "Include the gstreamer_video_player plugin in the finished binary. Allows for more stable, hardware accelerated video playback in flutter using gstreamer." ON)
 option(DUMP_ENGINE_LAYERS "True if flutter-pi should dump the list of rendering layers that the flutter engine sends to flutter-pi on each draw." OFF)
 option(ENABLE_TSAN "True to build & link with -fsanitize=thread" OFF)
