@@ -41,6 +41,9 @@ int queue_enqueue(
 ) {
     size_t new_size;
 
+	DEBUG_ASSERT_NOT_NULL(queue);
+	DEBUG_ASSERT_NOT_NULL(p_element);
+
 	if (queue->size == queue->length) {
 		// expand the queue or wait for an element to be dequeued.
 
@@ -79,15 +82,19 @@ int queue_dequeue(
 	struct queue *queue,
 	void *element_out
 ) {
+	DEBUG_ASSERT_NOT_NULL(queue);
+
 	if (queue->length == 0) {
         return EAGAIN;
     }
 
-	memcpy(
-		element_out,
-		((char*) queue->elements) + (queue->element_size*queue->start_index),
-		queue->element_size
-	);
+	if (element_out != NULL) {
+		memcpy(
+			element_out,
+			((char*) queue->elements) + (queue->element_size*queue->start_index),
+			queue->element_size
+		);
+	}
 
 	queue->start_index = (queue->start_index + 1) & (queue->size - 1);
 	queue->length--;
@@ -99,6 +106,8 @@ int queue_peek(
 	struct queue *queue,
 	void **pelement_out
 ) {
+	DEBUG_ASSERT_NOT_NULL(queue);
+
     if (queue->length == 0) {
         if (pelement_out != NULL) {
             *pelement_out = NULL;
@@ -107,7 +116,7 @@ int queue_peek(
     }
 
     if (pelement_out != NULL) {
-        *pelement_out = ((char*) queue->elements) + (queue->element_size*queue->start_index);
+        *pelement_out = ((char*) (queue->elements)) + (queue->element_size*queue->start_index);
     }
 
 	return 0;
