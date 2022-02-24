@@ -193,7 +193,7 @@ static int get_player_from_map_arg(
     return 0;
 }
 
-static int get_player_and_meta_from_map_arg(
+MAYBE_UNUSED static int get_player_and_meta_from_map_arg(
     struct std_value *arg,
     struct gstplayer **player_out,
     struct gstplayer_meta **meta_out,
@@ -258,7 +258,7 @@ static int send_initialized_event(struct gstplayer_meta *meta, bool is_stream, i
     );
 }
 
-static int send_completed_event(struct gstplayer_meta *meta) {
+MAYBE_UNUSED static int send_completed_event(struct gstplayer_meta *meta) {
     return platch_send_success_event_std(
         meta->event_channel_name,
         &STDMAP1(

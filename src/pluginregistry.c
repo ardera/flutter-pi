@@ -93,7 +93,7 @@ static struct platch_obj_cb_data *get_cb_data_by_channel_locked(
 	return data;
 }
 
-static struct platch_obj_cb_data *get_cb_data_by_channel(
+MAYBE_UNUSED static struct platch_obj_cb_data *get_cb_data_by_channel(
 	struct plugin_registry *registry,
 	const char *channel
 ) {
@@ -227,12 +227,16 @@ int plugin_registry_ensure_plugins_initialized(struct plugin_registry *registry)
 	struct plugin_instance *instance;
 	enum plugin_init_result result;
 	struct pointer_set initialized_plugins;
+	void **initialized_plugins_storage;
 	int n_pointers;
 
 	cpset_lock(&registry->plugins);
 
 	n_pointers = cpset_get_count_pointers_locked(&registry->plugins);
-	initialized_plugins = PSET_INITIALIZER_STATIC(alloca(sizeof(void*) * n_pointers), n_pointers);
+
+	initialized_plugins_storage = alloca(sizeof(*initialized_plugins_storage) * n_pointers);
+	memset(initialized_plugins_storage, 0, sizeof(*initialized_plugins_storage) * n_pointers);
+	initialized_plugins = PSET_INITIALIZER_STATIC(initialized_plugins_storage, n_pointers);
 
 	LOG_DEBUG("Registered plugins: ");
 	for_each_pointer_in_cpset(&registry->plugins, instance) {
