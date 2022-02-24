@@ -45,6 +45,7 @@ option(BUILD_GSTREAMER_AUDIO_PLAYER_PLUGIN "Include the gstreamer based audio pl
 option(TRY_BUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN "Don't throw an error if the gstreamer libs aren't found, instead just don't build the gstreamer video player plugin in that case." ON)
 option(TRY_BUILD_GSTREAMER_AUDIO_PLAYER_PLUGIN "Don't throw an error if the gstreamer libs aren't found, instead just don't build gstreamer audio plugin." ON)
 option(DUMP_ENGINE_LAYERS "True if flutter-pi should dump the list of rendering layers that the flutter engine sends to flutter-pi on each draw." OFF)
+option(WARN_MISSING_FIELD_INITIALIZERS "True of the compiler should be instructed to warn about missing field initializers. This needs some hacky workarounds in the code so gcc won't report spurious warnings, so this should only be enabled if the warnings are explicitly required." OFF)
 option(ENABLE_TSAN "True to build & link with -fsanitize=thread" OFF)
 option(ENABLE_ASAN "True to build & link with -fsanitize=address" OFF)
 option(ENABLE_UBSAN "True to build & link with -fsanitize=undefined" OFF)
@@ -108,8 +109,8 @@ include(CheckCCompilerFlag)
 include(FindPkgConfig)
 pkg_check_modules(DRM REQUIRED libdrm)
 pkg_check_modules(GBM REQUIRED gbm)
-pkg_check_modules(EGL REQUIRED egl)
-pkg_check_modules(GLESV2 REQUIRED glesv2)
+pkg_check_modules(EGL egl)
+pkg_check_modules(GLESV2 glesv2)
 pkg_check_modules(LIBSYSTEMD REQUIRED libsystemd)
 pkg_check_modules(LIBINPUT REQUIRED libinput)
 pkg_check_modules(LIBXKBCOMMON REQUIRED xkbcommon)
@@ -120,7 +121,7 @@ add_executable(flutter-pi
   src/platformchannel.c
   src/pluginregistry.c
   src/texture_registry.c
-  src/compositor.c
+  # src/compositor.c
   src/modesetting.c
   src/collection.c
   src/cursor.c
@@ -131,6 +132,11 @@ add_executable(flutter-pi
   src/pixel_format.c
   src/filesystem_layout.c
   src/compositor_ng.c
+  src/surface.c
+  src/backing_store.c
+  src/gbm_surface_backing_store.c
+  src/tracer.c
+  src/dmabuf_surface.c
   src/plugins/services.c
 )
 
@@ -170,9 +176,9 @@ target_compile_options(flutter-pi PRIVATE
   ${LIBINPUT_CFLAGS}
   ${LIBUDEV_CFLAGS}
   ${LIBXKBCOMMON_CFLAGS}
-  $<$<CONFIG:Debug>:-O0 -Wall -Wextra -Wno-unused-function -Wno-sign-compare -Wno-missing-field-initializers -Werror -ggdb -U_FORTIFY_SOURCE -DDEBUG>
-  $<$<CONFIG:RelWithDebInfo>:-O2 -Wall -Wextra -Wno-unused-function -Wno-sign-compare -Wno-missing-field-initializers -ggdb>
-  $<$<CONFIG:Release>:-O2 -Wall -Wextra -Wno-unused-function -Wno-sign-compare -Wno-missing-field-initializers -ggdb>
+  $<$<CONFIG:Debug>:-O0 -Wall -Wextra -Werror -Wno-sign-compare -ggdb -U_FORTIFY_SOURCE -DDEBUG> # -Wno-unused-function
+  $<$<CONFIG:RelWithDebInfo>:-O2 -Wall -Wextra -Wno-unused-function -Wno-sign-compare -ggdb>
+  $<$<CONFIG:Release>:-O2 -Wall -Wextra -Wno-unused-function -Wno-sign-compare -ggdb>
 )
 
 # There's no other way to query the libinput version (in code) somehow.
@@ -188,8 +194,41 @@ target_compile_definitions(flutter-pi PRIVATE
   LIBINPUT_VERSION_PATCH=${LIBINPUT_VERSION_PATCH}
 )
 
-# TODO: Just unconditionally define those, make them optional later
+# TODO: Just unconditionally define those, make them optional later 
 target_compile_definitions(flutter-pi PRIVATE HAS_KMS HAS_EGL HAS_GBM HAS_FBDEV)
+
+if (WARN_MISSING_FIELD_INITIALIZERS)
+  target_compile_options(flutter-pi PRIVATE -Wmissing-field-initializers)
+  target_compile_definitions(flutter-pi PRIVATE WARN_MISSING_FIELD_INITIALIZERS)
+else()
+  target_compile_options(flutter-pi PRIVATE -Wno-missing-field-initializers)
+endif()
+
+if (EGL_FOUND)
+  target_compile_definitions(flutter-pi PRIVATE HAS_EGL)
+else()
+  message("Could not find EGL. Flutter-pi will build without EGL support.")
+  FetchContent_Declare(
+    EGL_REGISTRY
+    GIT_REPOSITORY "https://github.com/KhronosGroup/EGL-Registry"
+    GIT_TAG "main"
+  )
+  FetchContent_MakeAvailable(EGL_REGISTRY)
+  target_include_directories(flutter-pi PRIVATE ${EGL_REGISTRY_SOURCE_DIR}/api/)
+endif()
+
+if (GLESV2_FOUND)
+  target_compile_definitions(flutter-pi PRIVATE HAS_GL)
+else()
+  message("Could not find OpenGL. Flutter-pi will build without OpenGL support.")
+  FetchContent_Declare(
+    OGL_REGISTRY
+    GIT_REPOSITORY "https://github.com/KhronosGroup/OpenGL-Registry"
+    GIT_TAG "main"
+  )
+  FetchContent_MakeAvailable(OGL_REGISTRY)
+  target_include_directories(flutter-pi PRIVATE ${OGL_REGISTRY_SOURCE_DIR}/api/)
+endif()
 
 if(NOT FILESYSTEM_LAYOUT IN_LIST FILESYSTEM_LAYOUTS)
   message(FATAL_ERROR "FILESYSTEM_LAYOUT must be one of ${FILESYSTEM_LAYOUTS}")

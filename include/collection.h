@@ -404,11 +404,15 @@ static inline void *memdup(const void *restrict src, const size_t n) {
 	return memcpy(dest, src, n);
 }
 
-#define BMAP_DECLARATION(name, n_bits) uint8_t name[(((n_bits) - 1) / 8) + 1]
-#define BMAP_IS_SET(p_bmap, i_bit) ((p_bmap)[(i_bit) / sizeof(*(p_bmap))] & (1 << ((i_bit) & (sizeof(*(p_bmap)) - 1))))
-#define BMAP_SET(p_bmap, i_bit) ((p_bmap)[(i_bit) / sizeof(*(p_bmap))] |= (1 << ((i_bit) & (sizeof(*(p_bmap)) - 1))))
-#define BMAP_CLEAR(p_bmap, i_bit) ((p_bmap)[(i_bit) / sizeof(*(p_bmap))] &= ~(1 << ((i_bit) & (sizeof(*(p_bmap)) - 1))))
-#define BMAP_ZERO(p_bmap, n_bits) (memset((p_bmap), 0, (((n_bits) - 1) / 8) + 1))
+#define BMAP_ELEMENT_TYPE uint8_t
+#define BMAP_ELEMENT_SIZE (sizeof(BMAP_ELEMENT_TYPE))
+#define BMAP_ELEMENT_BITS (BMAP_ELEMENT_SIZE * 8)
+#define BMAP_DECLARATION(name, n_bits) BMAP_ELEMENT_TYPE name[(((n_bits) - 1) / BMAP_ELEMENT_BITS) + 1]
+#define BMAP_IS_SET(p_bmap, i_bit) ((p_bmap)[(i_bit) / BMAP_ELEMENT_BITS] & (1 << ((i_bit) & (BMAP_ELEMENT_BITS - 1))))
+#define BMAP_SET(p_bmap, i_bit) ((p_bmap)[(i_bit) / BMAP_ELEMENT_BITS] |= (1 << ((i_bit) & (BMAP_ELEMENT_BITS - 1))))
+#define BMAP_CLEAR(p_bmap, i_bit) ((p_bmap)[(i_bit) / BMAP_ELEMENT_BITS] &= ~(1 << ((i_bit) & (BMAP_ELEMENT_BITS - 1))))
+#define BMAP_ZERO(p_bmap) memset((p_bmap), 0, sizeof(p_bmap) / sizeof(*(p_bmap)))
+#define BMAP_SIZE(p_bmap) (ARRAY_SIZE(p_bmap) * BMAP_ELEMENT_BITS)
 
 #define min(a, b) ((a) < (b) ? (a) : (b))
 #define max(a, b) ((a) > (b) ? (a) : (b))
@@ -424,7 +428,7 @@ static inline uint64_t get_monotonic_time(void) {
 }
 
 #define FILE_DESCR(_logging_name) \
-static const char *__file_logging_name = _logging_name;
+static const char *__attribute__((unused)) __file_logging_name = _logging_name;
 
 #ifdef DEBUG
 #define DEBUG_ASSERT(__cond) assert(__cond)
@@ -443,8 +447,11 @@ static const char *__file_logging_name = _logging_name;
 #endif
 
 #define DEBUG_ASSERT_NOT_NULL(__var) DEBUG_ASSERT(__var != NULL)
+#define DEBUG_ASSERT_NOT_NULL_MSG(__var, __msg) DEBUG_ASSERT_MSG(__var != NULL, __msg)
 #define DEBUG_ASSERT_EQUALS(__a, __b) DEBUG_ASSERT((__a) == (__b))
+#define DEBUG_ASSERT_EQUALS_MSG(__a, __b, __msg) DEBUG_ASSERT_MSG((__a) == (__b), __msg)
 #define DEBUG_ASSERT_EGL_TRUE(__var) DEBUG_ASSERT((__var) == EGL_TRUE)
+#define DEBUG_ASSERT_EGL_TRUE_MSG(__var, __msg) DEBUG_ASSERT_MSG((__var) == EGL_TRUE, __msg)
 
 #if !(201112L <= __STDC_VERSION__ || (!defined __STRICT_ANSI__ && (__GNUC__ > 4) || ((__GNUC__ == 4) && (__GNUC_MINOR >= 6))))
 #	error "Needs C11 or later or GCC (not in pedantic mode) 4.6.0 or later for compile time asserts."
@@ -454,6 +461,37 @@ static const char *__file_logging_name = _logging_name;
 #define COMPILE_ASSERT(expression) COMPILE_ASSERT_MSG(expression, "Expression evaluates to false")
 
 #define UNIMPLEMENTED() assert(0 && "Unimplemented")
+
+#ifndef __has_builtin
+	#define __has_builtin(x) 0
+#endif
+
+#if defined(__GNUC__) || __has_builtin(__builtin_unreachable)
+#define UNREACHABLE() __builtin_unreachable
+#else
+#define UNREACHABLE() assert(0 && "Unreachable")
+#endif
+
+#if defined(__GNUC__) || __has_builtin(__builtin_popcount)
+#define HWEIGHT(x) __builtin_popcount(x)
+#else
+#define HWEIGHT(x) UNIMPLEMENTED()
+#endif
+
+#if defined(__GNUC__) || defined(__clang__)
+#define MAYBE_UNUSED __attribute__((unused))
+#define ATTR_MALLOC __attribute__((malloc))
+#define NONNULL(...) __attribute__((nonnull(__VA_ARGS__)))
+#define ATTR_PURE __attribute__((pure))
+#define ATTR_CONST __attribute__((const))
+#else
+#define MAYBE_UNUSED
+#define ATTR_MALLOC
+#define NONNULL(...)
+#define ATTR_PURE
+#define ATTR_CONST
+#endif
+
 
 static inline int refcount_inc_n(refcount_t *refcount, int n) {
 	return atomic_fetch_add_explicit(refcount, n, memory_order_relaxed);
@@ -495,50 +533,65 @@ static inline int refcount_get_for_debug(refcount_t *refcount) {
 #define REFCOUNT_INIT_N(n) (n)
 
 #define DECLARE_REF_OPS(obj_name) \
-struct obj_name *obj_name ## _ref(struct obj_name *obj); \
-void obj_name ## _unref(struct obj_name *obj); \
-void obj_name ## _unrefp(struct obj_name **obj); \
+MAYBE_UNUSED struct obj_name *obj_name ## _ref(struct obj_name *obj); \
+MAYBE_UNUSED void obj_name ## _unref(struct obj_name *obj); \
+MAYBE_UNUSED void obj_name ## _unrefp(struct obj_name **obj); \
 
 #define DEFINE_REF_OPS(obj_name, refcount_member_name) \
-struct obj_name *obj_name ## _ref(struct obj_name *obj) { \
+MAYBE_UNUSED struct obj_name *obj_name ## _ref(struct obj_name *obj) { \
 	refcount_inc(&obj->refcount_member_name); \
 	return obj; \
 } \
-void obj_name ## _unref(struct obj_name *obj) { \
+MAYBE_UNUSED void obj_name ## _unref(struct obj_name *obj) { \
 	if (refcount_dec(&obj->refcount_member_name) == false) { \
 		obj_name ## _destroy(obj); \
 	} \
 } \
-void obj_name ## _unrefp(struct obj_name **obj) { \
+MAYBE_UNUSED void obj_name ## _unrefp(struct obj_name **obj) { \
+	obj_name ## _unref(*obj); \
+	*obj = NULL; \
+}
+
+#define DEFINE_STATIC_REF_OPS(obj_name, refcount_member_name) \
+MAYBE_UNUSED static struct obj_name *obj_name ## _ref(struct obj_name *obj) { \
+	refcount_inc(&obj->refcount_member_name); \
+	return obj; \
+} \
+MAYBE_UNUSED static void obj_name ## _unref(struct obj_name *obj) { \
+	if (refcount_dec(&obj->refcount_member_name) == false) { \
+		obj_name ## _destroy(obj); \
+	} \
+} \
+MAYBE_UNUSED static void obj_name ## _unrefp(struct obj_name **obj) { \
 	obj_name ## _unref(*obj); \
 	*obj = NULL; \
 }
 
 #define DECLARE_LOCK_OPS(obj_name) \
-void obj_name ## _lock(struct obj_name *obj); \
-void obj_name ## _unlock(struct obj_name *obj);
+MAYBE_UNUSED void obj_name ## _lock(struct obj_name *obj); \
+MAYBE_UNUSED void obj_name ## _unlock(struct obj_name *obj);
 
 #define DEFINE_LOCK_OPS(obj_name, mutex_member_name) \
-void obj_name ## _lock(struct obj_name *obj) { \
+MAYBE_UNUSED void obj_name ## _lock(struct obj_name *obj) { \
 	pthread_mutex_lock(&obj->mutex_member_name); \
 } \
-void obj_name ## _unlock(struct obj_name *obj) { \
+MAYBE_UNUSED void obj_name ## _unlock(struct obj_name *obj) { \
 	pthread_mutex_unlock(&obj->mutex_member_name); \
 }
 
 #define DEFINE_STATIC_LOCK_OPS(obj_name, mutex_member_name) \
-static void obj_name ## _lock(struct obj_name *obj) { \
+MAYBE_UNUSED static void obj_name ## _lock(struct obj_name *obj) { \
 	pthread_mutex_lock(&obj->mutex_member_name); \
 } \
-static void obj_name ## _unlock(struct obj_name *obj) { \
+MAYBE_UNUSED static void obj_name ## _unlock(struct obj_name *obj) { \
 	pthread_mutex_unlock(&obj->mutex_member_name); \
 }
 
 #define DEFINE_INLINE_LOCK_OPS(obj_name, mutex_member_name) \
-static inline void obj_name ## _lock(struct obj_name *obj) { \
+MAYBE_UNUSED static inline void obj_name ## _lock(struct obj_name *obj) { \
 	pthread_mutex_lock(&obj->mutex_member_name); \
 } \
-static inline void obj_name ## _unlock(struct obj_name *obj) { \
+MAYBE_UNUSED static inline void obj_name ## _unlock(struct obj_name *obj) { \
 	pthread_mutex_unlock(&obj->mutex_member_name); \
 }
 
@@ -551,5 +604,76 @@ static inline int32_t uint32_to_int32(const uint32_t v) {
 static inline uint32_t int32_to_uint32(const int32_t v) {
 	return BITCAST(uint32_t, v);
 }
+
+static inline int64_t ptr_to_int64(const void *const ptr) {
+	union {
+		const void *ptr;
+		int64_t int64;
+	} u;
+
+	u.int64 = 0;
+	u.ptr = ptr;
+	return u.int64;
+}
+
+static inline void *int64_to_ptr(const int64_t v) {
+	union {
+		void *ptr;
+		int64_t int64;
+	} u;
+
+	u.int64 = v;
+	return u.ptr;
+}
+
+static inline int64_t ptr_to_uint32(const void *const ptr) {
+	union {
+		const void *ptr;
+		uint32_t u32;
+	} u;
+
+	u.u32 = 0;
+	u.ptr = ptr;
+	return u.u32;
+}
+
+static inline void *uint32_to_ptr(const uint32_t v) {
+	union {
+		void *ptr;
+		uint32_t u32;
+	} u;
+
+	u.ptr = NULL;
+	u.u32 = v;
+	return u.ptr;
+}
+
+#define CONTAINER_OF(container_type, field_ptr, field_name) ({ \
+	const typeof( ((container_type*) 0)->field_name ) *__field_ptr_2 = (field_ptr); \
+	(container_type*) ((char*) __field_ptr_2 - offsetof(container_type, field_name)); \
+})
+
+#define MAX_ALIGNMENT (__alignof__(max_align_t))
+#define IS_MAX_ALIGNED(num) ((num) % MAX_ALIGNMENT == 0)
+
+typedef struct {
+	uint8_t bytes[16];
+} uuid_t;
+#define UUID(_0, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15) ((uuid_t) {.bytes = {_0, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15}})
+#define CONST_UUID(_0, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15) ((const uuid_t) {.bytes = {_0, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15}})
+
+
+static inline bool uuid_equals(const uuid_t a, const uuid_t b) {
+	return memcmp(&a, &b, sizeof(uuid_t)) == 0;
+}
+
+static inline void uuid_copy(uuid_t *dst, const uuid_t src) {
+	memcpy(dst, &src, sizeof(uuid_t));
+}
+
+#define DOUBLE_TO_FP1616(v) ((uint32_t) ((v) * 65536))
+#define DOUBLE_TO_FP1616_ROUNDED(v) (((uint32_t) (v)) << 16)
+
+#define ARRAY_SIZE(a) (sizeof(a) / sizeof((a)[0]))
 
 #endif

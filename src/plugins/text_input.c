@@ -492,7 +492,7 @@ static int on_request_autofill(
     );
 }
 
-static int on_set_editable_size_and_transform(
+MAYBE_UNUSED static int on_set_editable_size_and_transform(
     struct platch_obj *object,
     FlutterPlatformMessageResponseHandle *responsehandle
 ) {
@@ -824,7 +824,7 @@ static bool model_move_cursor_to_end(void) {
     return false;
 }
 
-static bool model_move_cursor_forward(void) {
+MAYBE_UNUSED static bool model_move_cursor_forward(void) {
     if (text_input.selection_base != text_input.selection_extent) {
         text_input.selection_base = text_input.selection_extent;
         return true;
@@ -839,7 +839,7 @@ static bool model_move_cursor_forward(void) {
     return false;
 }
 
-static bool model_move_cursor_back(void) {
+MAYBE_UNUSED static bool model_move_cursor_back(void) {
     if (text_input.selection_base != text_input.selection_extent) {
         text_input.selection_extent = text_input.selection_base;
         return true; 

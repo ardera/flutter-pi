@@ -26,31 +26,29 @@
 #include <GLES2/gl2ext.h>
 #include <flutter_embedder.h>
 
-#include <modesetting.h>
 #include <collection.h>
-#include <keyboard.h>
-
-#define LOAD_EGL_PROC(flutterpi_struct, name, full_name) \
-    do { \
-        (flutterpi_struct).egl.name = (void*) eglGetProcAddress(#full_name); \
-        if ((flutterpi_struct).egl.name == NULL) { \
-            fprintf(stderr, "[flutter-pi] FATAL: Could not resolve EGL procedure " #full_name "\n"); \
-            return EINVAL; \
-        } \
-    } while (false)
-
-#define LOAD_GL_PROC(flutterpi_struct, name, full_name) \
-	do { \
-		(flutterpi_struct).gl.name = (void*) eglGetProcAddress(#full_name); \
-		if ((flutterpi_struct).gl.name == NULL) { \
-			fprintf(stderr, "[flutter-pi] FATAL: Could not resolve GL procedure " #full_name "\n"); \
-			return EINVAL; \
-		} \
-	} while (false)
 
 enum device_orientation {
 	kPortraitUp, kLandscapeLeft, kPortraitDown, kLandscapeRight
 };
+
+#define ORIENTATION_IS_LANDSCAPE(orientation) ((orientation) == kLandscapeLeft || (orientation) == kLandscapeRight)
+#define ORIENTATION_IS_PORTRAIT(orientation) ((orientation) == kPortraitUp || (orientation) == kPortraitDown)
+#define ORIENTATION_IS_VALID(orientation) ((orientation) == kPortraitUp || (orientation) == kLandscapeLeft || (orientation) == kPortraitDown || (orientation) == kLandscapeRight)
+
+#define ORIENTATION_ROTATE_CW(orientation) ( \
+		(orientation) == kPortraitUp ? kLandscapeLeft : \
+		(orientation) == kLandscapeLeft ? kPortraitDown : \
+		(orientation) == kPortraitDown ? kLandscapeRight : \
+		(orientation) == kLandscapeRight ? kPortraitUp : (assert(0 && "invalid device orientation"), 0) \
+	)
+
+#define ORIENTATION_ROTATE_CCW(orientation) ( \
+		(orientation) == kPortraitUp ? kLandscapeRight : \
+		(orientation) == kLandscapeLeft ? kPortraitUp : \
+		(orientation) == kPortraitDown ? kLandscapeLeft : \
+		(orientation) == kLandscapeRight ? kPortraitDown : (assert(0 && "invalid device orientation"), 0) \
+	)
 
 /// TODO: Use flutter_embedder.h proctable instead
 struct libflutter_engine {
@@ -156,7 +154,7 @@ struct libflutter_engine {
 	 .pers0  = a.transX, .pers1  = a.transY, .pers2  = a.pers2, \
 	})
 
-static inline void apply_flutter_transformation(
+static inline void apply_flutter_transformation_(
 	const FlutterTransformation t,
 	double *px,
 	double *py
@@ -195,24 +193,6 @@ static inline void apply_flutter_transformation(
 #define LIBINPUT_EVENT_IS_KEYBOARD(event_type) (\
 	((event_type) == LIBINPUT_EVENT_KEYBOARD_KEY))
 
-enum frame_state {
-	kFramePending,
-	kFrameRendering,
-	kFrameRendered
-};
-
-struct frame {
-	/// The current state of the frame.
-	/// - Pending, when the frame was requested using the FlutterProjectArgs' vsync_callback.
-	/// - Rendering, when the baton was returned to the engine
-	/// - Rendered, when the frame has been / is visible on the display.
-	enum frame_state state;
-
-	/// The baton to be returned to the flutter engine when the frame can be rendered.
-	intptr_t baton;
-};
-
-struct compositor;
 
 enum flutter_runtime_mode {
 	kDebug, kProfile, kRelease
@@ -221,8 +201,11 @@ enum flutter_runtime_mode {
 #define FLUTTER_RUNTIME_MODE_IS_JIT(runtime_mode) ((runtime_mode) == kDebug)
 #define FLUTTER_RUNTIME_MODE_IS_AOT(runtime_mode) ((runtime_mode) == kProfile || (runtime_mode) == kRelease)
 
+struct compositor;
 struct plugin_registry;
 struct texture_registry;
+struct drmdev;
+struct locales;
 
 struct flutter_paths {
 	char *app_bundle_path;
@@ -239,9 +222,6 @@ struct flutterpi {
 	/// graphics stuff
 	struct {
 		struct drmdev *drmdev;
-		drmEventContext evctx;
-		sd_event_source *drm_pageflip_event_source;
-		bool platform_supports_get_sequence_ioctl;
 	} drm;
 
 	struct {
@@ -257,36 +237,21 @@ struct flutterpi {
 		EGLContext root_context;
 		EGLContext flutter_render_context;
 		EGLContext flutter_resource_uploading_context;
-		EGLContext compositor_context;
 		
-		/// Used to lock the @ref temp_context, to be sure we only try to make it current on
+		/// Used to lock the @ref root_context, to be sure we only try to make it current on
 		/// one thread.
-		pthread_mutex_t temp_context_lock;
+		pthread_mutex_t root_context_lock;
 		
-		/// An EGL context that's only made current to create new contexts,
-		/// for example when some native code calls @ref flutterpi_create_egl_context
-		/// to get a new context.
-		EGLContext temp_context;
-		
-		EGLSurface surface;
-
-		char      *renderer;
-
-		PFNEGLGETPLATFORMDISPLAYEXTPROC getPlatformDisplay;
-		PFNEGLCREATEPLATFORMWINDOWSURFACEEXTPROC createPlatformWindowSurface;
-		PFNEGLCREATEPLATFORMPIXMAPSURFACEEXTPROC createPlatformPixmapSurface;
-		PFNEGLCREATEDRMIMAGEMESAPROC createDRMImageMESA;
-		PFNEGLEXPORTDRMIMAGEMESAPROC exportDRMImageMESA;
+		const char *client_exts, *display_exts;
 	} egl;
 
 	struct  {
-		PFNGLEGLIMAGETARGETTEXTURE2DOESPROC EGLImageTargetTexture2DOES;
-		PFNGLEGLIMAGETARGETRENDERBUFFERSTORAGEOESPROC EGLImageTargetRenderbufferStorageOES;
+		const char *extensions;
 	} gl;
 
 	struct {
 		/// width & height of the display in pixels.
-		int width, height;
+		// int width, height;
 
 		/// physical width & height of the display in millimeters
 		/// the physical size can only be queried for HDMI displays (and even then, most displays will
@@ -294,56 +259,56 @@ struct flutterpi {
 		/// for DSI displays, the physical size of the official 7-inch display will be set in init_display.
 		/// init_display will only update width_mm and height_mm if they are set to zero, allowing you
 		///   to hardcode values for you individual display.
-		int width_mm, height_mm;
+		// int width_mm, height_mm;
 
-		int refresh_rate;
+		// int refresh_rate;
 
 		/// The pixel ratio used by flutter.
 		/// This is computed inside init_display using width_mm and height_mm.
 		/// flutter only accepts pixel ratios >= 1.0
-		double pixel_ratio;
+		// double pixel_ratio;
 	} display;
 
 	struct {
 		/// This is false when the value in the "orientation" field is
 		/// unset. (Since we can't just do orientation = null)
-		bool has_orientation;
+		// bool has_orientation;
 
 		/// The current device orientation.
 		/// The initial device orientation is based on the width & height data from drm,
 		/// or given as command line arguments.
-		enum device_orientation orientation;
+		// enum device_orientation orientation;
 
-		bool has_rotation;
+		// bool has_rotation;
 
 		/// The angle between the initial device orientation and the current device orientation in degrees.
 		/// (applied as a rotation to the flutter window in transformation_callback, and also
 		/// is used to determine if width/height should be swapped when sending a WindowMetrics event to flutter)
-		int rotation;
+		// int rotation;
 		
 		/// width & height of the flutter view. These are the dimensions send to flutter using
 		/// [FlutterEngineSendWindowMetricsEvent]. (So, for example, with rotation == 90, these
 		/// dimensions are swapped compared to the display dimensions)
-		int width, height;
+		// int width, height;
 
-		int width_mm, height_mm;
+		// int width_mm, height_mm;
 		
 		/// Used by flutter to transform the flutter view to fill the display.
 		/// Matrix that transforms flutter view coordinates to display coordinates.
-		FlutterTransformation view_to_display_transform;
+		// FlutterTransformation view_to_display_transform;
 
 		/// Used by the touch input to transform raw display coordinates into flutter view coordinates.
 		/// Matrix that transforms display coordinates into flutter view coordinates
-		FlutterTransformation display_to_view_transform;
+		// FlutterTransformation display_to_view_transform;
 	} view;
 
-	struct concurrent_queue frame_queue;
-
+	struct tracer *tracer;
 	struct compositor *compositor;
+	sd_event_source *compositor_event_source;
 
 	/// IO
-	sd_event_source *user_input_event_source;
 	struct user_input *user_input;
+	sd_event_source *user_input_event_source;
 
 	/// Locales
 	struct locales *locales;
@@ -361,7 +326,10 @@ struct flutterpi {
 		char **engine_argv;
 		enum flutter_runtime_mode runtime_mode;
 		struct libflutter_engine libflutter_engine;
+		FlutterEngineProcTable procs;
 		FlutterEngine engine;
+
+		bool next_frame_request_is_secondary;
 	} flutter;
 	
 	/// main event loop
@@ -451,6 +419,12 @@ struct gbm_device *flutterpi_get_gbm_device(struct flutterpi *flutterpi);
 EGLDisplay flutterpi_get_egl_display(struct flutterpi *flutterpi);
 
 EGLContext flutterpi_create_egl_context(struct flutterpi *flutterpi);
+
+void *flutterpi_egl_get_proc_address(struct flutterpi *flutterpi, const char *name);
+
+bool flutterpi_supports_egl_extension(struct flutterpi *flutterpi, const char *extension_name_str);
+
+bool flutterpi_supports_gl_extension(struct flutterpi *flutterpi, const char *extension_name_str);
 
 void flutterpi_trace_event_instant(struct flutterpi *flutterpi, const char *name);
 

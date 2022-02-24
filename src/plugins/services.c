@@ -3,7 +3,7 @@
 
 #include <flutter-pi.h>
 #include <pluginregistry.h>
-#include <compositor.h>
+//#include <compositor.h>
 #include <plugins/services.h>
 
 static struct {
@@ -72,6 +72,9 @@ static int on_receive_platform(char *channel, struct platch_obj *object, Flutter
          *  }
          */
         
+        /// TODO: Implement
+
+        /*
         value = &object->json_arg;
         
         if ((value->type != kJsonArray) || (value->size == 0)) {
@@ -140,6 +143,7 @@ static int on_receive_platform(char *channel, struct platch_obj *object, Flutter
             responsehandle,
             "Expected `arg` to contain at least one element."
         );
+        */
     } else if (strcmp(object->method, "SystemChrome.setApplicationSwitcherDescription") == 0) {
         /*
          *  SystemChrome.setApplicationSwitcherDescription(Map description)
