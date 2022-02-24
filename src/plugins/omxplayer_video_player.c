@@ -26,12 +26,7 @@
 
 #include <plugins/omxplayer_video_player.h>
 
-#define LOG_ERROR(...) fprintf(stderr, "[omxplayer video player plugin] " __VA_ARGS__)
-#ifdef DEBUG
-#   define LOG_DEBUG(...) fprintf(stderr, "[omxplayer video player plugin] " __VA_ARGS__)
-#else
-#   define LOG_DEBUG(...) do {} while (0)
-#endif
+FILE_DESCR("omxplayer video_player plugin")
 
 static struct {
     bool initialized;
@@ -1528,12 +1523,15 @@ static int on_receive_mch(
 }
 
 int8_t omxpvidpp_is_present(void) {
-    return plugin_registry_is_plugin_present("omxplayer video_player plugin");
+    return plugin_registry_is_plugin_present(flutterpi.plugin_registry, "omxplayer video_player plugin");
 }
 
 enum plugin_init_result omxpvidpp_init(struct flutterpi *flutterpi, void **userdata_out) {
     int ok;
-    
+
+    (void) flutterpi;
+    (void) userdata_out;
+
     ok = plugin_registry_set_receiver("flutter.io/omxplayerVideoPlayer", kStandardMethodCall, on_receive_mch);
     if (ok != 0) {
         return kError_PluginInitResult;
