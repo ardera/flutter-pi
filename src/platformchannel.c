@@ -93,10 +93,10 @@ static int _advance_size_bytes(uintptr_t *value, size_t size, size_t *remaining)
 }
 
 #define DEFINE_READ_WRITE_FUNC(suffix, value_type) \
-static int _write_##suffix(uint8_t **pbuffer, value_type value, size_t *remaining) { \
+MAYBE_UNUSED static int _write_##suffix(uint8_t **pbuffer, value_type value, size_t *remaining) { \
 	return _write(pbuffer, &value, sizeof value, remaining); \
 } \
-static int _read_##suffix(uint8_t **pbuffer, value_type* value, size_t *remaining) { \
+MAYBE_UNUSED static int _read_##suffix(uint8_t **pbuffer, value_type* value, size_t *remaining) { \
 	return _read(pbuffer, value, sizeof *value, remaining); \
 }
 

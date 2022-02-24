@@ -15,6 +15,7 @@
 #include <collection.h>
 #include <keyboard.h>
 #include <user_input.h>
+#include <compositor_ng.h>
 
 FILE_DESCR("user input")
 
@@ -561,9 +562,8 @@ static int on_mouse_motion_event(struct user_input *input, struct libinput_event
     struct libinput_event_pointer *pointer_event;
     struct input_device_data *data;
     struct libinput_device *device;
+    struct point delta, pos_display, pos_view;
     uint64_t timestamp;
-    double new_cursor_x, new_cursor_y;
-    double dx, dy;
 
     DEBUG_ASSERT(input != NULL);
     DEBUG_ASSERT(event != NULL);
@@ -575,37 +575,35 @@ static int on_mouse_motion_event(struct user_input *input, struct libinput_event
 
     data->timestamp = timestamp;
 
-    dx = libinput_event_pointer_get_dx(pointer_event);
-    dy = libinput_event_pointer_get_dy(pointer_event);
+    delta = transform_point(
+        input->view_to_display_transform_nontranslating,
+        POINT(
+            libinput_event_pointer_get_dx(pointer_event),
+            libinput_event_pointer_get_dy(pointer_event)
+        )
+    );
 
-    // transform the deltas. when the display is rotated
-    // we want the mouse to move in different directions as well.
-    // the dx and dy is still in display (not view) coordinates though,
-    // we only changed the movement direction.
-    apply_flutter_transformation(input->view_to_display_transform_nontranslating, &dx, &dy);
-
-    new_cursor_x = input->cursor_x + dx;
-    new_cursor_y = input->cursor_y + dy;
+    pos_display = POINT(input->cursor_x + delta.x, input->cursor_y + delta.y);
 
     // check if we're ran over the display boundaries.
-    if (new_cursor_x < 0.0) {
-        new_cursor_x = 0.0;
-    } else if (new_cursor_x > input->display_width - 1) {
-        new_cursor_x = input->display_width - 1;
+    if (pos_display.x < 0.0) {
+        pos_display.x = 0.0;
+    } else if (pos_display.x > input->display_width - 1) {
+        pos_display.x = input->display_width - 1;
     }
 
-    if (new_cursor_y < 0.0) {
-        new_cursor_y = 0.0;
-    } else if (new_cursor_y > input->display_height - 1) {
-        new_cursor_y = input->display_height - 1;
+    if (pos_display.y < 0.0) {
+        pos_display.y = 0.0;
+    } else if (pos_display.y > input->display_height - 1) {
+        pos_display.y = input->display_height - 1;
     }
 
-    input->cursor_x = new_cursor_x;
-    input->cursor_y = new_cursor_y;
+    input->cursor_x = pos_display.x;
+    input->cursor_y = pos_display.y;
 
     // transform the cursor pos to view (flutter) coordinates.
-    apply_flutter_transformation(input->display_to_view_transform, &new_cursor_x, &new_cursor_y);
-
+    pos_view = transform_point(input->display_to_view_transform, pos_display);
+    
     if (data->has_emitted_pointer_events == false) {
         data->has_emitted_pointer_events = true;
         input->n_cursor_devices++;
@@ -617,8 +615,8 @@ static int on_mouse_motion_event(struct user_input *input, struct libinput_event
         input,
         &FLUTTER_POINTER_MOUSE_MOVE_EVENT(
             timestamp,
-            new_cursor_x,
-            new_cursor_y,
+            pos_view.x,
+            pos_view.y,
             data->flutter_device_id_offset,
             data->buttons
         ),
@@ -638,8 +636,8 @@ static int on_mouse_motion_absolute_event(struct user_input *input, struct libin
     struct libinput_event_pointer *pointer_event;
     struct input_device_data *data;
     struct libinput_device *device;
+    struct point pos_display, pos_view;
     uint64_t timestamp;
-    double x, y;
 
     DEBUG_ASSERT(input != NULL);
     DEBUG_ASSERT(event != NULL);
@@ -650,20 +648,22 @@ static int on_mouse_motion_absolute_event(struct user_input *input, struct libin
     timestamp = libinput_event_pointer_get_time_usec(pointer_event);
 
     // get the new mouse position in display coordinates
-    x = libinput_event_pointer_get_absolute_x_transformed(pointer_event, input->display_width - 1);
-    y = libinput_event_pointer_get_absolute_y_transformed(pointer_event, input->display_height - 1);
+    pos_display = POINT(
+        libinput_event_pointer_get_absolute_x_transformed(pointer_event, input->display_width),
+        libinput_event_pointer_get_absolute_y_transformed(pointer_event, input->display_height)
+    );
 
     /// FIXME: Why do we store the coordinates here?
-    data->x = x;
-    data->y = y;
+    data->x = pos_display.x;
+    data->y = pos_display.y;
     data->timestamp = timestamp;
 
     // update the "global" cursor position
-    input->cursor_x = x;
-    input->cursor_y = y;
+    input->cursor_x = pos_display.x;
+    input->cursor_y = pos_display.y;
 
     // transform x & y to view (flutter) coordinates
-    apply_flutter_transformation(input->display_to_view_transform, &x, &y);
+    pos_view = transform_point(input->display_to_view_transform, pos_display);
 
     if (data->has_emitted_pointer_events == false) {
         data->has_emitted_pointer_events = true;
@@ -675,7 +675,7 @@ static int on_mouse_motion_absolute_event(struct user_input *input, struct libin
         input,
         &FLUTTER_POINTER_MOUSE_MOVE_EVENT(
             timestamp,
-            x, y,
+            pos_view.x, pos_view.y,
             data->flutter_device_id_offset,
             data->buttons
         ),
@@ -691,11 +691,11 @@ static int on_mouse_button_event(struct user_input *input, struct libinput_event
     struct input_device_data *data;
     struct libinput_device *device;
     FlutterPointerPhase pointer_phase;
+    struct point pos_view;
     uint64_t timestamp;
     uint16_t evdev_code;
     int64_t flutter_button;
     int64_t new_flutter_button_state;
-    double x, y;
 
     DEBUG_ASSERT(input != NULL);
     DEBUG_ASSERT(event != NULL);
@@ -755,19 +755,16 @@ static int on_mouse_button_event(struct user_input *input, struct libinput_event
             pointer_phase = kMove;
         }
 
-        x = input->cursor_x;
-        y = input->cursor_y;
-        
         // since the stored coords are in display, not view coordinates,
         // we need to transform them again
-        apply_flutter_transformation(input->display_to_view_transform, &x, &y);
+        pos_view = transform_point(input->display_to_view_transform, POINT(input->cursor_x, input->cursor_y));
 
         emit_pointer_events(
             input,
             &FLUTTER_POINTER_MOUSE_BUTTON_EVENT(
                 pointer_phase,
                 timestamp,
-                x, y,
+                pos_view.x, pos_view.y,
                 data->flutter_device_id_offset,
                 new_flutter_button_state
             ),
@@ -785,6 +782,7 @@ static int on_mouse_axis_event(struct user_input *input, struct libinput_event *
     struct libinput_event_pointer *pointer_event;
     struct input_device_data *data;
     struct libinput_device *device;
+    struct point pos_view;
     uint64_t timestamp;
 
     DEBUG_ASSERT(input != NULL);
@@ -795,12 +793,9 @@ static int on_mouse_axis_event(struct user_input *input, struct libinput_event *
     data = libinput_device_get_user_data(device);
     timestamp = libinput_event_pointer_get_time_usec(pointer_event);
 
-    double x = input->cursor_x;
-    double y = input->cursor_y;
-    
     // since the stored coords are in display, not view coordinates,
     // we need to transform them again
-    apply_flutter_transformation(input->display_to_view_transform, &x, &y);
+    pos_view = transform_point(input->display_to_view_transform, POINT(input->cursor_x, input->cursor_y));
 
     double scroll_x = libinput_event_pointer_has_axis(pointer_event, LIBINPUT_POINTER_AXIS_SCROLL_HORIZONTAL)
         ? libinput_event_pointer_get_axis_value(pointer_event, LIBINPUT_POINTER_AXIS_SCROLL_HORIZONTAL)
@@ -814,8 +809,8 @@ static int on_mouse_axis_event(struct user_input *input, struct libinput_event *
         input,
         &FLUTTER_POINTER_MOUSE_SCROLL_EVENT(
             timestamp,
-            x,
-            y,
+            pos_view.x,
+            pos_view.y,
             data->flutter_device_id_offset,
             scroll_x / 15.0 * 53.0,
             scroll_y / 15.0 * 53.0,
@@ -830,9 +825,9 @@ static int on_mouse_axis_event(struct user_input *input, struct libinput_event *
 static int on_touch_down(struct user_input *input, struct libinput_event *event) {
     struct libinput_event_touch *touch_event;
     struct input_device_data *data;
+    struct point pos_view;
     uint64_t timestamp;
     int64_t device_id;
-    double x, y;
     int slot;
 
     DEBUG_ASSERT(input != NULL);
@@ -851,18 +846,21 @@ static int on_touch_down(struct user_input *input, struct libinput_event *event)
 
     device_id = data->flutter_device_id_offset + slot;
 
-    x = libinput_event_touch_get_x_transformed(touch_event, input->display_width - 1);
-    y = libinput_event_touch_get_y_transformed(touch_event, input->display_height - 1);
-
     // transform the display coordinates to view (flutter) coordinates
-    apply_flutter_transformation(input->display_to_view_transform, &x, &y);
+    pos_view = transform_point(
+        input->display_to_view_transform,
+        POINT(
+            libinput_event_touch_get_x_transformed(touch_event, input->display_width),
+            libinput_event_touch_get_y_transformed(touch_event, input->display_height)
+        )
+    );
 
     // emit the flutter pointer event
-    emit_pointer_events(input, &FLUTTER_POINTER_TOUCH_DOWN_EVENT(timestamp, x, y, device_id), 1);
+    emit_pointer_events(input, &FLUTTER_POINTER_TOUCH_DOWN_EVENT(timestamp, pos_view.x, pos_view.y, device_id), 1);
 
     // alter our device state
-    data->x = x;
-    data->y = y;
+    data->x = pos_view.x;
+    data->y = pos_view.y;
     data->timestamp = timestamp;
 
     return 0;
@@ -899,9 +897,9 @@ static int on_touch_up(struct user_input *input, struct libinput_event *event) {
 static int on_touch_motion(struct user_input *input, struct libinput_event *event) {
     struct libinput_event_touch *touch_event;
     struct input_device_data *data;
+    struct point pos_view;
     uint64_t timestamp;
     int64_t device_id;
-    double x, y;
     int slot;
 
     DEBUG_ASSERT(input != NULL);
@@ -920,18 +918,21 @@ static int on_touch_motion(struct user_input *input, struct libinput_event *even
 
     device_id = data->flutter_device_id_offset + slot;
 
-    x = libinput_event_touch_get_x_transformed(touch_event, input->display_width - 1);
-    y = libinput_event_touch_get_y_transformed(touch_event, input->display_height - 1);
-
     // transform the display coordinates to view (flutter) coordinates
-    apply_flutter_transformation(input->display_to_view_transform, &x, &y);
+    pos_view = transform_point(
+        input->display_to_view_transform,
+        POINT(
+            libinput_event_touch_get_x_transformed(touch_event, input->display_width),
+            libinput_event_touch_get_y_transformed(touch_event, input->display_height)
+        )
+    );
 
     // emit the flutter pointer event
-    emit_pointer_events(input, &FLUTTER_POINTER_TOUCH_MOVE_EVENT(timestamp, x, y, device_id), 1);
+    emit_pointer_events(input, &FLUTTER_POINTER_TOUCH_MOVE_EVENT(timestamp, pos_view.x, pos_view.y, device_id), 1);
 
     // alter our device state
-    data->x = x;
-    data->y = y;
+    data->x = pos_view.x;
+    data->y = pos_view.y;
     data->timestamp = timestamp;
 
     return 0;
