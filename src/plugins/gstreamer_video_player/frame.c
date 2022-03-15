@@ -18,7 +18,7 @@ FILE_DESCR("gstreamer video_player")
 #define MAX_N_PLANES 4
 
 struct video_frame {
-    GstBuffer *buffer;
+    GstSample *sample;
 
     struct frame_interface *interface;
 
@@ -171,13 +171,14 @@ int dup_gst_buffer_as_dmabuf(struct gbm_device *gbm_device, GstBuffer *buffer) {
 struct video_frame *frame_new(
     struct frame_interface *interface,
     const struct frame_info *info,
-    GstBuffer *buffer
+    GstSample *sample
 ) {
 #   define PUT_ATTR(_key, _value) do { *attr_cursor++ = _key; *attr_cursor++ = _value; } while (false)
     struct video_frame *frame;
     GstVideoMeta *meta;
     EGLBoolean egl_ok;
     EGLImage egl_image;
+    GstBuffer *buffer;
     GstMemory *memory;
     GLenum gl_error;
     EGLint attributes[2*7 + MAX_N_PLANES*2*5 + 1], *attr_cursor;
@@ -194,6 +195,8 @@ struct video_frame *frame_new(
         uint64_t modifier;
     } planes[MAX_N_PLANES];
 
+    buffer = gst_sample_get_buffer(sample);
+
     frame = malloc(sizeof *frame);
     if (frame == NULL) {
         goto fail_unref_buffer;
@@ -203,6 +206,7 @@ struct video_frame *frame_new(
     is_dmabuf_memory = gst_is_dmabuf_memory(memory);
     n_mems = gst_buffer_n_memory(buffer);
 
+    /// TODO: Do we really need to dup() here?
     if (is_dmabuf_memory) {
         dmabuf_fd = dup(gst_dmabuf_memory_get_fd(memory));
     } else {
@@ -377,12 +381,7 @@ struct video_frame *frame_new(
 
     frame_interface_unlock(interface);
 
-    /// TODO: The examples do this, but I'm not sure it's a good idea.
-    /// What if, instead of closing the underlying dmabuf fd, gstreamer decides to put
-    /// it in a pool of unused dmabufs and reuse it later?
-    gst_buffer_unref(buffer);
-
-    frame->buffer = buffer;
+    frame->sample = sample;
     frame->interface = frame_interface_ref(interface);
     frame->drm_format = info->drm_format;
     frame->n_dmabuf_fds = 1;
@@ -413,7 +412,7 @@ struct video_frame *frame_new(
     free(frame);
 
     fail_unref_buffer:
-    gst_buffer_unref(buffer);
+    gst_sample_unref(sample);
     return NULL;
 
 #   undef PUT_ATTR
@@ -424,7 +423,7 @@ void frame_destroy(struct video_frame *frame) {
     int ok;
 
     /// TODO: See TODO in frame_new 
-    // gst_buffer_unref(frame->buffer);
+    gst_sample_unref(frame->sample);
 
     frame_interface_lock(frame->interface);
     egl_ok = eglMakeCurrent(frame->interface->display, EGL_NO_SURFACE, EGL_NO_SURFACE, frame->interface->context);

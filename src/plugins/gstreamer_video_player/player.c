@@ -747,8 +747,6 @@ static GstFlowReturn on_appsink_new_preroll(GstAppSink *appsink, void *userdata)
     struct gstplayer *player;
     GstSample *sample;
 
-    LOG_DEBUG("on_appsink_new_preroll()\n");
-
     DEBUG_ASSERT_NOT_NULL(appsink);
     DEBUG_ASSERT_NOT_NULL(userdata);
 
@@ -767,7 +765,7 @@ static GstFlowReturn on_appsink_new_preroll(GstAppSink *appsink, void *userdata)
             .egl_color_space = player->egl_color_space,
             .gst_info = &player->gst_info
         },
-        gst_buffer_ref(gst_sample_get_buffer(sample))
+        sample
     );
 
     if (frame != NULL) {
@@ -777,8 +775,6 @@ static GstFlowReturn on_appsink_new_preroll(GstAppSink *appsink, void *userdata)
             .userdata = frame,
         });
     }
-
-    gst_sample_unref(sample);
 
     return GST_FLOW_OK;
 }
@@ -806,7 +802,7 @@ static GstFlowReturn on_appsink_new_sample(GstAppSink *appsink, void *userdata) 
             .egl_color_space = player->egl_color_space,
             .gst_info = &player->gst_info
         },
-        gst_buffer_ref(gst_sample_get_buffer(sample))
+        sample
     );
 
     if (frame != NULL) {
@@ -816,8 +812,6 @@ static GstFlowReturn on_appsink_new_sample(GstAppSink *appsink, void *userdata) 
             .userdata = frame,
         });
     }
-
-    gst_sample_unref(sample);
 
     return GST_FLOW_OK;
 }
