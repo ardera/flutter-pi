@@ -98,9 +98,6 @@ endif()
 include(ExternalProject)
 include(CheckCCompilerFlag)
 
-set(ENV{PKG_CONFIG_PATH} ${PKG_CONFIG_PATH})
-message(STATUS "PKG_CONFIG_PATH ........ $ENV{PKG_CONFIG_PATH}")
-
 include(FindPkgConfig)
 pkg_check_modules(DRM REQUIRED libdrm)
 pkg_check_modules(GBM REQUIRED gbm)
@@ -133,10 +130,11 @@ target_link_libraries(flutter-pi
   ${GBM_LDFLAGS}
   ${EGL_LDFLAGS}
   ${GLESV2_LDFLAGS}
-  ${LIBSYSTEMD_LDFLAGS}
-  ${LIBINPUT_LDFLAGS}
-  ${LIBUDEV_LDFLAGS}
-  ${LIBXKBCOMMON_LDFLAGS}
+  EGL 
+  systemd #${LIBSYSTEMD_LDFLAGS}
+  input #${LIBINPUT_LDFLAGS}
+  xkbcommon #${LIBUDEV_LDFLAGS}
+  udev #${LIBXKBCOMMON_LDFLAGS}
   pthread dl rt m atomic
 )
 
@@ -163,7 +161,7 @@ target_compile_options(flutter-pi PRIVATE
   ${LIBINPUT_CFLAGS}
   ${LIBUDEV_CFLAGS}
   ${LIBXKBCOMMON_CFLAGS}
-  $<$<CONFIG:Debug>:-O0 -Wall -Wextra -Wno-unused-function -Wno-sign-compare -Wno-missing-field-initializers -Werror -ggdb -DDEBUG>
+  $<$<CONFIG:Debug>:-O0 -Wall -Wextra -Wno-unused-function -Wno-sign-compare -Wno-missing-field-initializers -Werror -ggdb -U_FORTIFY_SOURCE -DDEBUG>
   $<$<CONFIG:RelWithDebInfo>:-O2 -Wall -Wextra -Wno-unused-function -Wno-sign-compare -Wno-missing-field-initializers -ggdb>
   $<$<CONFIG:Release>:-O2 -Wall -Wextra -Wno-unused-function -Wno-sign-compare -Wno-missing-field-initializers -ggdb>
 )
