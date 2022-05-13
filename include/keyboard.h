@@ -3,8 +3,6 @@
 
 #include <xkbcommon/xkbcommon.h>
 
-#define LOG_KEYBOARD_ERROR(...) fprintf(stderr, "[keyboard] " __VA_ARGS__)
-
 struct keyboard_config {
     struct xkb_context *context;
     struct xkb_keymap *default_keymap;

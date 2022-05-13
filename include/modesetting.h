@@ -229,7 +229,7 @@ float mode_get_vrefresh(const drmModeModeInfo *mode);
 
 inline static struct drm_connector *__next_connector(const struct drmdev *drmdev, const struct drm_connector *connector) {
     bool found = connector == NULL;
-    for (int i = 0; i < drmdev->n_connectors; i++) {
+    for (size_t i = 0; i < drmdev->n_connectors; i++) {
         if (drmdev->connectors + i == connector) {
             found = true;
         } else if (found) {
@@ -242,7 +242,7 @@ inline static struct drm_connector *__next_connector(const struct drmdev *drmdev
 
 inline static struct drm_encoder *__next_encoder(const struct drmdev *drmdev, const struct drm_encoder *encoder) {
     bool found = encoder == NULL;
-    for (int i = 0; i < drmdev->n_encoders; i++) {
+    for (size_t i = 0; i < drmdev->n_encoders; i++) {
         if (drmdev->encoders + i == encoder) {
             found = true;
         } else if (found) {
@@ -255,7 +255,7 @@ inline static struct drm_encoder *__next_encoder(const struct drmdev *drmdev, co
 
 inline static struct drm_crtc *__next_crtc(const struct drmdev *drmdev, const struct drm_crtc *crtc) {
     bool found = crtc == NULL;
-    for (int i = 0; i < drmdev->n_crtcs; i++) {
+    for (size_t i = 0; i < drmdev->n_crtcs; i++) {
         if (drmdev->crtcs + i == crtc) {
             found = true;
         } else if (found) {
@@ -268,7 +268,7 @@ inline static struct drm_crtc *__next_crtc(const struct drmdev *drmdev, const st
 
 inline static struct drm_plane *__next_plane(const struct drmdev *drmdev, const struct drm_plane *plane) {
     bool found = plane == NULL;
-    for (int i = 0; i < drmdev->n_planes; i++) {
+    for (size_t i = 0; i < drmdev->n_planes; i++) {
         if (drmdev->planes + i == plane) {
             found = true;
         } else if (found) {

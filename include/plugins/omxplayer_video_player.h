@@ -79,17 +79,10 @@ struct omxplayer_mgr_task {
 	};
 };
 
-
-
-#define OMXPLAYER_VIDEO_PLAYER_INITIALIZER {0}
-
 enum data_source_type {
 	kDataSourceTypeAsset,
 	kDataSourceTypeNetwork,
 	kDataSourceTypeFile
 };
-
-extern int omxpvidpp_init(void);
-extern int omxpvidpp_deinit(void);
 
 #endif

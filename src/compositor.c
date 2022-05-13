@@ -21,6 +21,8 @@
 #include <compositor.h>
 #include <cursor.h>
 
+FILE_DESCR("compositor")
+
 struct view_cb_data {
 	int64_t view_id;
 	platform_view_mount_cb mount;
@@ -36,15 +38,6 @@ struct view_cb_data {
 	int last_num_mutations;
 	FlutterPlatformViewMutation last_mutations[16];
 };
-
-/*
-struct plane_data {
-	int type;
-	const struct drm_plane *plane;
-	bool is_reserved;
-	int zpos;
-};
-*/
 
 struct compositor compositor = {
 	.drmdev = NULL,
@@ -91,12 +84,16 @@ static int destroy_stale_rendertargets(void) {
 	}
 
 	cpset_unlock(&compositor.stale_rendertargets);
+
+	return 0;
 }
 
 static void destroy_gbm_bo(
 	struct gbm_bo *bo,
 	void *userdata
 ) {
+	(void) bo;
+
 	struct drm_fb *fb = userdata;
 
 	if (fb && fb->fb_id)
@@ -144,7 +141,7 @@ static uint32_t gbm_bo_get_drm_fb_id(struct gbm_bo *bo) {
 
 	if (ok) {
 		if (flags)
-			fprintf(stderr, "drm_fb_get_from_bo: modifiers failed!\n");
+			LOG_DEBUG("drm_fb_get_from_bo: modifiers failed!\n");
 		
 		memcpy(handles, (uint32_t [4]){gbm_bo_get_handle(bo).u32,0,0,0}, 16);
 		memcpy(strides, (uint32_t [4]){gbm_bo_get_stride(bo),0,0,0}, 16);
@@ -154,7 +151,7 @@ static uint32_t gbm_bo_get_drm_fb_id(struct gbm_bo *bo) {
 	}
 
 	if (ok) {
-		fprintf(stderr, "drm_fb_get_from_bo: failed to create fb: %s\n", strerror(errno));
+		LOG_ERROR("drm_fb_get_from_bo: failed to create fb: %s\n", strerror(errno));
 		free(fb);
 		return 0;
 	}
@@ -189,50 +186,50 @@ static int create_drm_rbo(
 		EGL_NONE
 	});
 	if ((egl_error = eglGetError()) != EGL_SUCCESS) {
-		fprintf(stderr, "[compositor] error creating DRM EGL Image for flutter backing store, eglCreateDRMImageMESA: %ld\n", egl_error);
+		LOG_ERROR("error creating DRM EGL Image for flutter backing store, eglCreateDRMImageMESA: %" PRId32 "\n", egl_error);
 		return EINVAL;
 	}
 
-	flutterpi.egl.exportDRMImageMESA(flutterpi.egl.display, fbo.egl_image, NULL, &fbo.gem_handle, &fbo.gem_stride);
+	flutterpi.egl.exportDRMImageMESA(flutterpi.egl.display, fbo.egl_image, NULL, (EGLint*) &fbo.gem_handle, (EGLint*) &fbo.gem_stride);
 	if ((egl_error = eglGetError()) != EGL_SUCCESS) {
-		fprintf(stderr, "[compositor] error getting handle & stride for DRM EGL Image, eglExportDRMImageMESA: %d\n", egl_error);
+		LOG_ERROR("error getting handle & stride for DRM EGL Image, eglExportDRMImageMESA: %d\n", egl_error);
 		return EINVAL;
 	}
 
 	glGenRenderbuffers(1, &fbo.gl_rbo_id);
-	if (gl_error = glGetError()) {
-		fprintf(stderr, "[compositor] error generating renderbuffers for flutter backing store, glGenRenderbuffers: %ld\n", gl_error);
+	if ((gl_error = glGetError())) {
+		LOG_ERROR("error generating renderbuffers for flutter backing store, glGenRenderbuffers: %u\n", gl_error);
 		return EINVAL;
 	}
 
 	glBindRenderbuffer(GL_RENDERBUFFER, fbo.gl_rbo_id);
-	if (gl_error = glGetError()) {
-		fprintf(stderr, "[compositor] error binding renderbuffer, glBindRenderbuffer: %d\n", gl_error);
+	if ((gl_error = glGetError())) {
+		LOG_ERROR("error binding renderbuffer, glBindRenderbuffer: %d\n", gl_error);
 		return EINVAL;
 	}
 
 	flutterpi.gl.EGLImageTargetRenderbufferStorageOES(GL_RENDERBUFFER, fbo.egl_image);
-	if (gl_error = glGetError()) {
-		fprintf(stderr, "[compositor] error binding DRM EGL Image to renderbuffer, glEGLImageTargetRenderbufferStorageOES: %ld\n", gl_error);
+	if ((gl_error = glGetError())) {
+		LOG_ERROR("error binding DRM EGL Image to renderbuffer, glEGLImageTargetRenderbufferStorageOES: %u\n", gl_error);
 		return EINVAL;
 	}
 
 	/*
 	glGenFramebuffers(1, &fbo.gl_fbo_id);
 	if (gl_error = glGetError()) {
-		fprintf(stderr, "[compositor] error generating FBOs for flutter backing store, glGenFramebuffers: %d\n", gl_error);
+		LOG_ERROR("error generating FBOs for flutter backing store, glGenFramebuffers: %d\n", gl_error);
 		return EINVAL;
 	}
 
 	glBindFramebuffer(GL_FRAMEBUFFER, fbo.gl_fbo_id);
 	if (gl_error = glGetError()) {
-		fprintf(stderr, "[compositor] error binding FBO for attaching the renderbuffer, glBindFramebuffer: %d\n", gl_error);
+		LOG_ERROR("error binding FBO for attaching the renderbuffer, glBindFramebuffer: %d\n", gl_error);
 		return EINVAL;
 	}
 
 	glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, fbo.gl_rbo_id);
 	if (gl_error = glGetError()) {
-		fprintf(stderr, "[compositor] error attaching renderbuffer to FBO, glFramebufferRenderbuffer: %d\n", gl_error);
+		LOG_ERROR("error attaching renderbuffer to FBO, glFramebufferRenderbuffer: %d\n", gl_error);
 		return EINVAL;
 	}
 
@@ -265,7 +262,7 @@ static int create_drm_rbo(
 		0
 	);
 	if (ok == -1) {
-		perror("[compositor] Could not make DRM fb from EGL Image, drmModeAddFB2");
+		LOG_ERROR("Could not make DRM fb from EGL Image, drmModeAddFB2: %s", strerror(errno));
 		return errno;
 	}
 
@@ -281,27 +278,26 @@ static int attach_drm_rbo_to_fbo(
 	GLuint fbo_id,
 	struct drm_rbo *rbo
 ) {
-	EGLint egl_error;
 	GLenum gl_error;
 
 	eglGetError();
 	glGetError();
 
 	glBindFramebuffer(GL_FRAMEBUFFER, fbo_id);
-	if (gl_error = glGetError()) {
-		fprintf(stderr, "[compositor] error binding FBO for attaching the renderbuffer, glBindFramebuffer: %d\n", gl_error);
+	if ((gl_error = glGetError())) {
+		LOG_ERROR("error binding FBO for attaching the renderbuffer, glBindFramebuffer: %d\n", gl_error);
 		return EINVAL;
 	}
 
 	glBindRenderbuffer(GL_RENDERBUFFER, rbo->gl_rbo_id);
-	if (gl_error = glGetError()) {
-		fprintf(stderr, "[compositor] error binding renderbuffer, glBindRenderbuffer: %d\n", gl_error);
+	if ((gl_error = glGetError())) {
+		LOG_ERROR("error binding renderbuffer, glBindRenderbuffer: %d\n", gl_error);
 		return EINVAL;
 	}
 
 	glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, rbo->gl_rbo_id);
-	if (gl_error = glGetError()) {
-		fprintf(stderr, "[compositor] error attaching renderbuffer to FBO, glFramebufferRenderbuffer: %d\n", gl_error);
+	if ((gl_error = glGetError())) {
+		LOG_ERROR("error attaching renderbuffer to FBO, glFramebufferRenderbuffer: %d\n", gl_error);
 		return EINVAL;
 	}
 
@@ -322,18 +318,18 @@ static void destroy_drm_rbo(
 	glGetError();
 
 	glDeleteRenderbuffers(1, &rbo->gl_rbo_id);
-	if (gl_error = glGetError()) {
-		fprintf(stderr, "[compositor] error destroying OpenGL RBO, glDeleteRenderbuffers: 0x%08X\n", gl_error);
+	if ((gl_error = glGetError())) {
+		LOG_ERROR("error destroying OpenGL RBO, glDeleteRenderbuffers: 0x%08X\n", gl_error);
 	}
 
 	ok = drmModeRmFB(flutterpi.drm.drmdev->fd, rbo->drm_fb_id);
 	if (ok < 0) {
-		fprintf(stderr, "[compositor] error removing DRM FB, drmModeRmFB: %s\n", strerror(errno));
+		LOG_ERROR("error removing DRM FB, drmModeRmFB: %s\n", strerror(errno));
 	}
 
 	eglDestroyImage(flutterpi.egl.display, rbo->egl_image);
 	if (egl_error = eglGetError(), egl_error != EGL_SUCCESS) {
-		fprintf(stderr, "[compositor] error destroying EGL image, eglDestroyImage: 0x%08X\n", egl_error);
+		LOG_ERROR("error destroying EGL image, eglDestroyImage: 0x%08X\n", egl_error);
 	}
 }
 
@@ -356,6 +352,11 @@ static int rendertarget_gbm_present(
 	uint32_t next_front_fb_id;
 	bool supported;
 	int ok;
+
+	(void)offset_x;
+	(void)offset_y;
+	(void)width;
+	(void)height;
 
 	gbm_target = &target->gbm;
 
@@ -382,10 +383,10 @@ static int rendertarget_gbm_present(
 		static bool printed = false;
 
 		if (!printed) {
-			fprintf(stderr,
-					"[compositor] GPU does not support reflecting the screen in Y-direction.\n"
-					"             This is required for rendering into hardware overlay planes though.\n"
-					"             Any UI that is drawn in overlay planes will look upside down.\n"
+			LOG_ERROR(
+				"GPU does not support reflecting the screen in Y-direction.\n"
+				"  This is required for rendering into hardware overlay planes though.\n"
+				"  Any UI that is drawn in overlay planes will look upside down.\n"
 			);
 			printed = true;
 		}
@@ -400,9 +401,9 @@ static int rendertarget_gbm_present(
 		static bool printed = false;
 
 		if (!printed) { 
-			fprintf(stderr,
-					"[compositor] GPU does not supported the desired HW plane order.\n"
-					"             Some UI layers may be invisible.\n"
+			LOG_ERROR(
+				"GPU does not supported the desired HW plane order.\n"
+				"  Some UI layers may be invisible.\n"
 			);
 			printed = true;
 		}
@@ -433,8 +434,13 @@ static int rendertarget_gbm_present_legacy(
 	struct rendertarget_gbm *gbm_target;
 	struct gbm_bo *next_front_bo;
 	uint32_t next_front_fb_id;
-	bool supported, is_primary;
-	int ok;
+	bool is_primary;
+
+	(void)offset_x;
+	(void)offset_y;
+	(void)width;
+	(void)height;
+	(void)zpos;
 
 	gbm_target = &target->gbm;
 
@@ -510,7 +516,6 @@ static int rendertarget_gbm_new(
 	struct compositor *compositor
 ) {
 	struct rendertarget *target;
-	int ok;
 
 	target = calloc(1, sizeof *target);
 	if (target == NULL) {
@@ -557,6 +562,11 @@ static int rendertarget_nogbm_present(
 	bool supported;
 	int ok;
 
+	(void)offset_x;
+	(void)offset_y;
+	(void)width;
+	(void)height;
+
 	nogbm_target = &target->nogbm;
 
 	nogbm_target->current_front_rbo ^= 1;
@@ -583,10 +593,10 @@ static int rendertarget_nogbm_present(
 		static bool printed = false;
 
 		if (!printed) {
-			fprintf(stderr,
-					"[compositor] GPU does not support reflecting the screen in Y-direction.\n"
-					"             This is required for rendering into hardware overlay planes though.\n"
-					"             Any UI that is drawn in overlay planes will look upside down.\n"
+			LOG_ERROR(
+				"GPU does not support reflecting the screen in Y-direction.\n"
+				"  This is required for rendering into hardware overlay planes though.\n"
+				"  Any UI that is drawn in overlay planes will look upside down.\n"
 			);
 			printed = true;
 		}
@@ -601,9 +611,9 @@ static int rendertarget_nogbm_present(
 		static bool printed = false;
 
 		if (!printed) { 
-			fprintf(stderr,
-					"[compositor] GPU does not supported the desired HW plane order.\n"
-					"             Some UI layers may be invisible.\n"
+			LOG_ERROR(
+				"GPU does not supported the desired HW plane order.\n"
+				"  Some UI layers may be invisible.\n"
 			);
 			printed = true;
 		}
@@ -627,6 +637,11 @@ static int rendertarget_nogbm_present_legacy(
 	uint32_t fb_id;
 	bool supported, is_primary;
 	int ok;
+
+	(void)offset_x;
+	(void)offset_y;
+	(void)width;
+	(void)height;
 
 	nogbm_target = &target->nogbm;
 
@@ -676,10 +691,10 @@ static int rendertarget_nogbm_present_legacy(
 		static bool printed = false;
 
 		if (!printed) {
-			fprintf(stderr,
-					"[compositor] GPU does not support reflecting the screen in Y-direction.\n"
-					"             This is required for rendering into hardware overlay planes though.\n"
-					"             Any UI that is drawn in overlay planes will look upside down.\n"
+			LOG_ERROR(
+				"GPU does not support reflecting the screen in Y-direction.\n"
+				"  This is required for rendering into hardware overlay planes though.\n"
+				"  Any UI that is drawn in overlay planes will look upside down.\n"
 			);
 			printed = true;
 		}
@@ -694,9 +709,9 @@ static int rendertarget_nogbm_present_legacy(
 		static bool printed = false;
 
 		if (!printed) { 
-			fprintf(stderr,
-					"[compositor] GPU does not supported the desired HW plane order.\n"
-					"             Some UI layers may be invisible.\n"
+			LOG_ERROR(
+				"GPU does not supported the desired HW plane order.\n"
+				"  Some UI layers may be invisible.\n"
 			);
 			printed = true;
 		}
@@ -718,7 +733,6 @@ static int rendertarget_nogbm_new(
 	struct compositor *compositor
 ) {
 	struct rendertarget *target;
-	EGLint egl_error;
 	GLenum gl_error;
 	int ok;
 
@@ -737,8 +751,8 @@ static int rendertarget_nogbm_new(
 	glGetError();
 
 	glGenFramebuffers(1, &target->nogbm.gl_fbo_id);
-	if (gl_error = glGetError()) {
-		fprintf(stderr, "[compositor] error generating FBOs for flutter backing store, glGenFramebuffers: %d\n", gl_error);
+	if ((gl_error = glGetError())) {
+		LOG_ERROR("error generating FBOs for flutter backing store, glGenFramebuffers: %d\n", gl_error);
 		ok = EINVAL;
 		goto fail_free_target;
 	}
@@ -801,7 +815,7 @@ static void on_destroy_backing_store_gl_fb(void *userdata) {
 	store = userdata;
 	compositor = store->target->compositor;
 
-	cpset_put_(&compositor->stale_rendertargets, store->target);
+	cpset_put(&compositor->stale_rendertargets, store->target);
 
 	if (store->should_free_on_next_destroy) {
 		free(store);
@@ -824,11 +838,13 @@ static bool on_collect_backing_store(
 ) {
 	struct flutterpi_backing_store *store;
 	struct compositor *compositor;
+
+	(void) userdata;
 	
 	store = backing_store->user_data;
 	compositor = store->target->compositor;
 
-	cpset_put_(&compositor->stale_rendertargets, store->target);
+	cpset_put(&compositor->stale_rendertargets, store->target);
 
 	if (store->should_free_on_next_destroy) {
 		free(store);
@@ -857,6 +873,7 @@ static bool on_create_backing_store(
 	struct compositor *compositor;
 	int ok;
 
+	(void) config;
 	compositor = userdata;
 
 	store = calloc(1, sizeof *store);
@@ -962,6 +979,8 @@ static void fill_platform_view_params(
 	const FlutterTransformation *view_to_display_transform,
 	double device_pixel_ratio
 ) {
+	(void) view_to_display_transform;
+
 	/**
 	 * inversion for
 	 * ```
@@ -1061,6 +1080,57 @@ static bool on_present_layers(
 	schedule_fake_page_flip_event = compositor->do_blocking_atomic_commits;
 	use_atomic_modesetting = drmdev->supports_atomic_modesetting;
 
+#ifdef DUMP_ENGINE_LAYERS
+	LOG_DEBUG("layers:\n");
+	for (int i = 0; i < layers_count; i++) {
+		if (layers[i]->type == kFlutterLayerContentTypeBackingStore) {
+			LOG_DEBUG("  backing store (offset: %f, %f. size: %f, %f)\n", layers[i]->offset.x, layers[i]->offset.y, layers[i]->size.width, layers[i]->size.height);
+		} else {
+			DEBUG_ASSERT(layers[i]->type == kFlutterLayerContentTypePlatformView);
+			
+			LOG_DEBUG("  platform view (id: %"PRId64", offset: %f, %f, size: %f, %f) mutations:\n", layers[i]->platform_view->identifier, layers[i]->offset.x, layers[i]->offset.y, layers[i]->size.width, layers[i]->size.height);
+			for (size_t j = 0; j < layers[i]->platform_view->mutations_count; j++) {
+				const FlutterPlatformViewMutation *mut = layers[i]->platform_view->mutations[j];
+				switch (mut->type) {
+					case kFlutterPlatformViewMutationTypeOpacity:
+						LOG_DEBUG("    opacity %f\n", mut->opacity);
+						break;
+					case kFlutterPlatformViewMutationTypeClipRect:
+						LOG_DEBUG("    clip rect (ltrb: %f, %f, %f, %f)\n", mut->clip_rect.left, mut->clip_rect.top, mut->clip_rect.right, mut->clip_rect.bottom);
+						break;
+					case kFlutterPlatformViewMutationTypeClipRoundedRect:
+						LOG_DEBUG(
+							"    clip rounded rect (ltrb: %f, %f, %f, %f, corner radii ul, ur, br, bl: %f, %f, %f, %f)\n",
+							mut->clip_rounded_rect.rect.left, mut->clip_rounded_rect.rect.top, mut->clip_rounded_rect.rect.right, mut->clip_rounded_rect.rect.bottom,
+							mut->clip_rounded_rect.upper_left_corner_radius,
+							mut->clip_rounded_rect.upper_right_corner_radius,
+							mut->clip_rounded_rect.lower_right_corner_radius,
+							mut->clip_rounded_rect.lower_left_corner_radius
+						);
+						break;
+					case kFlutterPlatformViewMutationTypeTransformation:
+						LOG_DEBUG(
+							"    transform (matrix: %f %f %f; %f %f %f; %f %f %f)\n",
+							mut->transformation.scaleX,
+							mut->transformation.skewX,
+							mut->transformation.transX,
+							mut->transformation.skewY,
+							mut->transformation.scaleY,
+							mut->transformation.transY,
+							mut->transformation.pers0,
+							mut->transformation.pers1,
+							mut->transformation.pers2
+						);
+						break;
+					default:
+						DEBUG_ASSERT_MSG(0, "invalid platform view mutation type\n");
+						break;
+				}
+			}
+		}
+	}
+#endif
+
 	req = NULL;
 	if (use_atomic_modesetting) {
 		ok = drmdev_new_atomic_req(compositor->drmdev, &req);
@@ -1101,8 +1171,6 @@ static bool on_present_layers(
 			schedule_fake_page_flip_event = true;
 		}
 
-		int64_t max_zpos = 0;
-
 		if (use_atomic_modesetting) {
 			for_each_unreserved_plane_in_atomic_req(req, plane) {
 				if (plane->type == DRM_PLANE_TYPE_CURSOR) {
@@ -1112,20 +1180,20 @@ static bool on_present_layers(
 
 					ok = drmdev_plane_get_max_zpos_value(req->drmdev, plane->plane->plane_id, &max_zpos);
 					if (ok != 0) {
-						printf("[compositor] Could not move cursor to front. Mouse cursor may be invisible. drmdev_plane_get_max_zpos_value: %s\n", strerror(ok));
+						LOG_ERROR("Could not move cursor to front. Mouse cursor may be invisible. drmdev_plane_get_max_zpos_value: %s\n", strerror(ok));
 						continue;
 					}
 					
 					ok = drmdev_plane_supports_setting_zpos_value(req->drmdev, plane->plane->plane_id, max_zpos, &supported);
 					if (ok != 0) {
-						printf("[compositor] Could not move cursor to front. Mouse cursor may be invisible. drmdev_plane_supports_setting_zpos_value: %s\n", strerror(ok));
+						LOG_ERROR("Could not move cursor to front. Mouse cursor may be invisible. drmdev_plane_supports_setting_zpos_value: %s\n", strerror(ok));
 						continue;
 					}
 
 					if (supported) {
 						drmdev_atomic_req_put_plane_property(req, plane->plane->plane_id, "zpos", max_zpos);
 					} else {
-						printf("[compositor] Could not move cursor to front. Mouse cursor may be invisible. drmdev_plane_supports_setting_zpos_value: %s\n", strerror(ok));
+						LOG_ERROR("Could not move cursor to front. Mouse cursor may be invisible. drmdev_plane_supports_setting_zpos_value: %s\n", strerror(ok));
 						continue;
 					}
 				}
@@ -1139,20 +1207,20 @@ static bool on_present_layers(
 
 					ok = drmdev_plane_get_max_zpos_value(drmdev, plane->plane->plane_id, &max_zpos);
 					if (ok != 0) {
-						printf("[compositor] Could not move cursor to front. Mouse cursor may be invisible. drmdev_plane_get_max_zpos_value: %s\n", strerror(ok));
+						LOG_ERROR("Could not move cursor to front. Mouse cursor may be invisible. drmdev_plane_get_max_zpos_value: %s\n", strerror(ok));
 						continue;
 					}
 					
 					ok = drmdev_plane_supports_setting_zpos_value(drmdev, plane->plane->plane_id, max_zpos, &supported);
 					if (ok != 0) {
-						printf("[compositor] Could not move cursor to front. Mouse cursor may be invisible. drmdev_plane_supports_setting_zpos_value: %s\n", strerror(ok));
+						LOG_ERROR("Could not move cursor to front. Mouse cursor may be invisible. drmdev_plane_supports_setting_zpos_value: %s\n", strerror(ok));
 						continue;
 					}
 
 					if (supported) {
 						drmdev_legacy_set_plane_property(drmdev, plane->plane->plane_id, "zpos", max_zpos);
 					} else {
-						printf("[compositor] Could not move cursor to front. Mouse cursor may be invisible. drmdev_plane_supports_setting_zpos_value: %s\n", strerror(ok));
+						LOG_ERROR("Could not move cursor to front. Mouse cursor may be invisible. drmdev_plane_supports_setting_zpos_value: %s\n", strerror(ok));
 						continue;
 					}
 				}
@@ -1180,7 +1248,7 @@ static bool on_present_layers(
 		struct pointer_set updated_views = PSET_INITIALIZER_STATIC(updated_views_storage, layers_count);
 	
 		for_each_pointer_in_cpset(&compositor->cbs, cb_data) {
-			const FlutterLayer *layer;
+			const FlutterLayer *layer = NULL;
 			bool is_present = false;
 			int zpos;
 
@@ -1193,6 +1261,8 @@ static bool on_present_layers(
 					break;
 				}
 			}
+
+			DEBUG_ASSERT_NOT_NULL(layer);
 
 			if (!is_present && cb_data->was_present_last_frame) {
 				pset_put(&unmounted_views, cb_data);
@@ -1225,7 +1295,7 @@ static bool on_present_layers(
 					cb_data->userdata
 				);
 				if (ok != 0) {
-					fprintf(stderr, "[compositor] Could not unmount platform view. unmount: %s\n", strerror(ok));
+					LOG_ERROR("Could not unmount platform view. unmount: %s\n", strerror(ok));
 				}
 
 				cb_data->was_present_last_frame = false;
@@ -1233,7 +1303,7 @@ static bool on_present_layers(
 		}
 
 		for_each_pointer_in_pset(&updated_views, cb_data) {
-			const FlutterLayer *layer;
+			const FlutterLayer *layer = NULL;
 			int zpos;
 
 			for (int i = 0; i < layers_count; i++) {
@@ -1244,6 +1314,8 @@ static bool on_present_layers(
 					break;
 				}
 			}
+
+			DEBUG_ASSERT_NOT_NULL(layer);
 
 			struct platform_view_params params;
 			fill_platform_view_params(
@@ -1265,7 +1337,7 @@ static bool on_present_layers(
 				cb_data->userdata
 			);
 			if (ok != 0) {
-				fprintf(stderr, "[compositor] Could not update platform view. update_view: %s\n", strerror(ok));
+				LOG_ERROR("Could not update platform view. update_view: %s\n", strerror(ok));
 			}
 
 			cb_data->last_zpos = zpos;
@@ -1278,7 +1350,7 @@ static bool on_present_layers(
 		}
 
 		for_each_pointer_in_pset(&mounted_views, cb_data) {
-			const FlutterLayer *layer;
+			const FlutterLayer *layer = NULL;
 			int zpos;
 
 			for (int i = 0; i < layers_count; i++) {
@@ -1289,6 +1361,8 @@ static bool on_present_layers(
 					break;
 				}
 			}
+
+			DEBUG_ASSERT_NOT_NULL(layer);
 
 			struct platform_view_params params;
 			fill_platform_view_params(
@@ -1311,7 +1385,7 @@ static bool on_present_layers(
 					cb_data->userdata
 				);
 				if (ok != 0) {
-					fprintf(stderr, "[compositor] Could not mount platform view. %s\n", strerror(ok));
+					LOG_ERROR("Could not mount platform view. %s\n", strerror(ok));
 				}
 			}
 
@@ -1380,7 +1454,7 @@ static bool on_present_layers(
 				}
 			}
 			if (plane == NULL) {
-				fprintf(stderr, "[compositor] Could not find a free primary/overlay DRM plane for presenting the backing store. drmdev_atomic_req_reserve_plane: %s\n", strerror(ok));
+				LOG_ERROR("Could not find a free primary/overlay DRM plane for presenting the backing store. drmdev_atomic_req_reserve_plane: %s\n", strerror(ok));
 				continue;
 			}
 
@@ -1399,7 +1473,7 @@ static bool on_present_layers(
 					i + min_zpos
 				);
 				if (ok != 0) {
-					fprintf(stderr, "[compositor] Could not present backing store. rendertarget->present: %s\n", strerror(ok));
+					LOG_ERROR("Could not present backing store. rendertarget->present: %s\n", strerror(ok));
 				}
 			} else {
 				ok = target->present_legacy(
@@ -1414,7 +1488,8 @@ static bool on_present_layers(
 					legacy_rendertarget_set_mode && (plane->type == DRM_PLANE_TYPE_PRIMARY)
 				);
 			}
-		} else if (layers[i]->type == kFlutterLayerContentTypePlatformView) {
+		} else {
+			DEBUG_ASSERT(layers[i]->type == kFlutterLayerContentTypePlatformView);
 			cb_data = get_cbs_for_view_id_locked(layers[i]->platform_view->identifier);
 
 			if ((cb_data != NULL) && (cb_data->present != NULL)) {
@@ -1438,7 +1513,7 @@ static bool on_present_layers(
 					cb_data->userdata
 				);
 				if (ok != 0) {
-					fprintf(stderr, "[compositor] Could not present platform view. platform_view->present: %s\n", strerror(ok));
+					LOG_ERROR("Could not present platform view. platform_view->present: %s\n", strerror(ok));
 				}
 			}
 		}
@@ -1465,15 +1540,17 @@ static bool on_present_layers(
 		
 		ok = drmdev_atomic_req_commit(req, req_flags, NULL);
 		if ((compositor->do_blocking_atomic_commits == false) && (ok == EBUSY)) {
-			printf("[compositor] Non-blocking drmModeAtomicCommit failed with EBUSY.\n"
-				"             Future drmModeAtomicCommits will be executed blockingly.\n"
-				"             This may have have an impact on performance.\n");
+			LOG_ERROR(
+				"Non-blocking drmModeAtomicCommit failed with EBUSY.\n"
+				"  Future drmModeAtomicCommits will be executed blockingly.\n"
+				"  This may have have an impact on performance.\n"
+			);
 
 			compositor->do_blocking_atomic_commits = true;
 			schedule_fake_page_flip_event = true;
 			goto do_commit;
 		} else if (ok != 0) {
-			fprintf(stderr, "[compositor] Could not present frame. drmModeAtomicCommit: %s\n", strerror(ok));
+			LOG_ERROR("Could not present frame. drmModeAtomicCommit: %s\n", strerror(ok));
 			drmdev_destroy_atomic_req(req);
 			cpset_unlock(&compositor->cbs);
 			return false;
@@ -1505,6 +1582,8 @@ int compositor_on_page_flip(
 	uint32_t sec,
 	uint32_t usec
 ) {
+	(void) sec;
+	(void) usec;
 	return 0;
 }
 
@@ -1601,12 +1680,12 @@ static int create_cursor_buffer(int width, int height, int bpp) {
 	ok = drmGetCap(compositor.drmdev->fd, DRM_CAP_DUMB_BUFFER, &cap);
 	if (ok < 0) {
 		ok = errno;
-		perror("[compositor] Could not query GPU Driver support for dumb buffers. drmGetCap");
+		LOG_ERROR("Could not query GPU Driver support for dumb buffers. drmGetCap: %s\n", strerror(errno));
 		goto fail_return_ok;
 	}
 
 	if (cap == 0) {
-		fprintf(stderr, "[compositor] Kernel / GPU Driver does not support dumb DRM buffers. Mouse cursor will not be displayed.\n");
+		LOG_ERROR("Kernel / GPU Driver does not support dumb DRM buffers. Mouse cursor will not be displayed.\n");
 		ok = ENOTSUP;
 		goto fail_return_ok;
 	}
@@ -1614,14 +1693,14 @@ static int create_cursor_buffer(int width, int height, int bpp) {
 	ok = drmGetCap(compositor.drmdev->fd, DRM_CAP_DUMB_PREFERRED_DEPTH, &cap);
 	if (ok < 0) {
 		ok = errno;
-		perror("[compositor] Could not query dumb buffer preferred depth capability. drmGetCap");
+		LOG_ERROR("Could not query dumb buffer preferred depth capability. drmGetCap: %s\n", strerror(errno));
 		goto fail_return_ok;
 	}
 
 	depth = (uint8_t) cap;
 
 	if (depth != 32) {
-		fprintf(stderr, "[compositor] Preferred framebuffer depth for hardware cursor is not supported by flutter-pi.\n");
+		LOG_ERROR("Preferred framebuffer depth for hardware cursor is not supported by flutter-pi.\n");
 	}
 
 	memset(&create_req, 0, sizeof create_req);
@@ -1633,14 +1712,14 @@ static int create_cursor_buffer(int width, int height, int bpp) {
 	ok = ioctl(compositor.drmdev->fd, DRM_IOCTL_MODE_CREATE_DUMB, &create_req);
 	if (ok < 0) {
 		ok = errno;
-		perror("[compositor] Could not create a dumb buffer for the hardware cursor. ioctl");
+		LOG_ERROR("Could not create a dumb buffer for the hardware cursor. ioctl: %s\n", strerror(errno));
 		goto fail_return_ok;
 	}
 
 	ok = drmModeAddFB(compositor.drmdev->fd, create_req.width, create_req.height, 32, create_req.bpp, create_req.pitch, create_req.handle, &drm_fb_id);
 	if (ok < 0) {
 		ok = errno;
-		perror("[compositor] Could not make a DRM FB out of the hardware cursor buffer. drmModeAddFB");
+		LOG_ERROR("Could not make a DRM FB out of the hardware cursor buffer. drmModeAddFB: %s", strerror(errno));
 		goto fail_destroy_dumb_buffer;
 	}
 
@@ -1650,14 +1729,14 @@ static int create_cursor_buffer(int width, int height, int bpp) {
 	ok = ioctl(compositor.drmdev->fd, DRM_IOCTL_MODE_MAP_DUMB, &map_req);
 	if (ok < 0) {
 		ok = errno;
-		perror("[compositor] Could not prepare dumb buffer mmap for uploading the hardware cursor icon. ioctl");
+		LOG_ERROR("Could not prepare dumb buffer mmap for uploading the hardware cursor icon. ioctl: %s", strerror(errno));
 		goto fail_rm_drm_fb;
 	}
 
 	buffer = mmap(0, create_req.size, PROT_READ | PROT_WRITE, MAP_SHARED, compositor.drmdev->fd, map_req.offset);
 	if (buffer == MAP_FAILED) {
 		ok = errno;
-		perror("[compositor] Could not mmap dumb buffer for uploading the hardware cursor icon. mmap");
+		LOG_ERROR("Could not mmap dumb buffer for uploading the hardware cursor icon. mmap: %s", strerror(errno));
 		goto fail_rm_drm_fb;
 	}
 
@@ -1755,7 +1834,8 @@ int compositor_apply_cursor_state(
 				} else if (rotation == 180) {
 					rotated_hot_x = cursor->width - cursor->hot_x - 1;
 					rotated_hot_y = cursor->width - cursor->hot_y - 1;
-				} else if (rotation == 270) {
+				} else {
+					DEBUG_ASSERT(rotation == 270);
 					rotated_hot_x = cursor->hot_y;
 					rotated_hot_y = cursor->width - cursor->hot_x - 1;
 				}
@@ -1780,7 +1860,7 @@ int compositor_apply_cursor_state(
 				rotated_hot_y
 			);
 			if (ok < 0) {
-				perror("[compositor] Could not set the mouse cursor buffer. drmModeSetCursor");
+				LOG_ERROR("Could not set the mouse cursor buffer. drmModeSetCursor: %s", strerror(errno));
 				return errno;
 			}
 
@@ -1791,7 +1871,7 @@ int compositor_apply_cursor_state(
 				compositor.cursor.y - compositor.cursor.hot_y
 			);
 			if (ok < 0) {
-				perror("[compositor] Could not move cursor. drmModeMoveCursor");
+				LOG_ERROR("Could not move cursor. drmModeMoveCursor: %s", strerror(errno));
 				return errno;
 			}
 		}
@@ -1814,7 +1894,11 @@ int compositor_apply_cursor_state(
 		compositor.cursor.x = 0;
 		compositor.cursor.y = 0;
 		compositor.cursor.is_enabled = false;
+
+		return 0;
 	}
+
+	return 0;
 }
 
 int compositor_set_cursor_pos(int x, int y) {
@@ -1826,7 +1910,7 @@ int compositor_set_cursor_pos(int x, int y) {
 
 	ok = drmModeMoveCursor(compositor.drmdev->fd, compositor.drmdev->selected_crtc->crtc->crtc_id, x - compositor.cursor.hot_x, y - compositor.cursor.hot_y);
 	if (ok < 0) {
-		perror("[compositor] Could not move cursor. drmModeMoveCursor");
+		LOG_ERROR("Could not move cursor. drmModeMoveCursor: %s", strerror(errno));
 		return errno;
 	}
 

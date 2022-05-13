@@ -6,28 +6,32 @@
 
 #include <unistd.h>
 #include <string.h>
+#include <alloca.h>
 #include <sys/select.h>
+#include <stdatomic.h>
 
 #include <platformchannel.h>
 #include <pluginregistry.h>
 #include <collection.h>
+#include <flutter-pi.h>
 
-#include <plugins/services.h>
-#include <plugins/raw_keyboard.h>
+FILE_DESCR("plugin registry")
 
-#ifdef BUILD_TEXT_INPUT_PLUGIN
-#	include <plugins/text_input.h>
-#endif
-#ifdef BUILD_RAW_KEYBOARD_PLUGIN
-#	include <plugins/raw_keyboard.h>
-#endif
-#ifdef BUILD_TEST_PLUGIN
-#	include <plugins/testplugin.h>
-#endif
-#ifdef BUILD_OMXPLAYER_VIDEO_PLAYER_PLUGIN
-#	include <plugins/omxplayer_video_player.h>
-#endif
-
+/**
+ * @brief details of a plugin for flutter-pi.
+ * 
+ * All plugins are initialized (by calling their "init" callback)
+ * when @ref plugin_registry_ensure_plugins_initialized is called by flutter-pi.
+ * 
+ * In the init callback, you probably want to do stuff like
+ * register callbacks for some method channels your plugin uses
+ * or dynamically allocate memory for your plugin if you need to.
+ */
+struct plugin_instance {
+    const struct flutterpi_plugin_v2 *plugin;
+	void *userdata;
+	bool initialized;
+};
 
 struct platch_obj_cb_data {
 	char *channel;
@@ -37,74 +41,113 @@ struct platch_obj_cb_data {
 };
 
 struct plugin_registry {
-	size_t n_plugins;
-	struct flutterpi_plugin *plugins;
-
-	// platch_obj callbacks
-	struct concurrent_pointer_set platch_obj_cbs;
-} plugin_registry;
-
-/// array of plugins that are statically included in flutter-pi.
-struct flutterpi_plugin hardcoded_plugins[] = {
-	{.name = "services",     .init = services_init, .deinit = services_deinit},
-	
-#ifdef BUILD_TEXT_INPUT_PLUGIN
-	{.name = "text_input",   .init = textin_init, .deinit = textin_deinit},
-#endif
-
-#ifdef BUILD_RAW_KEYBOARD_PLUGIN
-	{.name = "raw_keyboard", .init = rawkb_init, .deinit = rawkb_deinit},
-#endif
-
-#ifdef BUILD_TEST_PLUGIN
-	{.name = "testplugin",   .init = testp_init .deinit = testp_deinit},
-#endif
-
-#ifdef BUILD_OMXPLAYER_VIDEO_PLAYER_PLUGIN
-	{.name = "omxplayer_video_player", .init = omxpvidpp_init, .deinit = omxpvidpp_deinit},
-#endif
+	struct flutterpi *flutterpi;
+	struct concurrent_pointer_set plugins;
+	struct concurrent_pointer_set callbacks;
 };
 
-static struct platch_obj_cb_data *plugin_registry_get_cb_data_by_channel_locked(const char *channel) {
-	struct platch_obj_cb_data *data;
+static struct concurrent_pointer_set static_plugins = CPSET_INITIALIZER(CPSET_DEFAULT_MAX_SIZE);
 
-	for_each_pointer_in_cpset(&plugin_registry.platch_obj_cbs, data) {
-		if (strcmp(data->channel, channel) == 0) {
-			return data;
+static struct plugin_instance *get_plugin_by_name_locked(
+	struct plugin_registry *registry,
+	const char *plugin_name
+) {
+	struct plugin_instance *instance;
+
+	for_each_pointer_in_cpset(&registry->plugins, instance) {
+		if (strcmp(instance->plugin->name, plugin_name) == 0) {
+			break;
 		}
 	}
 
-	return NULL;
+	return instance;
 }
 
-static struct platch_obj_cb_data *plugin_registry_get_cb_data_by_channel(const char *channel) {
+static struct plugin_instance *get_plugin_by_name(
+	struct plugin_registry *registry,
+	const char *plugin_name
+) {
+	struct plugin_instance *instance;
+
+	cpset_lock(&registry->plugins);
+
+	instance = get_plugin_by_name_locked(registry, plugin_name);
+
+	cpset_unlock(&registry->plugins);
+
+	return instance;
+}
+
+static struct platch_obj_cb_data *get_cb_data_by_channel_locked(
+	struct plugin_registry *registry,
+	const char *channel
+) {
 	struct platch_obj_cb_data *data;
 
-	cpset_lock(&plugin_registry.platch_obj_cbs);
-	data = plugin_registry_get_cb_data_by_channel_locked(channel);
-	cpset_unlock(&plugin_registry.platch_obj_cbs);
+	for_each_pointer_in_cpset(&registry->callbacks, data) {
+		if (strcmp(data->channel, channel) == 0) {
+			break;
+		}
+	}
 
 	return data;
 }
 
-int plugin_registry_init() {
+static struct platch_obj_cb_data *get_cb_data_by_channel(
+	struct plugin_registry *registry,
+	const char *channel
+) {
+	struct platch_obj_cb_data *data;
+
+	cpset_lock(&registry->callbacks);
+	data = get_cb_data_by_channel_locked(registry, channel);
+	cpset_unlock(&registry->callbacks);
+
+	return data;
+}
+
+struct plugin_registry *plugin_registry_new(struct flutterpi *flutterpi) {
+	struct plugin_registry *reg;
 	int ok;
 
-	plugin_registry.n_plugins = sizeof(hardcoded_plugins) / sizeof(*hardcoded_plugins);
-	plugin_registry.plugins = hardcoded_plugins;
-	plugin_registry.platch_obj_cbs = CPSET_INITIALIZER(CPSET_DEFAULT_MAX_SIZE);
-
-	for (int i = 0; i < plugin_registry.n_plugins; i++) {
-		if (plugin_registry.plugins[i].init != NULL) {
-			ok = plugin_registry.plugins[i].init();
-			if (ok != 0) {
-				fprintf(stderr, "[plugin registry] Could not initialize plugin %s. init: %s\n", plugin_registry.plugins[i].name, strerror(ok));
-				return ok;
-			}
-		}
+	reg = malloc(sizeof *reg);
+	if (reg == NULL) {
+		return NULL;
 	}
 
-	return 0;
+	ok = cpset_init(&reg->plugins, CPSET_DEFAULT_MAX_SIZE);
+	if (ok != 0) {
+		goto fail_free_registry;
+	}
+
+	ok = cpset_init(&reg->callbacks, CPSET_DEFAULT_MAX_SIZE);
+	if (ok != 0) {
+		goto fail_deinit_plugins_cpset;
+	}
+
+	reg->flutterpi = flutterpi;
+	return reg;
+
+
+	fail_deinit_plugins_cpset:
+	cpset_deinit(&reg->plugins);
+	
+	fail_free_registry:
+	free(reg);
+
+	return NULL;
+}
+
+void plugin_registry_destroy(struct plugin_registry *registry) {
+	struct plugin_instance *instance;
+
+	plugin_registry_ensure_plugins_deinitialized(registry);
+	for_each_pointer_in_cpset(&registry->plugins, instance) {
+		free(instance);
+	}
+	cpset_deinit(&registry->callbacks);
+	cpset_deinit(&registry->plugins);
+	free(registry);
 }
 
 int plugin_registry_on_platform_message(FlutterPlatformMessage *message) {
@@ -112,16 +155,16 @@ int plugin_registry_on_platform_message(FlutterPlatformMessage *message) {
 	struct platch_obj object;
 	int ok;
 
-	cpset_lock(&plugin_registry.platch_obj_cbs);
+	cpset_lock(&flutterpi.plugin_registry->callbacks);
 
-	data = plugin_registry_get_cb_data_by_channel_locked(message->channel);
+	data = get_cb_data_by_channel_locked(flutterpi.plugin_registry, message->channel);
 	if (data == NULL || data->callback == NULL) {
-		cpset_unlock(&plugin_registry.platch_obj_cbs);
+		cpset_unlock(&flutterpi.plugin_registry->callbacks);
 		return platch_respond_not_implemented((FlutterPlatformMessageResponseHandle*) message->response_handle);
 	}
 
 	data_copy = *data;
-	cpset_unlock(&plugin_registry.platch_obj_cbs);
+	cpset_unlock(&flutterpi.plugin_registry->callbacks);
 
 	ok = platch_decode((uint8_t*) message->message, message->message_size, data_copy.codec, &object);
 	if (ok != 0) {
@@ -139,101 +182,220 @@ int plugin_registry_on_platform_message(FlutterPlatformMessage *message) {
 	return 0;
 }
 
+int plugin_registry_add_plugin(struct plugin_registry *registry, const struct flutterpi_plugin_v2 *plugin) {
+	struct plugin_instance *instance;
+	int ok;
+
+	instance = malloc(sizeof *instance);
+	if (instance == NULL) {
+		return ENOMEM;
+	}
+
+	instance->plugin = plugin;
+	instance->initialized = false;
+	instance->userdata = NULL;
+
+	ok = cpset_put(&registry->plugins, instance);
+	if (ok != 0) {
+		free(instance);
+		return ENOMEM;
+	}
+
+	return 0;
+}
+
+int plugin_registry_add_plugins_from_static_registry(struct plugin_registry *registry) {
+	const struct flutterpi_plugin_v2 *plugin;
+	int ok;
+
+	cpset_lock(&static_plugins);
+	for_each_pointer_in_cpset(&static_plugins, plugin) {
+		ok = plugin_registry_add_plugin(registry, plugin);
+		if (ok != 0) {
+			cpset_unlock(&static_plugins);
+
+			/// TODO: Remove all previously added plugins here
+			return ok;
+		}
+	}
+	cpset_unlock(&static_plugins);
+
+	return 0;
+}
+
+int plugin_registry_ensure_plugins_initialized(struct plugin_registry *registry) {
+	struct plugin_instance *instance;
+	enum plugin_init_result result;
+	struct pointer_set initialized_plugins;
+	int n_pointers;
+
+	cpset_lock(&registry->plugins);
+
+	n_pointers = cpset_get_count_pointers_locked(&registry->plugins);
+	initialized_plugins = PSET_INITIALIZER_STATIC(alloca(sizeof(void*) * n_pointers), n_pointers);
+
+	LOG_DEBUG("Registered plugins: ");
+	for_each_pointer_in_cpset(&registry->plugins, instance) {
+		LOG_DEBUG_UNPREFIXED("%s, ", instance->plugin->name);
+
+		if (instance->initialized == false) {
+			result = instance->plugin->init(registry->flutterpi, &instance->userdata);
+			if (result == kError_PluginInitResult) {
+				LOG_ERROR("Error initializing plugin \"%s\".\n", instance->plugin->name);
+				goto fail_deinit_all_initialized;
+			} else if (result == kNotApplicable_PluginInitResult) {
+				// This is not an error.
+				LOG_DEBUG("INFO: Plugin \"%s\" is not available in this flutter-pi instance.\n", instance->plugin->name);
+			}
+
+			instance->initialized = true;
+			pset_put(&initialized_plugins, instance);
+		}
+	}
+	LOG_DEBUG_UNPREFIXED("\n");
+
+	cpset_unlock(&registry->plugins);
+	return 0;
+
+
+	fail_deinit_all_initialized:
+	for_each_pointer_in_pset(&initialized_plugins, instance) {
+		instance->plugin->deinit(registry->flutterpi, instance->userdata);
+	}
+	return EINVAL;
+}
+
+void plugin_registry_ensure_plugins_deinitialized(struct plugin_registry *registry) {
+	struct plugin_instance *instance;
+
+	cpset_lock(&registry->plugins);
+
+	for_each_pointer_in_cpset(&registry->plugins, instance) {
+		if (instance->initialized == true) {
+			instance->plugin->deinit(registry->flutterpi, instance->userdata);
+			instance->initialized = false;
+		}
+	}
+
+	cpset_unlock(&registry->plugins);
+}
+
+/// TODO: Move this into a separate flutter messenger API
 int plugin_registry_set_receiver(
 	const char *channel,
 	enum platch_codec codec,
 	platch_obj_recv_callback callback
-	//void *userdata
 ) {
 	struct platch_obj_cb_data *data;
 	char *channel_dup;
+	int ok;
 
-	cpset_lock(&plugin_registry.platch_obj_cbs);
+	cpset_lock(&flutterpi.plugin_registry->callbacks);
 	
 	channel_dup = strdup(channel);
 	if (channel_dup == NULL) {
-		cpset_unlock(&plugin_registry.platch_obj_cbs);
-		return ENOMEM;
+		ok = ENOMEM;
+		goto fail_unlock_cbs;
 	}
 
-	data = plugin_registry_get_cb_data_by_channel_locked(channel);
+	data = get_cb_data_by_channel_locked(flutterpi.plugin_registry, channel);
 	if (data == NULL) {
 		data = calloc(1, sizeof *data);
 		if (data == NULL) {
-			free(channel_dup);
-			cpset_unlock(&plugin_registry.platch_obj_cbs);
-			return ENOMEM;
+			ok = ENOMEM;
+			goto fail_free_channel_dup;
 		}
 
-		cpset_put_locked(&plugin_registry.platch_obj_cbs, data);
+		ok = cpset_put_locked(&flutterpi.plugin_registry->callbacks, data);
+		if (ok != 0) {
+			if (ok == ENOSPC) {
+				LOG_ERROR("Couldn't register platform channel listener. Callback list is filled\n");
+			}
+			goto fail_free_data;
+		}
 	}
 
 	data->channel = channel_dup;
 	data->codec = codec;
 	data->callback = callback;
-	//data->userdata = userdata;
-
-	cpset_unlock(&plugin_registry.platch_obj_cbs);
-
+	data->userdata = NULL;
+	cpset_unlock(&flutterpi.plugin_registry->callbacks);
+	
 	return 0;
-}
+	
 
-bool plugin_registry_is_plugin_present(
-	const char *plugin_name
-) {
-	for (int i = 0; i < plugin_registry.n_plugins; i++) {
-		if (strcmp(plugin_registry.plugins[i].name, plugin_name) == 0) {
-			return true;
-		}
-	}
+	fail_free_data:
+	free(data);
+	
+	fail_free_channel_dup:
+	free(channel_dup);
 
-	return false;
+	fail_unlock_cbs:
+	cpset_unlock(&flutterpi.plugin_registry->callbacks);
+
+	return ok;
 }
 
 int plugin_registry_remove_receiver(const char *channel) {
 	struct platch_obj_cb_data *data;
 
-	cpset_lock(&plugin_registry.platch_obj_cbs);
+	cpset_lock(&flutterpi.plugin_registry->callbacks);
 
-	data = plugin_registry_get_cb_data_by_channel_locked(channel);
+	data = get_cb_data_by_channel_locked(flutterpi.plugin_registry, channel);
 	if (data == NULL) {
-		cpset_unlock(&plugin_registry.platch_obj_cbs);
+		cpset_unlock(&flutterpi.plugin_registry->callbacks);
 		return EINVAL;
 	}
 
-	cpset_remove_locked(&plugin_registry.platch_obj_cbs, data);
+	cpset_remove_locked(&flutterpi.plugin_registry->callbacks, data);
 
 	free(data->channel);
 	free(data);
 
-	cpset_unlock(&plugin_registry.platch_obj_cbs);
+	cpset_unlock(&flutterpi.plugin_registry->callbacks);
 
 	return 0;
 }
 
-int plugin_registry_deinit() {
-	struct platch_obj_cb_data *data;
-	int ok;
-	
-	/// call each plugins 'deinit'
-	for (int i = 0; i < plugin_registry.n_plugins; i++) {
-		if (plugin_registry.plugins[i].deinit) {
-			ok = plugin_registry.plugins[i].deinit();
-			if (ok != 0) {
-				fprintf(stderr, "[plugin registry] Could not deinitialize plugin %s. deinit: %s\n", plugin_registry.plugins[i].name, strerror(ok));
-			}
+bool plugin_registry_is_plugin_present(
+	struct plugin_registry *registry,
+	const char *plugin_name
+) {
+	return get_plugin_by_name(registry, plugin_name) != NULL;
+}
+
+void *plugin_registry_get_plugin_userdata(
+	struct plugin_registry *registry,
+	const char *plugin_name
+) {
+	struct plugin_instance *instance;
+
+	instance = get_plugin_by_name(registry, plugin_name);
+
+	return instance != NULL ? instance->userdata : NULL;
+}
+
+
+int static_plugin_registry_add_plugin(const struct flutterpi_plugin_v2 *plugin) {
+	return cpset_put(&static_plugins, (void*) plugin);
+}
+
+int static_plugin_registry_remove_plugin(const char *plugin_name) {
+	const struct flutterpi_plugin_v2 *plugin;
+
+	cpset_lock(&static_plugins);
+
+	for_each_pointer_in_cpset(&static_plugins, plugin) {
+		if (strcmp(plugin->name, plugin_name) == 0) {
+			break;
 		}
 	}
 
-	for_each_pointer_in_cpset(&plugin_registry.platch_obj_cbs, data) {
-		cpset_remove_(&plugin_registry.platch_obj_cbs, data);
-		if (data != NULL) {
-			free(data->channel);
-			free(data);
-		}
+	if (plugin != NULL) {
+		cpset_remove_locked(&static_plugins, plugin);
 	}
 
-	cpset_deinit(&plugin_registry.platch_obj_cbs);
+	cpset_unlock(&static_plugins);
 
-	return 0;
+	return plugin == NULL ? EINVAL : 0;
 }

@@ -26,6 +26,8 @@
 
 #include <plugins/omxplayer_video_player.h>
 
+FILE_DESCR("omxplayer video_player plugin")
+
 static struct {
     bool initialized;
 
@@ -53,8 +55,8 @@ static struct {
 };
 
 /// Add a player instance to the player collection.
-int add_player(struct omxplayer_video_player *player) {
-    return cpset_put_(&omxpvidpp.players, player);
+static int add_player(struct omxplayer_video_player *player) {
+    return cpset_put(&omxpvidpp.players, player);
 }
 
 /// Get a player instance by its id.
@@ -91,7 +93,7 @@ struct omxplayer_video_player *get_player_by_evch(const char *const event_channe
 
 /// Remove a player instance from the player collection.
 static int remove_player(struct omxplayer_video_player *player) {
-    return cpset_remove_(&omxpvidpp.players, player);
+    return cpset_remove(&omxpvidpp.players, player);
 }
 
 /// Get the player id from the given arg, which is a kStdMap.
@@ -186,10 +188,12 @@ static int on_mount(
 ) {
     struct omxplayer_video_player *player = userdata;
 
+    (void) view_id;
+    (void) req;
+
     if (zpos == 1) {
         zpos = -126;
     }
-
 
     struct aa_rect rect = get_aa_bounding_rect(params->rect);
 
@@ -198,10 +202,10 @@ static int on_mount(
         &(struct omxplayer_mgr_task) {
             .type = kUpdateView,
             .responsehandle = NULL,
-            .offset_x = rect.offset.x,
-            .offset_y = rect.offset.y,
-            .width = rect.size.x,
-            .height = rect.size.y,
+            .offset_x = round(rect.offset.x),
+            .offset_y = round(rect.offset.y),
+            .width = round(rect.size.x),
+            .height = round(rect.size.y),
             .zpos = zpos,
             .orientation = get_orientation_from_rotation(params->rotation)
         }
@@ -216,6 +220,9 @@ static int on_unmount(
     void *userdata
 ) {
     struct omxplayer_video_player *player = userdata;
+
+    (void) view_id;
+    (void) req;
 
     return cqueue_enqueue(
         &player->mgr->task_queue,
@@ -240,6 +247,9 @@ static int on_update_view(
     void *userdata
 ) {
     struct omxplayer_video_player *player = userdata;
+
+    (void) view_id;
+    (void) req;
 
     if (zpos == 1) {
         zpos = -126;
@@ -291,12 +301,8 @@ static int get_dbus_property(
     void *ret_ptr
 ) {
     sd_bus_message *msg;
-    bool n_retries;
     int ok;
 
-    n_retries = 0;
-
-    retry:
     ok = sd_bus_call_method(
         bus,
         destination,
@@ -309,10 +315,7 @@ static int get_dbus_property(
         interface,
         member
     );
-    /*if ((ok < 0) && (strcmp(ret_error->name, SD_BUS_ERROR_UNKNOWN_METHOD) == 0) && (n_retries < 10)) {
-        n_retries++;
-        goto retry;
-    } else */if (ok < 0) {
+    if (ok < 0) {
         fprintf(stderr, "[omxplayer_video_player plugin] Could not read DBus property: %s, %s\n", ret_error->name, ret_error->message);
         return -ok;
     }
@@ -342,6 +345,8 @@ static int mgr_on_dbus_message(
     char *old_owner, *new_owner, *name;
     int ok;
 
+    (void) ret_error;
+
     task = userdata;
 
     sender = sd_bus_message_get_sender(m);
@@ -369,7 +374,6 @@ static void *mgr_entry(void *userdata) {
     struct omxplayer_mgr_task task;
     struct concurrent_queue *q;
     struct omxplayer_mgr *mgr;
-    struct timespec t_scheduled_pause;
     sd_bus_message *msg;
     sd_bus_error err;
     sd_bus_slot *slot;
@@ -377,12 +381,11 @@ static void *mgr_entry(void *userdata) {
     sd_bus *bus;
     pid_t omxplayer_pid;
     char dbus_name[256];
-    bool omxplayer_online;
     bool has_sent_initialized_event;
-    bool pause_on_end;
-    bool has_scheduled_pause_time;
     bool is_stream;
     int ok;
+
+    (void) current_orientation;
 
     mgr = userdata;
     q = &mgr->task_queue;
@@ -617,12 +620,12 @@ static void *mgr_entry(void *userdata) {
         goto fail_kill_registered_player;
     }
 
+
+    LOG_DEBUG("respond success on_create(). player_id: %" PRId64 "\n", mgr->player->player_id);
     // creation was a success! respond to the dart-side with our player id.
     platch_respond_success_std(task.responsehandle, &STDINT64(mgr->player->player_id));
 
     has_sent_initialized_event = false;
-    pause_on_end = is_stream ? false : true;
-    has_scheduled_pause_time = false;
     while (1) {
         ok = cqueue_dequeue(q, &task);
         
@@ -738,8 +741,6 @@ static void *mgr_entry(void *userdata) {
 
             platch_respond_success_std(task.responsehandle, NULL);
         } else if (task.type == kPause) {
-            has_scheduled_pause_time = false;
-
             ok = sd_bus_call_method(
                 bus,
                 dbus_name,
@@ -761,14 +762,19 @@ static void *mgr_entry(void *userdata) {
             platch_respond_success_std(task.responsehandle, NULL);   
         } else if (task.type == kUpdateView) {
             char video_pos_str[256];
+
+            // Use integers here even if omxplayer supports floats because if we print floats,
+            // snprintf might use `,` as the decimal delimiter depending on the locale.
+            // This is only an issue because I set the application to be locale-aware using setlocale(LC_ALL, "")
+            // since that's needed for locale support.
             snprintf(
                 video_pos_str,
                 sizeof(video_pos_str),
-                "%f %f %f %f",
-                (double) task.offset_x,
-                (double) task.offset_y,
-                (double) (task.offset_x + task.width),
-                (double) (task.offset_y + task.height)
+                "%d %d %d %d",
+                task.offset_x,
+                task.offset_y,
+                task.offset_x + task.width,
+                task.offset_y + task.height
             );
 
             ok = sd_bus_call_method(
@@ -892,7 +898,6 @@ static void *mgr_entry(void *userdata) {
                 platch_respond_success_std(task.responsehandle, NULL);
             }
         } else if (task.type == kSetLooping) {
-            pause_on_end = false;
             platch_respond_success_std(task.responsehandle, NULL);
         } else if (task.type == kSetVolume) {
             ok = sd_bus_call_method(
@@ -944,8 +949,6 @@ static void *mgr_entry(void *userdata) {
     cqueue_deinit(&mgr->task_queue);
     free(mgr);
     mgr = NULL;
-
-    fail_return_ok:
     return (void*) EXIT_FAILURE;
 }
 
@@ -986,7 +989,6 @@ static int on_receive_evch(
     FlutterPlatformMessageResponseHandle *responsehandle
 ) {
     struct omxplayer_video_player *player;
-    int ok;
 
     player = get_player_by_evch(channel);
     if (player == NULL) {
@@ -1014,10 +1016,14 @@ static int on_initialize(
 ) {
     int ok;
 
+    (void) arg;
+
     ok = ensure_binding_initialized();
     if (ok != 0) {
         return respond_init_failed(responsehandle);
     }
+
+    LOG_DEBUG("on_initialize\n");
 
     return platch_respond_success_std(responsehandle, NULL);
 }
@@ -1034,6 +1040,10 @@ static int on_create(
     struct std_value *temp;
     char *asset, *uri, *package_name, *format_hint;
     int ok;
+
+    (void) source_type;
+    (void) package_name;
+    (void) format_hint;
 
     ok = ensure_binding_initialized();
     if (ok != 0) {
@@ -1109,6 +1119,15 @@ static int on_create(
             "Expected `arg['formatHint']` to be a String or null."
         );
     }
+
+    LOG_DEBUG(
+        "on_create(sourceType: %s, asset: %s, uri: \"%s\", packageName: %s, formatHint: %s)\n",
+        source_type == kDataSourceTypeAsset ? "asset" : source_type == kDataSourceTypeNetwork ? "network" : "file",
+        asset,
+        uri,
+        package_name,
+        format_hint
+    );
 
     mgr = calloc(1, sizeof *mgr);
     if (mgr == NULL) {
@@ -1209,6 +1228,8 @@ static int on_dispose(
         return ok;
     }
 
+    LOG_DEBUG("on_dispose(%"PRId64")\n", player->player_id);
+
     return cqueue_enqueue(&player->mgr->task_queue, &(const struct omxplayer_mgr_task) {
         .type = kDispose,
         .responsehandle = responsehandle
@@ -1236,6 +1257,8 @@ static int on_set_looping(
             "Expected `arg['looping']` to be a boolean."
         );
     }
+
+    LOG_DEBUG("on_set_looping(player_id: %"PRId64", looping: %s)\n", player->player_id, loop ? "yes" : "no");
 
     return cqueue_enqueue(&player->mgr->task_queue, &(const struct omxplayer_mgr_task) {
         .type = kSetLooping,
@@ -1266,6 +1289,8 @@ static int on_set_volume(
         );
     }
 
+    LOG_DEBUG("on_set_volume(player_id: %"PRId64", volume: %f)\n", player->player_id, volume);
+
     return cqueue_enqueue(&player->mgr->task_queue, &(const struct omxplayer_mgr_task) {
         .type = kSetVolume,
         .volume = volume,
@@ -1283,6 +1308,8 @@ static int on_play(
     ok = get_player_from_map_arg(arg, &player, responsehandle);
     if (ok != 0) return ok;
 
+    LOG_DEBUG("on_play(player_id: %"PRId64")\n", player->player_id);
+
     return cqueue_enqueue(&player->mgr->task_queue, &(const struct omxplayer_mgr_task) {
         .type = kPlay,
         .responsehandle = responsehandle
@@ -1298,6 +1325,8 @@ static int on_get_position(
 
     ok = get_player_from_map_arg(arg, &player, responsehandle);
     if (ok != 0) return ok;
+
+    LOG_DEBUG("on_get_position(player_id: %"PRId64")\n", player->player_id);
 
     return cqueue_enqueue(&player->mgr->task_queue, &(const struct omxplayer_mgr_task) {
         .type = kGetPosition,
@@ -1327,6 +1356,8 @@ static int on_seek_to(
         );
     }
 
+    LOG_DEBUG("on_seek_to(player_id: %"PRId64", position: %"PRId64")\n", player->player_id, position);
+
     return cqueue_enqueue(&player->mgr->task_queue, &(const struct omxplayer_mgr_task) {
         .type = kSetPosition,
         .position = position,
@@ -1343,6 +1374,8 @@ static int on_pause(
 
     ok = get_player_from_map_arg(arg, &player, responsehandle);
     if (ok != 0) return ok;
+
+    LOG_DEBUG("on_pause(player_id: %"PRId64")\n", player->player_id);
 
     return cqueue_enqueue(&player->mgr->task_queue, &(const struct omxplayer_mgr_task) {
         .type = kPause,
@@ -1371,10 +1404,11 @@ static int on_create_platform_view(
             "Expected `arg['platformViewId']` to be an integer."
         );
     }
+
+    LOG_DEBUG("on_create_platform_view(player_id: %"PRId64", platform view id: %"PRId64")\n", player->player_id, view_id);
     
     if (player->has_view) {
-        fprintf(stderr, "[omxplayer_video_player plugin] Flutter attempted to register more than one platform view for one player instance.\n");
-        
+        LOG_ERROR("Flutter attempted to register more than one platform view for one player instance.\n");
         return platch_respond_illegal_arg_std(
             responsehandle,
             "Attempted to register more than one platform view for this player instance."
@@ -1421,22 +1455,16 @@ static int on_dispose_platform_view(
         );
     }
 
+    LOG_DEBUG("on_dispose_platform_view(player_id: %"PRId64", platform view id: %"PRId64")\n", player->player_id, view_id);
+
     if (player->view_id != view_id) {
-        fprintf(
-            stderr,
-            "[omxplayer_video_player plugin] Flutter attempted to dispose an omxplayer platform view that is not associated with this player.\n"
-        );
+        LOG_ERROR("Flutter attempted to dispose an omxplayer platform view that is not associated with this player.\n");
 
         return platch_respond_illegal_arg_std(responsehandle, "Attempted to dispose on omxplayer view that is not associated with `arg['playerId']`.");
     } else {
         ok = compositor_remove_view_callbacks(view_id);
         if (ok != 0) {
-            fprintf(
-                stderr,
-                "[omxplayer_video_player plugin] Could not remove view callbacks for platform view %" PRId64 ". compositor_remove_view_callbacks: %s\n",
-                view_id,
-                strerror(ok)
-            );
+            LOG_ERROR("Could not remove view callbacks for platform view %" PRId64 ". compositor_remove_view_callbacks: %s\n", view_id, strerror(ok));
             return platch_respond_native_error_std(responsehandle, ok);
         }
 
@@ -1465,6 +1493,8 @@ static int on_receive_mch(
     struct platch_obj *object,
     FlutterPlatformMessageResponseHandle *responsehandle
 ) {
+    (void) channel;
+
     if STREQ("init", object->method) {
         return on_initialize(&object->std_arg, responsehandle);
     } else if STREQ("create", object->method) {
@@ -1493,20 +1523,32 @@ static int on_receive_mch(
 }
 
 int8_t omxpvidpp_is_present(void) {
-    return plugin_registry_is_plugin_present("omxplayer_video_player");
+    return plugin_registry_is_plugin_present(flutterpi.plugin_registry, "omxplayer video_player plugin");
 }
 
-int omxpvidpp_init(void) {
+enum plugin_init_result omxpvidpp_init(struct flutterpi *flutterpi, void **userdata_out) {
     int ok;
 
+    (void) flutterpi;
+    (void) userdata_out;
+
     ok = plugin_registry_set_receiver("flutter.io/omxplayerVideoPlayer", kStandardMethodCall, on_receive_mch);
-    if (ok != 0) return ok;
+    if (ok != 0) {
+        return kError_PluginInitResult;
+    }
 
-    return 0;
+    return kInitialized_PluginInitResult;
 }
 
-int omxpvidpp_deinit(void) {
+void omxpvidpp_deinit(struct flutterpi *flutterpi, void *userdata) {
     plugin_registry_remove_receiver("flutter.io/omxplayerVideoPlayer");
-
-    return 0;
+    (void) flutterpi;
+    (void) userdata;
 }
+
+FLUTTERPI_PLUGIN(
+    "omxplayer video_player plugin",
+    omxpvidpp,
+    omxpvidpp_init,
+    omxpvidpp_deinit
+)

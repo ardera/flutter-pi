@@ -1,6 +1,6 @@
 ## 📰 NEWS
-- The new latest flutter gallery commit for flutter 2.2 is `633be8a`
-- There's now a `#custom-embedders` channel on the [flutter discord](https://github.com/flutter/flutter/wiki/Chat) which you can use if you have any questions regarding flutter-pi or generally, anything related to embedding the engine for which you don't want to open issue about or write an email.
+- There's now a new video player based on gstreamer. See [gstreamer video player](#gstreamer-video-player) section.
+- The new latest flutter gallery commit for flutter 2.10 is `5da082d`
 
 # flutter-pi
 A light-weight Flutter Engine Embedder for Raspberry Pi. Inspired by https://github.com/chinmaygarde/flutter_from_scratch.
@@ -8,7 +8,7 @@ Flutter-pi also runs without X11, so you don't need to boot into Raspbian Deskto
 
 You can now **theoretically** run every flutter app you want using flutter-pi, including apps using packages & plugins, just that you'd have to build the platform side of the plugins you'd like to use yourself.
 
-_The difference between packages and plugins is that packages don't include any native code, they are just pure Dart. Plugins (like the [connectivity plugin](https://github.com/flutter/plugins/tree/master/packages/connectivity)) include platform-specific code._
+_The difference between packages and plugins is that packages don't include any native code, they are just pure Dart. Plugins (like the [shared_preferences plugin](https://github.com/flutter/plugins/tree/main/packages/shared_preferences)) include platform-specific code._
 
 ## 🖥️ Supported Platforms
 Although flutter-pi is only tested on a Rasberry Pi 4 2GB, it should work fine on other linux platforms, with the following conditions:
@@ -16,7 +16,12 @@ Although flutter-pi is only tested on a Rasberry Pi 4 2GB, it should work fine o
 - support for hardware 3D acceleration. more precisely support for kernel-modesetting (KMS) and the direct rendering infrastructure (DRI) 
 - CPU architecture is one of ARMv7, ARMv8, x86 or x86 64bit.
 
-This means flutter-pi won't work on a Pi Zero or Pi 1. A Pi 3 works fine, even the 512MB A+ model, and a Pi 2 should work fine too.
+This means flutter-pi won't work on a Pi Zero (only the first one) or Pi 1.
+
+Known working boards:
+
+- Pi 2, 3 and 4 (even the 512MB models)
+- Pi Zero 2 (W)
 
 If you encounter issues running flutter-pi on any of the supported platforms listed above, please report them to me and I'll fix them.
 
@@ -30,9 +35,11 @@ If you encounter issues running flutter-pi on any of the supported platforms lis
 2.2 [Building the Asset bundle](#building-the-asset-bundle)  
 2.3 [Building the `app.so` (for running your app in Release/Profile mode)](#building-the-appso-for-running-your-app-in-releaseprofile-mode)  
 2.4 [Running your App with flutter-pi](#running-your-app-with-flutter-pi)  
+2.5 [gstreamer video player](#gstreamer-video-player)
 3. **[Performance](#-performance)**  
 3.1 [Graphics Performance](#graphics-performance)  
 3.2 [Touchscreen latency](#touchscreen-latency)  
+4. **[Discord](#-discord)**
 
 ## 🛠 Building flutter-pi on the Raspberry Pi
 - If you want to update flutter-pi, you check out the latest commit using `git pull && git checkout origin/master` and continue with [compiling](#compiling), step 2.
@@ -51,8 +58,13 @@ If you encounter issues running flutter-pi on any of the supported platforms lis
     </details>
 
 2. Install cmake, graphics, system libraries and fonts:
-    ```bash
-    sudo apt install cmake libgl1-mesa-dev libgles2-mesa-dev libegl1-mesa-dev libdrm-dev libgbm-dev ttf-mscorefonts-installer fontconfig libsystemd-dev libinput-dev libudev-dev  libxkbcommon-dev
+    ```shell
+    $ sudo apt install cmake libgl1-mesa-dev libgles2-mesa-dev libegl1-mesa-dev libdrm-dev libgbm-dev ttf-mscorefonts-installer fontconfig libsystemd-dev libinput-dev libudev-dev  libxkbcommon-dev
+    ```
+
+    If you want to use the [gstreamer video player](#gstreamer-video-player), install these too:
+    ```shell
+    $ sudo apt install libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libgstreamer-plugins-bad1.0-dev gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-ugly gstreamer1.0-plugins-bad gstreamer1.0-libav
     ```
     <details>
       <summary>More Info</summary>
@@ -97,7 +109,8 @@ If you encounter issues running flutter-pi on any of the supported platforms lis
 2. Switch to console mode:
    `System Options -> Boot / Auto Login` and select `Console` or `Console (Autologin)`.
 
-3. Enable the V3D graphics driver
+3. *Raspbian buster only, skip this if you're on bullseye*  
+    Enable the V3D graphics driver:  
    `Advanced Options -> GL Driver -> GL (Fake KMS)`
 
 4. Configure the GPU memory
@@ -151,7 +164,7 @@ If you encounter issues running flutter-pi on any of the supported platforms lis
 ```bash
 git clone https://github.com/flutter/gallery.git flutter_gallery
 cd flutter_gallery
-git checkout 633be8a
+git checkout 5da082d
 flutter build bundle
 rsync -a ./build/flutter_assets/ pi@raspberrypi:/home/pi/flutter_gallery/
 ```
@@ -160,7 +173,7 @@ rsync -a ./build/flutter_assets/ pi@raspberrypi:/home/pi/flutter_gallery/
 <details>
   <summary>More information</summary>
     
-  - flutter_gallery is developed against flutter master. `633be8aa13799bf1215d03a155132025f42c7d07` is currently the latest flutter gallery
+  - flutter_gallery is developed against flutter master. `5da082d82e2da9f57e396b5a1302dc924c81f83d` is currently the latest flutter gallery
     commit working with flutter stable.
 </details>
 
@@ -218,7 +231,7 @@ rsync -a ./build/flutter_assets/ pi@raspberrypi:/home/pi/flutter_gallery/
     git clone https://github.com/flutter/gallery.git flutter_gallery
     git clone --depth 1 https://github.com/ardera/flutter-engine-binaries-for-arm.git engine-binaries
     cd flutter_gallery
-    git checkout 633be8a
+    git checkout 5da082d82e2da9f57e396b5a1302dc924c81f83d
     flutter build bundle
     C:\flutter\bin\cache\dart-sdk\bin\dart.exe ^
       C:\flutter\bin\cache\dart-sdk\bin\snapshots\frontend_server.dart.snapshot ^
@@ -322,6 +335,13 @@ of the flutter app you're trying to run.
 
 `[flutter engine options...]` will be passed as commandline arguments to the flutter engine. You can find a list of commandline options for the flutter engine [Here](https://github.com/flutter/engine/blob/master/shell/common/switches.h).
 
+### gstreamer video player
+Gstreamer video player is a newer video player based on gstreamer. The older video player (omxplayer_video_player) was based on deprecated omxplayer and it was kind of a hack. So I recommend using the gstreamer one instead. 
+
+To use the gstreamer video player, just rebuild flutter-pi (delete your build folder and reconfigure) and make sure the necessary gstreamer packages are installed. (See [dependencies](#dependencies))
+
+And then, just use the stuff in the official [video_player](https://pub.dev/packages/video_player) package. (`VideoPlayer`, `VideoPlayerController`, etc, there's nothing specific you need to do on the dart-side)
+
 ## 📊 Performance
 ### Graphics Performance
 Graphics performance is actually pretty good. With most of the apps inside the `flutter SDK -> examples -> catalog` directory I get smooth 50-60fps on the Pi 4 2GB and Pi 3 A+.
@@ -330,3 +350,6 @@ Graphics performance is actually pretty good. With most of the apps inside the `
 Due to the way the touchscreen driver works in raspbian, there's some delta between an actual touch of the touchscreen and a touch event arriving at userspace. The touchscreen driver in the raspbian kernel actually just repeatedly polls some buffer shared with the firmware running on the VideoCore, and the videocore repeatedly polls the touchscreen. (both at 60Hz) So on average, there's a delay of 17ms (minimum 0ms, maximum 34ms). Actually, the firmware is polling correctly at ~60Hz, but the linux driver is not because there's a bug. The linux side actually polls at 25Hz, which makes touch applications look terrible. (When you drag something in a touch application, but the application only gets new touch data at 25Hz, it'll look like the application itself is _redrawing_ at 25Hz, making it look very laggy) The github issue for this raspberry pi kernel bug is [here](https://github.com/raspberrypi/linux/issues/3777). Leave a like on the issue if you'd like to see this fixed in the kernel.
 
 This is why I created my own (userspace) touchscreen driver, for improved latency & polling rate. See [this repo](https://github.com/ardera/raspberrypi-fast-ts) for details. The driver is very easy to use and the difference is noticeable, flutter apps look and feel a lot better with this driver.
+
+## 💬 Discord
+There a `#custom-embedders` channel on the [flutter discord](https://github.com/flutter/flutter/wiki/Chat) which you can use if you have any questions regarding flutter-pi or generally, anything related to embedding the engine for which you don't want to open issue about or write an email.

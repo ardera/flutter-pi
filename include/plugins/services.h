@@ -10,7 +10,10 @@
      strcmp(str, "DeviceOrientation.portraitDown") == 0 ? kPortraitDown :\
      strcmp(str, "DeviceOrientation.landscapeRight") == 0 ? kLandscapeRight : -1)
 
-int services_init(void);
-int services_deinit(void);
+#define FLUTTER_NAVIGATION_CHANNEL "flutter/navigation"
+#define FLUTTER_ISOLATE_CHANNEL "flutter/isolate"
+#define FLUTTER_PLATFORM_CHANNEL "flutter/platform"
+#define FLUTTER_ACCESSIBILITY_CHANNEL "flutter/accessibility"
+#define FLUTTER_PLATFORM_VIEWS_CHANNEL "flutter/platform_views"
 
 #endif

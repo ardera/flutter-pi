@@ -19,6 +19,145 @@ struct platch_msg_resp_handler_data {
 	void *userdata;
 };
 
+
+static int _check_remaining(size_t *remaining, int min_remaining) {
+	if (remaining == NULL) {
+		return 0;
+	}
+	if (*remaining < min_remaining) {
+		return EBADMSG;
+	}
+	return 0;
+}
+static int _read(uint8_t **pbuffer, void *dest, int n_bytes, size_t *remaining) {
+	int ok;
+
+	ok = _check_remaining(remaining, n_bytes);
+	if (ok != 0) {
+		return ok;
+	}
+
+	memcpy(dest, *pbuffer, (size_t) n_bytes);
+	if (remaining != NULL) {
+		*remaining -= n_bytes;
+	}
+	*pbuffer += n_bytes;
+	return 0;
+}
+static int _write(uint8_t **pbuffer, void *src, int n_bytes, size_t *remaining) {
+	int ok;
+
+	ok = _check_remaining(remaining, n_bytes);
+	if (ok != 0) {
+		return ok;
+	}
+
+	memcpy(*pbuffer, src, (size_t) n_bytes);
+	if (remaining != NULL) {
+		*remaining -= n_bytes;
+	}
+	*pbuffer += n_bytes;
+	return 0;
+}
+
+static int _advance(uintptr_t *value, int n_bytes, size_t *remaining) {
+	int ok;
+
+	ok = _check_remaining(remaining, n_bytes);
+	if (ok != 0) {
+		return ok;
+	}
+
+	if (remaining != NULL) {
+    	*remaining -= n_bytes;
+	}
+    *value += n_bytes;
+    return 0;
+}
+static int _align(uintptr_t *value, int alignment, size_t *remaining) {
+    int diff;
+
+    alignment--;
+	diff = ((((*value) + alignment) | alignment) - alignment) - *value;
+
+    return _advance(value, diff, remaining);
+}
+static int _advance_size_bytes(uintptr_t *value, size_t size, size_t *remaining) {
+    if (size < 254) {
+		return _advance(value, 1, remaining);
+	} else if (size <= 0xFFFF) {
+		return _advance(value, 3, remaining);
+	} else {
+		return _advance(value, 5, remaining);
+    }
+}
+
+#define DEFINE_READ_WRITE_FUNC(suffix, value_type) \
+static int _write_##suffix(uint8_t **pbuffer, value_type value, size_t *remaining) { \
+	return _write(pbuffer, &value, sizeof value, remaining); \
+} \
+static int _read_##suffix(uint8_t **pbuffer, value_type* value, size_t *remaining) { \
+	return _read(pbuffer, value, sizeof *value, remaining); \
+}
+
+DEFINE_READ_WRITE_FUNC(    u8,  uint8_t)
+DEFINE_READ_WRITE_FUNC(   u16, uint16_t)
+DEFINE_READ_WRITE_FUNC(   u32, uint32_t)
+DEFINE_READ_WRITE_FUNC(   u64, uint64_t)
+DEFINE_READ_WRITE_FUNC(    i8,   int8_t)
+DEFINE_READ_WRITE_FUNC(   i16,  int16_t)
+DEFINE_READ_WRITE_FUNC(   i32,  int32_t)
+DEFINE_READ_WRITE_FUNC(   i64,  int64_t)
+DEFINE_READ_WRITE_FUNC( float,    float)
+DEFINE_READ_WRITE_FUNC(double,   double)
+
+static int _writeSize(uint8_t **pbuffer, int size, size_t *remaining) {
+	int ok;
+
+    if (size < 254) {
+		return _write_u8(pbuffer, (uint8_t) size, remaining);
+	} else if (size <= 0xFFFF) {
+		ok = _write_u8(pbuffer, 0xFE, remaining);
+        if (ok != 0) return ok;
+
+		ok = _write_u16(pbuffer, (uint16_t) size, remaining);
+        if (ok != 0) return ok;
+	} else {
+		ok = _write_u8(pbuffer, 0xFF, remaining);
+        if (ok != 0) return ok;
+
+		ok = _write_u32(pbuffer, (uint32_t) size, remaining);
+        if (ok != 0) return ok;
+    }
+
+    return ok;
+}
+static int _readSize(uint8_t **pbuffer, uint32_t *psize, size_t *remaining) {
+	int ok;
+    uint8_t size8;
+    uint16_t size16;
+
+	ok = _read_u8(pbuffer, &size8, remaining);
+    if (ok != 0) return ok;
+    
+    if (size8 <= 253) {
+        *psize = size8;
+
+        return 0;
+    } else if (size8 == 254) {
+		ok = _read_u16(pbuffer, &size16, remaining);
+        if (ok != 0) return ok;
+
+        *psize = size16;
+        return 0;
+	} else if (size8 == 255) {
+		return _read_u32(pbuffer, psize, remaining);
+	}
+
+    return 0;
+}
+
+
 int platch_free_value_std(struct std_value *value) {
 	int ok;
 
@@ -207,7 +346,7 @@ int platch_write_value_to_buffer_std(struct std_value* value, uint8_t **pbuffer)
 	size_t size;
 	int ok;
 
-	_write8(pbuffer, value->type, NULL);
+	_write_u8(pbuffer, value->type, NULL);
 
 	switch (value->type) {
 		case kStdNull:
@@ -215,14 +354,14 @@ int platch_write_value_to_buffer_std(struct std_value* value, uint8_t **pbuffer)
 		case kStdFalse:
 			break;
 		case kStdInt32:
-			_write32(pbuffer, value->int32_value, NULL);
+			_write_i32(pbuffer, value->int32_value, NULL);
 			break;
 		case kStdInt64:
-			_write64(pbuffer, value->int64_value, NULL);
+			_write_i64(pbuffer, value->int64_value, NULL);
 			break;
 		case kStdFloat64:
 			_align  ((uintptr_t*) pbuffer, 8, NULL);
-			_write64(pbuffer, *((uint64_t*) &(value->float64_value)), NULL);
+			_write_double(pbuffer, value->float64_value, NULL);
 			break;
 		case kStdLargeInt:
 		case kStdString:
@@ -230,14 +369,15 @@ int platch_write_value_to_buffer_std(struct std_value* value, uint8_t **pbuffer)
 			if ((value->type == kStdLargeInt) || (value->type == kStdString)) {
 				size = strlen(value->string_value);
 				byteArray = (uint8_t*) value->string_value;
-			} else if (value->type == kStdUInt8Array) {
+			} else {
+				DEBUG_ASSERT(value->type == kStdUInt8Array);
 				size = value->size;
 				byteArray = value->uint8array;
 			}
 
 			_writeSize(pbuffer, size, NULL);
 			for (int i=0; i<size; i++) {
-				_write8(pbuffer, byteArray[i], NULL);
+				_write_u8(pbuffer, byteArray[i], NULL);
 			}
 			break;
 		case kStdInt32Array:
@@ -247,7 +387,7 @@ int platch_write_value_to_buffer_std(struct std_value* value, uint8_t **pbuffer)
 			_align   ((uintptr_t*) pbuffer, 4, NULL);
 			
 			for (int i=0; i<size; i++) {
-				_write32(pbuffer, value->int32array[i], NULL);
+				_write_i32(pbuffer, value->int32array[i], NULL);
 			}
 			break;
 		case kStdInt64Array:
@@ -256,7 +396,7 @@ int platch_write_value_to_buffer_std(struct std_value* value, uint8_t **pbuffer)
 			_writeSize(pbuffer, size, NULL);
 			_align((uintptr_t*) pbuffer, 8, NULL);
 			for (int i=0; i<size; i++) {
-				_write64(pbuffer, value->int64array[i], NULL);
+				_write_i64(pbuffer, value->int64array[i], NULL);
 			}
 			break;
 		case kStdFloat64Array:
@@ -266,8 +406,7 @@ int platch_write_value_to_buffer_std(struct std_value* value, uint8_t **pbuffer)
 			_align((uintptr_t*) pbuffer, 8, NULL);
 
 			for (int i=0; i<size; i++) {
-				_write64(pbuffer, value->float64array[i], NULL);
-				_advance((uintptr_t*) pbuffer, 8, NULL);
+				_write_double(pbuffer, value->float64array[i], NULL);
 			}
 			break;
 		case kStdList:
@@ -335,7 +474,7 @@ size_t platch_calc_value_size_json(struct json_value *value) {
 		case kJsonArray:
 			size += 2;
 			for (int i=0; i < value->size; i++) {
-				size += platch_calc_value_size_json(&(value->array[i]));
+				size += platch_calc_value_size_json(value->array + i);
 				if (i+1 != value->size) size += 1;
 			}
 			return size;
@@ -432,31 +571,29 @@ int platch_write_value_to_buffer_json(struct json_value* value, uint8_t **pbuffe
 	return 0;
 }
 int platch_decode_value_std(uint8_t **pbuffer, size_t *premaining, struct std_value *value_out) {
-	enum std_value_type type = 0;
-	int64_t *longArray = 0;
-	int32_t *intArray = 0;
-	uint8_t *byteArray = 0, type_byte = 0;
-	char *c_string = 0; 
-	uint32_t size = 0;
+	enum std_value_type type;
+	uint8_t type_byte;
+	uint32_t size;
 	int ok;
-	
-	ok = _read8(pbuffer, &type_byte, premaining);
+
+	/// FIXME: Somehow, in release mode, this always reads 0.
+	ok = _read_u8(pbuffer, &type_byte, premaining);
 	if (ok != 0) return ok;
 
-	type = type_byte;
-	value_out->type = type;
+	type = (enum std_value_type) type_byte;
+	value_out->type = (enum std_value_type) type_byte;
 	switch (type) {
 		case kStdNull:
 		case kStdTrue:
 		case kStdFalse:
 			break;
 		case kStdInt32:
-			ok = _read32(pbuffer, (uint32_t*)&value_out->int32_value, premaining);
+			ok = _read_i32(pbuffer, &value_out->int32_value, premaining);
 			if (ok != 0) return ok;
 
 			break;
 		case kStdInt64:
-			ok = _read64(pbuffer, (uint64_t*)&value_out->int64_value, premaining);
+			ok = _read_i64(pbuffer, &value_out->int64_value, premaining);
 			if (ok != 0) return ok;
 
 			break;
@@ -464,7 +601,7 @@ int platch_decode_value_std(uint8_t **pbuffer, size_t *premaining, struct std_va
 			ok = _align((uintptr_t*) pbuffer, 8, premaining);
 			if (ok != 0) return ok;
 
-			ok = _read64(pbuffer, (uint64_t*) &value_out->float64_value, premaining);
+			ok = _read_double(pbuffer, &value_out->float64_value, premaining);
 			if (ok != 0) return ok;
 
 			break;
@@ -472,13 +609,15 @@ int platch_decode_value_std(uint8_t **pbuffer, size_t *premaining, struct std_va
 		case kStdString:
 			ok = _readSize(pbuffer, &size, premaining);
 			if (ok != 0) return ok;
-			if (*premaining < size) return EBADMSG;
 
 			value_out->string_value = calloc(size+1, sizeof(char));
 			if (!value_out->string_value) return ENOMEM;
 
-			memcpy(value_out->string_value, *pbuffer, size);
-			_advance((uintptr_t*) pbuffer, size, premaining);
+			ok = _read(pbuffer, value_out->string_value, size, premaining);
+			if (ok != 0) {
+				free(value_out->string_value);
+				return ok;
+			}
 
 			break;
 		case kStdUInt8Array:
@@ -785,7 +924,7 @@ int platch_decode(uint8_t *buffer, size_t size, enum platch_codec codec, struct 
 
 			break;
 		case kStandardMethodCallResponse: ;
-			ok = _read8(&buffer_cursor, (uint8_t*) &object_out->success, &remaining);
+			ok = _read_u8(&buffer_cursor, (uint8_t*) &object_out->success, &remaining);
 
 			if (object_out->success) {
 				ok = platch_decode_value_std(&buffer_cursor, &remaining, &(object_out->std_result));
@@ -814,9 +953,9 @@ int platch_decode(uint8_t *buffer, size_t size, enum platch_codec codec, struct 
 
 	return 0;
 }
+
 int platch_encode(struct platch_obj *object, uint8_t **buffer_out, size_t *size_out) {
 	struct std_value stdmethod, stderrcode, stderrmessage;
-	struct json_value jsmethod, jserrcode, jserrmessage, jsroot;
 	uint8_t *buffer, *buffer_cursor;
 	size_t   size = 0;
 	int		 ok = 0;
@@ -883,41 +1022,36 @@ int platch_encode(struct platch_obj *object, uint8_t **buffer_out, size_t *size_
 			}
 			break;
 		case kJSONMethodCall:
-			jsroot.type = kJsonObject;
-			jsroot.size = 2;
-			jsroot.keys = (char*[]) {"method", "args"};
-			jsroot.values = (struct json_value[]) {
-				{.type = kJsonString, .string_value = object->method},
-				object->json_arg
-			};
-
-			size = platch_calc_value_size_json(&jsroot);
+			size = platch_calc_value_size_json(
+				&JSONOBJECT2(
+					"method", JSONSTRING(object->method),
+					"args", object->json_arg
+				)
+			);
 			size += 1;
 			break;
 		case kJSONMethodCallResponse:
-			jsroot.type = kJsonArray;
 			if (object->success) {
-				jsroot.size = 1;
-				jsroot.array = (struct json_value[]) {
-					object->json_result
-				};
+				size = 1 + platch_calc_value_size_json(&JSONARRAY1(object->json_result));
 			} else {
-				jsroot.size = 3;
-				jsroot.array = (struct json_value[]) {
-					{.type = kJsonString, .string_value = object->error_code},
-					{.type = (object->error_msg != NULL) ? kJsonString : kJsonNull, .string_value = object->error_msg},
-					object->json_error_details
-				};
+				size = 1 + platch_calc_value_size_json(
+					&JSONARRAY3(
+						JSONSTRING(object->error_code),
+						(object->error_msg != NULL) ? JSONSTRING(object->error_msg) : JSONNULL,
+						object->json_error_details
+					)
+				);
 			}
-
-			size = platch_calc_value_size_json(&jsroot);
-			size += 1;
 			break;
 		default:
 			return EINVAL;
 	}
 
-	if (!(buffer = malloc(size))) return ENOMEM;
+	buffer = malloc(size);
+	if (buffer == NULL) {
+		return ENOMEM;
+	}
+
 	buffer_cursor = buffer;
 	
 	switch (object->codec) {
@@ -938,12 +1072,12 @@ int platch_encode(struct platch_obj *object, uint8_t **buffer_out, size_t *size_
 			break;
 		case kStandardMethodCallResponse:
 			if (object->success) {
-				_write8(&buffer_cursor, 0x00, NULL);
+				_write_u8(&buffer_cursor, 0x00, NULL);
 
 				ok = platch_write_value_to_buffer_std(&(object->std_result), &buffer_cursor);
 				if (ok != 0) goto free_buffer_and_return_ok;
 			} else {
-				_write8(&buffer_cursor, 0x01, NULL);
+				_write_u8(&buffer_cursor, 0x01, NULL);
 
 				ok = platch_write_value_to_buffer_std(&stderrcode, &buffer_cursor);
 				if (ok != 0) goto free_buffer_and_return_ok;
@@ -960,10 +1094,38 @@ int platch_encode(struct platch_obj *object, uint8_t **buffer_out, size_t *size_
 			if (ok != 0) goto free_buffer_and_return_ok;
 			break;
 		case kJSONMethodCall:
-		case kJSONMethodCallResponse: ;
 			size -= 1;
-			ok = platch_write_value_to_buffer_json(&jsroot, &buffer_cursor);
-			if (ok != 0) goto free_buffer_and_return_ok;
+			ok = platch_write_value_to_buffer_json(
+				&JSONOBJECT2(
+					"method", JSONSTRING(object->method),
+					"args", object->json_arg
+				),
+				&buffer_cursor
+			);
+			if (ok != 0) {
+				goto free_buffer_and_return_ok;
+			}
+			break;
+		case kJSONMethodCallResponse: 
+			if (object->success) {
+				ok = platch_write_value_to_buffer_json(
+					&JSONARRAY1(object->json_result),
+					&buffer_cursor
+				);
+			} else {
+				ok = platch_write_value_to_buffer_json(
+					&JSONARRAY3(
+						JSONSTRING(object->error_code),
+						(object->error_msg != NULL) ? JSONSTRING(object->error_msg) : JSONNULL,
+						object->json_error_details
+					),
+					&buffer_cursor
+				);
+			}
+			size -= 1;
+			if (ok != 0) {
+				goto free_buffer_and_return_ok;
+			}
 			break;
 		default:
 			return EINVAL;
@@ -1066,7 +1228,6 @@ int platch_send(char *channel, struct platch_obj *object, enum platch_codec resp
 		free(handlerdata);
 	}
 
-	fail_return_ok:
 	return ok;
 }
 
@@ -1177,8 +1338,9 @@ int platch_respond_success_json(FlutterPlatformMessageResponseHandle *handle,
 		&(struct platch_obj) {
 			.codec = kJSONMethodCallResponse,
 			.success = true,
-			.json_result = return_value? *return_value
-				: (struct json_value) {.type = kJsonNull}
+			.json_result = return_value
+				? *return_value
+				: JSONNULL
 		}
 	);
 }
@@ -1222,19 +1384,14 @@ int platch_respond_success_pigeon(
 ) {
 	return platch_respond(
 		handle,
-		&(struct platch_obj) {
-			.codec = kStandardMessageCodec,
-			.std_value = {
-				.type = kStdMap,
-				.size = 1,
-				.keys = (struct std_value[1]) {
-					STDSTRING("result")
-				},
-				.values = return_value != NULL ?
-					return_value :
-					(struct std_value[1]) {STDNULL}
-			}
-		}
+		&PLATCH_OBJ_STD_MSG(
+			STDMAP1(
+				STDSTRING("result"),
+				return_value != NULL
+					? *return_value
+					: STDNULL
+			)
+		)
 	);
 }
 
@@ -1246,34 +1403,18 @@ int platch_respond_error_pigeon(
 ) {
 	return platch_respond(
 		handle,
-		&(struct platch_obj) {
-			.codec = kStandardMessageCodec,
-			.std_value = {
-				.type = kStdMap,
-				.size = 1,
-				.keys = (struct std_value[1]) {
-					STDSTRING("error")
-				},
-				.values = (struct std_value[1]) {
-					{
-						.type = kStdMap,
-						.size = 3,
-						.keys = (struct std_value[3]) {
-							STDSTRING("code"),
-							STDSTRING("message"),
-							STDSTRING("details")
-						},
-						.values = (struct std_value[3]) {
-							STDSTRING(error_code),
-							STDSTRING(error_msg),
-							error_details != NULL ?
-								*error_details :
-								STDNULL
-						}
-					}
-				}
-			}
-		}
+		&PLATCH_OBJ_STD_MSG(
+			STDMAP1(
+				STDSTRING("error"),
+				STDMAP3(
+					STDSTRING("code"),    STDSTRING(error_code),
+					STDSTRING("message"), STDSTRING(error_msg),
+					STDSTRING("details"), error_details != NULL
+											? *error_details
+											: STDNULL
+				)
+			)
+		)
 	);
 }
 
@@ -1288,6 +1429,20 @@ int platch_respond_illegal_arg_pigeon(
 		NULL
 	);
 }
+
+int platch_respond_illegal_arg_ext_pigeon(
+	FlutterPlatformMessageResponseHandle *handle,
+	char *error_msg,
+	struct std_value *error_details
+) {
+	return platch_respond_error_pigeon(
+		handle,
+		"illegalargument",
+		error_msg,
+		error_details
+	);
+}
+
 
 int platch_respond_native_error_pigeon(
 	FlutterPlatformMessageResponseHandle *handle,
@@ -1388,12 +1543,12 @@ bool jsvalue_equals(struct json_value *a, struct json_value *b) {
 				if (!jsvalue_equals(&a->array[i], &b->array[i]))
 					return false;
 			return true;
-		case kJsonObject:
+		case kJsonObject: {
 			if (a->size != b->size) return false;
 			if ((a->keys == b->keys) && (a->values == b->values)) return true;
 
 			bool _keyInBAlsoInA[a->size];
-			memset(_keyInBAlsoInA, false, a->size * sizeof(bool));
+			memset(_keyInBAlsoInA, 0, a->size * sizeof(bool));
 
 			for (int i = 0; i < a->size; i++) {
 				// The key we're searching for in b.
@@ -1417,7 +1572,12 @@ bool jsvalue_equals(struct json_value *a, struct json_value *b) {
 			}
 
 			return true;
+		}
+		default:
+			return false;
 	}
+
+	return 0;	
 }
 struct json_value *jsobject_get(struct json_value *object, char *key) {
 	int i;
@@ -1430,7 +1590,11 @@ struct json_value *jsobject_get(struct json_value *object, char *key) {
 }
 bool stdvalue_equals(struct std_value *a, struct std_value *b) {
 	if (a == b) return true;
-	if ((a == NULL) ^  (b == NULL)) return false;
+	if ((a == NULL) ^ (b == NULL)) return false;
+
+	DEBUG_ASSERT_NOT_NULL(a);
+	DEBUG_ASSERT_NOT_NULL(b);
+
 	if (a->type != b->type) return false;
 
 	switch (a->type) {
@@ -1444,12 +1608,17 @@ bool stdvalue_equals(struct std_value *a, struct std_value *b) {
 			return a->int64_value == b->int64_value;
 		case kStdLargeInt:
 		case kStdString:
+			DEBUG_ASSERT_NOT_NULL(a->string_value);
+			DEBUG_ASSERT_NOT_NULL(b->string_value);
 			return strcmp(a->string_value, b->string_value) == 0;
 		case kStdFloat64:
 			return a->float64_value == b->float64_value;
 		case kStdUInt8Array:
 			if (a->size != b->size) return false;
 			if (a->uint8array == b->uint8array) return true;
+
+			DEBUG_ASSERT_NOT_NULL(a->uint8array);
+			DEBUG_ASSERT_NOT_NULL(b->uint8array);
 			for (int i = 0; i < a->size; i++)
 				if (a->uint8array[i] != b->uint8array[i])
 					return false;
@@ -1457,6 +1626,9 @@ bool stdvalue_equals(struct std_value *a, struct std_value *b) {
 		case kStdInt32Array:
 			if (a->size != b->size) return false;
 			if (a->int32array == b->int32array) return true;
+
+			DEBUG_ASSERT_NOT_NULL(a->int32array);
+			DEBUG_ASSERT_NOT_NULL(b->int32array);
 			for (int i = 0; i < a->size; i++)
 				if (a->int32array[i] != b->int32array[i])
 					return false;
@@ -1464,6 +1636,9 @@ bool stdvalue_equals(struct std_value *a, struct std_value *b) {
 		case kStdInt64Array:
 			if (a->size != b->size) return false;
 			if (a->int64array == b->int64array) return true;
+
+			DEBUG_ASSERT_NOT_NULL(a->int64array);
+			DEBUG_ASSERT_NOT_NULL(b->int64array);
 			for (int i = 0; i < a->size; i++)
 				if (a->int64array[i] != b->int64array[i])
 					return false;
@@ -1471,6 +1646,9 @@ bool stdvalue_equals(struct std_value *a, struct std_value *b) {
 		case kStdFloat64Array:
 			if (a->size != b->size) return false;
 			if (a->float64array == b->float64array) return true;
+
+			DEBUG_ASSERT_NOT_NULL(a->float64array);
+			DEBUG_ASSERT_NOT_NULL(b->float64array);
 			for (int i = 0; i < a->size; i++)
 				if (a->float64array[i] != b->float64array[i])
 					return false;
@@ -1480,8 +1658,10 @@ bool stdvalue_equals(struct std_value *a, struct std_value *b) {
 			if (a->size != b->size) return false;
 			if (a->list == b->list) return true;
 
+			DEBUG_ASSERT_NOT_NULL(a->list);
+			DEBUG_ASSERT_NOT_NULL(b->list);
 			for (int i = 0; i < a->size; i++)
-				if (!stdvalue_equals(&(a->list[i]), &(b->list[i])))
+				if (!stdvalue_equals(a->list + i, b->list + i))
 					return false;
 			
 			return true;
@@ -1493,22 +1673,25 @@ bool stdvalue_equals(struct std_value *a, struct std_value *b) {
 			// _keyInBAlsoInA[i] == true means that there's a key in a that matches b->keys[i]
 			//   so if we're searching for a key in b, we can safely ignore / don't need to compare
 			//   keys in b that have they're _keyInBAlsoInA set to true.
-			bool _keyInBAlsoInA[a->size];
-			memset(_keyInBAlsoInA, false, a->size * sizeof(bool));
+			bool *_keyInBAlsoInA = alloca(sizeof(bool) * a->size);
+			memset(_keyInBAlsoInA, 0, sizeof(bool) * a->size);
 
 			for (int i = 0; i < a->size; i++) {
 				// The key we're searching for in b.
-				struct std_value *key = &(a->keys[i]);
+				struct std_value *key = a->keys + i;
 				
 				int j = 0;
 				while (j < a->size) {
 					while (_keyInBAlsoInA[j] && (j < a->size))  j++;	// skip all keys with _keyInBAlsoInA set to true.
-					if (!stdvalue_equals(key, &(b->keys[j])))   j++;	// if b->keys[j] is not equal to "key", continue searching
-					else {
+					if (stdvalue_equals(key, b->keys + j) == false) {
+						j++;	// if b->keys[j] is not equal to "key", continue searching
+					} else {
 						_keyInBAlsoInA[j] = true;
 
 						// the values of "key" in a and b must (of course) also be equivalent.
-						if (!stdvalue_equals(&(a->values[i]), &(b->values[j]))) return false;
+						if (stdvalue_equals(a->values + i, b->values + j) == false) {
+							return false;
+						}
 						break;
 					}
 				}
@@ -1525,12 +1708,19 @@ bool stdvalue_equals(struct std_value *a, struct std_value *b) {
 	return false;
 }
 struct std_value *stdmap_get(struct std_value *map, struct std_value *key) {
-	for (int i=0; i < map->size; i++)
-		if (stdvalue_equals(&map->keys[i], key))
+	DEBUG_ASSERT_NOT_NULL(map);
+	DEBUG_ASSERT_NOT_NULL(key);
+
+	for (int i=0; i < map->size; i++) {
+		if (stdvalue_equals(&map->keys[i], key)) {
 			return &map->values[i];
+		}
+	}
 
 	return NULL;
 }
 struct std_value *stdmap_get_str(struct std_value *map, char *key) {
-	return stdmap_get(map, &(struct std_value) {.type = kStdString, .string_value = key});
+	DEBUG_ASSERT_NOT_NULL(map);
+	DEBUG_ASSERT_NOT_NULL(key);
+	return stdmap_get(map, &STDSTRING(key));
 }

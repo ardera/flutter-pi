@@ -41,6 +41,8 @@ int rawkb_send_android_keyevent(
      * type: is_down? "keydown" : "keyup"
      * character: character
      */
+
+    (void) plain_code_point;
     
     return platch_send(
         KEY_EVENT_CHANNEL,
@@ -139,10 +141,20 @@ int rawkb_send_gtk_keyevent(
     );
 }
 
-int rawkb_init(void) {
-    return 0;
+enum plugin_init_result rawkb_init(struct flutterpi *flutterpi, void **userdata_out) {
+    (void) flutterpi;
+    (void) userdata_out;
+    return kInitialized_PluginInitResult;
 }
 
-int rawkb_deinit(void) {
-    return 0;
+void rawkb_deinit(struct flutterpi *flutterpi, void *userdata) {
+    (void) flutterpi;
+    (void) userdata;
 }
+
+FLUTTERPI_PLUGIN(
+    "raw keyboard plugin",
+    rawkb,
+    rawkb_init,
+    rawkb_deinit
+)

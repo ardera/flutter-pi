@@ -4,20 +4,9 @@
 #include <stdint.h>
 #include <errno.h>
 #include <flutter_embedder.h>
+#include <collection.h>
 
 #define JSON_DECODE_TOKENLIST_SIZE  128
-
-// andrew
-// only 32bit support for now.
-//#define __ALIGN4_REMAINING(value, remaining, ...) __align(value, 4, remaining)
-//#define __ALIGN8_REMAINING(value, remaining, ...) __align(value, 8, remaining)
-//#define align4(...) __ALIGN4_REMAINING(__VA_ARGS__, NULL)
-//#define align8(...) __ALIGN8_REMAINING(__VA_ARGS__, NULL)
-
-//#define alignmentDiff(value, alignment) __alignmentDiff(value, alignment)
-
-//#define __ADVANCE_REMAINING(value, n, remaining, ...) __advance(value, n, remaining)
-//#define advance(...) __ADVANCE_REMAINING(__VA_ARGS__, NULL)
 
 
 /*
@@ -102,6 +91,10 @@ struct std_value {
     };
 };
 
+struct std_value_v2 {
+	enum std_value_type type;
+};
+
 #define STDVALUE_IS_NULL(value) ((value).type == kStdNull)
 #define STDNULL ((struct std_value) {.type = kStdNull})
 
@@ -123,7 +116,7 @@ struct std_value {
 
 #define STDVALUE_IS_STRING(value) ((value).type == kStdString)
 #define STDVALUE_AS_STRING(value) ((value).string_value)
-#define STDSTRING(str) ((struct std_value) {.type = kStdString, .string_value = str})
+#define STDSTRING(str) ((struct std_value) {.type = kStdString, .string_value = (str)})
 
 #define STDVALUE_IS_LIST(value) ((value).type == kStdList)
 #define STDVALUE_IS_SIZE(value, _size) ((value).size == (_size))
@@ -132,6 +125,473 @@ struct std_value {
 #define STDVALUE_IS_INT_ARRAY(value) (((value).type == kStdInt32Array) || ((value).type == kStdInt64Array) || ((value).type == kStdUInt8Array))
 #define STDVALUE_IS_FLOAT_ARRAY(value) ((value).type == kStdFloat64Array)
 #define STDVALUE_IS_NUM_ARRAY(value) (STDVALUE_IS_INT_ARRAY(value) || STDVALUE_IS_FLOAT_ARRAY(value))
+
+#define STDVALUE_IS_MAP(value) ((value).type == kStdMap)
+#define STDVALUE_IS_SIZED_MAP(value, _size) ((value).size == (_size))
+
+#define STDMAP1(key1, val1) ((struct std_value) { \
+	.type = kStdMap, \
+	.size = 1, \
+	.keys = (struct std_value[1]) { \
+		(key1) \
+	}, \
+	.values = (struct std_value[1]) { \
+		(val1) \
+	} \
+})
+
+#define STDMAP2(key1, val1, key2, val2) ((struct std_value) { \
+	.type = kStdMap, \
+	.size = 2, \
+	.keys = (struct std_value[2]) { \
+		(key1), (key2) \
+	}, \
+	.values = (struct std_value[2]) { \
+		(val1), (val2) \
+	} \
+})
+#define STDMAP3(key1, val1, key2, val2, key3, val3) ((struct std_value) { \
+	.type = kStdMap, \
+	.size = 3, \
+	.keys = (struct std_value[3]) { \
+		(key1), (key2), (key3) \
+	}, \
+	.values = (struct std_value[3]) { \
+		(val1), (val2), (val3) \
+	} \
+})
+#define STDMAP4(key1, val1, key2, val2, key3, val3, key4, val4) ((struct std_value) { \
+	.type = kStdMap, \
+	.size = 4, \
+	.keys = (struct std_value[4]) { \
+		(key1), (key2), (key3), (key4) \
+	}, \
+	.values = (struct std_value[4]) { \
+		(val1), (val2), (val3), (val4) \
+	} \
+})
+#define STDMAP5(key1, val1, key2, val2, key3, val3, key4, val4, key5, val5) ((struct std_value) { \
+	.type = kStdMap, \
+	.size = 5, \
+	.keys = (struct std_value[5]) { \
+		(key1), (key2), (key3), (key4), (key5) \
+	}, \
+	.values = (struct std_value[5]) { \
+		(val1), (val2), (val3), (val4), (val5) \
+	} \
+})
+#define STDMAP6(key1, val1, key2, val2, key3, val3, key4, val4, key5, val5, key6, val6) ((struct std_value) { \
+	.type = kStdMap, \
+	.size = 6, \
+	.keys = (struct std_value[6]) { \
+		(key1), (key2), (key3), (key4), (key5), (key6) \
+	}, \
+	.values = (struct std_value[6]) { \
+		(val1), (val2), (val3), (val4), (val5), (val6) \
+	} \
+})
+#define STDMAP7(key1, val1, key2, val2, key3, val3, key4, val4, key5, val5, key6, val6, key7, val7) ((struct std_value) { \
+	.type = kStdMap, \
+	.size = 7, \
+	.keys = (struct std_value[7]) { \
+		(key1), (key2), (key3), (key4), (key5), (key6), (key7) \
+	}, \
+	.values = (struct std_value[7]) { \
+		(val1), (val2), (val3), (val4), (val5), (val6), (val7) \
+	} \
+})
+#define STDMAP8(key1, val1, key2, val2, key3, val3, key4, val4, key5, val5, key6, val6, key7, val7, key8, val8) ((struct std_value) { \
+	.type = kStdMap, \
+	.size = 8, \
+	.keys = (struct std_value[8]) { \
+		(key1), (key2), (key3), (key4), (key5), (key6), (key7), (key8) \
+	}, \
+	.values = (struct std_value[8]) { \
+		(val1), (val2), (val3), (val4), (val5), (val6), (val7), (val8) \
+	} \
+})
+#define STDMAP9(key1, val1, key2, val2, key3, val3, key4, val4, key5, val5, key6, val6, key7, val7, key8, val8, key9, val9) ((struct std_value) { \
+	.type = kStdMap, \
+	.size = 9, \
+	.keys = (struct std_value[9]) { \
+		(key1), (key2), (key3), (key4), (key5), (key6), (key7), (key8), (key9) \
+	}, \
+	.values = (struct std_value[9]) { \
+		(val1), (val2), (val3), (val4), (val5), (val6), (val7), (val8), (val9) \
+	} \
+})
+#define STDMAP10(key1, val1, key2, val2, key3, val3, key4, val4, key5, val5, key6, val6, key7, val7, key8, val8, key9, val9, key10, val10) ((struct std_value) { \
+	.type = kStdMap, \
+	.size = 10, \
+	.keys = (struct std_value[10]) { \
+		(key1), (key2), (key3), (key4), (key5), (key6), (key7), (key8), (key9), (key10) \
+	}, \
+	.values = (struct std_value[10]) { \
+		(val1), (val2), (val3), (val4), (val5), (val6), (val7), (val8), (val9), (val10) \
+	} \
+})
+#define STDMAP11(key1, val1, key2, val2, key3, val3, key4, val4, key5, val5, key6, val6, key7, val7, key8, val8, key9, val9, key10, val10, key11, val11) ((struct std_value) { \
+	.type = kStdMap, \
+	.size = 11, \
+	.keys = (struct std_value[11]) { \
+		(key1), (key2), (key3), (key4), (key5), (key6), (key7), (key8), (key9), (key10), (key11) \
+	}, \
+	.values = (struct std_value[11]) { \
+		(val1), (val2), (val3), (val4), (val5), (val6), (val7), (val8), (val9), (val10), (val11) \
+	} \
+})
+#define STDMAP12(key1, val1, key2, val2, key3, val3, key4, val4, key5, val5, key6, val6, key7, val7, key8, val8, key9, val9, key10, val10, key11, val11, key12, val12) ((struct std_value) { \
+	.type = kStdMap, \
+	.size = 12, \
+	.keys = (struct std_value[12]) { \
+		(key1), (key2), (key3), (key4), (key5), (key6), (key7), (key8), (key9), (key10), (key11), (key12) \
+	}, \
+	.values = (struct std_value[12]) { \
+		(val1), (val2), (val3), (val4), (val5), (val6), (val7), (val8), (val9), (val10), (val11), (val12) \
+	} \
+})
+#define STDMAP13(key1, val1, key2, val2, key3, val3, key4, val4, key5, val5, key6, val6, key7, val7, key8, val8, key9, val9, key10, val10, key11, val11, key12, val12, key13, val13) ((struct std_value) { \
+	.type = kStdMap, \
+	.size = 13, \
+	.keys = (struct std_value[13]) { \
+		(key1), (key2), (key3), (key4), (key5), (key6), (key7), (key8), (key9), (key10), (key11), (key12), (key13) \
+	}, \
+	.values = (struct std_value[13]) { \
+		(val1), (val2), (val3), (val4), (val5), (val6), (val7), (val8), (val9), (val10), (val11), (val12), (val13) \
+	} \
+})
+#define STDMAP14(key1, val1, key2, val2, key3, val3, key4, val4, key5, val5, key6, val6, key7, val7, key8, val8, key9, val9, key10, val10, key11, val11, key12, val12, key13, val13, key14, val14) ((struct std_value) { \
+	.type = kStdMap, \
+	.size = 14, \
+	.keys = (struct std_value[14]) { \
+		(key1), (key2), (key3), (key4), (key5), (key6), (key7), (key8), (key9), (key10), (key11), (key12), (key13), (key14) \
+	}, \
+	.values = (struct std_value[14]) { \
+		(val1), (val2), (val3), (val4), (val5), (val6), (val7), (val8), (val9), (val10), (val11), (val12), (val13), (val14) \
+	} \
+})
+#define STDMAP15(key1, val1, key2, val2, key3, val3, key4, val4, key5, val5, key6, val6, key7, val7, key8, val8, key9, val9, key10, val10, key11, val11, key12, val12, key13, val13, key14, val14, key15, val15) ((struct std_value) { \
+	.type = kStdMap, \
+	.size = 15, \
+	.keys = (struct std_value[15]) { \
+		(key1), (key2), (key3), (key4), (key5), (key6), (key7), (key8), (key9), (key10), (key11), (key12), (key13), (key14), (key15) \
+	}, \
+	.values = (struct std_value[15]) { \
+		(val1), (val2), (val3), (val4), (val5), (val6), (val7), (val8), (val9), (val10), (val11), (val12), (val13), (val14), (val15) \
+	} \
+})
+#define STDMAP16(key1, val1, key2, val2, key3, val3, key4, val4, key5, val5, key6, val6, key7, val7, key8, val8, key9, val9, key10, val10, key11, val11, key12, val12, key13, val13, key14, val14, key15, val15, key16, val16) ((struct std_value) { \
+	.type = kStdMap, \
+	.size = 16, \
+	.keys = (struct std_value[16]) { \
+		(key1), (key2), (key3), (key4), (key5), (key6), (key7), (key8), (key9), (key10), (key11), (key12), (key13), (key14), (key15), (key16) \
+	}, \
+	.values = (struct std_value[16]) { \
+		(val1), (val2), (val3), (val4), (val5), (val6), (val7), (val8), (val9), (val10), (val11), (val12), (val13), (val14), (val15), (val16) \
+	} \
+})
+#define STDMAP17(key1, val1, key2, val2, key3, val3, key4, val4, key5, val5, key6, val6, key7, val7, key8, val8, key9, val9, key10, val10, key11, val11, key12, val12, key13, val13, key14, val14, key15, val15, key16, val16, key17, val17) ((struct std_value) { \
+	.type = kStdMap, \
+	.size = 17, \
+	.keys = (struct std_value[17]) { \
+		(key1), (key2), (key3), (key4), (key5), (key6), (key7), (key8), (key9), (key10), (key11), (key12), (key13), (key14), (key15), (key16), (key17) \
+	}, \
+	.values = (struct std_value[17]) { \
+		(val1), (val2), (val3), (val4), (val5), (val6), (val7), (val8), (val9), (val10), (val11), (val12), (val13), (val14), (val15), (val16), (val17) \
+	} \
+})
+#define STDMAP18(key1, val1, key2, val2, key3, val3, key4, val4, key5, val5, key6, val6, key7, val7, key8, val8, key9, val9, key10, val10, key11, val11, key12, val12, key13, val13, key14, val14, key15, val15, key16, val16, key17, val17, key18, val18) ((struct std_value) { \
+	.type = kStdMap, \
+	.size = 18, \
+	.keys = (struct std_value[18]) { \
+		(key1), (key2), (key3), (key4), (key5), (key6), (key7), (key8), (key9), (key10), (key11), (key12), (key13), (key14), (key15), (key16), (key17), (key18) \
+	}, \
+	.values = (struct std_value[18]) { \
+		(val1), (val2), (val3), (val4), (val5), (val6), (val7), (val8), (val9), (val10), (val11), (val12), (val13), (val14), (val15), (val16), (val17), (val18) \
+	} \
+})
+#define STDMAP19(key1, val1, key2, val2, key3, val3, key4, val4, key5, val5, key6, val6, key7, val7, key8, val8, key9, val9, key10, val10, key11, val11, key12, val12, key13, val13, key14, val14, key15, val15, key16, val16, key17, val17, key18, val18, key19, val19) ((struct std_value) { \
+	.type = kStdMap, \
+	.size = 19, \
+	.keys = (struct std_value[19]) { \
+		(key1), (key2), (key3), (key4), (key5), (key6), (key7), (key8), (key9), (key10), (key11), (key12), (key13), (key14), (key15), (key16), (key17), (key18), (key19) \
+	}, \
+	.values = (struct std_value[19]) { \
+		(val1), (val2), (val3), (val4), (val5), (val6), (val7), (val8), (val9), (val10), (val11), (val12), (val13), (val14), (val15), (val16), (val17), (val18), (val19) \
+	} \
+})
+#define STDMAP20(key1, val1, key2, val2, key3, val3, key4, val4, key5, val5, key6, val6, key7, val7, key8, val8, key9, val9, key10, val10, key11, val11, key12, val12, key13, val13, key14, val14, key15, val15, key16, val16, key17, val17, key18, val18, key19, val19, key20, val20) ((struct std_value) { \
+	.type = kStdMap, \
+	.size = 20, \
+	.keys = (struct std_value[20]) { \
+		(key1), (key2), (key3), (key4), (key5), (key6), (key7), (key8), (key9), (key10), (key11), (key12), (key13), (key14), (key15), (key16), (key17), (key18), (key19), (key20) \
+	}, \
+	.values = (struct std_value[20]) { \
+		(val1), (val2), (val3), (val4), (val5), (val6), (val7), (val8), (val9), (val10), (val11), (val12), (val13), (val14), (val15), (val16), (val17), (val18), (val19), (val20) \
+	} \
+})
+
+#define STDLIST1(val1) ((struct std_value) { \
+	.type = kStdList, \
+	.size = 1, \
+	.list = (struct std_value[1]) { \
+		(val1) \
+	} \
+})
+
+#define STDLIST2(val1, val2) ((struct std_value) { \
+	.type = kStdList, \
+	.size = 2, \
+	.list = (struct std_value[2]) { \
+		(val1), (val2) \
+	} \
+})
+
+#define JSONVALUE_IS_NULL(value) ((value).type == kJsonNull)
+#define JSONNULL ((struct json_value) {.type = kJsonNull})
+
+#define JSONVALUE_IS_BOOL(value) (((value).type == kJsonTrue) || ((value).type == kJsonFalse))
+#define JSONVALUE_AS_BOOL(value) ((value).type == kJsonTrue)
+#define JSONBOOL(bool_value) ((struct json_value) {.type = (bool_value) ? kJsonTrue : kJsonFalse})
+
+#define JSONVALUE_IS_NUM(value) ((value).type == kJsonNumber)
+#define JSONVALUE_AS_NUM(value) ((value).number_value)
+#define JSONNUM(_number_value) ((struct json_value) {.type = kJsonNumber, .number_value = (_number_value)})
+
+#define JSONVALUE_IS_STRING(value) ((value).type == kJsonString)
+#define JSONVALUE_AS_STRING(value) ((value).string_value)
+#define JSONSTRING(str) ((struct json_value) {.type = kJsonString, .string_value = str})
+
+#define JSONVALUE_IS_ARRAY(value) ((value).type == kJsonArray)
+#define JSONVALUE_IS_SIZE(value, _size) ((value).size == (_size))
+#define JSONVALUE_IS_SIZED_ARRAY(value, _size) (JSONVALUE_IS_ARRAY(value) && JSONVALUE_IS_SIZE(value, _size))
+
+#define JSONVALUE_IS_OBJECT(value) ((value).type == kJsonObject)
+#define JSONVALUE_IS_SIZED_OBJECT(value, _size) (JSONVALUE_IS_OBJECT(value) && JSONVALUE_IS_SIZE(value, _size))
+
+#define JSONARRAY1(val1) ((struct json_value) { \
+	.type = kJsonArray, \
+	.size = 1, \
+	.array = (struct json_value[1]) { \
+		(val1) \
+	} \
+})
+#define JSONARRAY2(val1, val2) ((struct json_value) { \
+	.type = kJsonArray, \
+	.size = 2, \
+	.array = (struct json_value[2]) { \
+		(val1), (val2) \
+	} \
+})
+#define JSONARRAY3(val1, val2, val3) ((struct json_value) { \
+	.type = kJsonArray, \
+	.size = 3, \
+	.array = (struct json_value[3]) { \
+		(val1), (val2), (val3) \
+	} \
+})
+
+#define JSONOBJECT1(key1, val1) ((struct json_value) { \
+	.type = kJsonObject, \
+	.size = 1, \
+	.keys = (char *[1]) { \
+		(key1) \
+	}, \
+	.values = (struct json_value[1]) { \
+		(val1) \
+	} \
+})
+
+#define JSONOBJECT2(key1, val1, key2, val2) ((struct json_value) { \
+	.type = kJsonObject, \
+	.size = 2, \
+	.keys = (char *[2]) { \
+		(key1), (key2) \
+	}, \
+	.values = (struct json_value[2]) { \
+		(val1), (val2) \
+	} \
+})
+#define JSONOBJECT3(key1, val1, key2, val2, key3, val3) ((struct json_value) { \
+	.type = kJsonObject, \
+	.size = 3, \
+	.keys = (char *[3]) { \
+		(key1), (key2), (key3) \
+	}, \
+	.values = (struct json_value[3]) { \
+		(val1), (val2), (val3) \
+	} \
+})
+#define JSONOBJECT4(key1, val1, key2, val2, key3, val3, key4, val4) ((struct json_value) { \
+	.type = kJsonObject, \
+	.size = 4, \
+	.keys = (char *[4]) { \
+		(key1), (key2), (key3), (key4) \
+	}, \
+	.values = (struct json_value[4]) { \
+		(val1), (val2), (val3), (val4) \
+	} \
+})
+#define JSONOBJECT5(key1, val1, key2, val2, key3, val3, key4, val4, key5, val5) ((struct json_value) { \
+	.type = kJsonObject, \
+	.size = 5, \
+	.keys = (char *[5]) { \
+		(key1), (key2), (key3), (key4), (key5) \
+	}, \
+	.values = (struct json_value[5]) { \
+		(val1), (val2), (val3), (val4), (val5) \
+	} \
+})
+#define JSONOBJECT6(key1, val1, key2, val2, key3, val3, key4, val4, key5, val5, key6, val6) ((struct json_value) { \
+	.type = kJsonObject, \
+	.size = 6, \
+	.keys = (char *[6]) { \
+		(key1), (key2), (key3), (key4), (key5), (key6) \
+	}, \
+	.values = (struct json_value[6]) { \
+		(val1), (val2), (val3), (val4), (val5), (val6) \
+	} \
+})
+#define JSONOBJECT7(key1, val1, key2, val2, key3, val3, key4, val4, key5, val5, key6, val6, key7, val7) ((struct json_value) { \
+	.type = kJsonObject, \
+	.size = 7, \
+	.keys = (char *[7]) { \
+		(key1), (key2), (key3), (key4), (key5), (key6), (key7) \
+	}, \
+	.values = (struct json_value[7]) { \
+		(val1), (val2), (val3), (val4), (val5), (val6), (val7) \
+	} \
+})
+#define JSONOBJECT8(key1, val1, key2, val2, key3, val3, key4, val4, key5, val5, key6, val6, key7, val7, key8, val8) ((struct json_value) { \
+	.type = kJsonObject, \
+	.size = 8, \
+	.keys = (char *[8]) { \
+		(key1), (key2), (key3), (key4), (key5), (key6), (key7), (key8) \
+	}, \
+	.values = (struct json_value[8]) { \
+		(val1), (val2), (val3), (val4), (val5), (val6), (val7), (val8) \
+	} \
+})
+#define JSONOBJECT9(key1, val1, key2, val2, key3, val3, key4, val4, key5, val5, key6, val6, key7, val7, key8, val8, key9, val9) ((struct json_value) { \
+	.type = kJsonObject, \
+	.size = 9, \
+	.keys = (char *[9]) { \
+		(key1), (key2), (key3), (key4), (key5), (key6), (key7), (key8), (key9) \
+	}, \
+	.values = (struct json_value[9]) { \
+		(val1), (val2), (val3), (val4), (val5), (val6), (val7), (val8), (val9) \
+	} \
+})
+#define JSONOBJECT10(key1, val1, key2, val2, key3, val3, key4, val4, key5, val5, key6, val6, key7, val7, key8, val8, key9, val9, key10, val10) ((struct json_value) { \
+	.type = kJsonObject, \
+	.size = 10, \
+	.keys = (char *[10]) { \
+		(key1), (key2), (key3), (key4), (key5), (key6), (key7), (key8), (key9), (key10) \
+	}, \
+	.values = (struct json_value[10]) { \
+		(val1), (val2), (val3), (val4), (val5), (val6), (val7), (val8), (val9), (val10) \
+	} \
+})
+#define JSONOBJECT11(key1, val1, key2, val2, key3, val3, key4, val4, key5, val5, key6, val6, key7, val7, key8, val8, key9, val9, key10, val10, key11, val11) ((struct json_value) { \
+	.type = kJsonObject, \
+	.size = 11, \
+	.keys = (char *[11]) { \
+		(key1), (key2), (key3), (key4), (key5), (key6), (key7), (key8), (key9), (key10), (key11) \
+	}, \
+	.values = (struct json_value[11]) { \
+		(val1), (val2), (val3), (val4), (val5), (val6), (val7), (val8), (val9), (val10), (val11) \
+	} \
+})
+#define JSONOBJECT12(key1, val1, key2, val2, key3, val3, key4, val4, key5, val5, key6, val6, key7, val7, key8, val8, key9, val9, key10, val10, key11, val11, key12, val12) ((struct json_value) { \
+	.type = kJsonObject, \
+	.size = 12, \
+	.keys = (char *[12]) { \
+		(key1), (key2), (key3), (key4), (key5), (key6), (key7), (key8), (key9), (key10), (key11), (key12) \
+	}, \
+	.values = (struct json_value[12]) { \
+		(val1), (val2), (val3), (val4), (val5), (val6), (val7), (val8), (val9), (val10), (val11), (val12) \
+	} \
+})
+#define JSONOBJECT13(key1, val1, key2, val2, key3, val3, key4, val4, key5, val5, key6, val6, key7, val7, key8, val8, key9, val9, key10, val10, key11, val11, key12, val12, key13, val13) ((struct json_value) { \
+	.type = kJsonObject, \
+	.size = 13, \
+	.keys = (char *[13]) { \
+		(key1), (key2), (key3), (key4), (key5), (key6), (key7), (key8), (key9), (key10), (key11), (key12), (key13) \
+	}, \
+	.values = (struct json_value[13]) { \
+		(val1), (val2), (val3), (val4), (val5), (val6), (val7), (val8), (val9), (val10), (val11), (val12), (val13) \
+	} \
+})
+#define JSONOBJECT14(key1, val1, key2, val2, key3, val3, key4, val4, key5, val5, key6, val6, key7, val7, key8, val8, key9, val9, key10, val10, key11, val11, key12, val12, key13, val13, key14, val14) ((struct json_value) { \
+	.type = kJsonObject, \
+	.size = 14, \
+	.keys = (char *[14]) { \
+		(key1), (key2), (key3), (key4), (key5), (key6), (key7), (key8), (key9), (key10), (key11), (key12), (key13), (key14) \
+	}, \
+	.values = (struct json_value[14]) { \
+		(val1), (val2), (val3), (val4), (val5), (val6), (val7), (val8), (val9), (val10), (val11), (val12), (val13), (val14) \
+	} \
+})
+#define JSONOBJECT15(key1, val1, key2, val2, key3, val3, key4, val4, key5, val5, key6, val6, key7, val7, key8, val8, key9, val9, key10, val10, key11, val11, key12, val12, key13, val13, key14, val14, key15, val15) ((struct json_value) { \
+	.type = kJsonObject, \
+	.size = 15, \
+	.keys = (char *[15]) { \
+		(key1), (key2), (key3), (key4), (key5), (key6), (key7), (key8), (key9), (key10), (key11), (key12), (key13), (key14), (key15) \
+	}, \
+	.values = (struct json_value[15]) { \
+		(val1), (val2), (val3), (val4), (val5), (val6), (val7), (val8), (val9), (val10), (val11), (val12), (val13), (val14), (val15) \
+	} \
+})
+#define JSONOBJECT16(key1, val1, key2, val2, key3, val3, key4, val4, key5, val5, key6, val6, key7, val7, key8, val8, key9, val9, key10, val10, key11, val11, key12, val12, key13, val13, key14, val14, key15, val15, key16, val16) ((struct json_value) { \
+	.type = kJsonObject, \
+	.size = 16, \
+	.keys = (char *[16]) { \
+		(key1), (key2), (key3), (key4), (key5), (key6), (key7), (key8), (key9), (key10), (key11), (key12), (key13), (key14), (key15), (key16) \
+	}, \
+	.values = (struct json_value[16]) { \
+		(val1), (val2), (val3), (val4), (val5), (val6), (val7), (val8), (val9), (val10), (val11), (val12), (val13), (val14), (val15), (val16) \
+	} \
+})
+#define JSONOBJECT17(key1, val1, key2, val2, key3, val3, key4, val4, key5, val5, key6, val6, key7, val7, key8, val8, key9, val9, key10, val10, key11, val11, key12, val12, key13, val13, key14, val14, key15, val15, key16, val16, key17, val17) ((struct json_value) { \
+	.type = kJsonObject, \
+	.size = 17, \
+	.keys = (char *[17]) { \
+		(key1), (key2), (key3), (key4), (key5), (key6), (key7), (key8), (key9), (key10), (key11), (key12), (key13), (key14), (key15), (key16), (key17) \
+	}, \
+	.values = (struct json_value[17]) { \
+		(val1), (val2), (val3), (val4), (val5), (val6), (val7), (val8), (val9), (val10), (val11), (val12), (val13), (val14), (val15), (val16), (val17) \
+	} \
+})
+#define JSONOBJECT18(key1, val1, key2, val2, key3, val3, key4, val4, key5, val5, key6, val6, key7, val7, key8, val8, key9, val9, key10, val10, key11, val11, key12, val12, key13, val13, key14, val14, key15, val15, key16, val16, key17, val17, key18, val18) ((struct json_value) { \
+	.type = kJsonObject, \
+	.size = 18, \
+	.keys = (char *[18]) { \
+		(key1), (key2), (key3), (key4), (key5), (key6), (key7), (key8), (key9), (key10), (key11), (key12), (key13), (key14), (key15), (key16), (key17), (key18) \
+	}, \
+	.values = (struct json_value[18]) { \
+		(val1), (val2), (val3), (val4), (val5), (val6), (val7), (val8), (val9), (val10), (val11), (val12), (val13), (val14), (val15), (val16), (val17), (val18) \
+	} \
+})
+#define JSONOBJECT19(key1, val1, key2, val2, key3, val3, key4, val4, key5, val5, key6, val6, key7, val7, key8, val8, key9, val9, key10, val10, key11, val11, key12, val12, key13, val13, key14, val14, key15, val15, key16, val16, key17, val17, key18, val18, key19, val19) ((struct json_value) { \
+	.type = kJsonObject, \
+	.size = 19, \
+	.keys = (char *[19]) { \
+		(key1), (key2), (key3), (key4), (key5), (key6), (key7), (key8), (key9), (key10), (key11), (key12), (key13), (key14), (key15), (key16), (key17), (key18), (key19) \
+	}, \
+	.values = (struct json_value[19]) { \
+		(val1), (val2), (val3), (val4), (val5), (val6), (val7), (val8), (val9), (val10), (val11), (val12), (val13), (val14), (val15), (val16), (val17), (val18), (val19) \
+	} \
+})
+#define JSONOBJECT20(key1, val1, key2, val2, key3, val3, key4, val4, key5, val5, key6, val6, key7, val7, key8, val8, key9, val9, key10, val10, key11, val11, key12, val12, key13, val13, key14, val14, key15, val15, key16, val16, key17, val17, key18, val18, key19, val19, key20, val20) ((struct json_value) { \
+	.type = kJsonObject, \
+	.size = 20, \
+	.keys = (char *[20]) { \
+		(key1), (key2), (key3), (key4), (key5), (key6), (key7), (key8), (key9), (key10), (key11), (key12), (key13), (key14), (key15), (key16), (key17), (key18), (key19), (key20) \
+	}, \
+	.values = (struct json_value[20]) { \
+		(val1), (val2), (val3), (val4), (val5), (val6), (val7), (val8), (val9), (val10), (val11), (val12), (val13), (val14), (val15), (val16), (val17), (val18), (val19), (val20) \
+	} \
+})
 
 /// codec of an abstract channel object
 /// These tell this API how it should encode ChannelObjects -> platform messages
@@ -160,7 +620,7 @@ enum platch_codec {
 ///     - binarydata_size is the size of that byte data in bytes.
 ///   kJSONMessageCodec:
 ///     - json_value
-///   kStdMsgCodecValue:
+///   kStandardMessageCodec:
 ///     - std_value
 ///   kStandardMethodCall:
 ///     - "method" is the method you'd like to call, or the method that was called
@@ -213,6 +673,22 @@ struct platch_obj {
         };
     };
 };
+
+#define PLATCH_OBJ_NOT_IMPLEMENTED ((struct platch_obj) {.codec = kNotImplemented})
+#define PLATCH_OBJ_STRING(string) ((struct platch_obj) {.codec = kStringCodec, .string_value = (string)})
+#define PLATCH_OBJ_BINARY_DATA(data, data_size) ((struct platch_obj) {.codec = kBinaryCodec, .binarydata_size = (data_size), .binarydata = (data)})
+#define PLATCH_OBJ_JSON_MSG(__json_value) ((struct platch_obj) {.codec = kJSONMessageCodec, .json_value = (__json_value)})
+#define PLATCH_OBJ_STD_MSG(__std_value) ((struct platch_obj) {.codec = kStandardMessageCodec, .std_value = (__std_value)})
+#define PLATCH_OBJ_STD_CALL(method_name, arg) ((struct platch_obj) {.codec = kStandardMethodCall, .method = (char*) (method_name), .std_arg = (arg)})
+#define PLATCH_OBJ_JSON_CALL(method_name, arg) ((struct platch_obj) {.codec = kJSONMethodCall, .method = (char*) (method_name), .json_arg = (arg)})
+#define PLATCH_OBJ_STD_CALL_SUCCESS_RESPONSE(result) ((struct platch_obj) {.codec = kStandardMethodCallResponse, .success = true, .std_result = (result)})
+#define PLATCH_OBJ_STD_CALL_ERROR_RESPONSE(code, msg, details) ((struct platch_obj) {.codec = kStandardMethodCallResponse, .success = false, .error_code = (char*) (code), .error_msg = (char*) (msg), .std_error_details = (details)})
+#define PLATCH_OBJ_JSON_CALL_SUCCESS_RESPONSE(result) ((struct platch_obj) {.codec = kJSONMethodCallResponse, .success = true, .json_result = (result)})
+#define PLATCH_OBJ_JSON_CALL_ERROR_RESPONSE(code, msg, details) ((struct platch_obj) {.codec = kStandardMethodCallResponse, .success = false, .error_code = (char*) (code), .error_msg = (char*) (msg), .json_error_details = (details)})
+#define PLATCH_OBJ_STD_SUCCESS_EVENT(value) PLATCH_OBJ_STD_CALL_SUCCESS_RESPONSE(value)
+#define PLATCH_OBJ_STD_ERROR_EVENT(code, msg, details) PLATCH_OBJ_STD_CALL_ERROR_RESPONSE(code, msg, details)
+#define PLATCH_OBJ_JSON_SUCCESS_EVENT(value) PLATCH_OBJ_JSON_CALL_SUCCESS_RESPONSE(value)
+#define PLATCH_OBJ_JSON_ERROR_EVENT(code, msg, details) PLATCH_OBJ_JSON_CALL_ERROR_RESPONSE(code, msg, details)
 
 /// A Callback that is called when a response to a platform message you send to flutter
 /// arrives. "object" is the platform message decoded using the "codec" you gave to PlatformChannel_send,
@@ -332,6 +808,12 @@ int platch_respond_illegal_arg_pigeon(
 	char *error_msg
 );
 
+int platch_respond_illegal_arg_ext_pigeon(
+	FlutterPlatformMessageResponseHandle *handle,
+	char *error_msg,
+	struct std_value *error_details
+);
+
 int platch_respond_native_error_pigeon(
 	FlutterPlatformMessageResponseHandle *handle,
 	int _errno
@@ -385,153 +867,5 @@ bool stdvalue_equals(struct std_value *a, struct std_value *b);
 struct std_value *stdmap_get(struct std_value *map, struct std_value *key);
 
 struct std_value *stdmap_get_str(struct std_value *map, char *key);
-
-static inline int _advance(uintptr_t *value, int n_bytes, size_t *remaining) {
-    if (remaining != NULL) {
-        if (*remaining < n_bytes) return EBADMSG;
-        *remaining -= n_bytes;
-    }
-
-    *value += n_bytes;
-    return 0;
-}
-static inline int _align(uintptr_t *value, int alignment, size_t *remaining) {
-    int diff;
-
-    alignment--;
-	diff = ((((*value) + alignment) | alignment) - alignment) - *value;
-
-    return _advance(value, diff, remaining);
-}
-static inline int _advance_size_bytes(uintptr_t *value, size_t size, size_t *remaining) {
-    if (size < 254) {
-		return _advance(value, 1, remaining);
-	} else if (size <= 0xFFFF) {
-		return _advance(value, 3, remaining);
-	} else {
-		return _advance(value, 5, remaining);
-    }
-}
-
-
-static inline int _write8(uint8_t **pbuffer, uint8_t value, size_t *remaining) {
-    if ((remaining != NULL) && (*remaining < 1)) {
-        return EBADMSG;
-    }
-
-	*(uint8_t*) *pbuffer = value;
-    
-    return _advance((uintptr_t*) pbuffer, 1, remaining);
-}
-static inline int _write16(uint8_t **pbuffer, uint16_t value, size_t *remaining) {
-    if ((remaining != NULL) && (*remaining < 2)) {
-        return EBADMSG;
-    }
-
-	*(uint16_t*) *pbuffer = value;
-    
-    return _advance((uintptr_t*) pbuffer, 2, remaining);
-}
-static inline int _write32(uint8_t **pbuffer, uint32_t value, size_t *remaining) {
-    if ((remaining != NULL) && (*remaining < 4)) {
-        return EBADMSG;
-    }
-
-	*(uint32_t*) *pbuffer = value;
-    
-    return _advance((uintptr_t*) pbuffer, 4, remaining);
-}
-static inline int _write64(uint8_t **pbuffer, uint64_t value, size_t *remaining) {
-	if ((remaining != NULL) && (*remaining < 8)) {
-        return EBADMSG;
-    }
-    
-    *(uint64_t*) *pbuffer = value;
-    
-    return _advance((uintptr_t*) pbuffer, 8, remaining);
-}
-
-static inline int _read8(uint8_t **pbuffer, uint8_t* value_out, size_t *remaining) {
-	if ((remaining != NULL) && (*remaining < 1)) {
-        return EBADMSG;
-    }
-
-    *value_out = *(uint8_t *) *pbuffer;
-
-    return _advance((uintptr_t*) pbuffer, 1, remaining);
-}
-static inline int _read16(uint8_t **pbuffer, uint16_t *value_out, size_t *remaining) {
-    if ((remaining != NULL) && (*remaining < 2)) {
-        return EBADMSG;
-    }
-
-    *value_out = *(uint16_t *) *pbuffer;
-	
-    return _advance((uintptr_t*) pbuffer, 2, remaining);
-}
-static inline int _read32(uint8_t **pbuffer, uint32_t *value_out, size_t *remaining) {
-	if ((remaining != NULL) && (*remaining < 4)) {
-        return EBADMSG;
-    }
-    
-    *value_out = *(uint32_t *) *pbuffer;
-
-    return _advance((uintptr_t*) pbuffer, 4, remaining);
-}
-static inline int _read64(uint8_t **pbuffer, uint64_t *value_out, size_t *remaining) {
-	if ((remaining != NULL) && (*remaining < 8)) {
-        return EBADMSG;
-    }
-    
-    *value_out = *(uint64_t *) *pbuffer;
-
-    return _advance((uintptr_t*) pbuffer, 8, remaining);
-}
-
-static inline int _writeSize(uint8_t **pbuffer, int size, size_t *remaining) {
-	int ok;
-
-    if (size < 254) {
-		return _write8(pbuffer, (uint8_t) size, remaining);
-	} else if (size <= 0xFFFF) {
-		ok = _write8(pbuffer, 0xFE, remaining);
-        if (ok != 0) return ok;
-
-		ok = _write16(pbuffer, (uint16_t) size, remaining);
-        if (ok != 0) return ok;
-	} else {
-		ok = _write8(pbuffer, 0xFF, remaining);
-        if (ok != 0) return ok;
-
-		ok = _write32(pbuffer, (uint32_t) size, remaining);
-        if (ok != 0) return ok;
-    }
-
-    return ok;
-}
-static inline int  _readSize(uint8_t **pbuffer, uint32_t *psize, size_t *remaining) {
-	int ok;
-    uint8_t size8;
-    uint16_t size16;
-
-	ok = _read8(pbuffer, &size8, remaining);
-    if (ok != 0) return ok;
-    
-    if (size8 <= 253) {
-        *psize = size8;
-
-        return 0;
-    } else if (size8 == 254) {
-		ok = _read16(pbuffer, &size16, remaining);
-        if (ok != 0) return ok;
-
-        *psize = size16;
-        return 0;
-	} else if (size8 == 255) {
-		return _read32(pbuffer, psize, remaining);
-	}
-
-    return 0;
-}
 
 #endif

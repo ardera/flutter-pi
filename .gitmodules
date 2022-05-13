@@ -1,0 +1,3 @@
+[submodule "third_party/backward-cpp"]
+	path = third_party/backward-cpp
+	url = https://github.com/bombela/backward-cpp.git
