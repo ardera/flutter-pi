@@ -1948,7 +1948,8 @@ static int init_application(void) {
                 .runs_task_on_current_thread_callback = runs_platform_tasks_on_current_thread,
                 .post_task_callback = on_post_flutter_task
             },
-            .render_task_runner = NULL
+            .render_task_runner = NULL,
+            .thread_priority_setter = NULL
         },
         .shutdown_dart_vm_when_done = true,
         .compositor = &flutter_compositor,
@@ -2043,7 +2044,13 @@ static int init_application(void) {
             .struct_size = sizeof(FlutterWindowMetricsEvent),
             .width = flutterpi.view.width,
             .height = flutterpi.view.height,
-            .pixel_ratio = flutterpi.display.pixel_ratio
+            .pixel_ratio = flutterpi.display.pixel_ratio,
+            .left = 0,
+            .top = 0,
+            .physical_view_inset_top = 0,
+            .physical_view_inset_right = 0,
+            .physical_view_inset_bottom = 0,
+            .physical_view_inset_left = 0
         }
     );
     if (engine_result != kSuccess) {
