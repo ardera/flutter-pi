@@ -11,6 +11,7 @@
 
 #include <flutter-pi.h>
 #include <texture_registry.h>
+#include <gl_renderer.h>
 #include <plugins/gstreamer_video_player.h>
 
 FILE_DESCR("gstreamer video_player")
@@ -33,8 +34,9 @@ struct video_frame {
     struct gl_texture_frame gl_frame;
 };
 
-struct frame_interface *frame_interface_new(struct flutterpi *flutterpi) {
+struct frame_interface *frame_interface_new(struct gl_renderer *renderer) {
     struct frame_interface *interface;
+    struct gbm_device *gbm_device;
     EGLBoolean egl_ok;
     EGLContext context;
     EGLDisplay display;
@@ -44,40 +46,46 @@ struct frame_interface *frame_interface_new(struct flutterpi *flutterpi) {
         return NULL;
     }
 
-    display = flutterpi_get_egl_display(flutterpi);
+    display = gl_renderer_get_egl_display(renderer);
     if (display == EGL_NO_DISPLAY) {
         goto fail_free;
     }
 
-    context = flutterpi_create_egl_context(flutterpi);
+    context = gl_renderer_create_context(renderer);
     if (context == EGL_NO_CONTEXT) {
         goto fail_free;
     }
 
-    PFNEGLCREATEIMAGEKHRPROC create_image = (PFNEGLCREATEIMAGEKHRPROC) eglGetProcAddress("eglCreateImageKHR");
+    PFNEGLCREATEIMAGEKHRPROC create_image = (PFNEGLCREATEIMAGEKHRPROC) gl_renderer_get_proc_address(renderer, "eglCreateImageKHR");
     if (create_image == NULL) {
-        LOG_ERROR("Could not resolve eglCreateImageKHR egl procedure.\n");
+        LOG_ERROR("Could not resolve eglCreateImageKHR EGL procedure.\n");
         goto fail_destroy_context;
     }
 
-    PFNEGLDESTROYIMAGEKHRPROC destroy_image = (PFNEGLDESTROYIMAGEKHRPROC) eglGetProcAddress("eglDestroyImageKHR");
+    PFNEGLDESTROYIMAGEKHRPROC destroy_image = (PFNEGLDESTROYIMAGEKHRPROC) gl_renderer_get_proc_address(renderer, "eglDestroyImageKHR");
     if (destroy_image == NULL) {
-        LOG_ERROR("Could not resolve eglDestroyImageKHR egl procedure.\n");
+        LOG_ERROR("Could not resolve eglDestroyImageKHR EGL procedure.\n");
         goto fail_destroy_context;
     }
 
-    PFNGLEGLIMAGETARGETTEXTURE2DOESPROC gl_egl_image_target_texture2d = (PFNGLEGLIMAGETARGETTEXTURE2DOESPROC) eglGetProcAddress("glEGLImageTargetTexture2DOES");
+    PFNGLEGLIMAGETARGETTEXTURE2DOESPROC gl_egl_image_target_texture2d = (PFNGLEGLIMAGETARGETTEXTURE2DOESPROC) gl_renderer_get_proc_address(renderer, "glEGLImageTargetTexture2DOES");
     if (gl_egl_image_target_texture2d == NULL) {
-        LOG_ERROR("Could not resolve glEGLImageTargetTexture2DOES egl procedure.\n");
+        LOG_ERROR("Could not resolve glEGLImageTargetTexture2DOES EGL procedure.\n");
         goto fail_destroy_context;
     }
 
     // These two are optional.
     // Might be useful in the future.
-    PFNEGLQUERYDMABUFFORMATSEXTPROC egl_query_dmabuf_formats = (PFNEGLQUERYDMABUFFORMATSEXTPROC) eglGetProcAddress("eglQueryDmaBufFormatsEXT");
-    PFNEGLQUERYDMABUFMODIFIERSEXTPROC egl_query_dmabuf_modifiers = (PFNEGLQUERYDMABUFMODIFIERSEXTPROC) eglGetProcAddress("eglQueryDmaBufModifiersEXT");
+    PFNEGLQUERYDMABUFFORMATSEXTPROC egl_query_dmabuf_formats = (PFNEGLQUERYDMABUFFORMATSEXTPROC) gl_renderer_get_proc_address(renderer, "eglQueryDmaBufFormatsEXT");
+    PFNEGLQUERYDMABUFMODIFIERSEXTPROC egl_query_dmabuf_modifiers = (PFNEGLQUERYDMABUFMODIFIERSEXTPROC) gl_renderer_get_proc_address(renderer, "eglQueryDmaBufModifiersEXT");
 
-    interface->gbm_device = flutterpi_get_gbm_device(flutterpi);
+    gbm_device = gl_renderer_get_gbm_device(renderer);
+    if (gbm_device == NULL) {
+        LOG_ERROR("GL Render doesn't have a GBM device associated with it, which is necessary for importing the video frames.\n");
+        goto fail_destroy_context;
+    }
+
+    interface->gbm_device = gbm_device;
     interface->display = display;
     pthread_mutex_init(&interface->context_lock, NULL); 
     interface->context = context;

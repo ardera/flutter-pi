@@ -47,14 +47,37 @@
 #include <surface_private.h>
 #include <dmabuf_surface.h>
 #include <compositor_ng.h>
+#include <texture_registry.h>
 
 FILE_DESCR("dmabuf surface")
+
+struct refcounted_dmabuf {
+    refcount_t n_refs;
+    struct dmabuf buf;
+    dmabuf_release_cb_t release_callback;
+
+    struct drmdev *drmdev;
+    uint32_t drm_fb_id;
+};
+
+void refcounted_dmabuf_destroy(struct refcounted_dmabuf *dmabuf) {
+    dmabuf->release_callback(&dmabuf->buf);
+    if (DRM_ID_IS_VALID(dmabuf->drm_fb_id)) {
+        drmdev_rm_fb(dmabuf->drmdev, dmabuf->drm_fb_id);
+    }
+    drmdev_unref(dmabuf->drmdev);
+    free(dmabuf);
+}
+
+DEFINE_STATIC_REF_OPS(refcounted_dmabuf, n_refs);
 
 struct dmabuf_surface {
     struct surface surface;
 
     uuid_t uuid;
     EGLDisplay egl_display;
+    struct texture *texture;
+    struct refcounted_dmabuf *next_buf;
 };
 
 COMPILE_ASSERT(offsetof(struct dmabuf_surface, surface) == 0);
@@ -79,8 +102,14 @@ static int dmabuf_surface_swap_buffers(struct surface *s);
 static int dmabuf_surface_present_kms(struct surface *s, const struct fl_layer_props *props, struct kms_req_builder *builder);
 static int dmabuf_surface_present_fbdev(struct surface *s, const struct fl_layer_props *props, struct fbdev_commit_builder *builder);
 
-int dmabuf_surface_init(struct dmabuf_surface *s, struct compositor *compositor, struct tracer *tracer) {
+int dmabuf_surface_init(struct dmabuf_surface *s, struct compositor *compositor, struct tracer *tracer, struct texture_registry *texture_registry) {
+    struct texture *texture;
     int ok;
+
+    texture = texture_new(texture_registry);
+    if (texture == NULL) {
+        return EIO;
+    }
 
     ok = surface_init(&s->surface, compositor, tracer);
     if (ok != 0) {
@@ -92,10 +121,14 @@ int dmabuf_surface_init(struct dmabuf_surface *s, struct compositor *compositor,
     s->surface.present_kms = dmabuf_surface_present_kms;
     s->surface.present_fbdev = dmabuf_surface_present_fbdev;
     uuid_copy(&s->uuid, uuid);
+    s->egl_display = EGL_NO_DISPLAY;
+    s->texture = texture;
+    s->next_buf = NULL;
     return 0;
 }
 
 static void dmabuf_surface_deinit(struct surface *s) {
+    texture_destroy(CAST_THIS_UNCHECKED(s)->texture);
     surface_deinit(s);
 }
 
@@ -105,7 +138,7 @@ static void dmabuf_surface_deinit(struct surface *s) {
  * @param compositor The compositor that this surface will be registered to when calling surface_register.
  * @return struct dmabuf_surface* 
  */
-ATTR_MALLOC struct dmabuf_surface *dmabuf_surface_new(struct compositor *compositor, struct tracer *tracer) {
+ATTR_MALLOC struct dmabuf_surface *dmabuf_surface_new(struct compositor *compositor, struct tracer *tracer, struct texture_registry *texture_registry) {
     struct dmabuf_surface *s;
     int ok;
     
@@ -114,7 +147,7 @@ ATTR_MALLOC struct dmabuf_surface *dmabuf_surface_new(struct compositor *composi
         goto fail_return_null;
     }
 
-    ok = dmabuf_surface_init(s, compositor, tracer);
+    ok = dmabuf_surface_init(s, compositor, tracer, texture_registry);
     if (ok != 0) {
         goto fail_free_surface;
     }
@@ -130,6 +163,8 @@ ATTR_MALLOC struct dmabuf_surface *dmabuf_surface_new(struct compositor *composi
 }
 
 int dmabuf_surface_push_dmabuf(struct dmabuf_surface *s, const struct dmabuf *buf, dmabuf_release_cb_t release_cb) {
+    struct refcounted_dmabuf *b;
+
     DEBUG_ASSERT_NOT_NULL(s);
     DEBUG_ASSERT_NOT_NULL(buf);
     DEBUG_ASSERT_NOT_NULL(release_cb);
@@ -140,13 +175,32 @@ int dmabuf_surface_push_dmabuf(struct dmabuf_surface *s, const struct dmabuf *bu
 
     UNIMPLEMENTED();
 
+    b = malloc(sizeof *b);
+    if (b == NULL) {
+        return ENOMEM;
+    }
+
+    b->n_refs = REFCOUNT_INIT_1;
+    b->buf = *buf;
+    b->release_callback = release_cb;
+    b->drmdev = NULL;
+    b->drm_fb_id = DRM_ID_NONE;
+
+    surface_lock(CAST_SURFACE_UNCHECKED(s));
+
+    if (s->next_buf != NULL) {
+        refcounted_dmabuf_unref(s->next_buf);
+    }
+    s->next_buf = b;
+
+    surface_unlock(CAST_SURFACE_UNCHECKED(s));
+
     return 0;
 }
 
 ATTR_PURE int64_t dmabuf_surface_get_texture_id(struct dmabuf_surface *s) {
     DEBUG_ASSERT_NOT_NULL(s);
-    UNIMPLEMENTED();
-    return 0;
+    return texture_get_id(s->texture);
 }
 
 static int dmabuf_surface_swap_buffers(struct surface *_s) {
@@ -160,13 +214,76 @@ static int dmabuf_surface_swap_buffers(struct surface *_s) {
     return 0;
 }
 
+static void on_release_layer(void *userdata) {
+    DEBUG_ASSERT_NOT_NULL(userdata);
+    refcounted_dmabuf_unref((struct refcounted_dmabuf*) userdata);
+}
+
 static int dmabuf_surface_present_kms(struct surface *_s, const struct fl_layer_props *props, struct kms_req_builder *builder) {
     struct dmabuf_surface *s;
+    uint32_t fb_id;
 
+    DEBUG_ASSERT_MSG(props->is_aa_rect, "Only axis-aligned rectangles supported right now.");
     s = CAST_THIS(_s);
     (void) s;
     (void) props;
     (void) builder;
+
+    surface_lock(_s);
+    
+    if (DRM_ID_IS_VALID(s->next_buf->drm_fb_id)) {
+        DEBUG_ASSERT_EQUALS_MSG(s->next_buf->drmdev, kms_req_builder_get_drmdev(builder), "Only 1 KMS instance per dmabuf supported right now.");
+        fb_id = s->next_buf->drm_fb_id;
+    } else {
+        fb_id = drmdev_add_fb_from_dmabuf(
+            kms_req_builder_get_drmdev(builder),
+            s->next_buf->buf.width,
+            s->next_buf->buf.height,
+            s->next_buf->buf.format,
+            s->next_buf->buf.fds[0],
+            s->next_buf->buf.strides[0],
+            s->next_buf->buf.offsets[0],
+            s->next_buf->buf.has_modifiers,
+            s->next_buf->buf.modifiers[0],
+            0
+        );
+        if (!DRM_ID_IS_VALID(fb_id)) {
+            LOG_ERROR("Couldn't add dmabuf as framebuffer.\n");
+        }
+
+        s->next_buf->drm_fb_id = fb_id;
+        s->next_buf->drmdev = drmdev_ref(kms_req_builder_get_drmdev(builder));
+    }
+
+    kms_req_builder_push_fb_layer(
+        builder,
+        &(struct kms_fb_layer) {
+            .drm_fb_id = fb_id,
+            .format = s->next_buf->buf.format,
+            
+            .has_modifier = s->next_buf->buf.has_modifiers,
+            .modifier = s->next_buf->buf.modifiers[0],
+            
+            .src_x = 0,
+            .src_y = 0,
+            .src_w = DOUBLE_TO_FP1616_ROUNDED(s->next_buf->buf.width),
+            .src_h = DOUBLE_TO_FP1616_ROUNDED(s->next_buf->buf.height),
+            
+            .dst_x = props->aa_rect.offset.x,
+            .dst_y = props->aa_rect.offset.y,
+            .dst_w = props->aa_rect.size.x,
+            .dst_h = props->aa_rect.size.y,
+            
+            .has_rotation = false,
+            .rotation = PLANE_TRANSFORM_ROTATE_0,
+            .has_in_fence_fd = false,
+            .in_fence_fd = 0,
+        },
+        on_release_layer,
+        refcounted_dmabuf_ref(s->next_buf)
+    );
+
+    surface_unlock(_s);
 
     return 0;
 }
