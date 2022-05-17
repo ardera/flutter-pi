@@ -997,7 +997,7 @@ static struct gstplayer *gstplayer_new(struct flutterpi *flutterpi, const char *
     texture = flutterpi_create_texture(flutterpi);
     if (texture == NULL) goto fail_free_player;
     
-    frame_interface = frame_interface_new(flutterpi);
+    frame_interface = frame_interface_new(flutterpi_get_gl_renderer(flutterpi));
     if (frame_interface == NULL) goto fail_destroy_texture;
 
     texture_id = texture_get_id(texture);

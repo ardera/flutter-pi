@@ -179,9 +179,7 @@ int gbm_surface_backing_store_init(
 #else
     egl_display = EGL_NO_DISPLAY;
     egl_surface = EGL_NO_SURFACE;
-    egl_config = EGL_NO_CONFIG_KHR;
     (void) egl_ok;
-    (void) n_matched;
 #endif
 
     /// TODO: Implement 
