@@ -33,12 +33,8 @@
 #include <xf86drmMode.h>
 #include <drm_fourcc.h>
 #include <gbm.h>
-#include <EGL/egl.h>
-#define  EGL_EGLEXT_PROTOTYPES
-#include <EGL/eglext.h>
-#include <GLES2/gl2.h>
-#define  GL_GLEXT_PROTOTYPES
-#include <GLES2/gl2ext.h>
+#include <egl.h>
+#include <gles.h>
 #include <libinput.h>
 #include <libudev.h>
 #include <systemd/sd-event.h>
@@ -46,6 +42,7 @@
 
 #include <flutter-pi.h>
 #include <pixel_format.h>
+#include <gl_renderer.h>
 #include <compositor_ng.h>
 #include <keyboard.h>
 #include <user_input.h>
@@ -186,12 +183,11 @@ static bool runs_platform_tasks_on_current_thread(void *userdata);
 static bool on_make_current(void* userdata) {
     struct flutterpi *flutterpi;
     EGLSurface surface;
-    EGLBoolean egl_ok;
+    int ok;
     
     DEBUG_ASSERT_NOT_NULL(userdata);
     flutterpi = userdata;
-
-    TRACER_INSTANT(flutterpi->tracer, "on_make_current");
+    DEBUG_ASSERT_NOT_NULL(flutterpi->gl_renderer);
 
     surface = compositor_get_egl_surface(flutterpi->compositor);
     if (surface == EGL_NO_SURFACE) {
@@ -200,17 +196,11 @@ static bool on_make_current(void* userdata) {
         return false;
     }
 
-
-    egl_ok = eglMakeCurrent(
-        flutterpi->egl.display,
-        surface, surface,
-        flutterpi->egl.flutter_render_context
-    );
-    if (egl_ok != EGL_TRUE) {
-        LOG_ERROR("Could not make the flutter rendering EGL context current. eglMakeCurrent: 0x%08X\n", eglGetError());
+    ok = gl_renderer_make_flutter_rendering_context_current(flutterpi->gl_renderer, surface);
+    if (ok != 0) {
         return false;
     }
-    
+
     return true;
 }
 
@@ -218,16 +208,14 @@ static bool on_make_current(void* userdata) {
 /// clear the EGLContext.
 static bool on_clear_current(void* userdata) {
     struct flutterpi *flutterpi;
-    EGLBoolean egl_ok;
+    int ok;
 
     DEBUG_ASSERT_NOT_NULL(userdata);
     flutterpi = userdata;
+    DEBUG_ASSERT_NOT_NULL(flutterpi->gl_renderer);
 
-    TRACER_INSTANT(flutterpi->tracer, "on_clear_current");
-
-    egl_ok = eglMakeCurrent(flutterpi->egl.display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
-    if (egl_ok != EGL_TRUE) {
-        LOG_ERROR("Could not clear the flutter EGL context. eglMakeCurrent: 0x%08X\n", eglGetError());
+    ok = gl_renderer_clear_current(flutterpi->gl_renderer);
+    if (ok != 0) {
         return false;
     }
     
@@ -261,16 +249,14 @@ static uint32_t fbo_callback(void* userdata) {
 /// resource uploading EGLContext should be made current.
 static bool on_make_resource_current(void *userdata) {
     struct flutterpi *flutterpi;
-    EGLBoolean egl_ok;
+    int ok;
 
     DEBUG_ASSERT_NOT_NULL(userdata);
     flutterpi = userdata;
+    DEBUG_ASSERT_NOT_NULL(flutterpi->gl_renderer);
     
-    TRACER_INSTANT(flutterpi->tracer, "on_make_resource_current");
-
-    egl_ok = eglMakeCurrent(flutterpi->egl.display, EGL_NO_SURFACE, EGL_NO_SURFACE, flutterpi->egl.flutter_resource_uploading_context);
-    if (egl_ok != EGL_TRUE) {
-        LOG_ERROR("Could not make the flutter resource uploading EGL context current. eglMakeCurrent: 0x%08X\n", eglGetError());
+    ok = gl_renderer_clear_current(flutterpi->gl_renderer);
+    if (ok != 0) {
         return false;
     }
     
@@ -282,22 +268,13 @@ static void *proc_resolver(
     void* userdata,
     const char* name
 ) {
-    void *address;
+    struct flutterpi *flutterpi;
 
-    (void) userdata;
+    DEBUG_ASSERT_NOT_NULL(userdata);
+    flutterpi = userdata;
+    DEBUG_ASSERT_NOT_NULL(flutterpi->gl_renderer);
 
-    address = eglGetProcAddress(name);
-    if (address) {
-        return address;
-    }
-
-    address = dlsym(RTLD_DEFAULT, name);
-    if (address) {
-        return address;
-    }
-    
-    LOG_ERROR("Could not resolve EGL/GL symbol \"%s\"\n", name);
-    return NULL;
+    return gl_renderer_get_proc_address(flutterpi->gl_renderer, name);
 }
 
 static void on_platform_message(
@@ -684,7 +661,7 @@ static int on_execute_flutter_task(
 
     task = userdata;
 
-    result = flutterpi.flutter.libflutter_engine.FlutterEngineRunTask(flutterpi.flutter.engine, task);
+    result = flutterpi.flutter.procs.RunTask(flutterpi.flutter.engine, task);
     if (result != kSuccess) {
         LOG_ERROR("Error running platform task. FlutterEngineRunTask: %d\n", result);
         free(task);
@@ -733,9 +710,9 @@ static int on_send_platform_message(
     msg = userdata;
 
     if (msg->is_response) {
-        result = flutterpi.flutter.libflutter_engine.FlutterEngineSendPlatformMessageResponse(flutterpi.flutter.engine, msg->target_handle, msg->message, msg->message_size);
+        result = flutterpi.flutter.procs.SendPlatformMessageResponse(flutterpi.flutter.engine, msg->target_handle, msg->message, msg->message_size);
     } else {
-        result = flutterpi.flutter.libflutter_engine.FlutterEngineSendPlatformMessage(
+        result = flutterpi.flutter.procs.SendPlatformMessage(
             flutterpi.flutter.engine,
             &(FlutterPlatformMessage) {
                 .struct_size = sizeof(FlutterPlatformMessage),
@@ -775,7 +752,7 @@ int flutterpi_send_platform_message(
     int ok;
     
     if (runs_platform_tasks_on_current_thread(NULL)) {
-        result = flutterpi.flutter.libflutter_engine.FlutterEngineSendPlatformMessage(
+        result = flutterpi.flutter.procs.SendPlatformMessage(
             flutterpi.flutter.engine,
             &(const FlutterPlatformMessage) {
                 .struct_size = sizeof(FlutterPlatformMessage),
@@ -844,7 +821,7 @@ int flutterpi_respond_to_platform_message(
     int ok;
     
     if (runs_platform_tasks_on_current_thread(&flutterpi)) {
-        result = flutterpi.flutter.libflutter_engine.FlutterEngineSendPlatformMessageResponse(
+        result = flutterpi.flutter.procs.SendPlatformMessageResponse(
             flutterpi.flutter.engine,
             handle,
             message,
@@ -910,54 +887,26 @@ struct gbm_device *flutterpi_get_gbm_device(struct flutterpi *flutterpi) {
     return drmdev_get_gbm_device(flutterpi->drm.drmdev);
 }
 
-EGLDisplay flutterpi_get_egl_display(struct flutterpi *flutterpi) {
-    return flutterpi->egl.display;
+bool flutterpi_has_gl_renderer(struct flutterpi *flutterpi) {
+    DEBUG_ASSERT_NOT_NULL(flutterpi);
+    return flutterpi->gl_renderer != NULL;
 }
 
-EGLContext flutterpi_create_egl_context(struct flutterpi *flutterpi) {
-    EGLContext context;
-    
-    pthread_mutex_lock(&flutterpi->egl.root_context_lock);
-    context = eglCreateContext(
-        flutterpi->egl.display, 
-        flutterpi->egl.config, 
-        flutterpi->egl.root_context, 
-        (EGLint[]) {
-            EGL_CONTEXT_CLIENT_VERSION, 2,
-            EGL_NONE
-        }
-    );
-    if (context == EGL_NO_CONTEXT) {
-        LOG_ERROR("Could not create new EGL context from temp context. eglCreateContext: %" PRId32 "\n", eglGetError());
-    }
-    pthread_mutex_unlock(&flutterpi->egl.root_context_lock);
-
-    return context;
-}
-
-void *flutterpi_egl_get_proc_address(struct flutterpi *flutterpi, const char *name) {
-    (void) flutterpi;
-    return eglGetProcAddress(name);
-}
-
-bool flutterpi_supports_egl_extension(struct flutterpi *flutterpi, const char *extension_name_str) {
-    return check_egl_extension(flutterpi->egl.client_exts, flutterpi->egl.display_exts, extension_name_str);
-}
-
-bool flutterpi_supports_gl_extension(struct flutterpi *flutterpi, const char *extension_name_str) {
-    return check_egl_extension(flutterpi->gl.extensions, NULL, extension_name_str);
+struct gl_renderer *flutterpi_get_gl_renderer(struct flutterpi *flutterpi) {
+    DEBUG_ASSERT_NOT_NULL(flutterpi);
+    return flutterpi->gl_renderer;
 }
 
 void flutterpi_trace_event_instant(struct flutterpi *flutterpi, const char *name) {
-    flutterpi->flutter.libflutter_engine.FlutterEngineTraceEventInstant(name);
+    flutterpi->flutter.procs.TraceEventInstant(name);
 }
 
 void flutterpi_trace_event_begin(struct flutterpi *flutterpi, const char *name) {
-    flutterpi->flutter.libflutter_engine.FlutterEngineTraceEventDurationBegin(name);
+    flutterpi->flutter.procs.TraceEventDurationBegin(name);
 }
 
 void flutterpi_trace_event_end(struct flutterpi *flutterpi, const char *name) {
-    flutterpi->flutter.libflutter_engine.FlutterEngineTraceEventDurationEnd(name);
+    flutterpi->flutter.procs.TraceEventDurationEnd(name);
 }
 
 static bool runs_platform_tasks_on_current_thread(void* userdata) {
@@ -1165,12 +1114,7 @@ static int init_display(
     struct drmdev *drmdev;
     struct tracer *tracer;
     drmDevicePtr devices[64];
-    const char *egl_exts_client, *egl_exts_dpy, *gl_renderer, *gl_exts;
-    EGLDisplay egl_display;
-    EGLContext root_context, flutter_render_context, flutter_resource_uploading_context;
-    EGLBoolean egl_ok;
-    EGLConfig egl_config;
-    EGLint major, minor;
+    struct gl_renderer *renderer;
     int ok, n_devices;
 
     /**********************
@@ -1224,130 +1168,30 @@ static int init_display(
     }
 
     gbm_device = drmdev_get_gbm_device(drmdev);
-
-    egl_display = eglGetPlatformDisplay(EGL_PLATFORM_GBM_KHR, gbm_device, NULL);
-    if (egl_display == EGL_NO_DISPLAY) {
-        LOG_ERROR("Could not get EGL display from GBM device. eglGetPlatformDisplay: 0x%08X\n", eglGetError());
-        ok = EIO;
+    if (gbm_device == NULL) {
+        LOG_ERROR("Couldn't create GBM device.\n");
         goto fail_unref_drmdev;
-    } 
-    
-    egl_ok = eglInitialize(egl_display, &major, &minor);
-    if (egl_ok != EGL_TRUE) {
-        LOG_ERROR("Failed to initialize EGL! eglInitialize: 0x%08X\n", eglGetError());
+    }
+
+    tracer = tracer_new_with_stubs();
+    if (tracer == NULL) {
+        LOG_ERROR("Couldn't create event tracer.\n");
         ok = EIO;
         goto fail_unref_drmdev;
     }
 
-    egl_exts_client = eglQueryString(EGL_NO_DISPLAY, EGL_EXTENSIONS);
-    egl_exts_dpy = eglQueryString(egl_display, EGL_EXTENSIONS);
-
-    locales_print(flutterpi.locales);
-    LOG_DEBUG_UNPREFIXED(
-        "EGL information:\n"
-        "  version: %s\n"
-        "  vendor: \"%s\"\n"
-        "  client extensions: \"%s\"\n"
-        "  display extensions: \"%s\"\n"
-        "===================================\n",
-        eglQueryString(egl_display, EGL_VERSION),
-        eglQueryString(egl_display, EGL_VENDOR),
-        egl_exts_client,
-        egl_exts_dpy
-    );
-
-    eglBindAPI(EGL_OPENGL_ES_API);
-
-    if (check_egl_extension(egl_exts_client, egl_exts_dpy, "EGL_KHR_no_config_context")) {
-        // EGL supports creating contexts without an EGLConfig, which is nice.
-        // Just create a context without selecting a config and let the backing stores (when they're created) select
-        // the framebuffer config instead.
-        egl_config = EGL_NO_CONFIG_KHR;
-    } else {
-        // choose a config
-        const EGLint config_attribs[] = {
-            EGL_SURFACE_TYPE,       EGL_WINDOW_BIT,
-            EGL_RENDERABLE_TYPE,    EGL_OPENGL_ES2_BIT,
-            EGL_SAMPLES,            0,
-            EGL_NONE
-        };
-        
-        egl_config = egl_choose_config_with_pixel_format(egl_display, config_attribs, has_pixel_format ? pixel_format : kARGB8888);
-        if (egl_config == EGL_NO_CONFIG_KHR) {
-            LOG_ERROR("No fitting EGL framebuffer configuration found.\n");
-            ok = EIO;
-            goto fail_terminate_display;
-        }
-    }
-
-    static const EGLint context_attribs[] = {
-        EGL_CONTEXT_CLIENT_VERSION, 2,
-        EGL_NONE
-    };
-
-    root_context = eglCreateContext(egl_display, egl_config, EGL_NO_CONTEXT, context_attribs);
-    if (root_context == EGL_NO_CONTEXT) {
-        LOG_ERROR("Could not create root OpenGL ES context. eglCreateContext: 0x%08X\n", eglGetError());
+    renderer = gl_renderer_new_from_gbm_device(tracer, gbm_device, has_pixel_format, pixel_format);
+    if (renderer == NULL) {
+        LOG_ERROR("Couldn't create EGL/OpenGL renderer.\n");
         ok = EIO;
-        goto fail_terminate_display;
-    }
-
-    flutter_render_context = eglCreateContext(egl_display, egl_config, root_context, context_attribs);
-    if (flutter_render_context == EGL_NO_CONTEXT) {
-        LOG_ERROR("Could not create OpenGL ES context for flutter rendering. eglCreateContext: 0x%08X\n", eglGetError());
-        ok = EIO;
-        goto fail_destroy_root_context;
-    }
-
-    flutter_resource_uploading_context = eglCreateContext(egl_display, egl_config, root_context, context_attribs);
-    if (flutter_resource_uploading_context == EGL_NO_CONTEXT) {
-        LOG_ERROR("Could not create OpenGL ES context for flutter resource uploads. eglCreateContext: 0x%08X\n", eglGetError());
-        ok = EIO;
-        goto fail_destroy_flutter_render_context;
-    }
-
-    if (!check_egl_extension(egl_exts_client, egl_exts_dpy, "EGL_KHR_surfaceless_context")) {
-        LOG_ERROR("EGL doesn't support the EGL_KHR_surfaceless_context extension, which is required by flutter-pi.\n");
-        ok = EIO;
-        goto fail_destroy_flutter_resource_uploading_context;
-    }
-
-    egl_ok = eglMakeCurrent(egl_display, EGL_NO_SURFACE, EGL_NO_SURFACE, root_context);
-    if (egl_ok != EGL_TRUE) {
-        LOG_ERROR("Could not make OpenGL ES root context current to get OpenGL information. eglMakeCurrent: 0x%08X\n", eglGetError());
-        ok = EIO;
-        goto fail_destroy_flutter_resource_uploading_context;
-    }
-
-    gl_renderer = (char*) glGetString(GL_RENDERER);
-    gl_exts = (char*) glGetString(GL_EXTENSIONS);
-    LOG_DEBUG_UNPREFIXED(
-        "OpenGL ES information:\n"
-        "  version: \"%s\"\n"
-        "  shading language version: \"%s\"\n"
-        "  vendor: \"%s\"\n"
-        "  renderer: \"%s\"\n"
-        "  extensions: \"%s\"\n"
-        "===================================\n",
-        glGetString(GL_VERSION),
-        glGetString(GL_SHADING_LANGUAGE_VERSION),
-        glGetString(GL_VENDOR),
-        gl_renderer,
-        gl_exts
-    );
-
-    egl_ok = eglMakeCurrent(egl_display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
-    if (egl_ok != EGL_TRUE) {
-        LOG_ERROR("Could not clear OpenGL ES context. eglMakeCurrent: 0x%08X\n", eglGetError());
-        ok = EIO;
-        goto fail_clear_current;
+        goto fail_unref_tracer;
     }
 
     // it seems that after some Raspbian update, regular users are sometimes no longer allowed
     //   to use the direct-rendering infrastructure; i.e. the open the devices inside /dev/dri/
     //   as read-write. flutter-pi must be run as root then.
     // sometimes it works fine without root, sometimes it doesn't.
-    if (strstr(gl_renderer, "llvmpipe") != NULL) {
+    if (gl_renderer_is_llvmpipe(renderer)) {
         LOG_ERROR_UNPREFIXED(
             "WARNING: Detected llvmpipe (ie. software rendering) as the OpenGL ES renderer.\n"
             "         Check that flutter-pi has permission to use the 3D graphics hardware,\n"
@@ -1355,13 +1199,8 @@ static int init_display(
             "         This warning will probably result in a \"failed to set mode\" error\n"
             "         later on in the initialization.\n"
         );
-    }
-
-    tracer = tracer_new_with_stubs();
-    if (tracer == NULL) {
-        LOG_ERROR("Couldn't create event tracer.\n");
-        ok = EIO;
-        goto fail_destroy_flutter_resource_uploading_context;
+        ok = EINVAL;
+        goto fail_unref_renderer;
     }
 
     compositor = compositor_new(
@@ -1370,7 +1209,7 @@ static int init_display(
         has_rotation, rotation,
         has_orientation, orientation,
         has_explicit_dimensions, width_mm, height_mm,
-        egl_config,
+        gl_renderer_get_forced_egl_config(renderer),
         has_pixel_format, pixel_format,
         false,
         kTripleBufferedVsync_PresentMode
@@ -1378,7 +1217,7 @@ static int init_display(
     if (compositor == NULL) {
         LOG_ERROR("Couldn't create compositor.\n");
         ok = EIO;
-        goto fail_unref_tracer;
+        goto fail_unref_renderer;
     }
 
     ok = sd_event_add_io(
@@ -1398,39 +1237,17 @@ static int init_display(
     flutterpi->tracer = tracer;
     flutterpi->compositor = compositor;
     flutterpi->compositor_event_source = compositor_event_source;
-    flutterpi->egl.display = egl_display;
-    flutterpi->egl.config = egl_config;
-    flutterpi->egl.root_context = root_context;
-    flutterpi->egl.flutter_render_context = flutter_render_context;
-    flutterpi->egl.flutter_resource_uploading_context = flutter_resource_uploading_context;
-    pthread_mutex_init(&flutterpi->egl.root_context_lock, NULL);
-    flutterpi->egl.client_exts = egl_exts_client;
-    flutterpi->egl.display_exts = egl_exts_dpy;
-    flutterpi->gl.extensions = gl_exts;
+    flutterpi->gl_renderer = renderer;
     return 0;
-
 
     fail_unref_compositor:
     compositor_unref(compositor);
 
+    fail_unref_renderer:
+    gl_renderer_unref(renderer);
+
     fail_unref_tracer:
     tracer_unref(tracer);
-    goto fail_destroy_flutter_resource_uploading_context;
-
-    fail_clear_current:
-    eglMakeCurrent(egl_display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
-
-    fail_destroy_flutter_resource_uploading_context:
-    eglDestroyContext(egl_display, flutter_resource_uploading_context);
-
-    fail_destroy_flutter_render_context:
-    eglDestroyContext(egl_display, flutter_render_context);
-
-    fail_destroy_root_context:
-    eglDestroyContext(egl_display, root_context);
-
-    fail_terminate_display:
-    eglTerminate(egl_display);
 
     fail_unref_drmdev:
     drmdev_unref(drmdev);
@@ -1441,11 +1258,12 @@ static int init_display(
  * FLUTTER INITIALIZATION *
  **************************/
 static int init_application(void) {
+    FlutterEngineResult (*get_proc_addresses)(FlutterEngineProcTable* table);
     FlutterEngineAOTDataSource aot_source;
     enum flutter_runtime_mode runtime_mode;
-    struct libflutter_engine *libflutter_engine;
     struct texture_registry *texture_registry;
     struct plugin_registry *plugin_registry;
+    FlutterEngineProcTable *procs;
     FlutterRendererConfig renderer_config = {0};
     struct view_geometry geometry;
     FlutterEngineAOTData aot_data;
@@ -1454,7 +1272,7 @@ static int init_application(void) {
     void *engine_handle;
     int ok;
 
-    runtime_mode = flutterpi.flutter.runtime_mode;
+    asprintf(&libflutter_engine_path, "%s/libflutter_engine.so", flutterpi.flutter.asset_bundle_path);
 
     engine_handle = NULL;
     if (flutterpi.flutter.paths->flutter_engine_path != NULL) {
@@ -1495,71 +1313,20 @@ static int init_application(void) {
         return EINVAL;
     }
 
-    libflutter_engine = &flutterpi.flutter.libflutter_engine;
+    procs = &flutterpi.flutter.procs;
 
-    /// TODO: Use FlutterEngineGetProcAddresses for this
-
-    FlutterEngineProcTable *procs = &flutterpi.flutter.procs;
-
-    FlutterEngineResult (*get_proc_addresses)(FlutterEngineProcTable* table) = dlsym(libflutter_engine_handle, "FlutterEngineGetProcAddresses");
+    get_proc_addresses = dlsym(engine_handle, "FlutterEngineGetProcAddresses");
     if (get_proc_addresses == NULL) {
         LOG_ERROR("Could not resolve flutter engine function FlutterEngineGetProcAddresses.\n");
         return EINVAL;
     }
 
     procs->struct_size = sizeof(FlutterEngineProcTable);
-
     engine_result = get_proc_addresses(procs);
     if (engine_result != kSuccess) {
         LOG_ERROR("Could not resolve flutter engine proc addresses. FlutterEngineGetProcAddresses: %s\n", FLUTTER_RESULT_TO_STRING(engine_result));
         return EINVAL;
     }
-
-#	define LOAD_LIBFLUTTER_ENGINE_PROC(name) \
-        do { \
-            libflutter_engine->name = dlsym(engine_handle, #name); \
-            if (!libflutter_engine->name) {\
-                perror("[flutter-pi] Could not resolve libflutter_engine procedure " #name ". dlsym"); \
-                return EINVAL; \
-            } \
-        } while (false)
-
-    LOAD_LIBFLUTTER_ENGINE_PROC(FlutterEngineCreateAOTData);
-    LOAD_LIBFLUTTER_ENGINE_PROC(FlutterEngineCollectAOTData);
-    LOAD_LIBFLUTTER_ENGINE_PROC(FlutterEngineRun);
-    LOAD_LIBFLUTTER_ENGINE_PROC(FlutterEngineShutdown);
-    LOAD_LIBFLUTTER_ENGINE_PROC(FlutterEngineInitialize);
-    LOAD_LIBFLUTTER_ENGINE_PROC(FlutterEngineDeinitialize);
-    LOAD_LIBFLUTTER_ENGINE_PROC(FlutterEngineRunInitialized);
-    LOAD_LIBFLUTTER_ENGINE_PROC(FlutterEngineSendWindowMetricsEvent);
-    LOAD_LIBFLUTTER_ENGINE_PROC(FlutterEngineSendPointerEvent);
-    LOAD_LIBFLUTTER_ENGINE_PROC(FlutterEngineSendPlatformMessage);
-    LOAD_LIBFLUTTER_ENGINE_PROC(FlutterPlatformMessageCreateResponseHandle);
-    LOAD_LIBFLUTTER_ENGINE_PROC(FlutterPlatformMessageReleaseResponseHandle);
-    LOAD_LIBFLUTTER_ENGINE_PROC(FlutterEngineSendPlatformMessageResponse);
-    LOAD_LIBFLUTTER_ENGINE_PROC(__FlutterEngineFlushPendingTasksNow);
-    LOAD_LIBFLUTTER_ENGINE_PROC(FlutterEngineRegisterExternalTexture);
-    LOAD_LIBFLUTTER_ENGINE_PROC(FlutterEngineUnregisterExternalTexture);
-    LOAD_LIBFLUTTER_ENGINE_PROC(FlutterEngineMarkExternalTextureFrameAvailable);
-    LOAD_LIBFLUTTER_ENGINE_PROC(FlutterEngineUpdateSemanticsEnabled);
-    LOAD_LIBFLUTTER_ENGINE_PROC(FlutterEngineUpdateAccessibilityFeatures);
-    LOAD_LIBFLUTTER_ENGINE_PROC(FlutterEngineDispatchSemanticsAction);
-    LOAD_LIBFLUTTER_ENGINE_PROC(FlutterEngineOnVsync);
-    LOAD_LIBFLUTTER_ENGINE_PROC(FlutterEngineReloadSystemFonts);
-    LOAD_LIBFLUTTER_ENGINE_PROC(FlutterEngineTraceEventDurationBegin);
-    LOAD_LIBFLUTTER_ENGINE_PROC(FlutterEngineTraceEventDurationEnd);
-    LOAD_LIBFLUTTER_ENGINE_PROC(FlutterEngineTraceEventInstant);
-    LOAD_LIBFLUTTER_ENGINE_PROC(FlutterEnginePostRenderThreadTask);
-    LOAD_LIBFLUTTER_ENGINE_PROC(FlutterEngineGetCurrentTime);
-    LOAD_LIBFLUTTER_ENGINE_PROC(FlutterEngineRunTask);
-    LOAD_LIBFLUTTER_ENGINE_PROC(FlutterEngineUpdateLocales);
-    LOAD_LIBFLUTTER_ENGINE_PROC(FlutterEngineRunsAOTCompiledDartCode);
-    LOAD_LIBFLUTTER_ENGINE_PROC(FlutterEnginePostDartObject);
-    LOAD_LIBFLUTTER_ENGINE_PROC(FlutterEngineNotifyLowMemoryWarning);
-    LOAD_LIBFLUTTER_ENGINE_PROC(FlutterEnginePostCallbackOnAllNativeThreads);
-    LOAD_LIBFLUTTER_ENGINE_PROC(FlutterEngineNotifyDisplayUpdate);
-
-#	undef LOAD_LIBFLUTTER_ENGINE_PROC
 
     tracer_set_cbs(
         flutterpi.tracer,
@@ -1625,9 +1392,9 @@ static int init_application(void) {
         .root_isolate_create_callback = NULL,
         .update_semantics_node_callback = NULL,
         .update_semantics_custom_action_callback = NULL,
-        .persistent_cache_path = NULL,
+        .persistent_cache_path = flutterpi.flutter.paths->asset_bundle_path,
         .is_persistent_cache_read_only = false,
-        .vsync_callback = on_frame_request, /* broken since 2.2 */
+        .vsync_callback = on_frame_request, /* broken since 2.2, kinda */
         .custom_dart_entrypoint = NULL,
         .custom_task_runners = &(FlutterCustomTaskRunners) {
             .struct_size = sizeof(FlutterCustomTaskRunners),
@@ -1651,8 +1418,8 @@ static int init_application(void) {
         .on_pre_engine_restart_callback = NULL
     };
 
-    bool engine_is_aot = libflutter_engine->FlutterEngineRunsAOTCompiledDartCode();
-    if (engine_is_aot == true && runtime_mode == kDebug) {
+    bool engine_is_aot = procs->RunsAOTCompiledDartCode();
+    if ((engine_is_aot == true) && (flutterpi.flutter.runtime_mode == kDebug)) {
         LOG_ERROR(
             "The flutter engine was built for release or profile (AOT) mode, but flutter-pi was not started up in release or profile mode.\n"
             "Either you swap out the libflutter_engine.so with one that was built for debug mode, or you start"
@@ -1674,7 +1441,7 @@ static int init_application(void) {
             .type = kFlutterEngineAOTDataSourceTypeElfPath
         };
 
-        engine_result = libflutter_engine->FlutterEngineCreateAOTData(&aot_source, &aot_data);
+        engine_result = procs->CreateAOTData(&aot_source, &aot_data);
         if (engine_result != kSuccess) {
             LOG_ERROR("Could not load AOT data. FlutterEngineCreateAOTData: %s\n", FLUTTER_RESULT_TO_STRING(engine_result));
             return EIO;
@@ -1686,34 +1453,34 @@ static int init_application(void) {
     flutterpi.flutter.next_frame_request_is_secondary = false;
 
     // spin up the engine
-    engine_result = libflutter_engine->FlutterEngineInitialize(FLUTTER_ENGINE_VERSION, &renderer_config, &project_args, &flutterpi, &flutterpi.flutter.engine);
+    engine_result = procs->Initialize(FLUTTER_ENGINE_VERSION, &renderer_config, &project_args, &flutterpi, &flutterpi.flutter.engine);
     if (engine_result != kSuccess) {
         LOG_ERROR("Could not initialize the flutter engine. FlutterEngineInitialize: %s\n", FLUTTER_RESULT_TO_STRING(engine_result));
         return EINVAL;
     }
     
-    engine_result = libflutter_engine->FlutterEngineRunInitialized(flutterpi.flutter.engine);
+    engine_result = procs->RunInitialized(flutterpi.flutter.engine);
     if (engine_result != kSuccess) {
         LOG_ERROR("Could not run the flutter engine. FlutterEngineRunInitialized: %s\n", FLUTTER_RESULT_TO_STRING(engine_result));
         return EINVAL;
     }
 
-    ok = locales_add_to_fl_engine(flutterpi.locales, flutterpi.flutter.engine, libflutter_engine->FlutterEngineUpdateLocales);
+    ok = locales_add_to_fl_engine(flutterpi.locales, flutterpi.flutter.engine, procs->UpdateLocales);
     if (ok != 0) {
         return ok;
     }
 
     texture_registry = texture_registry_new(
         &(const struct flutter_external_texture_interface) {
-            .register_external_texture = libflutter_engine->FlutterEngineRegisterExternalTexture,
-            .unregister_external_texture = libflutter_engine->FlutterEngineUnregisterExternalTexture,
-            .mark_external_texture_frame_available = libflutter_engine->FlutterEngineMarkExternalTextureFrameAvailable,
+            .register_external_texture = procs->RegisterExternalTexture,
+            .unregister_external_texture = procs->UnregisterExternalTexture,
+            .mark_external_texture_frame_available = procs->MarkExternalTextureFrameAvailable,
             .engine = flutterpi.flutter.engine
         }
     );
     flutterpi.texture_registry = texture_registry;
 
-    engine_result = libflutter_engine->FlutterEngineNotifyDisplayUpdate(
+    engine_result = procs->NotifyDisplayUpdate(
         flutterpi.flutter.engine,
         kFlutterEngineDisplaysUpdateTypeStartup,
         &(FlutterEngineDisplay) {
@@ -1735,7 +1502,7 @@ static int init_application(void) {
     COMPILE_ASSERT(sizeof(FlutterWindowMetricsEvent) == 64);
 
     // update window size
-    engine_result = libflutter_engine->FlutterEngineSendWindowMetricsEvent(
+    engine_result = procs->SendWindowMetricsEvent(
         flutterpi.flutter.engine,
         &(FlutterWindowMetricsEvent) {
             .struct_size = sizeof(FlutterWindowMetricsEvent),
@@ -1793,12 +1560,12 @@ static void on_flutter_pointer_event(void *userdata, const FlutterPointerEvent *
 
     /// TODO: make this atomic
     flutterpi->flutter.next_frame_request_is_secondary = true;
-    engine_result = flutterpi->flutter.libflutter_engine.FlutterEngineSendPointerEvent(
+
+    engine_result = flutterpi->flutter.procs.SendPointerEvent(
         flutterpi->flutter.engine,
         events,
         n_events
     );
-
     if (engine_result != kSuccess) {
         LOG_ERROR("Error sending touchscreen / mouse events to flutter. FlutterEngineSendPointerEvent: %s\n", FLUTTER_RESULT_TO_STRING(engine_result));
         //flutterpi_schedule_exit(flutterpi);
@@ -2190,13 +1957,15 @@ int init(int argc, char **argv) {
         return EINVAL;
     }
 
+    locales_print(flutterpi.locales);
+
     ok = init_display(
         &flutterpi,
         flutterpi.event_loop,
         cmd_args.has_pixel_format, cmd_args.pixel_format,
         cmd_args.has_rotation,
-            cmd_args.rotation == 0 ? PLANE_TRANSFORM_ROTATE_0 :
-            cmd_args.rotation == 90 ? PLANE_TRANSFORM_ROTATE_90 :
+            cmd_args.rotation == 0   ? PLANE_TRANSFORM_ROTATE_0   :
+            cmd_args.rotation == 90  ? PLANE_TRANSFORM_ROTATE_90  :
             cmd_args.rotation == 180 ? PLANE_TRANSFORM_ROTATE_180 :
             cmd_args.rotation == 270 ? PLANE_TRANSFORM_ROTATE_270 :
             (assert(0 && "invalid rotation"), PLANE_TRANSFORM_ROTATE_0),

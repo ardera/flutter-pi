@@ -1179,7 +1179,7 @@ int platch_send(char *channel, struct platch_obj *object, enum platch_codec resp
 		handlerdata->on_response = on_response;
 		handlerdata->userdata = userdata;
 
-		result = flutterpi.flutter.libflutter_engine.FlutterPlatformMessageCreateResponseHandle(flutterpi.flutter.engine, platch_on_response_internal, handlerdata, &response_handle);
+		result = flutterpi.flutter.procs.PlatformMessageCreateResponseHandle(flutterpi.flutter.engine, platch_on_response_internal, handlerdata, &response_handle);
 		if (result != kSuccess) {
 			fprintf(stderr, "[flutter-pi] Error create platform message response handle. FlutterPlatformMessageCreateResponseHandle: %s\n", FLUTTER_RESULT_TO_STRING(result));
 			goto fail_free_handlerdata;
@@ -1198,7 +1198,7 @@ int platch_send(char *channel, struct platch_obj *object, enum platch_codec resp
 
 	// TODO: This won't work if we're not on the main thread
 	if (on_response) {
-		result = flutterpi.flutter.libflutter_engine.FlutterPlatformMessageReleaseResponseHandle(flutterpi.flutter.engine, response_handle);
+		result = flutterpi.flutter.procs.PlatformMessageReleaseResponseHandle(flutterpi.flutter.engine, response_handle);
 		if (result != kSuccess) {
 			fprintf(stderr, "[flutter-pi] Error releasing platform message response handle. FlutterPlatformMessageReleaseResponseHandle: %s\n", FLUTTER_RESULT_TO_STRING(result));
 			ok = EIO;
@@ -1215,7 +1215,7 @@ int platch_send(char *channel, struct platch_obj *object, enum platch_codec resp
 
 	fail_release_handle:
 	if (on_response) {
-		flutterpi.flutter.libflutter_engine.FlutterPlatformMessageReleaseResponseHandle(flutterpi.flutter.engine, response_handle);
+		flutterpi.flutter.procs.PlatformMessageReleaseResponseHandle(flutterpi.flutter.engine, response_handle);
 	}
 
 	fail_free_buffer:

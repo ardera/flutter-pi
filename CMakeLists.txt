@@ -44,6 +44,9 @@ option(BUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN "Include the gstreamer based video pl
 option(BUILD_GSTREAMER_AUDIO_PLAYER_PLUGIN "Include the gstreamer based audio plugins in the finished binary." ON)
 option(TRY_BUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN "Don't throw an error if the gstreamer libs aren't found, instead just don't build the gstreamer video player plugin in that case." ON)
 option(TRY_BUILD_GSTREAMER_AUDIO_PLAYER_PLUGIN "Don't throw an error if the gstreamer libs aren't found, instead just don't build gstreamer audio plugin." ON)
+option(ENABLE_OPENGL "Build with EGL/OpenGL rendering support." ON)
+option(TRY_ENABLE_OPENGL "Don't throw an error if EGL/OpenGL aren't found, instead just build without EGL/OpenGL support in that case." ON)
+option(ENABLE_SOFTWARE "Build with software rendering support." ON)
 option(DUMP_ENGINE_LAYERS "True if flutter-pi should dump the list of rendering layers that the flutter engine sends to flutter-pi on each draw." OFF)
 option(WARN_MISSING_FIELD_INITIALIZERS "True of the compiler should be instructed to warn about missing field initializers. This needs some hacky workarounds in the code so gcc won't report spurious warnings, so this should only be enabled if the warnings are explicitly required." OFF)
 option(ENABLE_TSAN "True to build & link with -fsanitize=thread" OFF)
@@ -109,8 +112,6 @@ include(CheckCCompilerFlag)
 include(FindPkgConfig)
 pkg_check_modules(DRM REQUIRED libdrm)
 pkg_check_modules(GBM REQUIRED gbm)
-pkg_check_modules(EGL egl)
-pkg_check_modules(GLESV2 glesv2)
 pkg_check_modules(LIBSYSTEMD REQUIRED libsystemd)
 pkg_check_modules(LIBINPUT REQUIRED libinput)
 pkg_check_modules(LIBXKBCOMMON REQUIRED xkbcommon)
@@ -122,6 +123,7 @@ add_executable(flutter-pi
   src/pluginregistry.c
   src/texture_registry.c
   # src/compositor.c
+  src/gl_renderer.c
   src/modesetting.c
   src/collection.c
   src/cursor.c
@@ -159,8 +161,6 @@ target_include_directories(flutter-pi PRIVATE
   ${CMAKE_SOURCE_DIR}/include/plugins
   ${DRM_INCLUDE_DIRS}
   ${GBM_INCLUDE_DIRS}
-  ${EGL_INCLUDE_DIRS}
-  ${GLESV2_INCLUDE_DIRS}
   ${LIBSYSTEMD_INCLUDE_DIRS}
   ${LIBINPUT_INCLUDE_DIRS}
   ${LIBUDEV_INCLUDE_DIRS}
@@ -170,8 +170,6 @@ target_include_directories(flutter-pi PRIVATE
 target_compile_options(flutter-pi PRIVATE
   ${DRM_CFLAGS}
   ${GBM_CFLAGS}
-  ${EGL_CFLAGS}
-  ${GLESV2_CFLAGS}
   ${LIBSYSTEMD_CFLAGS}
   ${LIBINPUT_CFLAGS}
   ${LIBUDEV_CFLAGS}
@@ -198,36 +196,56 @@ target_compile_definitions(flutter-pi PRIVATE
 target_compile_definitions(flutter-pi PRIVATE HAS_KMS HAS_EGL HAS_GBM HAS_FBDEV)
 
 if (WARN_MISSING_FIELD_INITIALIZERS)
-  target_compile_options(flutter-pi PRIVATE -Wmissing-field-initializers)
+  target_compile_options(flutter-pi PRIVATE -Wmissing-field-initializers -Wno-error=missing-field-initializers)
   target_compile_definitions(flutter-pi PRIVATE WARN_MISSING_FIELD_INITIALIZERS)
 else()
   target_compile_options(flutter-pi PRIVATE -Wno-missing-field-initializers)
 endif()
 
-if (EGL_FOUND)
-  target_compile_definitions(flutter-pi PRIVATE HAS_EGL)
-else()
-  message("Could not find EGL. Flutter-pi will build without EGL support.")
-  FetchContent_Declare(
-    EGL_REGISTRY
-    GIT_REPOSITORY "https://github.com/KhronosGroup/EGL-Registry"
-    GIT_TAG "main"
-  )
-  FetchContent_MakeAvailable(EGL_REGISTRY)
-  target_include_directories(flutter-pi PRIVATE ${EGL_REGISTRY_SOURCE_DIR}/api/)
-endif()
+if (ENABLE_OPENGL)
+  if (TRY_ENABLE_OPENGL)
+    pkg_check_modules(EGL egl)
+    pkg_check_modules(GLESV2 glesv2)
+  else()
+    pkg_check_modules(EGL REQUIRED egl)
+    pkg_check_modules(GLESV2 REQUIRED glesv2)
+  endif()
 
-if (GLESV2_FOUND)
-  target_compile_definitions(flutter-pi PRIVATE HAS_GL)
-else()
-  message("Could not find OpenGL. Flutter-pi will build without OpenGL support.")
-  FetchContent_Declare(
-    OGL_REGISTRY
-    GIT_REPOSITORY "https://github.com/KhronosGroup/OpenGL-Registry"
-    GIT_TAG "main"
-  )
-  FetchContent_MakeAvailable(OGL_REGISTRY)
-  target_include_directories(flutter-pi PRIVATE ${OGL_REGISTRY_SOURCE_DIR}/api/)
+  if (EGL_FOUND)
+    target_compile_definitions(flutter-pi PRIVATE HAS_EGL)
+    target_include_directories(flutter-pi PRIVATE ${EGL_INCLUDE_DIRS})
+    target_compile_options(flutter-pi PRIVATE ${EGL_CFLAGS})
+  else()
+    FetchContent_Declare(
+      EGL_REGISTRY
+      GIT_REPOSITORY "https://github.com/KhronosGroup/EGL-Registry"
+      GIT_TAG "main"
+    )
+    FetchContent_MakeAvailable(EGL_REGISTRY)
+    target_include_directories(flutter-pi PRIVATE ${EGL_REGISTRY_SOURCE_DIR}/api/)
+  endif()
+
+  if (GLESV2_FOUND)
+    target_compile_definitions(flutter-pi PRIVATE HAS_GL)
+    target_include_directories(flutter-pi PRIVATE ${EGL_INCLUDE_DIRS})
+    target_compile_options(flutter-pi PRIVATE ${EGL_CFLAGS})
+  else()
+    FetchContent_Declare(
+      OGL_REGISTRY
+      GIT_REPOSITORY "https://github.com/KhronosGroup/OpenGL-Registry"
+      GIT_TAG "main"
+    )
+    FetchContent_MakeAvailable(OGL_REGISTRY)
+    target_include_directories(flutter-pi PRIVATE ${OGL_REGISTRY_SOURCE_DIR}/api/)
+  endif()
+
+  if ( NOT (GLESV2_FOUND AND EGL_FOUND))
+    if (TRY_ENABLE_OPENGL)
+      message("EGL and/or OpenGL was not found. Flutter-pi will build without EGL/OpenGL rendering support.")
+    else()
+      message(SEND_ERROR "EGL and/or OpenGL was not found. Try building with `-DTRY_ENABLE_OPENGL=On` if you want to just disable EGL/OpenGL support in that case.")
+    endif()
+  endif()
 endif()
 
 if(NOT FILESYSTEM_LAYOUT IN_LIST FILESYSTEM_LAYOUTS)
@@ -354,9 +372,7 @@ endif()
 
 # Needed so dart VM can actually resolve symbols in the same
 # executable.
-target_link_options(flutter-pi PRIVATE
-  -rdynamic
-)
+target_link_options(flutter-pi PRIVATE -rdynamic)
 
 if (ENABLE_TSAN)
   target_link_options(flutter-pi PRIVATE -fsanitize=thread)

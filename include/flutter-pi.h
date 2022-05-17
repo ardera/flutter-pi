@@ -18,12 +18,8 @@
 #include <xf86drmMode.h>
 #include <libinput.h>
 #include <systemd/sd-event.h>
-#include <EGL/egl.h>
-//#define  EGL_EGLEXT_PROTOTYPES
-#include <EGL/eglext.h>
-#include <GLES2/gl2.h>
-//#define  GL_GLEXT_PROTOTYPES
-#include <GLES2/gl2ext.h>
+#include <egl.h>
+#include <gles.h>
 #include <flutter_embedder.h>
 
 #include <collection.h>
@@ -49,44 +45,6 @@ enum device_orientation {
 		(orientation) == kPortraitDown ? kLandscapeLeft : \
 		(orientation) == kLandscapeRight ? kPortraitDown : (assert(0 && "invalid device orientation"), 0) \
 	)
-
-/// TODO: Use flutter_embedder.h proctable instead
-struct libflutter_engine {
-	FlutterEngineResult (*FlutterEngineCreateAOTData)(const FlutterEngineAOTDataSource* source, FlutterEngineAOTData* data_out);
-	FlutterEngineResult (*FlutterEngineCollectAOTData)(FlutterEngineAOTData data);
-	FlutterEngineResult (*FlutterEngineRun)(size_t version, const FlutterRendererConfig* config, const FlutterProjectArgs* args, void* user_data, FlutterEngine *engine_out);
-	FlutterEngineResult (*FlutterEngineShutdown)(FlutterEngine engine);
-	FlutterEngineResult (*FlutterEngineInitialize)(size_t version, const FlutterRendererConfig* config, const FlutterProjectArgs* args, void* user_data, FlutterEngine *engine_out);
-	FlutterEngineResult (*FlutterEngineDeinitialize)(FlutterEngine engine);
-	FlutterEngineResult (*FlutterEngineRunInitialized)(FlutterEngine engine);
-	FlutterEngineResult (*FlutterEngineSendWindowMetricsEvent)(FlutterEngine engine, const FlutterWindowMetricsEvent* event);
-	FlutterEngineResult (*FlutterEngineSendPointerEvent)(FlutterEngine engine, const FlutterPointerEvent* events, size_t events_count);
-	FlutterEngineResult (*FlutterEngineSendPlatformMessage)(FlutterEngine engine, const FlutterPlatformMessage* message);
-	FlutterEngineResult (*FlutterPlatformMessageCreateResponseHandle)(FlutterEngine engine, FlutterDataCallback data_callback, void* user_data, FlutterPlatformMessageResponseHandle** response_out);
-	FlutterEngineResult (*FlutterPlatformMessageReleaseResponseHandle)(FlutterEngine engine, FlutterPlatformMessageResponseHandle* response);
-	FlutterEngineResult (*FlutterEngineSendPlatformMessageResponse)(FlutterEngine engine, const FlutterPlatformMessageResponseHandle* handle, const uint8_t* data, size_t data_length);
-	FlutterEngineResult (*__FlutterEngineFlushPendingTasksNow)();
-	FlutterEngineResult (*FlutterEngineRegisterExternalTexture)(FlutterEngine engine, int64_t texture_identifier);
-	FlutterEngineResult (*FlutterEngineUnregisterExternalTexture)(FlutterEngine engine, int64_t texture_identifier);
-	FlutterEngineResult (*FlutterEngineMarkExternalTextureFrameAvailable)(FlutterEngine engine, int64_t texture_identifier);
-	FlutterEngineResult (*FlutterEngineUpdateSemanticsEnabled)(FlutterEngine engine, bool enabled);
-	FlutterEngineResult (*FlutterEngineUpdateAccessibilityFeatures)(FlutterEngine engine, FlutterAccessibilityFeature features);
-	FlutterEngineResult (*FlutterEngineDispatchSemanticsAction)(FlutterEngine engine, uint64_t id, FlutterSemanticsAction action, const uint8_t* data, size_t data_length);
-	FlutterEngineResult (*FlutterEngineOnVsync)(FlutterEngine engine, intptr_t baton, uint64_t frame_start_time_nanos, uint64_t frame_target_time_nanos);
-	FlutterEngineResult (*FlutterEngineReloadSystemFonts)(FlutterEngine engine);
-	void (*FlutterEngineTraceEventDurationBegin)(const char* name);
-	void (*FlutterEngineTraceEventDurationEnd)(const char* name);
-	void (*FlutterEngineTraceEventInstant)(const char* name);
-	FlutterEngineResult (*FlutterEnginePostRenderThreadTask)(FlutterEngine engine, VoidCallback callback, void* callback_data);
-	uint64_t (*FlutterEngineGetCurrentTime)();
-	FlutterEngineResult (*FlutterEngineRunTask)(FlutterEngine engine, const FlutterTask* task);
-	FlutterEngineResult (*FlutterEngineUpdateLocales)(FlutterEngine engine, const FlutterLocale** locales, size_t locales_count);
-	bool (*FlutterEngineRunsAOTCompiledDartCode)(void);
-	FlutterEngineResult (*FlutterEnginePostDartObject)(FlutterEngine engine, FlutterEngineDartPort port, const FlutterEngineDartObject* object);
-	FlutterEngineResult (*FlutterEngineNotifyLowMemoryWarning)(FlutterEngine engine);
-	FlutterEngineResult (*FlutterEnginePostCallbackOnAllNativeThreads)(FlutterEngine engine, FlutterNativeThreadCallback callback, void* user_data);
-	FlutterEngineResult (*FlutterEngineNotifyDisplayUpdate)(FlutterEngine engine, FlutterEngineDisplaysUpdateType update_type, const FlutterEngineDisplay* displays, size_t display_count);
-};
 
 #define ANGLE_FROM_ORIENTATION(o) \
 	((o) == kPortraitUp ? 0 : \
@@ -232,24 +190,6 @@ struct flutterpi {
 	} gbm;
 
 	struct {
-		EGLDisplay display;
-		EGLConfig  config;
-		EGLContext root_context;
-		EGLContext flutter_render_context;
-		EGLContext flutter_resource_uploading_context;
-		
-		/// Used to lock the @ref root_context, to be sure we only try to make it current on
-		/// one thread.
-		pthread_mutex_t root_context_lock;
-		
-		const char *client_exts, *display_exts;
-	} egl;
-
-	struct  {
-		const char *extensions;
-	} gl;
-
-	struct {
 		/// width & height of the display in pixels.
 		// int width, height;
 
@@ -325,7 +265,6 @@ struct flutterpi {
 		int engine_argc;
 		char **engine_argv;
 		enum flutter_runtime_mode runtime_mode;
-		struct libflutter_engine libflutter_engine;
 		FlutterEngineProcTable procs;
 		FlutterEngine engine;
 
@@ -341,6 +280,7 @@ struct flutterpi {
 	/// flutter-pi internal stuff
 	struct plugin_registry *plugin_registry;
 	struct texture_registry *texture_registry;
+	struct gl_renderer *gl_renderer;
 };
 
 struct platform_task {
@@ -416,15 +356,9 @@ int flutterpi_schedule_exit(void);
 
 struct gbm_device *flutterpi_get_gbm_device(struct flutterpi *flutterpi);
 
-EGLDisplay flutterpi_get_egl_display(struct flutterpi *flutterpi);
+bool flutterpi_has_gl_renderer(struct flutterpi *flutterpi);
 
-EGLContext flutterpi_create_egl_context(struct flutterpi *flutterpi);
-
-void *flutterpi_egl_get_proc_address(struct flutterpi *flutterpi, const char *name);
-
-bool flutterpi_supports_egl_extension(struct flutterpi *flutterpi, const char *extension_name_str);
-
-bool flutterpi_supports_gl_extension(struct flutterpi *flutterpi, const char *extension_name_str);
+struct gl_renderer *flutterpi_get_gl_renderer(struct flutterpi *flutterpi);
 
 void flutterpi_trace_event_instant(struct flutterpi *flutterpi, const char *name);
 

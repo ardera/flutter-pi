@@ -1,7 +1,7 @@
 #ifndef _TEXTURE_REGISTRY_H
 #define _TEXTURE_REGISTRY_H
 
-#include <GLES2/gl2.h>
+#include <gles.h>
 #include <flutter_embedder.h>
 
 struct flutter_external_texture_interface {

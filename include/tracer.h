@@ -9,6 +9,8 @@
 #ifndef _FLUTTERPI_INCLUDE_TRACER_H
 #define _FLUTTERPI_INCLUDE_TRACER_H
 
+#include <flutter_embedder.h>
+
 struct tracer;
 
 struct tracer *tracer_new_with_cbs(

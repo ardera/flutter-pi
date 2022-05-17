@@ -25,16 +25,20 @@ ATTR_PURE struct dmabuf_surface *__checked_cast_dmabuf_surface(void *ptr);
 
 struct dmabuf {
     enum pixfmt format;
+    int width, height;
     int fds[4];
     int offsets[4];
     int strides[4];
+    bool has_modifiers;
     uint64_t modifiers[4];
     void *userdata;
 };
 
 typedef void (*dmabuf_release_cb_t)(struct dmabuf *buf);
 
-ATTR_MALLOC struct dmabuf_surface *dmabuf_surface_new(struct compositor *compositor, struct tracer *tracer);
+struct texture_registry;
+
+ATTR_MALLOC struct dmabuf_surface *dmabuf_surface_new(struct compositor *compositor, struct tracer *tracer, struct texture_registry *texture_registry);
 
 int dmabuf_surface_push_dmabuf(struct dmabuf_surface *s, const struct dmabuf *buf, dmabuf_release_cb_t release_cb);
 
