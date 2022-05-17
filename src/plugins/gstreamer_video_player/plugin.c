@@ -328,7 +328,7 @@ static enum listener_return on_video_info_notify(void *arg, void *userdata) {
         return kNoAction;
     }
 
-    LOG_ERROR(
+    LOG_DEBUG(
         "Got video info: stream? %s, w x h: % 4d x % 4d, duration: %" GST_TIME_FORMAT "\n",
         !info->can_seek ? "yes" : "no",
         info->width, info->height,
@@ -386,7 +386,7 @@ static int on_receive_evch(
 
     method = object->method;
 
-    LOG_ERROR("on_receive_evch\n");
+    LOG_DEBUG("on_receive_evch\n");
 
     player = get_player_by_evch(channel);
     if (player == NULL) {
@@ -442,7 +442,7 @@ static int on_initialize(
         return respond_init_failed(responsehandle);
     }
 
-    LOG_ERROR("on_initialize\n");
+    LOG_DEBUG("on_initialize\n");
 
     // what do we even do here?
 
@@ -702,7 +702,7 @@ static int on_create(
         goto fail_remove_receiver;
     }
 
-    LOG_ERROR("respond success on_create\n");
+    LOG_DEBUG("respond success on_create\n");
 
     return platch_respond_success_pigeon(
         responsehandle,
