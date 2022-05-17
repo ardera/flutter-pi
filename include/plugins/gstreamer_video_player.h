@@ -2,10 +2,8 @@
 #define _FLUTTERPI_INCLUDE_PLUGINS_OMXPLAYER_VIDEO_PLUGIN_H
 
 #include <collection.h>
-#include <EGL/egl.h>
-#include <EGL/eglext.h>
-#include <GLES2/gl2.h>
-#include <GLES2/gl2ext.h>
+#include <egl.h>
+#include <gles.h>
 
 enum format_hint {
     kNoFormatHint,
@@ -198,6 +196,7 @@ struct notifier *gstplayer_get_error_notifier(struct gstplayer *player);
 
 
 struct video_frame;
+struct gl_renderer;
 
 struct frame_interface {
     struct gbm_device *gbm_device;
@@ -216,7 +215,7 @@ struct frame_interface {
     refcount_t n_refs;
 };
 
-struct frame_interface *frame_interface_new();
+struct frame_interface *frame_interface_new(struct gl_renderer *renderer);
 
 DEFINE_INLINE_LOCK_OPS(frame_interface, context_lock)
 
