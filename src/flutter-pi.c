@@ -1808,6 +1808,8 @@ static int init_display(void) {
 static int init_application(void) {
 	FlutterEngineAOTDataSource aot_source;
 	struct libflutter_engine *libflutter_engine;
+    struct texture_registry *texture_registry;
+    struct plugin_registry *plugin_registry;
 	FlutterRendererConfig renderer_config = {0};
 	FlutterEngineAOTData aot_data;
 	FlutterEngineResult engine_result;
