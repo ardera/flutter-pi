@@ -2449,7 +2449,7 @@ static bool parse_cmd_args(int argc, char **argv) {
         return false;
     }
 
-    flutterpi.flutter.asset_bundle_path = strdup(argv[optind]);
+    flutterpi.flutter.asset_bundle_path = realpath(argv[optind], NULL);
     flutterpi.flutter.runtime_mode = runtime_mode_int;
 
     argv[optind] = argv[0];
