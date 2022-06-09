@@ -2287,7 +2287,7 @@ static bool setup_paths(void) {
 	}
 	
 	asprintf(&kernel_blob_path, "%s/kernel_blob.bin", flutterpi.flutter.asset_bundle_path);
-	asprintf(&app_elf_path, "%s/app.so", flutterpi.flutter.asset_bundle_path);
+	asprintf(&app_elf_path, "%s/libapp.so", flutterpi.flutter.asset_bundle_path);
 
 	if (flutterpi.flutter.runtime_mode == kDebug) {
 		if (!PATH_EXISTS(kernel_blob_path)) {
@@ -2296,14 +2296,14 @@ static bool setup_paths(void) {
 		}
 	} else if (flutterpi.flutter.runtime_mode == kRelease) {
 		if (!PATH_EXISTS(app_elf_path)) {
-			fprintf(stderr, "[flutter-pi] Could not find \"app.so\" file inside \"%s\", which is required for release and profile mode.\n", flutterpi.flutter.asset_bundle_path);
+			fprintf(stderr, "[flutter-pi] Could not find \"libapp.so\" file inside \"%s\", which is required for release and profile mode.\n", flutterpi.flutter.asset_bundle_path);
 			return false;
 		}
 	}
 
-	asprintf(&icu_data_path, "/usr/lib/icudtl.dat");
+	asprintf(&icu_data_path, "/usr/share/flutter/icudtl.dat");
 	if (!PATH_EXISTS(icu_data_path)) {
-		fprintf(stderr, "[flutter-pi] Could not find \"icudtl.dat\" file inside \"/usr/lib/\".\n");
+		fprintf(stderr, "[flutter-pi] Could not find \"icudtl.dat\" file inside \"/usr/share/flutter/\".\n");
 		return false;
 	}
 
