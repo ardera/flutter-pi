@@ -34,4 +34,6 @@ int locales_add_to_fl_engine(struct locales *locales, FlutterEngine engine, Flut
 
 const FlutterLocale *locales_on_compute_platform_resolved_locale(struct locales *locales, const FlutterLocale **fl_locales, size_t n_fl_locales);
 
+void locales_print(const struct locales *locales);
+
 #endif
