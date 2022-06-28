@@ -1,0 +1,167 @@
+# SPDX-License-Identifier: MIT
+#
+# For more information, see:
+#
+#   Documentation/process/clang-format.rst
+#   https://clang.llvm.org/docs/ClangFormat.html
+#   https://clang.llvm.org/docs/ClangFormatStyleOptions.html
+#
+---
+AccessModifierOffset: -4
+AlignAfterOpenBracket: BlockIndent
+#AlignArrayOfStructures: Right
+AlignConsecutiveAssignments: false
+#AlignConsecutiveBitFields: false
+AlignConsecutiveDeclarations: false
+AlignConsecutiveMacros: false
+AlignEscapedNewlines: Left
+AlignOperands: true
+AlignTrailingComments: false
+AllowAllArgumentsOnNextLine: false
+AllowAllParametersOfDeclarationOnNextLine: false
+AllowShortBlocksOnASingleLine: false
+AllowShortCaseLabelsOnASingleLine: false
+#AllowShortEnumsOnASingleLine: false
+AllowShortFunctionsOnASingleLine: None
+AllowShortIfStatementsOnASingleLine: Never
+#AllowShortLambdasOnASingleLine: None
+AllowShortLoopsOnASingleLine: false
+AlwaysBreakAfterDefinitionReturnType: None
+AlwaysBreakAfterReturnType: None
+AlwaysBreakBeforeMultilineStrings: false
+AlwaysBreakTemplateDeclarations: false
+AttributeMacros:
+  - 'MAYBE_UNUSED'
+  - 'ATTR_MALLOC'
+  - 'NONNULL'
+  - 'ATTR_PURE'
+  - 'ATTR_CONST'
+
+BinPackArguments: false
+BinPackParameters: false
+BraceWrapping:
+  AfterClass: false
+  AfterControlStatement: false
+  AfterEnum: false
+  AfterFunction: true
+  AfterNamespace: true
+  AfterObjCDeclaration: false
+  AfterStruct: true
+  AfterUnion: true
+  AfterExternBlock: false
+  BeforeCatch: false
+  BeforeElse: false
+  IndentBraces: false
+  SplitEmptyFunction: true
+  SplitEmptyRecord: true
+  SplitEmptyNamespace: true
+BreakBeforeBinaryOperators: None
+BreakBeforeBraces: Attach
+BreakBeforeInheritanceComma: false
+BreakBeforeTernaryOperators: false
+BreakConstructorInitializersBeforeComma: false
+BreakConstructorInitializers: BeforeComma
+BreakAfterJavaFieldAnnotations: false
+BreakStringLiterals: true
+AlwaysBreakBeforeMultilineStrings: true
+ColumnLimit: 120
+CommentPragmas: '^ IWYU pragma:'
+CompactNamespaces: false
+ConstructorInitializerAllOnOneLineOrOnePerLine: false
+ConstructorInitializerIndentWidth: 8
+ContinuationIndentWidth: 4
+Cpp11BracedListStyle: false
+DerivePointerAlignment: false
+DisableFormat: false
+#ExperimentalAutoDetectBinPacking: true
+FixNamespaceComments: false
+ForEachMacros:
+  - 'for_each_pointer_in_pset'
+  - 'for_each_pointer_in_cpset'
+  - 'for_each_connector_in_drmdev'
+  - 'for_each_encoder_in_drmdev'
+  - 'for_each_crtc_in_drmdev'
+  - 'for_each_plane_in_drmdev'
+  - 'for_each_mode_in_connector'
+  - 'for_each_unreserved_plane_in_atomic_req'
+
+IncludeBlocks: Regroup
+IncludeCategories:
+  # C standard library headers
+  - Regex: '^<(assert|complex|ctype|errno|fenv|float|inttypes|iso646|limits|locale|math|setjmp|signal|stdalign|stdarg|stdatomic|stdbool|stddef|stdint|stdio|stdlib|stdnoreturn|string|tgmath|threads|time|uchar|wchar|wctype)\.h>$'
+    Priority: 1
+  - Regex: '^<(ctype|dlfcn|fcntl|glob|limits|locale|poll|pthread|regex|semaphore|unistd|sys/mman|sys/stat|sys/types)\.h>$'
+    Priority: 2
+  - Regex: '^<(elf|features|getopt|langinfo)\.h>$'
+    Priority: 3
+  - Regex: '^<(linux/[^.]*|sys/eventfd)\.h>$'
+    Priority: 4
+  - Regex: '^<(plugins/[^.]*|backing_store[^.]*|collection|compositor_ng|cursor|dmabuf_surface|egl_info|egl|flutter-pi|gbm_surface_backing_store|gl_renderer|gles|jsmn|keyboard|locales|modesetting|notifier_listener|pixel_format|platform_view|platformchannel|pluginregistry|surface[^.]*|texture_registry|tracer|user_input)\.h>$'
+    Priority: 6
+  - Regex: '.*'
+    Priority: 5
+
+IncludeIsMainRegex: '(Test)?$'
+IndentCaseLabels: false
+IndentGotoLabels: false
+IndentPPDirectives: AfterHash
+IndentWidth: 4
+IndentWrappedFunctionNames: false
+JavaScriptQuotes: Leave
+JavaScriptWrapImports: true
+KeepEmptyLinesAtTheStartOfBlocks: false
+MacroBlockBegin: ''
+MacroBlockEnd: ''
+MaxEmptyLinesToKeep: 1
+NamespaceIndentation: None
+ObjCBinPackProtocolList: Auto
+ObjCBlockIndentWidth: 8
+ObjCSpaceAfterProperty: true
+ObjCSpaceBeforeProtocolList: true
+
+PenaltyBreakAssignment: 60
+PenaltyBreakBeforeFirstCallParameter: 0
+PenaltyBreakComment: 10
+PenaltyBreakFirstLessLess: 0
+PenaltyBreakOpenParenthesis: 0
+PenaltyBreakString: 0
+PenaltyExcessCharacter: 100
+PenaltyReturnTypeOnItsOwnLine: 60
+
+PointerAlignment: Right
+ReflowComments: false
+SortIncludes: CaseInsensitive
+SortUsingDeclarations: false
+SpaceAfterCStyleCast: true
+SpaceAfterTemplateKeyword: true
+SpaceBeforeAssignmentOperators: true
+SpaceBeforeCtorInitializerColon: true
+SpaceBeforeInheritanceColon: true
+SpaceBeforeParens: ControlStatementsExceptForEachMacros
+SpaceBeforeRangeBasedForLoopColon: true
+SpaceInEmptyParentheses: false
+SpacesBeforeTrailingComments: 2
+SpacesInAngles: false
+SpacesInContainerLiterals: false
+SpacesInCStyleCastParentheses: false
+SpacesInLineCommentPrefix:
+  Minimum: 1
+  Maximum: -1
+SpacesInParentheses: false
+SpacesInSquareBrackets: false
+Standard: Cpp03
+StatementMacros:
+  - 'DECLARE_REF_OPS'
+  - 'DEFINE_REF_OPS'
+  - 'DEFINE_STATIC_REF_OPS'
+  - 'DECLARE_LOCK_OPS'
+  - 'DEFINE_LOCK_OPS'
+  - 'DEFINE_STATIC_LOCK_OPS'
+  - 'DEFINE_INLINE_LOCK_OPS'
+  - 'UUID'
+  - 'CONST_UUID'
+TabWidth: 4
+TypenameMacros:
+  - 'BMAP_ELEMENT_TYPE'
+  - 'MAX_ALIGNMENT'
+UseTab: Never
