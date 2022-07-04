@@ -43,7 +43,7 @@ static inline uint8_t utf8_symbol_length(uint8_t c) {
     }
     if ((c & 0b10000000) == 0b10000000) {
         // XXX should we return 1 and don't care here?
-        fprintf(stderr, "weird char start: %x\n", c);
+        DEBUG_ASSERT_MSG(false, "Invalid UTF-8 character");
         return 0;
     }
     return 1;
