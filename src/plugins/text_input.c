@@ -876,23 +876,6 @@ static int sync_editing_state(void) {
 int textin_on_utf8_char(uint8_t *c) {
     if (text_input.connection_id == -1)
         return 0;
-    
-    switch (text_input.input_type) {
-        case kInputTypeNumber:
-            if (isdigit(*c)) {
-                break;
-            } else {
-                return 0;
-            }
-        case kInputTypePhone:
-            if (isdigit(*c) || *c == '*' || *c == '#' || *c == '+') {
-                break;
-            } else {
-                return 0;
-            }
-        default:
-            break;
-    }
 
     if (model_add_utf8_char(c))
         return sync_editing_state();
