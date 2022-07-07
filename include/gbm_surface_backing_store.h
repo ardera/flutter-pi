@@ -27,21 +27,23 @@ ATTR_PURE struct gbm_surface_backing_store *__checked_cast_gbm_surface_backing_s
 #   define CAST_GBM_SURFACE_BACKING_STORE(ptr) CAST_GBM_SURFACE_BACKING_STORE_UNCHECKED(ptr)
 #endif
 
-ATTR_MALLOC struct gbm_surface_backing_store *gbm_surface_backing_store_new(
-    struct compositor *compositor,
-    struct tracer *tracer,
-    struct point size,
-    struct gbm_device *device,
-    enum pixfmt pixel_format
-);
-
 ATTR_MALLOC struct gbm_surface_backing_store *gbm_surface_backing_store_new_with_egl_config(
     struct compositor *compositor,
     struct tracer *tracer,
     struct point size,
     struct gbm_device *device,
+    struct gl_renderer *renderer,
     enum pixfmt pixel_format,
     EGLConfig egl_config
+);
+
+ATTR_MALLOC struct gbm_surface_backing_store *gbm_surface_backing_store_new(
+    struct compositor *compositor,
+    struct tracer *tracer,
+    struct point size,
+    struct gbm_device *device,
+    struct gl_renderer *renderer,
+    enum pixfmt pixel_format
 );
 
 ATTR_PURE EGLSurface gbm_surface_backing_store_get_egl_surface(struct gbm_surface_backing_store *s);

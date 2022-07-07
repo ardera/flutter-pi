@@ -227,6 +227,7 @@ typedef void (*compositor_frame_begin_cb_t)(void *userdata, uint64_t vblank_ns, 
 ATTR_MALLOC struct compositor *compositor_new(
     struct drmdev *drmdev,
     struct tracer *tracer,
+    struct gl_renderer *renderer,
     bool has_rotation, drm_plane_transform_t rotation,
     bool has_orientation, enum device_orientation orientation,
     bool has_explicit_dimensions, int width_mm, int height_mm,

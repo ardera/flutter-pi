@@ -167,4 +167,8 @@ static inline const struct pixfmt_info *get_pixfmt_info(enum pixfmt format) {
     return pixfmt_infos + format;
 }
 
+COMPILE_ASSERT(kRGB565 == 0);
+
+#define DEBUG_ASSERT_PIXFMT_VALID(format) DEBUG_ASSERT_MSG(format >= kRGB565 && format <= kMax_PixFmt, "Invalid pixel format")
+
 #endif // _FLUTTERPI_INCLUDE_PIXEL_FORMAT_H

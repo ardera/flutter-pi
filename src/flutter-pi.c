@@ -1206,6 +1206,7 @@ static int init_display(
     compositor = compositor_new(
         drmdev,
         tracer,
+        renderer,
         has_rotation, rotation,
         has_orientation, orientation,
         has_explicit_dimensions, width_mm, height_mm,
@@ -1452,13 +1453,15 @@ static int init_application(void) {
 
     flutterpi.flutter.next_frame_request_is_secondary = false;
 
+    LOG_DEBUG("initializing flutter engine...\n");
     // spin up the engine
     engine_result = procs->Initialize(FLUTTER_ENGINE_VERSION, &renderer_config, &project_args, &flutterpi, &flutterpi.flutter.engine);
     if (engine_result != kSuccess) {
         LOG_ERROR("Could not initialize the flutter engine. FlutterEngineInitialize: %s\n", FLUTTER_RESULT_TO_STRING(engine_result));
         return EINVAL;
     }
-    
+
+    LOG_DEBUG("running flutter engine...\n");
     engine_result = procs->RunInitialized(flutterpi.flutter.engine);
     if (engine_result != kSuccess) {
         LOG_ERROR("Could not run the flutter engine. FlutterEngineRunInitialized: %s\n", FLUTTER_RESULT_TO_STRING(engine_result));
