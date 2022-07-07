@@ -250,7 +250,7 @@ static bool on_make_resource_current(void *userdata) {
     flutterpi = userdata;
     DEBUG_ASSERT_NOT_NULL(flutterpi->gl_renderer);
     
-    ok = gl_renderer_clear_current(flutterpi->gl_renderer);
+    ok = gl_renderer_make_flutter_resource_uploading_context_current(flutterpi->gl_renderer);
     if (ok != 0) {
         return false;
     }
@@ -737,6 +737,7 @@ static int on_send_platform_message(
 }
 
 int flutterpi_send_platform_message(
+    struct flutterpi *flutterpi,
     const char *channel,
     const uint8_t *restrict message,
     size_t message_size,
@@ -746,9 +747,9 @@ int flutterpi_send_platform_message(
     FlutterEngineResult result;
     int ok;
     
-    if (runs_platform_tasks_on_current_thread(NULL)) {
-        result = flutterpi.flutter.procs.SendPlatformMessage(
-            flutterpi.flutter.engine,
+    if (runs_platform_tasks_on_current_thread(flutterpi)) {
+        result = flutterpi->flutter.procs.SendPlatformMessage(
+            flutterpi->flutter.engine,
             &(const FlutterPlatformMessage) {
                 .struct_size = sizeof(FlutterPlatformMessage),
                 .channel = channel,

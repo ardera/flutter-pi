@@ -1187,6 +1187,7 @@ int platch_send(char *channel, struct platch_obj *object, enum platch_codec resp
 	}
 
 	ok = flutterpi_send_platform_message(
+		&flutterpi,
 		channel,
 		buffer,
 		size,
