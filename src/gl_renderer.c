@@ -15,6 +15,7 @@
 #include <gles.h>
 #include <tracer.h>
 #include <pixel_format.h>
+#include <gl_renderer.h>
 
 FILE_DESCR("EGL/GL renderer")
 
@@ -25,7 +26,7 @@ struct gl_renderer {
     struct gbm_device *gbm_device;
     EGLDisplay egl_display;
 
-    EGLContext root_context, flutter_rendering_context, flutter_resource_uploading_context;
+    EGLContext root_context, flutter_rendering_context, flutter_resource_uploading_context, flutter_setup_context;
     pthread_mutex_t root_context_lock;
 
     bool has_forced_pixel_format;
@@ -96,7 +97,7 @@ struct gl_renderer *gl_renderer_new_from_gbm_device(
     struct gl_renderer *renderer;
     const char *egl_client_exts, *egl_display_exts;
     const char *gl_renderer, *gl_exts;
-    EGLContext root_context, flutter_render_context, flutter_resource_uploading_context;
+    EGLContext root_context, flutter_render_context, flutter_resource_uploading_context, flutter_setup_context;
     EGLDisplay egl_display;
     EGLBoolean egl_ok;
     EGLConfig forced_egl_config;
@@ -192,10 +193,16 @@ struct gl_renderer *gl_renderer_new_from_gbm_device(
         goto fail_destroy_flutter_render_context;
     }
 
+    flutter_setup_context = eglCreateContext(egl_display, forced_egl_config, root_context, context_attribs);
+    if (flutter_setup_context == EGL_NO_CONTEXT) {
+        LOG_ERROR("Could not create EGL OpenGL ES context for flutter initialization. eglCreateContext: 0x%08X\n", eglGetError());
+        goto fail_destroy_flutter_resource_uploading_context;
+    }
+
     egl_ok = eglMakeCurrent(egl_display, EGL_NO_SURFACE, EGL_NO_SURFACE, root_context);
     if (egl_ok != EGL_TRUE) {
         LOG_ERROR("Could not make EGL OpenGL ES root context current to query OpenGL information. eglMakeCurrent: 0x%08X\n", eglGetError());
-        goto fail_destroy_flutter_resource_uploading_context;
+        goto fail_destroy_flutter_setup_context;
     }
 
     gl_renderer = (const char*) glGetString(GL_RENDERER);
@@ -228,6 +235,7 @@ struct gl_renderer *gl_renderer_new_from_gbm_device(
     renderer->root_context = root_context;
     renderer->flutter_rendering_context = flutter_render_context;
     renderer->flutter_resource_uploading_context = flutter_resource_uploading_context;
+    renderer->flutter_setup_context = flutter_setup_context;
     renderer->has_forced_pixel_format = has_forced_pixel_format;
     renderer->pixel_format = pixel_format;
     renderer->forced_egl_config = forced_egl_config;
@@ -243,6 +251,9 @@ struct gl_renderer *gl_renderer_new_from_gbm_device(
 
     fail_clear_current:
     eglMakeCurrent(egl_display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+
+    fail_destroy_flutter_setup_context:
+    eglDestroyContext(egl_display, flutter_setup_context);
 
     fail_destroy_flutter_resource_uploading_context:
     eglDestroyContext(egl_display, flutter_resource_uploading_context);
@@ -300,11 +311,34 @@ struct gbm_device *gl_renderer_get_gbm_device(struct gl_renderer *renderer) {
     return renderer->gbm_device;
 }
 
+int gl_renderer_make_flutter_setup_context_current(struct gl_renderer *renderer) {
+    EGLBoolean egl_ok;
+    
+    DEBUG_ASSERT_NOT_NULL(renderer);
+
+    TRACER_BEGIN(renderer->tracer, "gl_renderer_make_flutter_rendering_context_current");
+    egl_ok = eglMakeCurrent(
+        renderer->egl_display,
+        EGL_NO_SURFACE, EGL_NO_SURFACE,
+        renderer->flutter_setup_context
+    );
+    TRACER_END(renderer->tracer, "gl_renderer_make_flutter_rendering_context_current");
+
+    if (egl_ok != EGL_TRUE) {
+        LOG_ERROR("Could not make the flutter setup EGL context current. eglMakeCurrent: 0x%08X\n", eglGetError());
+        return EIO;
+    }
+
+    return 0;
+}
+
 int gl_renderer_make_flutter_rendering_context_current(struct gl_renderer *renderer, EGLSurface surface) {
     EGLBoolean egl_ok;
     
     DEBUG_ASSERT_NOT_NULL(renderer);
     DEBUG_ASSERT(surface != EGL_NO_SURFACE);
+
+    LOG_DEBUG("gl_renderer_make_flutter_rendering_context_current\n");
 
     TRACER_BEGIN(renderer->tracer, "gl_renderer_make_flutter_rendering_context_current");
     egl_ok = eglMakeCurrent(
@@ -327,6 +361,8 @@ int gl_renderer_make_flutter_resource_uploading_context_current(struct gl_render
     
     DEBUG_ASSERT_NOT_NULL(renderer);
 
+    LOG_DEBUG("gl_renderer_make_flutter_resource_uploading_context_current\n");
+
     TRACER_BEGIN(renderer->tracer, "gl_renderer_make_flutter_resource_uploading_context_current");
     egl_ok = eglMakeCurrent(
         renderer->egl_display,
@@ -348,6 +384,8 @@ int gl_renderer_clear_current(struct gl_renderer *renderer) {
 
     DEBUG_ASSERT_NOT_NULL(renderer);
 
+    LOG_DEBUG("gl_renderer_clear_current\n");
+
     TRACER_BEGIN(renderer->tracer, "gl_renderer_clear_current");
     egl_ok = eglMakeCurrent(renderer->egl_display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
     TRACER_END(renderer->tracer, "gl_renderer_clear_current");
@@ -360,17 +398,17 @@ int gl_renderer_clear_current(struct gl_renderer *renderer) {
     return 0;
 }
 
-void *gl_renderer_get_proc_address(struct gl_renderer *renderer, const char* name) {
+void *gl_renderer_get_proc_address(MAYBE_UNUSED struct gl_renderer *renderer, const char* name) {
     void *address;
 
-    (void) renderer;
-
     address = eglGetProcAddress(name);
+    LOG_DEBUG("eglGetProcAddress(%s): %p\n", name, address);
     if (address) {
         return address;
     }
 
     address = dlsym(RTLD_DEFAULT, name);
+    LOG_DEBUG("dlsym(RTLD_DEFAULT, %s): %p\n", name, address);
     if (address) {
         return address;
     }
@@ -492,5 +530,23 @@ ATTR_PURE EGLConfig gl_renderer_choose_config(struct gl_renderer *renderer, bool
         renderer->has_forced_pixel_format ? renderer->pixel_format :
             has_desired_pixel_format ? desired_pixel_format :
             kARGB8888
+    );
+}
+
+ATTR_PURE EGLConfig gl_renderer_choose_config_direct(struct gl_renderer *renderer, enum pixfmt pixel_format) {
+    DEBUG_ASSERT_NOT_NULL(renderer);
+    DEBUG_ASSERT_PIXFMT_VALID(pixel_format);
+
+    const EGLint config_attribs[] = {
+        EGL_SURFACE_TYPE,       EGL_WINDOW_BIT,
+        EGL_RENDERABLE_TYPE,    EGL_OPENGL_ES2_BIT,
+        EGL_SAMPLES,            0,
+        EGL_NONE
+    };
+
+    return choose_config_with_pixel_format(
+        renderer->egl_display,
+        config_attribs,
+        pixel_format
     );
 }
