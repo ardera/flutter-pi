@@ -21,6 +21,7 @@
 #include <backing_store_private.h>
 #include <gbm_surface_backing_store.h>
 #include <tracer.h>
+#include <gl_renderer.h>
 
 FILE_DESCR("gbm surface backing store")
 
@@ -47,6 +48,7 @@ struct gbm_surface_backing_store {
     EGLDisplay egl_display;
     EGLSurface egl_surface;
     EGLConfig egl_config;
+    struct gl_renderer *renderer;
 
     // Internally mesa supports 4 GBM BOs per surface, so we don't need
     // more than 4 here either.
@@ -101,6 +103,7 @@ int gbm_surface_backing_store_init(
     struct tracer *tracer,
     struct point size,
     struct gbm_device *gbm_device,
+    struct gl_renderer *renderer,
     enum pixfmt pixel_format,
     EGLConfig egl_config
 ) {
@@ -110,6 +113,27 @@ int gbm_surface_backing_store_init(
     EGLBoolean egl_ok;
     int ok;
 
+    DEBUG_ASSERT_NOT_NULL(renderer);
+    DEBUG_ASSERT_PIXFMT_VALID(pixel_format);
+
+#ifdef HAS_EGL
+    egl_display = gl_renderer_get_egl_display(renderer);
+    DEBUG_ASSERT_NOT_NULL(egl_display);
+
+#ifdef DEBUG
+    if (egl_config != EGL_NO_CONFIG_KHR) {
+        EGLint value = 0;
+        
+        egl_ok = eglGetConfigAttrib(egl_display, egl_config, EGL_NATIVE_VISUAL_ID, &value);
+        if (egl_ok == EGL_FALSE) {
+            LOG_ERROR("Couldn't query pixel format of EGL framebuffer config. eglGetConfigAttrib: 0x%08X\n", eglGetError());
+            return EIO;
+        }
+
+        DEBUG_ASSERT_EQUALS_MSG(value, get_pixfmt_info(pixel_format)->gbm_format, "EGL framebuffer config pixel format doesn't match the argument pixel format.");
+    }
+#endif
+#endif
     /// TODO: Think about allowing different tilings / modifiers here
     gbm_surface = gbm_surface_create(
         gbm_device,
@@ -124,23 +148,9 @@ int gbm_surface_backing_store_init(
     }
 
 #ifdef HAS_EGL
-    egl_display = eglGetPlatformDisplay(EGL_PLATFORM_GBM_KHR, gbm_device, NULL);
-    if (egl_display == EGL_NO_DISPLAY) {
-        LOG_ERROR("Could not get EGL display from GBM device.\n");
-        ok = EIO;
-        goto fail_destroy_gbm_surface;
-    }
-
     if (egl_config == EGL_NO_CONFIG_KHR) {
         // choose a config
-        const EGLint config_attribs[] = {
-            EGL_SURFACE_TYPE,       EGL_WINDOW_BIT,
-            EGL_RENDERABLE_TYPE,    EGL_OPENGL_ES2_BIT,
-            EGL_SAMPLES,            0,
-            EGL_NONE
-        };
-
-        egl_config = egl_choose_config_with_pixel_format(egl_display, config_attribs, pixel_format);
+        egl_config = gl_renderer_choose_config_direct(renderer, pixel_format);
         if (egl_config == EGL_NO_CONFIG_KHR) {
             LOG_ERROR("EGL doesn't supported the specified pixel format %s. Try a different one (ARGB8888 should always work).\n", get_pixfmt_info(pixel_format)->name);
             ok = EINVAL;
@@ -203,6 +213,7 @@ int gbm_surface_backing_store_init(
     store->egl_display = egl_display;
     store->egl_surface = egl_surface;
     store->egl_config = egl_config;
+    store->renderer = gl_renderer_ref(renderer);
     for (int i = 0; i < ARRAY_SIZE(store->locked_fbs); i++) {
         store->locked_fbs->is_locked = (atomic_flag) ATOMIC_FLAG_INIT;
     }
@@ -226,6 +237,7 @@ int gbm_surface_backing_store_init(
  * @param compositor The compositor that this surface will be registered to when calling surface_register.
  * @param size The size of the backing store.
  * @param device The GBM device used to allocate the surface.
+ * @param renderer The EGL/OpenGL used to create any GL surfaces.
  * @param pixel_format The pixel format to be used by the framebuffers of the surface.
  * @param egl_config The EGLConfig used for creating the EGLSurface.
  * @return struct gbm_surface_backing_store* 
@@ -235,6 +247,7 @@ ATTR_MALLOC struct gbm_surface_backing_store *gbm_surface_backing_store_new_with
     struct tracer *tracer,
     struct point size,
     struct gbm_device *device,
+    struct gl_renderer *renderer,
     enum pixfmt pixel_format,
     EGLConfig egl_config
 ) {
@@ -246,7 +259,7 @@ ATTR_MALLOC struct gbm_surface_backing_store *gbm_surface_backing_store_new_with
         goto fail_return_null;
     }
 
-    ok = gbm_surface_backing_store_init(store, compositor, tracer, size, device, pixel_format, egl_config);
+    ok = gbm_surface_backing_store_init(store, compositor, tracer, size, device, renderer, pixel_format, egl_config);
     if (ok != 0) {
         goto fail_free_store;
     }
@@ -267,6 +280,7 @@ ATTR_MALLOC struct gbm_surface_backing_store *gbm_surface_backing_store_new_with
  * @param compositor The compositor that this surface will be registered to when calling surface_register.
  * @param size The size of the backing store.
  * @param device The GBM device used to allocate the surface.
+ * @param renderer The EGL/OpenGL used to create any GL surfaces.
  * @param pixel_format The pixel format to be used by the framebuffers of the surface.
  * @return struct gbm_surface_backing_store*
  */
@@ -275,6 +289,7 @@ ATTR_MALLOC struct gbm_surface_backing_store *gbm_surface_backing_store_new(
     struct tracer *tracer,
     struct point size,
     struct gbm_device *device,
+    struct gl_renderer *renderer,
     enum pixfmt pixel_format
 ) {
     return gbm_surface_backing_store_new_with_egl_config(
@@ -282,12 +297,18 @@ ATTR_MALLOC struct gbm_surface_backing_store *gbm_surface_backing_store_new(
         tracer,
         size,
         device,
+        renderer,
         pixel_format,
         EGL_NO_CONFIG_KHR
     );
 }
 
 void gbm_surface_backing_store_deinit(struct surface *s) {
+    struct gbm_surface_backing_store *store;
+
+    store = CAST_GBM_SURFACE_BACKING_STORE(s);
+
+    gl_renderer_unref(store->renderer);
     backing_store_deinit(s);
 }
 

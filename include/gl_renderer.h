@@ -45,6 +45,8 @@ int gl_renderer_make_flutter_rendering_context_current(struct gl_renderer *rende
 
 int gl_renderer_make_flutter_resource_uploading_context_current(struct gl_renderer *renderer);
 
+int gl_renderer_make_flutter_setup_context_current(struct gl_renderer *renderer);
+
 int gl_renderer_clear_current(struct gl_renderer *renderer);
 
 EGLContext gl_renderer_create_context(struct gl_renderer *renderer);
@@ -65,5 +67,6 @@ void gl_renderer_cleanup_this_render_thread();
 
 ATTR_PURE EGLConfig gl_renderer_choose_config(struct gl_renderer *renderer, bool has_desired_pixel_format, enum pixfmt desired_pixel_format);
 
+ATTR_PURE EGLConfig gl_renderer_choose_config_direct(struct gl_renderer *renderer, enum pixfmt pixel_format);
 
 #endif // _FLUTTERPI_INCLUDE_EGL_GL_RENDERER_H
