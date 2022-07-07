@@ -330,6 +330,7 @@ int flutterpi_sd_event_add_io(
 );
 
 int flutterpi_send_platform_message(
+	struct flutterpi *flutterpi,
 	const char *channel,
 	const uint8_t *restrict message,
 	size_t message_size,
