@@ -338,8 +338,6 @@ int gl_renderer_make_flutter_rendering_context_current(struct gl_renderer *rende
     DEBUG_ASSERT_NOT_NULL(renderer);
     DEBUG_ASSERT(surface != EGL_NO_SURFACE);
 
-    LOG_DEBUG("gl_renderer_make_flutter_rendering_context_current\n");
-
     TRACER_BEGIN(renderer->tracer, "gl_renderer_make_flutter_rendering_context_current");
     egl_ok = eglMakeCurrent(
         renderer->egl_display,
@@ -360,8 +358,6 @@ int gl_renderer_make_flutter_resource_uploading_context_current(struct gl_render
     EGLBoolean egl_ok;
     
     DEBUG_ASSERT_NOT_NULL(renderer);
-
-    LOG_DEBUG("gl_renderer_make_flutter_resource_uploading_context_current\n");
 
     TRACER_BEGIN(renderer->tracer, "gl_renderer_make_flutter_resource_uploading_context_current");
     egl_ok = eglMakeCurrent(
@@ -384,8 +380,6 @@ int gl_renderer_clear_current(struct gl_renderer *renderer) {
 
     DEBUG_ASSERT_NOT_NULL(renderer);
 
-    LOG_DEBUG("gl_renderer_clear_current\n");
-
     TRACER_BEGIN(renderer->tracer, "gl_renderer_clear_current");
     egl_ok = eglMakeCurrent(renderer->egl_display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
     TRACER_END(renderer->tracer, "gl_renderer_clear_current");
@@ -402,13 +396,11 @@ void *gl_renderer_get_proc_address(MAYBE_UNUSED struct gl_renderer *renderer, co
     void *address;
 
     address = eglGetProcAddress(name);
-    LOG_DEBUG("eglGetProcAddress(%s): %p\n", name, address);
     if (address) {
         return address;
     }
 
     address = dlsym(RTLD_DEFAULT, name);
-    LOG_DEBUG("dlsym(RTLD_DEFAULT, %s): %p\n", name, address);
     if (address) {
         return address;
     }
