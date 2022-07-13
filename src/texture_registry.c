@@ -45,6 +45,13 @@ struct texture {
     /// The frame that's scheduled to be displayed next. The texture holds a reference to this frame.
     /// If a new frame is scheduled using @ref texture_push_frame, the reference will be dropped.
     struct counted_texture_frame *next_frame;
+
+    /**
+     * @brief True if next_frame was not yet fetched by the engine. So if @ref texture_push_frame is called,
+     * we can just replace @ref next_frame with the new frame and don't need to call mark frame available again.
+     * 
+     */
+    bool dirty;
 };
 
 struct texture_registry *texture_registry_new(
@@ -210,6 +217,7 @@ struct texture *texture_new(struct texture_registry *reg) {
     texture->registry = reg;
     texture->id = id;
     texture->next_frame = NULL;
+    texture->dirty = false;
 
     ok = texture_registry_register_texture(reg, texture);
     if (ok != 0) {
@@ -244,10 +252,18 @@ int texture_push_frame(struct texture *texture, const struct texture_frame *fram
     }
 
     texture->next_frame = counted_frame;
+    
+    if (texture->dirty == false) {
+        ok = texture_registry_engine_notify_frame_available(texture->registry, texture->id);
+        if (ok != 0) {
+            /// TODO: Don't really know what do to here.
+        }
 
-    ok = texture_registry_engine_notify_frame_available(texture->registry, texture->id);
-    if (ok != 0) {
-        /// TODO: Don't really know what do to here.
+        /// We have now called @ref texture_registry_engine_notify_frame_available available.
+        /// If a new frame is pushed with @ref texture_push_frame, and the engine
+        /// hasn't yet fetched the frame with the @ref texture_gl_external_texture_frame_callback,
+        /// we can just replace the next frame without notifying the engine again.
+        texture->dirty = true;
     }
 
     texture_unlock(texture);
@@ -289,6 +305,7 @@ static bool texture_gl_external_texture_frame_callback(
     DEBUG_ASSERT_NOT_NULL(texture_out);
 
     texture_lock(texture);
+    
     if (texture->next_frame != NULL) {
         /// TODO: If acquiring the texture frame fails, flutter will destroy the texture frame two times.
         /// So we'll probably have a segfault if that happens.
@@ -296,6 +313,11 @@ static bool texture_gl_external_texture_frame_callback(
     } else {
         frame = NULL;
     }
+    
+    /// flutter has now fetched the texture, so if we want to present a new frame
+    /// we need to call @ref texture_registry_engine_notify_frame_available again.
+    texture->dirty = false;
+    
     texture_unlock(texture);
 
     // only actually fill out the frame info when we have a frame.

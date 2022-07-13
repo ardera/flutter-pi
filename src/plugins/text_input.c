@@ -32,20 +32,21 @@ struct text_input {
  * UTF8 utility functions
  */
 static inline uint8_t utf8_symbol_length(uint8_t c) {
-    if (!(c & 0b10000000)) {
-        return 1;
-    } else if (!(c & 0b01000000)) {
-        // we are in a follow byte
-        return 0;
-    } else if (c & 0b00100000) {
-        return 2;
-    } else if (c & 0b00010000) {
-        return 3;
-    } else if (c & 0b00001000) {
+    if ((c & 0b11110000) == 0b11110000) {
         return 4;
     }
-
-    return 0;
+    if ((c & 0b11100000) == 0b11100000) {
+        return 3;
+    }
+    if ((c & 0b11000000) == 0b11000000) {
+        return 2;
+    }
+    if ((c & 0b10000000) == 0b10000000) {
+        // XXX should we return 1 and don't care here?
+        DEBUG_ASSERT_MSG(false, "Invalid UTF-8 character");
+        return 0;
+    }
+    return 1;
 }
 
 static inline uint8_t *symbol_at(unsigned int symbol_index) {
@@ -875,23 +876,6 @@ static int sync_editing_state(void) {
 int textin_on_utf8_char(uint8_t *c) {
     if (text_input.connection_id == -1)
         return 0;
-    
-    switch (text_input.input_type) {
-        case kInputTypeNumber:
-            if (isdigit(*c)) {
-                break;
-            } else {
-                return 0;
-            }
-        case kInputTypePhone:
-            if (isdigit(*c) || *c == '*' || *c == '#' || *c == '+') {
-                break;
-            } else {
-                return 0;
-            }
-        default:
-            break;
-    }
 
     if (model_add_utf8_char(c))
         return sync_editing_state();

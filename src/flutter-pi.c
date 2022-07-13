@@ -176,7 +176,7 @@ static bool on_make_current(void* userdata) {
         LOG_ERROR("Could not make the flutter rendering EGL context current. eglMakeCurrent: 0x%08X\n", egl_error);
         return false;
     }
-    
+
     return true;
 }
 
@@ -194,7 +194,7 @@ static bool on_clear_current(void* userdata) {
         LOG_ERROR("Could not clear the flutter EGL context. eglMakeCurrent: 0x%08X\n", egl_error);
         return false;
     }
-    
+
     return true;
 }
 
@@ -230,7 +230,7 @@ static bool on_make_resource_current(void *userdata) {
         LOG_ERROR("Could not make the flutter resource uploading EGL context current. eglMakeCurrent: 0x%08X\n", egl_error);
         return false;
     }
-    
+
     return true;
 }
 
@@ -266,7 +266,7 @@ static const GLubyte *hacked_glGetString(GLenum name) {
 
     if (extensions == NULL) {
         GLubyte *orig_extensions = (GLubyte *) glGetString(GL_EXTENSIONS);
-        
+
         extensions = malloc(strlen((const char*)orig_extensions) + 1);
         if (!extensions) {
             return NULL;
@@ -340,7 +340,7 @@ static const GLubyte *hacked_glGetString(GLenum name) {
     return extensions;
 }
 
-/// Called by flutter 
+/// Called by flutter
 static void *proc_resolver(
     void* userdata,
     const char* name
@@ -350,7 +350,7 @@ static void *proc_resolver(
 
     (void) userdata;
 
-    /*  
+    /*
      * The mesa V3D driver reports some OpenGL ES extensions as supported and working
      * even though they aren't. hacked_glGetString is a workaround for this, which will
      * cut out the non-working extensions from the list of supported extensions.
@@ -372,7 +372,7 @@ static void *proc_resolver(
 
     if ((address = dlsym(RTLD_DEFAULT, name)) || (address = eglGetProcAddress(name)))
         return address;
-    
+
     LOG_ERROR("proc_resolver: Could not resolve symbol \"%s\"\n", name);
 
     return NULL;
@@ -420,7 +420,7 @@ static int on_execute_frame_request(
             } else {
                 ns = flutterpi.flutter.libflutter_engine.FlutterEngineGetCurrentTime();
             }
-            
+
             result = flutterpi.flutter.libflutter_engine.FlutterEngineOnVsync(
                 flutterpi.flutter.engine,
                 peek->baton,
@@ -436,7 +436,7 @@ static int on_execute_frame_request(
             peek->state = kFrameRendering;
         }
     } else if (ok == EAGAIN) {
-        // do nothing	
+        // do nothing
     } else if (ok != 0) {
         LOG_ERROR("Could not get peek of frame queue. cqueue_peek_locked: %s\n", strerror(ok));
         cqueue_unlock(&flutterpi.frame_queue);
@@ -616,7 +616,7 @@ int flutterpi_post_platform_task_with_time(
 
     task->callback = callback;
     task->userdata = userdata;
-    
+
     if (pthread_self() != flutterpi.event_loop_thread) {
         pthread_mutex_lock(&flutterpi.event_loop_mutex);
     }
@@ -744,7 +744,7 @@ static void on_post_flutter_task(
     if (dup_task == NULL) {
         return;
     }
-    
+
     *dup_task = task;
 
     ok = flutterpi_post_platform_task_with_time(
@@ -807,7 +807,7 @@ int flutterpi_send_platform_message(
     struct platform_message *msg;
     FlutterEngineResult result;
     int ok;
-    
+
     if (runs_platform_tasks_on_current_thread(NULL)) {
         result = flutterpi.flutter.libflutter_engine.FlutterEngineSendPlatformMessage(
             flutterpi.flutter.engine,
@@ -837,7 +837,7 @@ int flutterpi_send_platform_message(
         }
 
         msg->response_handle = responsehandle;
-        
+
         if (message && message_size) {
             msg->message_size = message_size;
             msg->message = memdup(message, message_size);
@@ -876,7 +876,7 @@ int flutterpi_respond_to_platform_message(
     struct platform_message *msg;
     FlutterEngineResult result;
     int ok;
-    
+
     if (runs_platform_tasks_on_current_thread(NULL)) {
         result = flutterpi.flutter.libflutter_engine.FlutterEngineSendPlatformMessageResponse(
             flutterpi.flutter.engine,
@@ -950,13 +950,13 @@ EGLDisplay flutterpi_get_egl_display(struct flutterpi *flutterpi) {
 
 EGLContext flutterpi_create_egl_context(struct flutterpi *flutterpi) {
     EGLContext context;
-    
+
     pthread_mutex_lock(&flutterpi->egl.temp_context_lock);
 
     context = eglCreateContext(
-        flutterpi->egl.display, 
-        flutterpi->egl.config, 
-        flutterpi->egl.temp_context, 
+        flutterpi->egl.display,
+        flutterpi->egl.config,
+        flutterpi->egl.temp_context,
         (EGLint[]) {
             EGL_CONTEXT_CLIENT_VERSION, 2,
             EGL_NONE
@@ -1020,7 +1020,7 @@ static int run_main_loop(void) {
         const fd_set const_fds = rfds;
 
         pthread_mutex_lock(&flutterpi.event_loop_mutex);
-         
+
         do {
             state = sd_event_get_state(flutterpi.event_loop);
             switch (state) {
@@ -1047,7 +1047,7 @@ static int run_main_loop(void) {
                     } while ((ok < 0) && (errno == EINTR));
 
                     pthread_mutex_lock(&flutterpi.event_loop_mutex);
-                        
+
                     ok = sd_event_wait(flutterpi.event_loop, 0);
                     if (ok < 0) {
                         LOG_ERROR("Could not check for event loop events. sd_event_wait: %s\n", strerror(-ok));
@@ -1156,7 +1156,7 @@ void on_pageflip_event(
     flutterpi.flutter.libflutter_engine.FlutterEngineTraceEventInstant("pageflip");
 
     cqueue_lock(&flutterpi.frame_queue);
-    
+
     ok = cqueue_try_dequeue_locked(&flutterpi.frame_queue, &presented_frame);
     if (ok != 0) {
         LOG_ERROR("Could not dequeue completed frame from frame queue: %s\n", strerror(ok));
@@ -1255,7 +1255,7 @@ int flutterpi_fill_view_properties(
         if (flutterpi.view.rotation >= 360) {
             flutterpi.view.rotation -= 360;
         }
-        
+
         flutterpi.view.orientation = orientation;
     } else if (has_rotation) {
         for (int i = kPortraitUp; i <= kLandscapeRight; i++) {
@@ -1371,18 +1371,18 @@ static int init_display(void) {
     /**********************
      * DRM INITIALIZATION *
      **********************/
-    
+
     num_devices = drmGetDevices2(0, devices, sizeof(devices)/sizeof(*devices));
     if (num_devices < 0) {
         LOG_ERROR("Could not query DRM device list: %s\n", strerror(-num_devices));
         return -num_devices;
     }
-    
+
     // find a GPU that has a primary node
     flutterpi.drm.drmdev = NULL;
     for (int i = 0; i < num_devices; i++) {
         drmDevicePtr device;
-        
+
         device = devices[i];
 
         if (!(device->available_nodes & (1 << DRM_NODE_PRIMARY))) {
@@ -1474,7 +1474,7 @@ static int init_display(void) {
         flutterpi.display.pixel_ratio = 1.0;
     } else {
         flutterpi.display.pixel_ratio = (10.0 * flutterpi.display.width) / (flutterpi.display.width_mm * 38.0);
-        
+
         int horizontal_dpi = (int) (flutterpi.display.width / (flutterpi.display.width_mm / 25.4));
         int vertical_dpi = (int) (flutterpi.display.height / (flutterpi.display.height_mm / 25.4));
 
@@ -1483,13 +1483,13 @@ static int init_display(void) {
             LOG_ERROR("WARNING: display has non-square pixels. Non-square-pixels are not supported by flutter.\n");
         }
     }
-    
+
     for_each_encoder_in_drmdev(flutterpi.drm.drmdev, encoder) {
         if (encoder->encoder->encoder_id == connector->connector->encoder_id) {
             break;
         }
     }
-    
+
     if (encoder == NULL) {
         for (int i = 0; i < connector->connector->count_encoders; i++, encoder = NULL) {
             for_each_encoder_in_drmdev(flutterpi.drm.drmdev, encoder) {
@@ -1569,6 +1569,7 @@ static int init_display(void) {
         return -ok;
     }
 
+    locales_print(flutterpi.locales);
     printf(
         "===================================\n"
         "display mode:\n"
@@ -1639,7 +1640,7 @@ static int init_display(void) {
         return EIO;
     }
 #endif
-    
+
     eglInitialize(flutterpi.egl.display, &major, &minor);
     if ((egl_error = eglGetError()) != EGL_SUCCESS) {
         LOG_ERROR("Failed to initialize EGL! eglInitialize: 0x%08X\n", egl_error);
@@ -1664,7 +1665,7 @@ static int init_display(void) {
     EGLint count = 0, matched = 0;
     EGLConfig *configs;
     bool _found_matching_config = false;
-    
+
     eglGetConfigs(flutterpi.egl.display, NULL, 0, &count);
     if ((egl_error = eglGetError()) != EGL_SUCCESS) {
         LOG_ERROR("Could not get the number of EGL framebuffer configurations. eglGetConfigs: 0x%08X\n", egl_error);
@@ -2034,7 +2035,7 @@ static int init_application(void) {
         LOG_ERROR("Could not initialize the flutter engine. FlutterEngineInitialize: %s\n", FLUTTER_RESULT_TO_STRING(engine_result));
         return EINVAL;
     }
-    
+
     engine_result = libflutter_engine->FlutterEngineRunInitialized(flutterpi.flutter.engine);
     if (engine_result != kSuccess) {
         LOG_ERROR("Could not run the flutter engine. FlutterEngineRunInitialized: %s\n", FLUTTER_RESULT_TO_STRING(engine_result));
@@ -2102,7 +2103,7 @@ int flutterpi_schedule_exit(void) {
     if (pthread_self() != flutterpi.event_loop_thread) {
         pthread_mutex_lock(&flutterpi.event_loop_mutex);
     }
-    
+
     ok = sd_event_exit(flutterpi.event_loop, 0);
     if (ok < 0) {
         LOG_ERROR("Could not schedule application exit. sd_event_exit: %s\n", strerror(-ok));
@@ -2242,7 +2243,7 @@ static const struct user_input_interface user_input_interface = {
 
 static int on_user_input_fd_ready(sd_event_source *s, int fd, uint32_t revents, void *userdata) {
     struct user_input *input;
-    
+
     (void) s;
     (void) fd;
     (void) revents;
@@ -2256,9 +2257,9 @@ static int init_user_input(void) {
     struct user_input *input;
     sd_event_source *event_source;
     int ok;
-    
+
     event_source = NULL;
-    
+
     input = user_input_new(
         &user_input_interface,
         &flutterpi,
@@ -2284,7 +2285,7 @@ static int init_user_input(void) {
             input = NULL;
         }
     }
-    
+
     flutterpi.user_input = input;
     flutterpi.user_input_event_source = event_source;
 
@@ -2375,13 +2376,13 @@ static bool parse_cmd_args(int argc, char **argv) {
                     LOG_ERROR(
                         "ERROR: Invalid argument for --orientation passed.\n"
                         "Valid values are \"portrait_up\", \"landscape_left\", \"portrait_down\", \"landscape_right\".\n"
-                        "%s", 
+                        "%s",
                         usage
                     );
                     return false;
                 }
                 break;
-            
+
             case 'r':
                 errno = 0;
                 long rotation = strtol(optarg, NULL, 0);
@@ -2398,7 +2399,7 @@ static bool parse_cmd_args(int argc, char **argv) {
                 flutterpi.view.rotation = rotation;
                 flutterpi.view.has_rotation = true;
                 break;
-            
+
             case 'd': ;
                 unsigned int width_mm, height_mm;
 
@@ -2410,9 +2411,9 @@ static bool parse_cmd_args(int argc, char **argv) {
 
                 flutterpi.display.width_mm = width_mm;
                 flutterpi.display.height_mm = height_mm;
-                
+
                 break;
-            
+
             case 'p':
                 for (int i = 0; i < n_pixfmt_infos; i++) {
                     if (strcmp(optarg, pixfmt_infos[i].arg_name) == 0) {
@@ -2424,7 +2425,7 @@ static bool parse_cmd_args(int argc, char **argv) {
                 LOG_ERROR(
                     "ERROR: Invalid argument for --pixelformat passed.\n"
                     "Valid values are: RGB565, ARGB8888, XRGB8888, BGRA8888, RGBA8888\n"
-                    "%s", 
+                    "%s",
                     usage
                 );
 
@@ -2434,7 +2435,7 @@ static bool parse_cmd_args(int argc, char **argv) {
 
                 valid_format:
                 break;
-            
+
             case 'h':
                 printf("%s", usage);
                 return false;
@@ -2443,16 +2444,16 @@ static bool parse_cmd_args(int argc, char **argv) {
             case ':':
                 LOG_ERROR("Invalid option specified.\n%s", usage);
                 return false;
-            
+
             case -1:
                 finished_parsing_options = true;
                 break;
-            
+
             default:
                 break;
         }
     }
-    
+
 
     if (optind >= argc) {
         LOG_ERROR("ERROR: Expected asset bundle path after options.\n");

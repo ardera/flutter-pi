@@ -109,7 +109,7 @@ If you encounter issues running flutter-pi on any of the supported platforms lis
 2. Switch to console mode:
    `System Options -> Boot / Auto Login` and select `Console` or `Console (Autologin)`.
 
-3. *Raspbian buster only, skip this if you're on bullseye*  
+3. *You can skip this if you're on Raspberry Pi 4 with Raspbian Bullseye*  
     Enable the V3D graphics driver:  
    `Advanced Options -> GL Driver -> GL (Fake KMS)`
 
