@@ -1845,17 +1845,17 @@ static int init_application(void) {
     if (flutterpi.flutter.runtime_mode == kRelease) {
         libflutter_engine_handle = dlopen("libflutter_engine.so.release", RTLD_LOCAL | RTLD_NOW);
         if (libflutter_engine_handle == NULL) {
-            LOG_FLUTTERPI_ERROR("[flutter-pi] Warning: Could not load libflutter_engine.so.release: %s. Trying to open libflutter_engine.so...\n", dlerror());
+            LOG_FLUTTERPI_ERROR("Warning: Could not load libflutter_engine.so.release: %s. Trying to open libflutter_engine.so...\n", dlerror());
         }
     } else if (flutterpi.flutter.runtime_mode == kProfile) {
         libflutter_engine_handle = dlopen("libflutter_engine.so.profile", RTLD_LOCAL | RTLD_NOW);
         if (libflutter_engine_handle == NULL) {
-            LOG_FLUTTERPI_ERROR("[flutter-pi] Warning: Could not load libflutter_engine.so.profile: %s. Trying to open libflutter_engine.so...\n", dlerror());
+            LOG_FLUTTERPI_ERROR("Warning: Could not load libflutter_engine.so.profile: %s. Trying to open libflutter_engine.so...\n", dlerror());
         }
     } else if (flutterpi.flutter.runtime_mode == kDebug) {
         libflutter_engine_handle = dlopen("libflutter_engine.so.debug", RTLD_LOCAL | RTLD_NOW);
         if (libflutter_engine_handle == NULL) {
-            LOG_FLUTTERPI_ERROR("[flutter-pi] Warning: Could not load libflutter_engine.so.debug: %s. Trying to open libflutter_engine.so...\n", dlerror());
+            LOG_FLUTTERPI_ERROR("Warning: Could not load libflutter_engine.so.debug: %s. Trying to open libflutter_engine.so...\n", dlerror());
         }
     }
     }
@@ -1864,7 +1864,7 @@ static int init_application(void) {
         libflutter_engine_handle = dlopen("libflutter_engine.so", RTLD_LOCAL | RTLD_NOW);
         if (libflutter_engine_handle == NULL) {
             LOG_FLUTTERPI_ERROR("Could not load libflutter_engine.so. dlopen: %s", dlerror());
-            fprintf(stderr, "[flutter-pi] Could not find a fitting libflutter_engine.\n");
+            fprintf(stderr,[flutter-pi]  "Could not find a fitting libflutter_engine.\n");
             return EINVAL;
         }
     }
