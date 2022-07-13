@@ -1845,17 +1845,17 @@ static int init_application(void) {
     if (flutterpi.flutter.runtime_mode == kRelease) {
         libflutter_engine_handle = dlopen("libflutter_engine.so.release", RTLD_LOCAL | RTLD_NOW);
         if (libflutter_engine_handle == NULL) {
-            LOG_FLUTTERPI_ERROR("Warning: Could not load libflutter_engine.so.release: %s. Trying to open libflutter_engine.so...\n", dlerror());
+            LOG_ERROR("[flutter-pi] Warning: Could not load libflutter_engine.so.release: %s. Trying to open libflutter_engine.so...\n", dlerror());
         }
     } else if (flutterpi.flutter.runtime_mode == kProfile) {
         libflutter_engine_handle = dlopen("libflutter_engine.so.profile", RTLD_LOCAL | RTLD_NOW);
         if (libflutter_engine_handle == NULL) {
-            LOG_FLUTTERPI_ERROR("Warning: Could not load libflutter_engine.so.profile: %s. Trying to open libflutter_engine.so...\n", dlerror());
+            LOG_ERROR("[flutter-pi] Warning: Could not load libflutter_engine.so.debug: %s. Trying to open libflutter_engine.so...\n", dlerror());
         }
     } else if (flutterpi.flutter.runtime_mode == kDebug) {
         libflutter_engine_handle = dlopen("libflutter_engine.so.debug", RTLD_LOCAL | RTLD_NOW);
         if (libflutter_engine_handle == NULL) {
-            LOG_FLUTTERPI_ERROR("Warning: Could not load libflutter_engine.so.debug: %s. Trying to open libflutter_engine.so...\n", dlerror());
+            LOG_ERROR("[flutter-pi] Warning: Could not load libflutter_engine.so.debug: %s. Trying to open libflutter_engine.so...\n", dlerror());
         }
     }
     }
@@ -1863,13 +1863,13 @@ static int init_application(void) {
     if (libflutter_engine_handle == NULL) {
         libflutter_engine_handle = dlopen("libflutter_engine.so", RTLD_LOCAL | RTLD_NOW);
         if (libflutter_engine_handle == NULL) {
-            LOG_FLUTTERPI_ERROR("Could not load libflutter_engine.so. dlopen: %s", dlerror());
-            fprintf(stderr,[flutter-pi]  "Could not find a fitting libflutter_engine.\n");
+            LOG_ERROR("Could not load libflutter_engine.so. dlopen: %s", dlerror());
+            LOG_ERROR("Could not find a fitting libflutter_engine.\n");
             return EINVAL;
         }
     }
 
-	libflutter_engine = &flutterpi.flutter.libflutter_engine;
+    libflutter_engine = &flutterpi.flutter.libflutter_engine;
 
 #	define LOAD_LIBFLUTTER_ENGINE_PROC(name) \
         do { \
@@ -2292,43 +2292,44 @@ static int init_user_input(void) {
     return 0;
 }
 
+
 static bool setup_paths(void) {
-	char *kernel_blob_path, *icu_data_path, *app_elf_path;
-	#define PATH_EXISTS(path) (access((path),R_OK)==0)
+    char *kernel_blob_path, *icu_data_path, *app_elf_path;
+    #define PATH_EXISTS(path) (access((path),R_OK)==0)
 
-	if (!PATH_EXISTS(flutterpi.flutter.asset_bundle_path)) {
-		fprintf(stderr, "Asset Bundle Directory \"%s\" does not exist\n", flutterpi.flutter.asset_bundle_path);
-		return false;
-	}
-	
-	asprintf(&kernel_blob_path, "%s/kernel_blob.bin", flutterpi.flutter.asset_bundle_path);
-	asprintf(&app_elf_path, "%s/app.so", flutterpi.flutter.asset_bundle_path);
+    if (!PATH_EXISTS(flutterpi.flutter.asset_bundle_path)) {
+        LOG_ERROR("Asset Bundle Directory \"%s\" does not exist\n", flutterpi.flutter.asset_bundle_path);
+        return false;
+    }
 
-	if (flutterpi.flutter.runtime_mode == kDebug) {
-		if (!PATH_EXISTS(kernel_blob_path)) {
-			fprintf(stderr, "Could not find \"kernel.blob\" file inside \"%s\", which is required for debug mode.\n", flutterpi.flutter.asset_bundle_path);
-			return false;
-		}
-	} else if ((flutterpi.flutter.runtime_mode == kRelease)||(flutterpi.flutter.runtime_mode == kProfile)) {
-		if (!PATH_EXISTS(app_elf_path)) {
-			fprintf(stderr, "Could not find \"app.so\" file inside \"%s\", which is required for release and profile mode.\n", flutterpi.flutter.asset_bundle_path);
-			return false;
-		}
-	}
+    asprintf(&kernel_blob_path, "%s/kernel_blob.bin", flutterpi.flutter.asset_bundle_path);
+    asprintf(&app_elf_path, "%s/app.so", flutterpi.flutter.asset_bundle_path);
 
-	asprintf(&icu_data_path, "/usr/lib/icudtl.dat");
-	if (!PATH_EXISTS(icu_data_path)) {
-		fprintf(stderr, "Could not find \"icudtl.dat\" file inside \"/usr/lib/\".\n");
-		return false;
-	}
+    if (flutterpi.flutter.runtime_mode == kDebug) {
+        if (!PATH_EXISTS(kernel_blob_path)) {
+            LOG_ERROR("Could not find \"kernel.blob\" file inside \"%s\", which is required for debug mode.\n", flutterpi.flutter.asset_bundle_path);
+            return false;
+        }
+    } else if ((flutterpi.flutter.runtime_mode == kRelease)||(flutterpi.flutter.runtime_mode == kProfile)) {
+        if (!PATH_EXISTS(app_elf_path)) {
+            LOG_ERROR("Could not find \"app.so\" file inside \"%s\", which is required for release and profile mode.\n", flutterpi.flutter.asset_bundle_path);
+            return false;
+        }
+    }
+
+    asprintf(&icu_data_path, "/usr/lib/icudtl.dat");
+    if (!PATH_EXISTS(icu_data_path)) {
+        LOG_ERROR("Could not find \"icudtl.dat\" file inside \"/usr/lib/\".\n");
+        return false;
+    }
 
     flutterpi.flutter.kernel_blob_path = kernel_blob_path;
-	flutterpi.flutter.icu_data_path = icu_data_path;
-	flutterpi.flutter.app_elf_path = app_elf_path;
+    flutterpi.flutter.icu_data_path = icu_data_path;
+    flutterpi.flutter.app_elf_path = app_elf_path;
 
     return true;
 
-	#undef PATH_EXISTS
+    #undef PATH_EXISTS
 }
 
 static bool parse_cmd_args(int argc, char **argv) {
