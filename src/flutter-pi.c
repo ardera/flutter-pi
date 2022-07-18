@@ -55,6 +55,7 @@
 #include <plugins/text_input.h>
 #include <plugins/raw_keyboard.h>
 #include <filesystem_layout.h>
+#include <vk_renderer.h>
 
 #ifdef ENABLE_MTRACE
 #   include <mcheck.h>
@@ -189,11 +190,17 @@ static bool on_make_current(void* userdata) {
     flutterpi = userdata;
     DEBUG_ASSERT_NOT_NULL(flutterpi->gl_renderer);
 
-    surface = compositor_get_egl_surface(flutterpi->compositor);
-    if (surface == EGL_NO_SURFACE) {
-        /// TODO: Should we allow this?
-        LOG_ERROR("Couldn't get an EGL surface from the compositor.\n");
-        return false;
+    /// TODO: Test if this works
+    
+    if (compositor_has_egl_surface(flutterpi->compositor) || true) {
+        surface = compositor_get_egl_surface(flutterpi->compositor);
+        if (surface == EGL_NO_SURFACE) {
+            /// TODO: Should we allow this?
+            LOG_ERROR("Couldn't get an EGL surface from the compositor.\n");
+            return false;
+        }
+    } else {
+        surface = EGL_NO_SURFACE;
     }
 
     ok = gl_renderer_make_flutter_rendering_context_current(flutterpi->gl_renderer, surface);
@@ -275,6 +282,50 @@ static void *proc_resolver(
     DEBUG_ASSERT_NOT_NULL(flutterpi->gl_renderer);
 
     return gl_renderer_get_proc_address(flutterpi->gl_renderer, name);
+}
+
+
+static void* on_get_vulkan_proc_address(
+    void* userdata,
+    FlutterVulkanInstanceHandle instance,
+    const char* name
+) {
+    DEBUG_ASSERT_NOT_NULL(userdata);
+    DEBUG_ASSERT_NOT_NULL(name);
+
+    return (void*) vkGetInstanceProcAddr((VkInstance) instance, name);
+}
+
+static FlutterVulkanImage on_get_next_vulkan_image(
+    void *userdata,
+    const FlutterFrameInfo *frameinfo
+) {
+    struct flutterpi *flutterpi;
+
+    DEBUG_ASSERT_NOT_NULL(userdata);
+    DEBUG_ASSERT_NOT_NULL(frameinfo);
+    flutterpi = userdata;
+    
+    (void) flutterpi;
+    (void) frameinfo;
+
+    UNIMPLEMENTED();
+}
+
+static bool on_present_vulkan_image(
+    void *userdata,
+    const FlutterVulkanImage *image
+) {
+    struct flutterpi *flutterpi;
+
+    DEBUG_ASSERT_NOT_NULL(userdata);
+    DEBUG_ASSERT_NOT_NULL(image);
+    flutterpi = userdata;
+    
+    (void) flutterpi;
+    (void) image;
+
+    UNIMPLEMENTED();
 }
 
 static void on_platform_message(
@@ -1098,14 +1149,18 @@ static bool on_gl_external_texture_frame_callback(
     );
 }
 
+// clang-format off
 static int init_display(
     struct flutterpi *flutterpi,
     sd_event *event_loop,
     bool has_pixel_format, enum pixfmt pixel_format,
     bool has_rotation, drm_plane_transform_t rotation,
     bool has_orientation, enum device_orientation orientation,
-    bool has_explicit_dimensions, int width_mm, int height_mm
+    bool has_explicit_dimensions, int width_mm, int height_mm,
+    bool use_vulkan
 ) {
+    // clang-format on
+
     /**********************
      * DRM INITIALIZATION *
      **********************/
@@ -1115,7 +1170,8 @@ static int init_display(
     struct drmdev *drmdev;
     struct tracer *tracer;
     drmDevicePtr devices[64];
-    struct gl_renderer *renderer;
+    struct gl_renderer *gl_renderer;
+    struct vk_renderer *vk_renderer;
     int ok, n_devices;
 
     /**********************
@@ -1181,45 +1237,73 @@ static int init_display(
         goto fail_unref_drmdev;
     }
 
-    renderer = gl_renderer_new_from_gbm_device(tracer, gbm_device, has_pixel_format, pixel_format);
-    if (renderer == NULL) {
-        LOG_ERROR("Couldn't create EGL/OpenGL renderer.\n");
-        ok = EIO;
-        goto fail_unref_tracer;
-    }
+    if (use_vulkan) {
+        gl_renderer = NULL;
+        vk_renderer = vk_renderer_new();
+        if (vk_renderer == NULL) {
+            LOG_ERROR("Couldn't create vulkan renderer.\n");
+            ok = EIO;
+            goto fail_unref_tracer;
+        }
 
-    // it seems that after some Raspbian update, regular users are sometimes no longer allowed
-    //   to use the direct-rendering infrastructure; i.e. the open the devices inside /dev/dri/
-    //   as read-write. flutter-pi must be run as root then.
-    // sometimes it works fine without root, sometimes it doesn't.
-    if (gl_renderer_is_llvmpipe(renderer)) {
-        LOG_ERROR_UNPREFIXED(
-            "WARNING: Detected llvmpipe (ie. software rendering) as the OpenGL ES renderer.\n"
-            "         Check that flutter-pi has permission to use the 3D graphics hardware,\n"
-            "         or try running it as root.\n"
-            "         This warning will probably result in a \"failed to set mode\" error\n"
-            "         later on in the initialization.\n"
+        compositor = compositor_new_vulkan(
+            drmdev,
+            tracer,
+            vk_renderer,
+            has_rotation, rotation,
+            has_orientation, orientation,
+            has_explicit_dimensions, width_mm, height_mm,
+            has_pixel_format, pixel_format,
+            false,
+            kTripleBufferedVsync_PresentMode
         );
-        ok = EINVAL;
-        goto fail_unref_renderer;
-    }
+        if (compositor == NULL) {
+            LOG_ERROR("Couldn't create compositor.\n");
+            ok = EIO;
+            goto fail_unref_renderer;
+        }
+    } else {
+        vk_renderer = NULL;
+        gl_renderer = gl_renderer_new_from_gbm_device(tracer, gbm_device, has_pixel_format, pixel_format);
+        if (gl_renderer == NULL) {
+            LOG_ERROR("Couldn't create EGL/OpenGL renderer.\n");
+            ok = EIO;
+            goto fail_unref_tracer;
+        }
 
-    compositor = compositor_new(
-        drmdev,
-        tracer,
-        renderer,
-        has_rotation, rotation,
-        has_orientation, orientation,
-        has_explicit_dimensions, width_mm, height_mm,
-        gl_renderer_get_forced_egl_config(renderer),
-        has_pixel_format, pixel_format,
-        false,
-        kTripleBufferedVsync_PresentMode
-    );
-    if (compositor == NULL) {
-        LOG_ERROR("Couldn't create compositor.\n");
-        ok = EIO;
-        goto fail_unref_renderer;
+        // it seems that after some Raspbian update, regular users are sometimes no longer allowed
+        //   to use the direct-rendering infrastructure; i.e. the open the devices inside /dev/dri/
+        //   as read-write. flutter-pi must be run as root then.
+        // sometimes it works fine without root, sometimes it doesn't.
+        if (gl_renderer_is_llvmpipe(gl_renderer)) {
+            LOG_ERROR_UNPREFIXED(
+                "WARNING: Detected llvmpipe (ie. software rendering) as the OpenGL ES renderer.\n"
+                "         Check that flutter-pi has permission to use the 3D graphics hardware,\n"
+                "         or try running it as root.\n"
+                "         This warning will probably result in a \"failed to set mode\" error\n"
+                "         later on in the initialization.\n"
+            );
+            ok = EINVAL;
+            goto fail_unref_renderer;
+        }
+
+        compositor = compositor_new(
+            drmdev,
+            tracer,
+            gl_renderer,
+            has_rotation, rotation,
+            has_orientation, orientation,
+            has_explicit_dimensions, width_mm, height_mm,
+            gl_renderer_get_forced_egl_config(gl_renderer),
+            has_pixel_format, pixel_format,
+            false,
+            kTripleBufferedVsync_PresentMode
+        );
+        if (compositor == NULL) {
+            LOG_ERROR("Couldn't create compositor.\n");
+            ok = EIO;
+            goto fail_unref_renderer;
+        }
     }
 
     ok = sd_event_add_io(
@@ -1239,14 +1323,20 @@ static int init_display(
     flutterpi->tracer = tracer;
     flutterpi->compositor = compositor;
     flutterpi->compositor_event_source = compositor_event_source;
-    flutterpi->gl_renderer = renderer;
+    flutterpi->gl_renderer = gl_renderer;
+    flutterpi->vk_renderer = vk_renderer;
     return 0;
 
     fail_unref_compositor:
     compositor_unref(compositor);
 
     fail_unref_renderer:
-    gl_renderer_unref(renderer);
+    if (gl_renderer) {
+        gl_renderer_unref(gl_renderer);
+    }
+    if (vk_renderer) {
+        vk_renderer_unref(vk_renderer);
+    }
 
     fail_unref_tracer:
     tracer_unref(tracer);
@@ -1357,21 +1447,45 @@ static int init_application(void) {
         return EIO;
     }
 
+
+
     // configure flutter rendering
-    renderer_config = (FlutterRendererConfig) {
-        .type = kOpenGL,
-        .open_gl = {
-            .struct_size = sizeof(FlutterOpenGLRendererConfig),
-            .make_current = on_make_current,
-            .clear_current = on_clear_current,
-            .present = on_present,
-            .fbo_callback = fbo_callback,
-            .make_resource_current = on_make_resource_current,
-            .gl_proc_resolver = proc_resolver,
-            .surface_transformation = on_get_transformation,
-            .gl_external_texture_frame_callback = on_gl_external_texture_frame_callback,
-        }
-    };
+    if (flutterpi.vk_renderer) {
+        renderer_config = (FlutterRendererConfig) {
+            .type = kVulkan,
+            .vulkan = {
+                .struct_size = sizeof(FlutterVulkanRendererConfig),
+                .version = vk_renderer_get_vk_version(flutterpi.vk_renderer),
+                .instance = vk_renderer_get_instance(flutterpi.vk_renderer),
+                .physical_device = vk_renderer_get_physical_device(flutterpi.vk_renderer),
+                .device = vk_renderer_get_device(flutterpi.vk_renderer),
+                .queue_family_index = vk_renderer_get_queue_family_index(flutterpi.vk_renderer),
+                .queue = vk_renderer_get_queue(flutterpi.vk_renderer),
+                .enabled_instance_extension_count = vk_renderer_get_enabled_instance_extension_count(flutterpi.vk_renderer),
+                .enabled_instance_extensions = vk_renderer_get_enabled_instance_extensions(flutterpi.vk_renderer),
+                .enabled_device_extension_count = vk_renderer_get_enabled_device_extension_count(flutterpi.vk_renderer),
+                .enabled_device_extensions = vk_renderer_get_enabled_device_extensions(flutterpi.vk_renderer),
+                .get_instance_proc_address_callback = on_get_vulkan_proc_address,
+                .get_next_image_callback = on_get_next_vulkan_image,
+                .present_image_callback = on_present_vulkan_image,
+            },
+        };
+    } else {
+        renderer_config = (FlutterRendererConfig) {
+            .type = kOpenGL,
+            .open_gl = {
+                .struct_size = sizeof(FlutterOpenGLRendererConfig),
+                .make_current = on_make_current,
+                .clear_current = on_clear_current,
+                .present = on_present,
+                .fbo_callback = fbo_callback,
+                .make_resource_current = on_make_resource_current,
+                .gl_proc_resolver = proc_resolver,
+                .surface_transformation = on_get_transformation,
+                .gl_external_texture_frame_callback = on_gl_external_texture_frame_callback,
+            }
+        };
+    }
 
     COMPILE_ASSERT(sizeof(FlutterProjectArgs) == 144);
 
@@ -1766,6 +1880,8 @@ struct cmd_args {
 
     int engine_argc;
     char **engine_argv;
+
+    bool use_vulkan;
 };
 
 static struct flutter_paths *setup_paths(enum flutter_runtime_mode runtime_mode, const char *app_bundle_path) {
@@ -1782,6 +1898,7 @@ static struct flutter_paths *setup_paths(enum flutter_runtime_mode runtime_mode,
 static bool parse_cmd_args(int argc, char **argv, struct cmd_args *result_out) {
     bool finished_parsing_options;
     int runtime_mode_int = kDebug;
+    int vulkan_int = false;
     int longopt_index = 0;
     int opt, ok;
 
@@ -1794,6 +1911,7 @@ static bool parse_cmd_args(int argc, char **argv, struct cmd_args *result_out) {
         {"dimensions", required_argument, NULL, 'd'},
         {"help", no_argument, 0, 'h'},
         {"pixelformat", required_argument, NULL, 'p'},
+        {"vulkan", no_argument, &vulkan_int, true},
         {0, 0, 0, 0}
     };
 
@@ -1925,6 +2043,8 @@ static bool parse_cmd_args(int argc, char **argv, struct cmd_args *result_out) {
     result_out->engine_argc = argc - optind;
     result_out->engine_argv = argv + optind;
 
+    result_out->use_vulkan = vulkan_int;
+
     return true;
 }
 
@@ -1974,7 +2094,8 @@ int init(int argc, char **argv) {
             cmd_args.rotation == 270 ? PLANE_TRANSFORM_ROTATE_270 :
             (assert(0 && "invalid rotation"), PLANE_TRANSFORM_ROTATE_0),
         cmd_args.has_orientation, cmd_args.orientation,
-        cmd_args.has_physical_dimensions, cmd_args.width_mm, cmd_args.height_mm
+        cmd_args.has_physical_dimensions, cmd_args.width_mm, cmd_args.height_mm,
+        cmd_args.use_vulkan
     );
     if (ok != 0) {
         return ok;

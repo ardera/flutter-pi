@@ -8,33 +8,33 @@
  * Copyright (c) 2022, Hannes Winkler <hanneswinkler2000@web.de>
  */
 
-
-#include <stdlib.h>
 #include <inttypes.h>
 #include <math.h>
+#include <stdlib.h>
 
 #include <pthread.h>
 #include <semaphore.h>
 
 #ifdef HAS_GBM
-#   include <gbm.h>
+#    include <gbm.h>
 #endif
-#include <egl.h>
 #include <flutter_embedder.h>
-
-#include <collection.h>
-#include <pixel_format.h>
-#include <notifier_listener.h>
-#include <compositor_ng.h>
-#include <surface.h>
-#include <backing_store.h>
-#include <gbm_surface_backing_store.h>
-#include <modesetting.h>
-#include <flutter-pi.h>
-#include <tracer.h>
-#include <gl_renderer.h>
-
 #include <systemd/sd-event.h>
+
+#include <backing_store.h>
+#include <collection.h>
+#include <compositor_ng.h>
+#include <egl.h>
+#include <flutter-pi.h>
+#include <gbm_surface_backing_store.h>
+#include <vk_gbm_backing_store.h>
+#include <gl_renderer.h>
+#include <vk_renderer.h>
+#include <modesetting.h>
+#include <notifier_listener.h>
+#include <pixel_format.h>
+#include <surface.h>
+#include <tracer.h>
 
 FILE_DESCR("compositor-ng")
 
@@ -94,7 +94,6 @@ static void fl_layer_composition_destroy(struct fl_layer_composition *compositio
 
 DEFINE_STATIC_REF_OPS(fl_layer_composition, n_refs)
 
-
 struct frame_req {
     compositor_frame_begin_cb_t cb;
     void *userdata;
@@ -125,10 +124,16 @@ struct window {
     /// The last presented composition.
     struct fl_layer_composition *composition;
 
-    /// The main backing store.
+    /// @brief The main backing store.
     /// (Due to the flutter embedder API architecture, we always need to have
     /// a primary surface, other backing stores can only be framebuffers.)
-    struct gbm_surface_backing_store *backing_store;
+    struct backing_store *backing_store;
+    
+    /// @brief The EGL/GL compatible backing store if this is a normal egl/gl window.
+    struct gbm_surface_backing_store *egl_backing_store;
+
+    /// @brief The vulkan compatible backing store if this is a vulkan window.
+    struct vk_gbm_backing_store *vk_backing_store;
 
     /// The frame request queue.
     /// Normally, flutter would request a frame using the flutter engine vsync callback
@@ -167,14 +172,14 @@ struct window {
 
     /// Width, height of the screen in millimeters.
     int width_mm, height_mm;
-    
+
     /// The rotation we should apply to the flutter layers to present them on screen.
     drm_plane_transform_t rotation;
 
     /// The current device orientation and the original (startup) device orientation.
     /// @ref original_orientation is kLandscapeLeft for displays that are more wide than high,
     /// and kPortraitUp for displays that are more high than wide.
-    /// 
+    ///
     /// @ref orientation should always equal to rotating @ref original_orientation clock-wise by the
     /// angle in the @ref rotation field.
     enum device_orientation orientation, original_orientation;
@@ -206,7 +211,7 @@ struct window {
     /// @brief True if we should use a specific pixel format.
     bool has_forced_pixel_format;
 
-    /// @brief The forced pixel format if @ref has_forced_pixel_format is true. 
+    /// @brief The forced pixel format if @ref has_forced_pixel_format is true.
     enum pixfmt forced_pixel_format;
 
     /// @brief The EGLConfig to use for creating any EGL surfaces.
@@ -218,10 +223,10 @@ struct window {
     enum present_mode present_mode;
 
     /// @brief If we're using triple buffering, this is the frame we're going to commit
-    /// next, once we can commit a frame again. (I.e., once the previous frame is 
+    /// next, once we can commit a frame again. (I.e., once the previous frame is
     /// being scanned out)
     /// Can be NULL if we don't have a frame we can commit next yet.
-    struct kms_req_builder *next_frame;
+    struct kms_req *next_frame;
 
     /// @brief If using triple buffering, this is true if the previous frame is already
     /// being shown on screen and the next frame can be immediately queued / committed to
@@ -232,11 +237,15 @@ struct window {
 
     /// @brief The EGL/OpenGL renderer used to create any GL backing stores.
     struct gl_renderer *renderer;
+
+    /// @brief The vulkan renderer if this is a vulkan window.
+    struct vk_renderer *vk_renderer;
 };
 
 static void fill_view_matrices(
     drm_plane_transform_t transform,
-    int display_width, int display_height,
+    int display_width,
+    int display_height,
     FlutterTransformation *display_to_view_transform_out,
     FlutterTransformation *view_to_display_transform_out
 ) {
@@ -283,7 +292,7 @@ static int select_mode(
 
     // find any connected connector
     for_each_connector_in_drmdev(drmdev, connector) {
-        if (connector->connector->connection == DRM_MODE_CONNECTED) {
+        if (connector->variable_state.connection_state == kConnected_DrmConnectionState) {
             break;
         }
     }
@@ -307,9 +316,9 @@ static int select_mode(
             int area = mode_iter->hdisplay * mode_iter->vdisplay;
             int old_area = mode->hdisplay * mode->vdisplay;
 
-            if ((area > old_area) ||
-                ((area == old_area) && (mode_iter->vrefresh > mode->vrefresh)) ||
-                ((area == old_area) && (mode_iter->vrefresh == mode->vrefresh) && ((mode->flags & DRM_MODE_FLAG_INTERLACE) == 0))) {
+            if ((area > old_area) || ((area == old_area) && (mode_iter->vrefresh > mode->vrefresh)) ||
+                ((area == old_area) && (mode_iter->vrefresh == mode->vrefresh) &&
+                 ((mode->flags & DRM_MODE_FLAG_INTERLACE) == 0))) {
                 mode = mode_iter;
             }
         }
@@ -319,19 +328,19 @@ static int select_mode(
         LOG_ERROR("Could not find a preferred output mode!\n");
         return EINVAL;
     }
-    
+
     // Find the encoder that's linked to the connector right now
     for_each_encoder_in_drmdev(drmdev, encoder) {
-        if (encoder->encoder->encoder_id == connector->connector->encoder_id) {
+        if (encoder->encoder->encoder_id == connector->committed_state.encoder_id) {
             break;
         }
     }
 
     // Otherwise use use any encoder that the connector supports linking to
     if (encoder == NULL) {
-        for (int i = 0; i < connector->connector->count_encoders; i++, encoder = NULL) {
+        for (int i = 0; i < connector->n_encoders; i++, encoder = NULL) {
             for_each_encoder_in_drmdev(drmdev, encoder) {
-                if (encoder->encoder->encoder_id == connector->connector->encoders[i]) {
+                if (encoder->encoder->encoder_id == connector->encoders[i]) {
                     break;
                 }
             }
@@ -350,7 +359,7 @@ static int select_mode(
 
     // Find the CRTC that's currently linked to this encoder
     for_each_crtc_in_drmdev(drmdev, crtc) {
-        if (crtc->crtc->crtc_id == encoder->encoder->crtc_id) {
+        if (crtc->id == encoder->encoder->crtc_id) {
             break;
         }
     }
@@ -383,11 +392,16 @@ static int window_init(
     struct tracer *tracer,
     struct drmdev *drmdev,
     struct gl_renderer *renderer,
-    bool has_rotation, drm_plane_transform_t rotation,
-    bool has_orientation, enum device_orientation orientation,
-    bool has_explicit_dimensions, int width_mm, int height_mm,
+    bool has_rotation,
+    drm_plane_transform_t rotation,
+    bool has_orientation,
+    enum device_orientation orientation,
+    bool has_explicit_dimensions,
+    int width_mm,
+    int height_mm,
     bool use_frame_requests,
-    bool has_forced_pixel_format, enum pixfmt forced_pixel_format,
+    bool has_forced_pixel_format,
+    enum pixfmt forced_pixel_format,
     EGLConfig egl_config,
     enum present_mode present_mode
 ) {
@@ -419,16 +433,16 @@ static int window_init(
     if (ok != 0) {
         goto fail_deinit_queue;
     }
-    
+
     if (has_explicit_dimensions) {
         has_dimensions = true;
-    } else if (selected_connector->connector->mmWidth % 10 || selected_connector->connector->mmHeight % 10) {
+    } else if (selected_connector->variable_state.width_mm % 10 || selected_connector->variable_state.height_mm % 10) {
         has_dimensions = true;
-        width_mm = selected_connector->connector->mmWidth;
-        height_mm = selected_connector->connector->mmHeight;
-    } else if (selected_connector->connector->connector_type == DRM_MODE_CONNECTOR_DSI
-        && selected_connector->connector->mmWidth == 0
-        && selected_connector->connector->mmHeight == 0) {
+        width_mm = selected_connector->variable_state.width_mm;
+        height_mm = selected_connector->variable_state.height_mm;
+    } else if (selected_connector->type == DRM_MODE_CONNECTOR_DSI
+        && selected_connector->variable_state.width_mm == 0
+        && selected_connector->variable_state.height_mm == 0) {
         has_dimensions = true;
         width_mm = 155;
         height_mm = 86;
@@ -445,7 +459,7 @@ static int window_init(
         pixel_ratio = 1.0;
     } else {
         pixel_ratio = (10.0 * selected_mode->hdisplay) / (width_mm * 38.0);
-        
+
         int horizontal_dpi = (int) (selected_mode->hdisplay / (width_mm / 25.4));
         int vertical_dpi = (int) (selected_mode->vdisplay / (height_mm / 25.4));
 
@@ -493,9 +507,15 @@ static int window_init(
         }
 
         if (ORIENTATION_IS_LANDSCAPE(o) && !(selected_mode->hdisplay >= selected_mode->vdisplay)) {
-            LOG_DEBUG("Explicit orientation and rotation given, but orientation is inconsistent with orientation. (display is more high than wide, but de-rotated orientation is landscape)\n");
+            LOG_DEBUG(
+                "Explicit orientation and rotation given, but orientation is inconsistent with orientation. (display "
+                "is more high than wide, but de-rotated orientation is landscape)\n"
+            );
         } else if (ORIENTATION_IS_PORTRAIT(o) && !(selected_mode->vdisplay >= selected_mode->hdisplay)) {
-            LOG_DEBUG("Explicit orientation and rotation given, but orientation is inconsistent with orientation. (display is more wide than high, but de-rotated orientation is portrait)\n");
+            LOG_DEBUG(
+                "Explicit orientation and rotation given, but orientation is inconsistent with orientation. (display "
+                "is more wide than high, but de-rotated orientation is portrait)\n"
+            );
         }
 
         original_orientation = o;
@@ -505,7 +525,8 @@ static int window_init(
 
     fill_view_matrices(
         rotation,
-        selected_mode->hdisplay, selected_mode->vdisplay,
+        selected_mode->hdisplay,
+        selected_mode->vdisplay,
         &window->display_to_view_transform,
         &window->view_to_display_transform
     );
@@ -513,14 +534,17 @@ static int window_init(
     LOG_DEBUG_UNPREFIXED(
         "===================================\n"
         "display mode:\n"
-        "  resolution: %"PRIu16" x %"PRIu16"\n"
+        "  resolution: %" PRIu16 " x %" PRIu16
+        "\n"
         "  refresh rate: %fHz\n"
         "  physical size: %dmm x %dmm\n"
         "  flutter device pixel ratio: %f\n"
         "===================================\n",
-        selected_mode->hdisplay, selected_mode->vdisplay,
+        selected_mode->hdisplay,
+        selected_mode->vdisplay,
         mode_get_vrefresh(selected_mode),
-        width_mm, height_mm,
+        width_mm,
+        height_mm,
         pixel_ratio
     );
 
@@ -531,6 +555,8 @@ static int window_init(
     window->gbm_device = drmdev_get_gbm_device(drmdev);
     window->composition = NULL;
     window->backing_store = NULL;
+    window->egl_backing_store = NULL;
+    window->vk_backing_store = NULL;
     window->selected_connector = selected_connector;
     window->selected_crtc = selected_crtc;
     window->selected_encoder = selected_encoder;
@@ -553,6 +579,204 @@ static int window_init(
     window->present_immediately = true;
     window->next_frame = NULL;
     window->renderer = gl_renderer_ref(renderer);
+    window->vk_renderer = NULL;
+    window->vk_backing_store = NULL;
+    return 0;
+
+fail_deinit_queue:
+    queue_deinit(&window->frame_req_queue);
+    return ok;
+}
+
+static int window_init_vulkan(
+    struct window *window,
+    struct compositor *compositor,
+    struct tracer *tracer,
+    struct drmdev *drmdev,
+    struct vk_renderer *renderer,
+    bool has_rotation, drm_plane_transform_t rotation,
+    bool has_orientation, enum device_orientation orientation,
+    bool has_explicit_dimensions, int width_mm, int height_mm,
+    bool use_frame_requests,
+    bool has_forced_pixel_format,
+    enum pixfmt forced_pixel_format,
+    enum present_mode present_mode
+) {
+    enum device_orientation original_orientation;
+    struct drm_connector *selected_connector;
+    struct drm_encoder *selected_encoder;
+    struct drm_crtc *selected_crtc;
+    drmModeModeInfo *selected_mode;
+    double pixel_ratio;
+    bool has_dimensions;
+    int ok;
+
+    DEBUG_ASSERT_NOT_NULL(window);
+    DEBUG_ASSERT_NOT_NULL(compositor);
+    DEBUG_ASSERT_NOT_NULL(tracer);
+    DEBUG_ASSERT_NOT_NULL(drmdev);
+    DEBUG_ASSERT_NOT_NULL(renderer);
+    DEBUG_ASSERT(!has_rotation || PLANE_TRANSFORM_IS_ONLY_ROTATION(rotation));
+    DEBUG_ASSERT(!has_orientation || ORIENTATION_IS_VALID(orientation));
+    DEBUG_ASSERT(!has_explicit_dimensions || (width_mm > 0 && height_mm > 0));
+    //DEBUG_ASSERT_EQUALS_MSG(present_mode, kDoubleBufferedVsync_PresentMode, "Only double buffered vsync supported right now.");
+
+    ok = queue_init(&window->frame_req_queue, sizeof(struct frame_req), QUEUE_DEFAULT_MAX_SIZE);
+    if (ok != 0) {
+        return ENOMEM;
+    }
+
+    ok = select_mode(drmdev, &selected_connector, &selected_encoder, &selected_crtc, &selected_mode);
+    if (ok != 0) {
+        goto fail_deinit_queue;
+    }
+
+    if (has_explicit_dimensions) {
+        has_dimensions = true;
+    } else if (selected_connector->variable_state.width_mm % 10 || selected_connector->variable_state.height_mm % 10) {
+        has_dimensions = true;
+        width_mm = selected_connector->variable_state.width_mm;
+        height_mm = selected_connector->variable_state.height_mm;
+    } else if (selected_connector->type == DRM_MODE_CONNECTOR_DSI
+        && selected_connector->variable_state.width_mm == 0
+        && selected_connector->variable_state.height_mm == 0) {
+        has_dimensions = true;
+        width_mm = 155;
+        height_mm = 86;
+    } else {
+        has_dimensions = false;
+    }
+
+    if (has_dimensions == false) {
+        LOG_DEBUG(
+            "WARNING: display didn't provide valid physical dimensions. The device-pixel ratio will default "
+            "to 1.0, which may not be the fitting device-pixel ratio for your display. \n"
+            "Use the `-d` commandline parameter to specify the physical dimensions of your display.\n"
+        );
+        pixel_ratio = 1.0;
+    } else {
+        pixel_ratio = (10.0 * selected_mode->hdisplay) / (width_mm * 38.0);
+
+        int horizontal_dpi = (int) (selected_mode->hdisplay / (width_mm / 25.4));
+        int vertical_dpi = (int) (selected_mode->vdisplay / (height_mm / 25.4));
+
+        if (horizontal_dpi != vertical_dpi) {
+            // See https://github.com/flutter/flutter/issues/71865 for current status of this issue.
+            LOG_DEBUG("INFO: display has non-square pixels. Non-square-pixels are not supported by flutter.\n");
+        }
+    }
+
+    DEBUG_ASSERT(!has_rotation || PLANE_TRANSFORM_IS_ONLY_ROTATION(rotation));
+
+    if (selected_mode->hdisplay > selected_mode->vdisplay) {
+        original_orientation = kLandscapeLeft;
+    } else {
+        original_orientation = kPortraitUp;
+    }
+
+    if (!has_rotation && !has_orientation) {
+        rotation = PLANE_TRANSFORM_ROTATE_0;
+        orientation = original_orientation;
+        has_rotation = true;
+        has_orientation = true;
+    } else if (!has_orientation) {
+        drm_plane_transform_t r = rotation;
+        orientation = original_orientation;
+        while (r.u64 != PLANE_TRANSFORM_ROTATE_0.u64) {
+            orientation = ORIENTATION_ROTATE_CW(orientation);
+            r = PLANE_TRANSFORM_ROTATE_CCW(r);
+        }
+        has_orientation = true;
+    } else if (!has_rotation) {
+        enum device_orientation o = orientation;
+        rotation = PLANE_TRANSFORM_ROTATE_0;
+        while (o != original_orientation) {
+            rotation = PLANE_TRANSFORM_ROTATE_CW(rotation);
+            o = ORIENTATION_ROTATE_CCW(o);
+        }
+        has_rotation = true;
+    } else {
+        enum device_orientation o = orientation;
+        drm_plane_transform_t r = rotation;
+        while (r.u64 != PLANE_TRANSFORM_ROTATE_0.u64) {
+            r = PLANE_TRANSFORM_ROTATE_CCW(r);
+            o = ORIENTATION_ROTATE_CCW(o);
+        }
+
+        if (ORIENTATION_IS_LANDSCAPE(o) && !(selected_mode->hdisplay >= selected_mode->vdisplay)) {
+            LOG_DEBUG(
+                "Explicit orientation and rotation given, but orientation is inconsistent with orientation. (display "
+                "is more high than wide, but de-rotated orientation is landscape)\n"
+            );
+        } else if (ORIENTATION_IS_PORTRAIT(o) && !(selected_mode->vdisplay >= selected_mode->hdisplay)) {
+            LOG_DEBUG(
+                "Explicit orientation and rotation given, but orientation is inconsistent with orientation. (display "
+                "is more wide than high, but de-rotated orientation is portrait)\n"
+            );
+        }
+
+        original_orientation = o;
+    }
+
+    DEBUG_ASSERT(has_orientation && has_rotation);
+
+    fill_view_matrices(
+        rotation,
+        selected_mode->hdisplay,
+        selected_mode->vdisplay,
+        &window->display_to_view_transform,
+        &window->view_to_display_transform
+    );
+
+    LOG_DEBUG_UNPREFIXED(
+        "===================================\n"
+        "display mode:\n"
+        "  resolution: %" PRIu16 " x %" PRIu16
+        "\n"
+        "  refresh rate: %fHz\n"
+        "  physical size: %dmm x %dmm\n"
+        "  flutter device pixel ratio: %f\n"
+        "===================================\n",
+        selected_mode->hdisplay,
+        selected_mode->vdisplay,
+        mode_get_vrefresh(selected_mode),
+        width_mm,
+        height_mm,
+        pixel_ratio
+    );
+
+    window->compositor = compositor;
+    pthread_mutex_init(&window->lock, NULL);
+    window->tracer = tracer_ref(tracer);
+    window->drmdev = drmdev_ref(drmdev);
+    window->gbm_device = drmdev_get_gbm_device(drmdev);
+    window->composition = NULL;
+    window->backing_store = NULL;
+    window->egl_backing_store = NULL;
+    window->vk_backing_store = NULL;
+    window->selected_connector = selected_connector;
+    window->selected_crtc = selected_crtc;
+    window->selected_encoder = selected_encoder;
+    window->selected_mode = selected_mode;
+    window->refresh_rate = mode_get_vrefresh(selected_mode);
+    window->has_dimensions = has_dimensions;
+    window->width_mm = width_mm;
+    window->height_mm = height_mm;
+    window->pixel_ratio = pixel_ratio;
+    window->use_frame_requests = use_frame_requests;
+    window->rotation = rotation;
+    window->orientation = orientation;
+    window->original_orientation = original_orientation;
+    window->set_mode = true;
+    window->set_set_mode = true; /* doesn't really matter */
+    window->has_forced_pixel_format = true;
+    window->forced_pixel_format = has_forced_pixel_format ? forced_pixel_format : kARGB8888;
+    window->egl_config = EGL_NO_CONFIG_KHR;
+    window->present_mode = present_mode;
+    window->present_immediately = true;
+    window->next_frame = NULL;
+    window->renderer = NULL;
+    window->vk_renderer = vk_renderer_ref(renderer);
     return 0;
 
     fail_deinit_queue:
@@ -562,18 +786,25 @@ static int window_init(
 
 MAYBE_UNUSED static void window_deinit(struct window *window) {
     struct kms_req_builder *builder;
+    struct kms_req *req;
     int ok;
-    
-    builder = drmdev_create_request_builder(window->drmdev, window->selected_crtc->crtc->crtc_id);
+
+    builder = drmdev_create_request_builder(window->drmdev, window->selected_crtc->id);
     DEBUG_ASSERT_NOT_NULL(builder);
 
     ok = kms_req_builder_unset_mode(builder);
     DEBUG_ASSERT_EQUALS(ok, 0);
 
-    ok = kms_req_builder_commit(builder, true);
+    req = kms_req_builder_build(builder);
+    DEBUG_ASSERT_NOT_NULL(req);
+
+    kms_req_builder_unref(builder);
+
+    ok = kms_req_commit(req, true);
     DEBUG_ASSERT_EQUALS(ok, 0);
     (void) ok;
 
+    kms_req_unref(req);
     drmdev_unref(window->drmdev);
     queue_deinit(&window->frame_req_queue);
     tracer_unref(window->tracer);
@@ -593,7 +824,7 @@ static void window_unref(struct window *w) {
 MAYBE_UNUSED static void window_unrefp(struct window **w) {
     DEBUG_ASSERT_NOT_NULL(w);
     window_unref(*w);
-    *w = NULL; 
+    *w = NULL;
 }
 
 DEFINE_STATIC_LOCK_OPS(window, lock)
@@ -603,12 +834,14 @@ static void window_get_view_geometry(struct window *window, struct view_geometry
 
     display_size = POINT(window->selected_mode->hdisplay, window->selected_mode->vdisplay);
 
-    *view_geometry_out = (struct view_geometry) {
-        .view_size = (window->rotation.rotate_90 || window->rotation.rotate_270) ? point_swap_xy(display_size) : display_size,
-        .display_size = display_size,
-        .display_to_view_transform = window->display_to_view_transform,
-        .view_to_display_transform = window->view_to_display_transform,
-        .device_pixel_ratio = window->pixel_ratio
+    *view_geometry_out = (struct view_geometry){
+        .view_size = (window->rotation.rotate_90 || window->rotation.rotate_270)
+            ? point_swap_xy(display_size)
+            : display_size,
+       .display_size = display_size,
+       .display_to_view_transform = window->display_to_view_transform,
+       .view_to_display_transform = window->view_to_display_transform,
+       .device_pixel_ratio = window->pixel_ratio,
     };
 }
 
@@ -623,8 +856,8 @@ static int window_get_next_vblank(struct window *window, uint64_t *next_vblank_n
 
     DEBUG_ASSERT_NOT_NULL(window);
     DEBUG_ASSERT_NOT_NULL(next_vblank_ns_out);
-    
-    ok = drmdev_get_last_vblank(window->drmdev, window->selected_crtc->crtc->crtc_id, &last_vblank);
+
+    ok = drmdev_get_last_vblank(window->drmdev, window->selected_crtc->id, &last_vblank);
     if (ok != 0) {
         return ok;
     }
@@ -662,8 +895,9 @@ static int window_on_rendering_complete(struct window *window);
 
 static int window_push_composition(struct window *window, struct fl_layer_composition *composition) {
     struct kms_req_builder *builder;
+    struct kms_req *req;
     int ok;
-    
+
     DEBUG_ASSERT_NOT_NULL(window);
     DEBUG_ASSERT_NOT_NULL(composition);
 
@@ -678,17 +912,18 @@ static int window_push_composition(struct window *window, struct fl_layer_compos
         TRACER_END(window->tracer, "window_request_frame_and_wait_for_begin");
         if (ok != 0) {
             LOG_ERROR("Could not wait for frame begin.\n");
-            goto fail_unlock;
+            return ok;
         }
     }
 
     window_lock(window);
 
-    fl_layer_composition_ref(composition);
-    if (window->composition != NULL) fl_layer_composition_unref(window->composition);
-    window->composition = composition;
+    /// TODO: If we don't have new revisions, we don't need to scanout anything.
 
-    builder = drmdev_create_request_builder(window->drmdev, window->selected_crtc->crtc->crtc_id);
+    /// TODO: Should we do this at the end of the function?
+    fl_layer_composition_swap_ptrs(&window->composition, composition);
+
+    builder = drmdev_create_request_builder(window->drmdev, window->selected_crtc->id);
     if (builder == NULL) {
         ok = ENOMEM;
         goto fail_unlock;
@@ -696,7 +931,7 @@ static int window_push_composition(struct window *window, struct fl_layer_compos
 
     // We only set the mode once, at the first atomic request.
     if (window->set_mode) {
-        ok = kms_req_builder_set_connector(builder, window->selected_connector->connector->connector_id);
+        ok = kms_req_builder_set_connector(builder, window->selected_connector->id);
         if (ok != 0) {
             LOG_ERROR("Couldn't select connector.\n");
             goto fail_unref_builder;
@@ -715,9 +950,6 @@ static int window_push_composition(struct window *window, struct fl_layer_compos
         struct fl_layer *layer = fl_layer_composition_peek_layer(composition, i);
         (void) layer;
 
-        /// TODO: Only do this if we have a new revision, and only once per surface.
-        surface_swap_buffers(layer->surface);
-
         ok = surface_present_kms(layer->surface, &layer->props, builder);
         if (ok != 0) {
             LOG_ERROR("Couldn't present flutter layer on screen. surface_present_kms: %s\n", strerror(ok));
@@ -725,24 +957,31 @@ static int window_push_composition(struct window *window, struct fl_layer_compos
         }
     }
 
-    ok = kms_req_builder_add_scanout_callback(
-        builder,
-        on_scanout,
-        window_ref(window)
-    );
+    /// TODO: Fix this
+    /// make kms_req_builder keep a ref on the buffers
+    /// delete the release callbacks
+    ok = kms_req_builder_add_scanout_callback(builder, on_scanout, window_ref(window));
     if (ok != 0) {
         LOG_ERROR("Couldn't register scanout callback.\n");
         goto fail_unref_window;
     }
 
+    req = kms_req_builder_build(builder);
+    if (req == NULL) {
+        goto fail_unref_window;
+    }
+
+    kms_req_builder_unref(builder);
+    builder = NULL;
+
     if (window->present_mode == kDoubleBufferedVsync_PresentMode) {
         TRACER_BEGIN(window->tracer, "kms_req_builder_commit");
-        ok = kms_req_builder_commit(builder, /* blocking: */ false);
+        ok = kms_req_commit(req, /* blocking: */ false);
         TRACER_END(window->tracer, "kms_req_builder_commit");
-        
+
         if (ok != 0) {
             LOG_ERROR("Could not commit frame request.\n");
-            goto fail_release_layers;
+            goto fail_unref_window2;
         }
 
         if (window->set_set_mode) {
@@ -754,12 +993,12 @@ static int window_push_composition(struct window *window, struct fl_layer_compos
 
         if (window->present_immediately) {
             TRACER_BEGIN(window->tracer, "kms_req_builder_commit");
-            ok = kms_req_builder_commit(builder, /* blocking: */ false);
+            ok = kms_req_commit(req, /* blocking: */ false);
             TRACER_END(window->tracer, "kms_req_builder_commit");
 
             if (ok != 0) {
                 LOG_ERROR("Could not commit frame request.\n");
-                goto fail_release_layers;
+                goto fail_unref_window2;
             }
 
             if (window->set_set_mode) {
@@ -770,44 +1009,52 @@ static int window_push_composition(struct window *window, struct fl_layer_compos
             window->present_immediately = false;
         } else {
             if (window->next_frame != NULL) {
-                kms_req_builder_call_release_callbacks(window->next_frame);
-                kms_req_builder_unref(window->next_frame);
+                /// FIXME: Call the release callbacks when the kms_req is destroyed, not when it's unrefed.
+                /// Not sure this here will lead to the release callbacks being called multiple times.
+                kms_req_call_release_callbacks(window->next_frame);
+                kms_req_unref(window->next_frame);
             }
 
-            window->next_frame = kms_req_builder_ref(builder);
+            window->next_frame = kms_req_ref(req);
             window->set_set_mode = window->set_mode;
         }
     }
 
     window_unlock(window);
 
-    // KMS Req builder is committed now and drmdev keeps a ref
+    // KMS Req is committed now and drmdev keeps a ref
     // on it internally, so we don't need to keep this one.
-    kms_req_builder_unref(builder);
+    kms_req_unref(req);
 
     window_on_rendering_complete(window);
 
     return 0;
 
 
-    fail_unref_window:
+fail_unref_window2:
+    window_unref(window);
+    kms_req_call_release_callbacks(req);
+    kms_req_unref(req);
+    goto fail_unlock;
+
+fail_unref_window:
     window_unref(window);
 
-    fail_release_layers:
+fail_release_layers:
     // like above, kms_req_builder_unref won't call the layer release callbacks.
     kms_req_builder_call_release_callbacks(builder);
 
-    fail_unref_builder:
+fail_unref_builder:
     kms_req_builder_unref(builder);
 
-    fail_unlock:
+fail_unlock:
     window_unlock(window);
     return ok;
 }
 
 static struct backing_store *window_create_backing_store(struct window *window, struct point size) {
-    struct gbm_surface_backing_store *store;
-    
+    struct backing_store *store;
+
     DEBUG_ASSERT_NOT_NULL(window);
 
     /// TODO: Make pixel format configurable or automatically select one
@@ -815,9 +1062,10 @@ static struct backing_store *window_create_backing_store(struct window *window, 
     ///       custom GBM BO backing stores
     window_lock(window);
 
-    if (window->backing_store == NULL) {
-        store = gbm_surface_backing_store_new_with_egl_config(
-            window->compositor,
+    if (window->egl_backing_store == NULL && window->renderer != NULL) {
+        struct gbm_surface_backing_store *egl_store;
+
+        egl_store = gbm_surface_backing_store_new_with_egl_config(
             window->tracer,
             size,
             window->gbm_device,
@@ -825,19 +1073,52 @@ static struct backing_store *window_create_backing_store(struct window *window, 
             window->has_forced_pixel_format ? window->forced_pixel_format : kARGB8888,
             window->egl_config
         );
-        if (store == NULL) {
+        if (egl_store == NULL) {
+            window_unlock(window);
+            return NULL;
+        }
+        
+        window->egl_backing_store = CAST_GBM_SURFACE_BACKING_STORE_UNCHECKED(surface_ref(CAST_SURFACE_UNCHECKED(egl_store)));
+        window->backing_store = CAST_BACKING_STORE_UNCHECKED(surface_ref(CAST_SURFACE_UNCHECKED(egl_store)));
+        store = CAST_BACKING_STORE_UNCHECKED(egl_store);
+    } else if (window->vk_backing_store == NULL && window->vk_renderer != NULL) {
+        struct vk_gbm_backing_store *vk_store;
+
+        vk_store = vk_gbm_backing_store_new(
+            window->tracer,
+            size,
+            window->gbm_device,
+            window->vk_renderer,
+            window->forced_pixel_format
+        );
+        if (vk_store == NULL) {
             window_unlock(window);
             return NULL;
         }
 
-        window->backing_store = CAST_GBM_SURFACE_BACKING_STORE_UNCHECKED(surface_ref(CAST_SURFACE_UNCHECKED(store)));
+        window->vk_backing_store = CAST_VK_GBM_BACKING_STORE_UNCHECKED(surface_ref(CAST_SURFACE_UNCHECKED(vk_store)));
+        window->backing_store = CAST_BACKING_STORE_UNCHECKED(surface_ref(CAST_SURFACE_UNCHECKED(vk_store)));
+        store = CAST_BACKING_STORE_UNCHECKED(vk_store);
     } else {
-        store = CAST_GBM_SURFACE_BACKING_STORE_UNCHECKED(surface_ref(CAST_SURFACE_UNCHECKED(window->backing_store)));
+        DEBUG_ASSERT((window->egl_backing_store || window->vk_backing_store) && window->backing_store);
+        store = CAST_BACKING_STORE_UNCHECKED(surface_ref(CAST_SURFACE_UNCHECKED(window->backing_store)));
     }
 
     window_unlock(window);
 
     return CAST_BACKING_STORE_UNCHECKED(store);
+}
+
+static bool window_has_egl_surface(struct window *window) {
+    bool result;
+
+    DEBUG_ASSERT_NOT_NULL(window);
+
+    window_lock(window);
+    result = window->egl_backing_store != NULL;
+    window_unlock(window);
+
+    return result;
 }
 
 static EGLSurface window_get_egl_surface(struct window *window) {
@@ -847,17 +1128,18 @@ static EGLSurface window_get_egl_surface(struct window *window) {
 
     window_lock(window);
 
-    /// TODO: Make default pixel format configurable
-    if (window->backing_store == NULL) {
+    if (window->egl_backing_store == NULL) {
+        if (window->renderer == NULL) {
+            LOG_DEBUG("EGL Surface was requested but there's not EGL/GL renderer configured.\n");
+            window_unlock(window);
+            return EGL_NO_SURFACE;
+        }
+
         LOG_DEBUG("EGL Surface was requested before flutter supplied the surface dimensions.\n");
 
         store = gbm_surface_backing_store_new_with_egl_config(
-            window->compositor,
             window->tracer,
-            POINT(
-                window->selected_mode->hdisplay,
-                window->selected_mode->vdisplay
-            ),
+            POINT(window->selected_mode->hdisplay, window->selected_mode->vdisplay),
             drmdev_get_gbm_device(window->drmdev),
             window->renderer,
             window->has_forced_pixel_format ? window->forced_pixel_format : kARGB8888,
@@ -868,12 +1150,13 @@ static EGLSurface window_get_egl_surface(struct window *window) {
             return EGL_NO_SURFACE;
         }
 
-        window->backing_store = store;
+        window->egl_backing_store = CAST_GBM_SURFACE_BACKING_STORE_UNCHECKED(surface_ref(CAST_SURFACE_UNCHECKED(store)));
+        window->backing_store = CAST_BACKING_STORE_UNCHECKED(store);
     }
 
     window_unlock(window);
 
-    return gbm_surface_backing_store_get_egl_surface(window->backing_store);
+    return gbm_surface_backing_store_get_egl_surface(window->egl_backing_store);
 }
 
 static void on_frame_begin_signal_semaphore(void *userdata, uint64_t vblank_ns, uint64_t next_vblank_ns) {
@@ -893,7 +1176,7 @@ static int window_begin_frame_locked(struct window *window, uint64_t vblank_ns, 
 
     DEBUG_ASSERT_NOT_NULL(window);
 
-    ok = queue_peek(&window->frame_req_queue, (void**) &req);
+    ok = queue_peek(&window->frame_req_queue, (void **) &req);
     if (ok != 0) {
         return ok;
     }
@@ -907,7 +1190,6 @@ static int window_begin_frame_locked(struct window *window, uint64_t vblank_ns, 
 #endif
 
     return 0;
-
 }
 
 MAYBE_UNUSED static int window_begin_frame(struct window *window, uint64_t vblank_ns, uint64_t next_vblank_ns) {
@@ -920,7 +1202,6 @@ MAYBE_UNUSED static int window_begin_frame(struct window *window, uint64_t vblan
     window_unlock(window);
 
     return ok;
-
 }
 
 static int window_pop_frame_locked(struct window *window) {
@@ -965,7 +1246,7 @@ static int window_request_frame_locked(struct window *window, compositor_frame_b
 
 static int window_request_frame(struct window *window, compositor_frame_begin_cb_t cb, void *userdata) {
     int ok;
-    
+
     DEBUG_ASSERT_NOT_NULL(window);
 
     window_lock(window);
@@ -1005,14 +1286,15 @@ static int window_request_frame_and_wait_for_begin(struct window *window) {
     }
 
     ok = sem_destroy(&sem);
-    DEBUG_ASSERT(ok == 0); (void) ok;
+    DEBUG_ASSERT(ok == 0);
+    (void) ok;
 
     return 0;
 }
 
 MAYBE_UNUSED static int window_on_rendering_complete(struct window *window) {
     int ok;
-    
+
     // if we're using triple buffering, we can immediately start the next frame.
     // for double buffering we need to wait till we have a buffer again, so after
     // the next pageflip
@@ -1026,11 +1308,7 @@ MAYBE_UNUSED static int window_on_rendering_complete(struct window *window) {
 
         uint64_t time = get_monotonic_time();
 
-        ok = window_begin_frame_locked(
-            window,
-            time,
-            time + (uint64_t) (1000000000.0 / window->refresh_rate)
-        );
+        ok = window_begin_frame_locked(window, time, time + (uint64_t) (1000000000.0 / window->refresh_rate));
         if (ok != EAGAIN) {
             goto fail_unlock;
         }
@@ -1040,7 +1318,7 @@ MAYBE_UNUSED static int window_on_rendering_complete(struct window *window) {
 
     return 0;
 
-    fail_unlock:
+fail_unlock:
     window_unlock(window);
     return ok;
 }
@@ -1062,11 +1340,7 @@ static int window_on_pageflip(struct window *window, uint64_t vblank_ns, uint64_
             goto fail_unlock;
         }
 
-        ok = window_begin_frame_locked(
-            window,
-            vblank_ns,
-            next_vblank_ns
-        );
+        ok = window_begin_frame_locked(window, vblank_ns, next_vblank_ns);
         if (ok != 0 && ok != EAGAIN) {
             goto fail_unlock;
         }
@@ -1077,7 +1351,7 @@ static int window_on_pageflip(struct window *window, uint64_t vblank_ns, uint64_
 
         if (window->next_frame != NULL) {
             TRACER_BEGIN(window->tracer, "kms_req_builder_commit");
-            ok = kms_req_builder_commit(window->next_frame, false);
+            ok = kms_req_commit(window->next_frame, false);
             TRACER_END(window->tracer, "kms_req_builder_commit");
 
             if (ok != 0) {
@@ -1090,7 +1364,7 @@ static int window_on_pageflip(struct window *window, uint64_t vblank_ns, uint64_
                 window->set_set_mode = false;
             }
 
-            kms_req_builder_unrefp(&window->next_frame);
+            kms_req_unrefp(&window->next_frame);
         } else {
             window->present_immediately = true;
         }
@@ -1100,11 +1374,10 @@ static int window_on_pageflip(struct window *window, uint64_t vblank_ns, uint64_
 
     return 0;
 
-    fail_unlock:
+fail_unlock:
     window_unlock(window);
     return ok;
 }
-
 
 /**
  * @brief The flutter compositor. Responsible for taking the FlutterLayers, processing them into a struct fl_layer_composition*, then passing
@@ -1130,19 +1403,27 @@ struct platform_view_with_id {
     struct surface *surface;
 };
 
-static bool on_flutter_present_layers(const FlutterLayer** layers, size_t layers_count, void* userdata);
+static bool on_flutter_present_layers(const FlutterLayer **layers, size_t layers_count, void *userdata);
 
-static bool on_flutter_create_backing_store(const FlutterBackingStoreConfig* config, FlutterBackingStore* backing_store_out, void* userdata);
+static bool on_flutter_create_backing_store(
+    const FlutterBackingStoreConfig *config,
+    FlutterBackingStore *backing_store_out,
+    void *userdata
+);
 
-static bool on_flutter_collect_backing_store(const FlutterBackingStore* fl_store, void* userdata);
+static bool on_flutter_collect_backing_store(const FlutterBackingStore *fl_store, void *userdata);
 
 ATTR_MALLOC struct compositor *compositor_new(
     struct drmdev *drmdev,
     struct tracer *tracer,
     struct gl_renderer *renderer,
-    bool has_rotation, drm_plane_transform_t rotation,
-    bool has_orientation, enum device_orientation orientation,
-    bool has_explicit_dimensions, int width_mm, int height_mm,
+    bool has_rotation,
+    drm_plane_transform_t rotation,
+    bool has_orientation,
+    enum device_orientation orientation,
+    bool has_explicit_dimensions,
+    int width_mm,
+    int height_mm,
     EGLConfig egl_config,
     bool has_forced_pixel_format,
     enum pixfmt forced_pixel_format,
@@ -1152,10 +1433,13 @@ ATTR_MALLOC struct compositor *compositor_new(
     struct compositor *compositor;
     int ok;
 
-    DEBUG_ASSERT_MSG(egl_config == EGL_NO_CONFIG_KHR || has_forced_pixel_format == true, "If an explicit EGLConfig is given, a pixel format must be given too.");
-    
+    DEBUG_ASSERT_MSG(
+        egl_config == EGL_NO_CONFIG_KHR || has_forced_pixel_format == true,
+        "If an explicit EGLConfig is given, a pixel format must be given too."
+    );
+
     LOG_DEBUG("Has forced pixel format: %s\n", has_forced_pixel_format ? "yes" : "no");
-    
+
     compositor = malloc(sizeof *compositor);
     if (compositor == NULL) {
         goto fail_return_null;
@@ -1177,11 +1461,16 @@ ATTR_MALLOC struct compositor *compositor_new(
         tracer,
         drmdev,
         renderer,
-        has_rotation, rotation,
-        has_orientation, orientation,
-        has_explicit_dimensions, width_mm, height_mm,
+        has_rotation,
+        rotation,
+        has_orientation,
+        orientation,
+        has_explicit_dimensions,
+        width_mm,
+        height_mm,
         use_frame_requests,
-        has_forced_pixel_format, forced_pixel_format,
+        has_forced_pixel_format,
+        forced_pixel_format,
         egl_config,
         present_mode
     );
@@ -1194,27 +1483,108 @@ ATTR_MALLOC struct compositor *compositor_new(
     compositor->composition = NULL;
     // just so we get an error if the FlutterCompositor struct was updated
     COMPILE_ASSERT(sizeof(FlutterCompositor) == 24);
-    compositor->flutter_compositor = (FlutterCompositor) {
+    compositor->flutter_compositor = (FlutterCompositor
+    ){ .struct_size = sizeof(FlutterCompositor),
+       .user_data = compositor,
+       .create_backing_store_callback = on_flutter_create_backing_store,
+       .collect_backing_store_callback = on_flutter_collect_backing_store,
+       .present_layers_callback = on_flutter_present_layers,
+       .avoid_backing_store_cache = true };
+    compositor->tracer = tracer_ref(tracer);
+    return compositor;
+
+fail_deinit_platform_views:
+    pset_deinit(&compositor->platform_views);
+
+fail_destroy_mutex:
+    pthread_mutex_destroy(&compositor->mutex);
+
+fail_free_compositor:
+    free(compositor);
+
+fail_return_null:
+    return NULL;
+}
+
+ATTR_MALLOC struct compositor *compositor_new_vulkan(
+    struct drmdev *drmdev,
+    struct tracer *tracer,
+    struct vk_renderer *renderer,
+    bool has_rotation,
+    drm_plane_transform_t rotation,
+    bool has_orientation,
+    enum device_orientation orientation,
+    bool has_explicit_dimensions,
+    int width_mm,
+    int height_mm,
+    bool has_forced_pixel_format,
+    enum pixfmt forced_pixel_format,
+    bool use_frame_requests,
+    enum present_mode present_mode
+) {
+    struct compositor *compositor;
+    int ok;
+
+    LOG_DEBUG("Has forced pixel format: %s\n", has_forced_pixel_format ? "yes" : "no");
+
+    compositor = malloc(sizeof *compositor);
+    if (compositor == NULL) {
+        goto fail_return_null;
+    }
+
+    ok = pthread_mutex_init(&compositor->mutex, NULL);
+    if (ok != 0) {
+        goto fail_free_compositor;
+    }
+
+    ok = pset_init(&compositor->platform_views, PSET_DEFAULT_MAX_SIZE);
+    if (ok != 0) {
+        goto fail_destroy_mutex;
+    }
+
+    ok = window_init_vulkan(
+        &compositor->main_window,
+        compositor,
+        tracer,
+        drmdev,
+        renderer,
+        has_rotation, rotation,
+        has_orientation, orientation,
+        has_explicit_dimensions, width_mm, height_mm,
+        use_frame_requests,
+        has_forced_pixel_format, forced_pixel_format,
+        present_mode
+    );
+    if (ok != 0) {
+        LOG_ERROR("Could not initialize main window.\n");
+        goto fail_deinit_platform_views;
+    }
+
+    compositor->n_refs = REFCOUNT_INIT_1;
+    compositor->composition = NULL;
+    // just so we get an error if the FlutterCompositor struct was updated
+    COMPILE_ASSERT(sizeof(FlutterCompositor) == 24);
+    compositor->flutter_compositor = (FlutterCompositor){
         .struct_size = sizeof(FlutterCompositor),
         .user_data = compositor,
         .create_backing_store_callback = on_flutter_create_backing_store,
         .collect_backing_store_callback = on_flutter_collect_backing_store,
         .present_layers_callback = on_flutter_present_layers,
-        .avoid_backing_store_cache = true
+        .avoid_backing_store_cache = true,
     };
     compositor->tracer = tracer_ref(tracer);
     return compositor;
 
-    fail_deinit_platform_views:
+fail_deinit_platform_views:
     pset_deinit(&compositor->platform_views);
 
-    fail_destroy_mutex:
+fail_destroy_mutex:
     pthread_mutex_destroy(&compositor->mutex);
 
-    fail_free_compositor:
+fail_free_compositor:
     free(compositor);
-    
-    fail_return_null:
+
+fail_return_null:
     return NULL;
 }
 
@@ -1267,18 +1637,18 @@ static int compositor_push_composition(struct compositor *compositor, struct fl_
 }
 
 static void fill_platform_view_layer_props(
-	struct fl_layer_props *props_out,
-	const FlutterPoint *offset,
-	const FlutterSize *size,
-	const FlutterPlatformViewMutation **mutations,
-	size_t n_mutations,
-	const FlutterTransformation *display_to_view_transform,
-	const FlutterTransformation *view_to_display_transform,
-	double device_pixel_ratio
+    struct fl_layer_props *props_out,
+    const FlutterPoint *offset,
+    const FlutterSize *size,
+    const FlutterPlatformViewMutation **mutations,
+    size_t n_mutations,
+    const FlutterTransformation *display_to_view_transform,
+    const FlutterTransformation *view_to_display_transform,
+    double device_pixel_ratio
 ) {
-	(void) view_to_display_transform;
+    (void) view_to_display_transform;
 
-	/**
+    /**
 	 * inversion for
 	 * ```
 	 * const auto transformed_layer_bounds =
@@ -1286,19 +1656,14 @@ static void fill_platform_view_layer_props(
 	 * ```
 	 */
 
-	struct quad quad = transform_aa_rect(
-		*display_to_view_transform,
-		(struct aa_rect) {
-			.offset.x = offset->x,
-			.offset.y = offset->y,
-			.size.x = size->width,
-			.size.y = size->height
-		}
-	);
+    struct quad quad = transform_aa_rect(
+        *display_to_view_transform,
+        (struct aa_rect){ .offset.x = offset->x, .offset.y = offset->y, .size.x = size->width, .size.y = size->height }
+    );
 
-	struct aa_rect rect = get_aa_bounding_rect(quad);
+    struct aa_rect rect = get_aa_bounding_rect(quad);
 
-	/**
+    /**
 	 * inversion for
 	 * ```
 	 * const auto layer_bounds =
@@ -1310,50 +1675,50 @@ static void fill_platform_view_layer_props(
 	 * ```
 	 */
 
-	rect.size.x /= device_pixel_ratio;
-	rect.size.y /= device_pixel_ratio;
+    rect.size.x /= device_pixel_ratio;
+    rect.size.y /= device_pixel_ratio;
 
-	// okay, now we have the params.finalBoundingRect().x() in aa_back_transformed.x and
-	// params.finalBoundingRect().y() in aa_back_transformed.y.
-	// those are flutter view coordinates, so we still need to transform them to display coordinates.
+    // okay, now we have the params.finalBoundingRect().x() in aa_back_transformed.x and
+    // params.finalBoundingRect().y() in aa_back_transformed.y.
+    // those are flutter view coordinates, so we still need to transform them to display coordinates.
 
-	// However, there are also calculated as a side-product of calculating the size of the quadrangle.
-	// So we'll avoid calculating them for now. Calculation of the size may fail when the offset
-	// given to `SceneBuilder.addPlatformView` (https://api.flutter.dev/flutter/dart-ui/SceneBuilder/addPlatformView.html)
-	// is not zero. (Don't really know what to do in that case)
+    // However, there are also calculated as a side-product of calculating the size of the quadrangle.
+    // So we'll avoid calculating them for now. Calculation of the size may fail when the offset
+    // given to `SceneBuilder.addPlatformView` (https://api.flutter.dev/flutter/dart-ui/SceneBuilder/addPlatformView.html)
+    // is not zero. (Don't really know what to do in that case)
 
-	rect.offset.x = 0;
-	rect.offset.y = 0;
-	quad = get_quad(rect);
+    rect.offset.x = 0;
+    rect.offset.y = 0;
+    quad = get_quad(rect);
 
-	double rotation = 0, opacity = 1;
-	for (int i = n_mutations - 1; i >= 0; i--) {
+    double rotation = 0, opacity = 1;
+    for (int i = n_mutations - 1; i >= 0; i--) {
         if (mutations[i]->type == kFlutterPlatformViewMutationTypeTransformation) {
-			quad = transform_quad(mutations[i]->transformation, quad);
-			
-			double rotz = atan2(mutations[i]->transformation.skewX, mutations[i]->transformation.scaleX) * 180.0 / M_PI;
+            quad = transform_quad(mutations[i]->transformation, quad);
+
+            double rotz = atan2(mutations[i]->transformation.skewX, mutations[i]->transformation.scaleX) * 180.0 / M_PI;
             if (rotz < 0) {
                 rotz += 360;
             }
 
             rotation += rotz;
         } else if (mutations[i]->type == kFlutterPlatformViewMutationTypeOpacity) {
-			opacity *= mutations[i]->opacity;
-		}
+            opacity *= mutations[i]->opacity;
+        }
     }
 
-	rotation = fmod(rotation, 360.0);
+    rotation = fmod(rotation, 360.0);
 
     /// TODO: Implement axis aligned rectangle detection
     props_out->is_aa_rect = false;
     props_out->aa_rect = AA_RECT_FROM_COORDS(0, 0, 0, 0);
-	props_out->quad = quad;
-	props_out->opacity = 0;
-	props_out->rotation = rotation;
+    props_out->quad = quad;
+    props_out->opacity = 0;
+    props_out->rotation = rotation;
 
     /// TODO: Implement clip rects
-	props_out->n_clip_rects = 0;
-	props_out->clip_rects = NULL;
+    props_out->n_clip_rects = 0;
+    props_out->clip_rects = NULL;
 }
 
 static int compositor_push_fl_layers(struct compositor *compositor, size_t n_fl_layers, const FlutterLayer **fl_layers) {
@@ -1366,7 +1731,7 @@ static int compositor_push_fl_layers(struct compositor *compositor, size_t n_fl_
     }
 
     compositor_lock(compositor);
-  
+
     for (int i = 0; i < n_fl_layers; i++) {
         const FlutterLayer *fl_layer = fl_layers[i];
         struct fl_layer *layer = fl_layer_composition_peek_layer(composition, i);
@@ -1375,12 +1740,13 @@ static int compositor_push_fl_layers(struct compositor *compositor, size_t n_fl_
             /// TODO: Implement
             layer->surface = surface_ref(CAST_SURFACE(fl_layer->backing_store->user_data));
 
-            if (fl_layer->backing_store->did_update) {
-                surface_increase_revision(layer->surface);
-            }
+            // Tell the surface that flutter has rendered into this framebuffer / texture / image.
+            // It'll also read the did_update field and not update the surface revision in that case.
+            backing_store_queue_present(CAST_BACKING_STORE(layer->surface), fl_layer->backing_store);
 
             layer->props.is_aa_rect = true;
-            layer->props.aa_rect = AA_RECT_FROM_COORDS(fl_layer->offset.y, fl_layer->offset.y, fl_layer->size.width, fl_layer->size.height);
+            layer->props.aa_rect =
+                AA_RECT_FROM_COORDS(fl_layer->offset.y, fl_layer->offset.y, fl_layer->size.width, fl_layer->size.height);
             layer->props.quad = get_quad(layer->props.aa_rect);
             layer->props.opacity = 1.0;
             layer->props.rotation = 0.0;
@@ -1390,18 +1756,19 @@ static int compositor_push_fl_layers(struct compositor *compositor, size_t n_fl_
             DEBUG_ASSERT_EQUALS(fl_layer->type, kFlutterLayerContentTypePlatformView);
 
             /// TODO: Maybe always check if the ID is valid?
-#           if DEBUG
-                // if we're in debug mode, we actually check if the ID is a valid,
-                // registered ID.
-                /// TODO: Implement
-                layer->surface = surface_ref(compositor_get_view_by_id_locked(compositor, fl_layer->platform_view->identifier));
-#           else
-                // in release mode, we just assume the id is valid.
-                // Since the surface constructs the ID by just casting the surface pointer to an int64_t,
-                // we can easily cast it back without too much trouble.
-                // Only problem is if the id is garbage, we won't notice and the returned surface is garbage too.
-                layer->surface = surface_ref(surface_from_id(fl_layer->platform_view->identifier));
-#           endif
+#if DEBUG
+            // if we're in debug mode, we actually check if the ID is a valid,
+            // registered ID.
+            /// TODO: Implement
+            layer->surface =
+                surface_ref(compositor_get_view_by_id_locked(compositor, fl_layer->platform_view->identifier));
+#else
+            // in release mode, we just assume the id is valid.
+            // Since the surface constructs the ID by just casting the surface pointer to an int64_t,
+            // we can easily cast it back without too much trouble.
+            // Only problem is if the id is garbage, we won't notice and the returned surface is garbage too.
+            layer->surface = surface_ref(surface_from_id(fl_layer->platform_view->identifier));
+#endif
 
             // The coordinates flutter gives us are a bit buggy, so calculating the right geometry is really a problem on its own
             /// TODO: Don't unconditionally take the geometry from the main window.
@@ -1423,22 +1790,17 @@ static int compositor_push_fl_layers(struct compositor *compositor, size_t n_fl_
     TRACER_BEGIN(compositor->tracer, "compositor_push_composition");
     ok = compositor_push_composition(compositor, composition);
     TRACER_END(compositor->tracer, "compositor_push_composition");
-    
+
     fl_layer_composition_unref(composition);
 
     return 0;
-
 
     //fail_free_composition:
     //fl_layer_composition_unref(composition);
     return ok;
 }
 
-static bool on_flutter_present_layers(
-    const FlutterLayer** layers,
-    size_t layers_count,
-    void* userdata
-) {
+static bool on_flutter_present_layers(const FlutterLayer **layers, size_t layers_count, void *userdata) {
     struct compositor *compositor;
     int ok;
 
@@ -1502,7 +1864,7 @@ int compositor_set_platform_view(struct compositor *compositor, int64_t id, stru
     compositor_unlock(compositor);
     return 0;
 
-    fail_unlock:
+fail_unlock:
     compositor_unlock(compositor);
     return ok;
 }
@@ -1524,6 +1886,10 @@ static struct backing_store *compositor_create_backing_store(struct compositor *
     return window_create_backing_store(&compositor->main_window, size);
 }
 
+bool compositor_has_egl_surface(struct compositor *compositor) {
+    return window_has_egl_surface(&compositor->main_window);
+}
+
 EGLSurface compositor_get_egl_surface(struct compositor *compositor) {
     return window_get_egl_surface(&compositor->main_window);
 }
@@ -1534,9 +1900,9 @@ int compositor_request_frame(struct compositor *compositor, compositor_frame_beg
 }
 
 static bool on_flutter_create_backing_store(
-    const FlutterBackingStoreConfig* config,
-    FlutterBackingStore* backing_store_out,
-    void* userdata
+    const FlutterBackingStoreConfig *config,
+    FlutterBackingStore *backing_store_out,
+    void *userdata
 ) {
     struct backing_store *store;
     struct compositor *compositor;
@@ -1547,33 +1913,35 @@ static bool on_flutter_create_backing_store(
     DEBUG_ASSERT_NOT_NULL(userdata);
     compositor = userdata;
 
+    // we have a reference on this store.
+    // i.e. when we don't use it, we need to unref it.
     store = compositor_create_backing_store(compositor, POINT(config->size.width, config->size.height));
     if (store == NULL) {
         LOG_ERROR("Couldn't create backing store for flutter to render into.\n");
         return false;
     }
 
-    *backing_store_out = (FlutterBackingStore) {
-        .struct_size = sizeof(FlutterBackingStore),
-        .user_data = store,
-        .type = kFlutterBackingStoreTypeOpenGL,
-        .did_update = false,
-    };
-
-    ok = backing_store_fill_opengl(store, &backing_store_out->open_gl);
+    COMPILE_ASSERT(sizeof(FlutterBackingStore) == 56);
+    memset(backing_store_out, 0, sizeof *backing_store_out);
+    backing_store_out->struct_size = sizeof(FlutterBackingStore);
+    
+    // backing_store_fill asserts that the user_data is null so it can make sure
+    // any concrete backing_store_fill implementation doesn't try to set the user_data.
+    // so we set the user_data after the fill
+    ok = backing_store_fill(store, backing_store_out);
     if (ok != 0) {
-        LOG_ERROR("Couldn't fill flutter backing store with OpenGL framebuffer / texture.\n");
+        LOG_ERROR("Couldn't fill flutter backing store with concrete OpenGL framebuffer/texture or Vulkan image.\n");
         surface_unref(CAST_SURFACE_UNCHECKED(store));
         return false;
     }
 
+    // now we can set the user_data.
+    backing_store_out->user_data = store;
+
     return true;
 }
 
-static bool on_flutter_collect_backing_store(
-    const FlutterBackingStore* fl_store,
-    void* userdata
-) {
+static bool on_flutter_collect_backing_store(const FlutterBackingStore *fl_store, void *userdata) {
     struct compositor *compositor;
     struct surface *s;
 
@@ -1602,4 +1970,3 @@ int compositor_on_event_fd_ready(struct compositor *compositor) {
     DEBUG_ASSERT_NOT_NULL(compositor);
     return drmdev_on_event_fd_ready(compositor->main_window.drmdev);
 }
-
