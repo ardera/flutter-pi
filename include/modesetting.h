@@ -9,11 +9,11 @@
  * Copyright (c) 2022, Hannes Winkler <hanneswinkler2000@web.de>
  */
 
-
 #ifndef _FLUTTERPI_INCLUDE_MODESETTING_H
 #define _FLUTTERPI_INCLUDE_MODESETTING_H
 
 #include <stdbool.h>
+
 #include <pthread.h>
 
 #include <xf86drm.h>
@@ -29,105 +29,105 @@
 // All commented out properties are not present on the RPi.
 // Some of not-commented out properties we don't make usage of,
 // but they could be useful in the future.
-#define DRM_CONNECTOR_PROPERTIES(V) \
-    V("Broadcast RGB", broadcast_rgb) \
-    V("CRTC_ID", crtc_id) \
-    V("Colorspace", colorspace) \
-    /* V("Content Protection", content_protection) */ \
-    V("DPMS", dpms) \
-    V("EDID", edid) \
-    /* V("HDCP Content Type", hdcp_content_type) */ \
-    V("HDR_OUTPUT_METADATA", hdr_output_metadata) \
-    /* V("HDR_SOURCE_METADATA", hdr_source_metadata) */ \
-    /* V("PATH", path) */ \
-    V("TILE", tile) \
-    V("WRITEBACK_FB_ID", writeback_fb_id) \
+#define DRM_CONNECTOR_PROPERTIES(V)                       \
+    V("Broadcast RGB", broadcast_rgb)                     \
+    V("CRTC_ID", crtc_id)                                 \
+    V("Colorspace", colorspace)                           \
+    /* V("Content Protection", content_protection) */     \
+    V("DPMS", dpms)                                       \
+    V("EDID", edid)                                       \
+    /* V("HDCP Content Type", hdcp_content_type) */       \
+    V("HDR_OUTPUT_METADATA", hdr_output_metadata)         \
+    /* V("HDR_SOURCE_METADATA", hdr_source_metadata) */   \
+    /* V("PATH", path) */                                 \
+    V("TILE", tile)                                       \
+    V("WRITEBACK_FB_ID", writeback_fb_id)                 \
     V("WRITEBACK_OUT_FENCE_PTR", writeback_out_fence_ptr) \
     V("WRITEBACK_PIXEL_FORMATS", writeback_pixel_formats) \
-    /* V("abm level", abm_level) */ \
-    /* V("aspect ratio", aspect_ratio) */ \
-    /* V("audio", audio) */ \
-    /* V("backlight", backlight) */ \
-    V("bottom margin", bottom_margin) \
-    /* V("coherent", coherent) */ \
-    /* V("color vibrance", color_vibrance) */ \
-    /* V("content type", content_type) */ \
-    /* V("dither", dither) */ \
-    /* V("dithering depth", dithering_depth) */ \
-    /* V("dithering mode", dithering_mode) */ \
-    /* V("flicker reduction", flicker_reduction) */ \
-    /* V("hotplug_mode_update", hotplug_mode_update) */ \
-    /* V("hue", hue) */ \
-    V("left margin", left_margin) \
-    V("link-status", link_status) \
-    /* V("load detection", load_detection) */ \
-    V("max bpc", max_bpc) \
-    V("mode", mode) \
-    V("non-desktop", non_desktop) \
-    /* V("output_csc", output_csc) */ \
-    /* V("overscan", overscan) */ \
-    /* V("panel orientation", panel_orientation) */ \
-    V("right margin", right_margin) \
-    /* V("saturation", saturation) */ \
-    /* V("scaling mode", scaling_mode) */ \
-    /* V("select subconnector", select_subconnector) */ \
-    /* V("subconnector", subconnector) */ \
-    /* V("suggested X", suggested_x) */ \
-    /* V("suggested Y", suggested_y) */ \
-    V("top margin", top_margin) \
-    /* V("tv standard", tv_standard) */ \
-    /* V("underscan", underscan) */ \
-    /* V("underscan hborder", underscan_hborder) */ \
-    /* V("underscan vborder", underscan_vborder) */ \
-    /* V("vibrant hue", vibrant_hue) */ \
+    /* V("abm level", abm_level) */                       \
+    /* V("aspect ratio", aspect_ratio) */                 \
+    /* V("audio", audio) */                               \
+    /* V("backlight", backlight) */                       \
+    V("bottom margin", bottom_margin)                     \
+    /* V("coherent", coherent) */                         \
+    /* V("color vibrance", color_vibrance) */             \
+    /* V("content type", content_type) */                 \
+    /* V("dither", dither) */                             \
+    /* V("dithering depth", dithering_depth) */           \
+    /* V("dithering mode", dithering_mode) */             \
+    /* V("flicker reduction", flicker_reduction) */       \
+    /* V("hotplug_mode_update", hotplug_mode_update) */   \
+    /* V("hue", hue) */                                   \
+    V("left margin", left_margin)                         \
+    V("link-status", link_status)                         \
+    /* V("load detection", load_detection) */             \
+    V("max bpc", max_bpc)                                 \
+    V("mode", mode)                                       \
+    V("non-desktop", non_desktop)                         \
+    /* V("output_csc", output_csc) */                     \
+    /* V("overscan", overscan) */                         \
+    /* V("panel orientation", panel_orientation) */       \
+    V("right margin", right_margin)                       \
+    /* V("saturation", saturation) */                     \
+    /* V("scaling mode", scaling_mode) */                 \
+    /* V("select subconnector", select_subconnector) */   \
+    /* V("subconnector", subconnector) */                 \
+    /* V("suggested X", suggested_x) */                   \
+    /* V("suggested Y", suggested_y) */                   \
+    V("top margin", top_margin)                           \
+    /* V("tv standard", tv_standard) */                   \
+    /* V("underscan", underscan) */                       \
+    /* V("underscan hborder", underscan_hborder) */       \
+    /* V("underscan vborder", underscan_vborder) */       \
+    /* V("vibrant hue", vibrant_hue) */                   \
     /* V("vrr_capable", vrr_capable) */
 
-#define DRM_CRTC_PROPERTIES(V) \
-    V("ACTIVE", active) \
-    V("CTM", ctm) \
-    /* V("DEGAMMA_LUT", degamma_lut) */ \
+#define DRM_CRTC_PROPERTIES(V)                    \
+    V("ACTIVE", active)                           \
+    V("CTM", ctm)                                 \
+    /* V("DEGAMMA_LUT", degamma_lut) */           \
     /* V("DEGAMMA_LUT_SIZE", degamma_lut_size) */ \
-    V("GAMMA_LUT", gamma_lut) \
-    V("GAMMA_LUT_SIZE", gamma_lut_size) \
-    V("MODE_ID", mode_id) \
-    V("OUT_FENCE_PTR", out_fence_ptr) \
-    /* V("SCALING_FILTER", scaling_filter) */ \
-    V("VRR_ENABLED", vrr_enabled) \
-    V("rotation", rotation) \
+    V("GAMMA_LUT", gamma_lut)                     \
+    V("GAMMA_LUT_SIZE", gamma_lut_size)           \
+    V("MODE_ID", mode_id)                         \
+    V("OUT_FENCE_PTR", out_fence_ptr)             \
+    /* V("SCALING_FILTER", scaling_filter) */     \
+    V("VRR_ENABLED", vrr_enabled)                 \
+    V("rotation", rotation)                       \
     /* V("zorder", zorder) */
 
-#define DRM_PLANE_PROPERTIES(V) \
-    V("COLOR_ENCODING", color_encoding) \
-    V("COLOR_RANGE", color_range) \
-    V("CRTC_ID", crtc_id) \
-    V("CRTC_H", crtc_h) \
-    V("CRTC_W", crtc_w) \
-    V("CRTC_X", crtc_x) \
-    V("CRTC_Y", crtc_y) \
+#define DRM_PLANE_PROPERTIES(V)                 \
+    V("COLOR_ENCODING", color_encoding)         \
+    V("COLOR_RANGE", color_range)               \
+    V("CRTC_ID", crtc_id)                       \
+    V("CRTC_H", crtc_h)                         \
+    V("CRTC_W", crtc_w)                         \
+    V("CRTC_X", crtc_x)                         \
+    V("CRTC_Y", crtc_y)                         \
     /* V("FB_DAMAGE_CLIPS", fb_damage_clips) */ \
-    V("FB_ID", fb_id) \
-    V("IN_FENCE_FD", in_fence_fd) \
-    V("IN_FORMATS", in_formats) \
-    /* V("SCALING_FILTER", scaling_filter) */ \
-    V("SRC_H", src_h) \
-    V("SRC_W", src_w) \
-    V("SRC_X", src_x) \
-    V("SRC_Y", src_y) \
-    V("alpha", alpha) \
-    /* V("brightness", brightness) */ \
-    /* V("colorkey", colorkey) */ \
-    /* V("contrast", contrast) */ \
-    /* V("hue", hue) */ \
-    V("pixel blend mode", pixel_blend_mode) \
-    V("rotation", rotation) \
-    /* V("saturation", saturation) */ \
-    V("type", type) \
-    /* V("zorder", zorder) */ \
+    V("FB_ID", fb_id)                           \
+    V("IN_FENCE_FD", in_fence_fd)               \
+    V("IN_FORMATS", in_formats)                 \
+    /* V("SCALING_FILTER", scaling_filter) */   \
+    V("SRC_H", src_h)                           \
+    V("SRC_W", src_w)                           \
+    V("SRC_X", src_x)                           \
+    V("SRC_Y", src_y)                           \
+    V("alpha", alpha)                           \
+    /* V("brightness", brightness) */           \
+    /* V("colorkey", colorkey) */               \
+    /* V("contrast", contrast) */               \
+    /* V("hue", hue) */                         \
+    V("pixel blend mode", pixel_blend_mode)     \
+    V("rotation", rotation)                     \
+    /* V("saturation", saturation) */           \
+    V("type", type)                             \
+    /* V("zorder", zorder) */                   \
     V("zpos", zpos)
 
 #define DECLARE_PROP_ID_AS_UINT32(prop_name, prop_var_name) uint32_t prop_var_name;
 
-#define DRM_BLEND_ALPHA_OPAQUE		0xFFFF
+#define DRM_BLEND_ALPHA_OPAQUE 0xFFFF
 
 enum drm_blend_mode {
     kPremultiplied_DrmBlendMode,
@@ -170,43 +170,43 @@ static inline void drm_plane_prop_ids_init(struct drm_plane_prop_ids *ids) {
 typedef struct {
     union {
         struct {
-            bool rotate_0:1;
-            bool rotate_90:1;
-            bool rotate_180:1;
-            bool rotate_270:1;
-            bool reflect_x:1;
-            bool reflect_y:1;
+            bool rotate_0 : 1;
+            bool rotate_90 : 1;
+            bool rotate_180 : 1;
+            bool rotate_270 : 1;
+            bool reflect_x : 1;
+            bool reflect_y : 1;
         };
         uint32_t u32;
         uint64_t u64;
     };
 } drm_plane_transform_t;
 
-#define PLANE_TRANSFORM_NONE        ((const drm_plane_transform_t) {.u32 = 0                  })
-#define PLANE_TRANSFORM_ROTATE_0    ((const drm_plane_transform_t) {.u32 = DRM_MODE_ROTATE_0  })
-#define PLANE_TRANSFORM_ROTATE_90   ((const drm_plane_transform_t) {.u32 = DRM_MODE_ROTATE_90 })
-#define PLANE_TRANSFORM_ROTATE_180  ((const drm_plane_transform_t) {.u32 = DRM_MODE_ROTATE_180})
-#define PLANE_TRANSFORM_ROTATE_270  ((const drm_plane_transform_t) {.u32 = DRM_MODE_ROTATE_270})
-#define PLANE_TRANSFORM_REFLECT_X   ((const drm_plane_transform_t) {.u32 = DRM_MODE_REFLECT_X })
-#define PLANE_TRANSFORM_REFLECT_Y   ((const drm_plane_transform_t) {.u32 = DRM_MODE_REFLECT_Y })
+#define PLANE_TRANSFORM_NONE ((const drm_plane_transform_t){ .u32 = 0 })
+#define PLANE_TRANSFORM_ROTATE_0 ((const drm_plane_transform_t){ .u32 = DRM_MODE_ROTATE_0 })
+#define PLANE_TRANSFORM_ROTATE_90 ((const drm_plane_transform_t){ .u32 = DRM_MODE_ROTATE_90 })
+#define PLANE_TRANSFORM_ROTATE_180 ((const drm_plane_transform_t){ .u32 = DRM_MODE_ROTATE_180 })
+#define PLANE_TRANSFORM_ROTATE_270 ((const drm_plane_transform_t){ .u32 = DRM_MODE_ROTATE_270 })
+#define PLANE_TRANSFORM_REFLECT_X ((const drm_plane_transform_t){ .u32 = DRM_MODE_REFLECT_X })
+#define PLANE_TRANSFORM_REFLECT_Y ((const drm_plane_transform_t){ .u32 = DRM_MODE_REFLECT_Y })
 
-#define PLANE_TRANSFORM_IS_VALID(t)           (((t).u64 & ~(DRM_MODE_ROTATE_MASK | DRM_MODE_REFLECT_MASK)) == 0)
-#define PLANE_TRANSFORM_IS_ONLY_ROTATION(t)   (((t).u64 & ~DRM_MODE_ROTATE_MASK) == 0 && (HWEIGHT((t).u64) == 1))
+#define PLANE_TRANSFORM_IS_VALID(t) (((t).u64 & ~(DRM_MODE_ROTATE_MASK | DRM_MODE_REFLECT_MASK)) == 0)
+#define PLANE_TRANSFORM_IS_ONLY_ROTATION(t) (((t).u64 & ~DRM_MODE_ROTATE_MASK) == 0 && (HWEIGHT((t).u64) == 1))
 #define PLANE_TRANSFORM_IS_ONLY_REFLECTION(t) (((t).u64 & ~DRM_MODE_REFLECT_MASK) == 0 && (HWEIGHT((t).u64) == 1))
 
-#define PLANE_TRANSFORM_ROTATE_CW(t) (assert(PLANE_TRANSFORM_IS_ONLY_ROTATION(t)), \
-        (t).u64 == DRM_MODE_ROTATE_0 ? PLANE_TRANSFORM_ROTATE_90 : \
-        (t).u64 == DRM_MODE_ROTATE_90 ? PLANE_TRANSFORM_ROTATE_180 : \
-        (t).u64 == DRM_MODE_ROTATE_180 ? PLANE_TRANSFORM_ROTATE_270 : \
-        PLANE_TRANSFORM_ROTATE_0 \
-    )
+#define PLANE_TRANSFORM_ROTATE_CW(t)                               \
+    (assert(PLANE_TRANSFORM_IS_ONLY_ROTATION(t)),                  \
+     (t).u64 == DRM_MODE_ROTATE_0   ? PLANE_TRANSFORM_ROTATE_90 :  \
+     (t).u64 == DRM_MODE_ROTATE_90  ? PLANE_TRANSFORM_ROTATE_180 : \
+     (t).u64 == DRM_MODE_ROTATE_180 ? PLANE_TRANSFORM_ROTATE_270 : \
+                                      PLANE_TRANSFORM_ROTATE_0)
 
-#define PLANE_TRANSFORM_ROTATE_CCW(t) (assert(PLANE_TRANSFORM_IS_ONLY_ROTATION(t)), \
-        (t).u64 == DRM_MODE_ROTATE_0 ? PLANE_TRANSFORM_ROTATE_270 : \
-        (t).u64 == DRM_MODE_ROTATE_90 ? PLANE_TRANSFORM_ROTATE_0 : \
-        (t).u64 == DRM_MODE_ROTATE_180 ? PLANE_TRANSFORM_ROTATE_90 : \
-        PLANE_TRANSFORM_ROTATE_180 \
-    )
+#define PLANE_TRANSFORM_ROTATE_CCW(t)                              \
+    (assert(PLANE_TRANSFORM_IS_ONLY_ROTATION(t)),                  \
+     (t).u64 == DRM_MODE_ROTATE_0   ? PLANE_TRANSFORM_ROTATE_270 : \
+     (t).u64 == DRM_MODE_ROTATE_90  ? PLANE_TRANSFORM_ROTATE_0 :   \
+     (t).u64 == DRM_MODE_ROTATE_180 ? PLANE_TRANSFORM_ROTATE_90 :  \
+                                      PLANE_TRANSFORM_ROTATE_180)
 
 /*
 enum drm_plane_rotation {
@@ -231,15 +231,66 @@ struct drm_mode_blob {
     drmModeModeInfo mode;
 };
 
+enum drm_connector_type {
+    kUnknown_DrmConnectorType = DRM_MODE_CONNECTOR_Unknown,
+    kVGA_DrmConnectorType = DRM_MODE_CONNECTOR_VGA,
+    kDVII_DrmConnectorType = DRM_MODE_CONNECTOR_DVII,
+    kDVID_DrmConnectorType = DRM_MODE_CONNECTOR_DVID,
+    kDVIA_DrmConnectorType = DRM_MODE_CONNECTOR_DVIA,
+    kComposite_DrmConnectorType = DRM_MODE_CONNECTOR_Composite,
+    kSVIDEO_DrmConnectorType = DRM_MODE_CONNECTOR_SVIDEO,
+    kLVDS_DrmConnectorType = DRM_MODE_CONNECTOR_LVDS,
+    kComponent_DrmConnectorType = DRM_MODE_CONNECTOR_Component,
+    k9PinDIN_DrmConnectorType = DRM_MODE_CONNECTOR_9PinDIN,
+    kDisplayPort_DrmConnectorType = DRM_MODE_CONNECTOR_DisplayPort,
+    kHDMIA_DrmConnectorType = DRM_MODE_CONNECTOR_HDMIA,
+    kHDMIB_DrmConnectorType = DRM_MODE_CONNECTOR_HDMIB,
+    kTV_DrmConnectorType = DRM_MODE_CONNECTOR_TV,
+    keDP_DrmConnectorType = DRM_MODE_CONNECTOR_eDP,
+    kVIRTUAL_DrmConnectorType = DRM_MODE_CONNECTOR_VIRTUAL,
+    kDSI_DrmConnectorType = DRM_MODE_CONNECTOR_DSI,
+    kDPI_DrmConnectorType = DRM_MODE_CONNECTOR_DPI,
+    kWRITEBACK_DrmConnectorType = DRM_MODE_CONNECTOR_WRITEBACK,
+    kSPI_DrmConnectorType = DRM_MODE_CONNECTOR_SPI
+};
+
+enum drm_connection_state {
+    kConnected_DrmConnectionState = DRM_MODE_CONNECTED,
+    kDisconnected_DrmConnectionState = DRM_MODE_DISCONNECTED,
+    kUnknown_DrmConnectionState = DRM_MODE_UNKNOWNCONNECTION
+};
+
+enum drm_subpixel_layout {
+    kUnknown_DrmSubpixelLayout = DRM_MODE_SUBPIXEL_UNKNOWN,
+    kHorizontalRRB_DrmSubpixelLayout = DRM_MODE_SUBPIXEL_HORIZONTAL_RGB,
+    kHorizontalBGR_DrmSubpixelLayout = DRM_MODE_SUBPIXEL_HORIZONTAL_BGR,
+    kVerticalRGB_DrmSubpixelLayout = DRM_MODE_SUBPIXEL_VERTICAL_RGB,
+    kVerticalBGR_DrmSubpixelLayout = DRM_MODE_SUBPIXEL_VERTICAL_BGR,
+    kNone_DrmSubpixelLayout = DRM_MODE_SUBPIXEL_NONE
+};
+
 struct drm_connector {
-    drmModeConnector *connector;
-	drmModeObjectProperties *props;
-    drmModePropertyRes **props_info;
+    uint32_t id;
+
+    enum drm_connector_type type;
+    uint32_t type_id;
 
     struct drm_connector_prop_ids ids;
 
+    int n_encoders;
+    uint32_t encoders[32];
+
+    struct {
+        enum drm_connection_state connection_state;
+        enum drm_subpixel_layout subpixel_layout;
+        uint32_t width_mm, height_mm;
+        uint32_t n_modes;
+        drmModeModeInfo *modes;
+    } variable_state;
+
     struct {
         uint32_t crtc_id;
+        uint32_t encoder_id;
     } committed_state;
 };
 
@@ -248,14 +299,11 @@ struct drm_encoder {
 };
 
 struct drm_crtc {
-    drmModeCrtc *crtc;
-    drmModeObjectProperties *props;
-    drmModePropertyRes **props_info;
-    
-    struct drm_crtc_prop_ids ids;
-
+    uint32_t id;
     uint32_t bitmask;
     uint8_t index;
+
+    struct drm_crtc_prop_ids ids;
 
     struct {
         bool has_mode;
@@ -270,9 +318,16 @@ struct modified_format {
 };
 
 struct drm_plane {
-    drmModePlane *plane;
-    drmModeObjectProperties *props;
-    drmModePropertyRes **props_info;
+    uint32_t id;
+
+    /**
+     * @brief Bitmap of the indexes of the CRTCs that this plane can be scanned out on.
+     * 
+     * i.e. if bit 0 is set, this plane can be scanned out on the CRTC with index 0.
+     * if bit 0 is not set, this plane can not be scanned out on that CRTC.
+     * 
+     */
+    uint32_t possible_crtcs;
 
     /// The ids of all properties associated with this plane.
     /// Any property that is not supported has the value DRM_PLANE_ID_NONE
@@ -355,18 +410,11 @@ struct drm_plane {
 };
 
 struct drmdev;
-struct drmdev_atomic_req;
 struct _drmModeModeInfo;
 
-int drmdev_new_from_fd(
-    struct drmdev **drmdev_out,
-    int fd
-);
+int drmdev_new_from_fd(struct drmdev **drmdev_out, int fd);
 
-int drmdev_new_from_path(
-    struct drmdev **drmdev_out,
-    const char *path
-);
+int drmdev_new_from_path(struct drmdev **drmdev_out, const char *path);
 
 void drmdev_destroy(struct drmdev *drmdev);
 
@@ -392,188 +440,59 @@ struct gbm_device *drmdev_get_gbm_device(struct drmdev *drmdev);
 
 uint32_t drmdev_add_fb(
     struct drmdev *drmdev,
-    uint32_t width, uint32_t height,
+    uint32_t width,
+    uint32_t height,
     enum pixfmt pixel_format,
     uint32_t bo_handle,
     uint32_t pitch,
     uint32_t offset,
-    bool has_modifier, uint64_t modifier,
+    bool has_modifier,
+    uint64_t modifier,
     uint32_t flags
 );
 
 uint32_t drmdev_add_fb_multiplanar(
     struct drmdev *drmdev,
-    uint32_t width, uint32_t height,
+    uint32_t width,
+    uint32_t height,
     enum pixfmt pixel_format,
     uint32_t bo_handles[4],
     uint32_t pitches[4],
     uint32_t offsets[4],
-    bool has_modifiers, uint64_t modifiers[4],
+    bool has_modifiers,
+    uint64_t modifiers[4],
     uint32_t flags
 );
 
 uint32_t drmdev_add_fb_from_dmabuf(
     struct drmdev *drmdev,
-    uint32_t width, uint32_t height,
+    uint32_t width,
+    uint32_t height,
     enum pixfmt pixel_format,
     int prime_fd,
     uint32_t pitch,
     uint32_t offset,
-    bool has_modifier, uint64_t modifier,
+    bool has_modifier,
+    uint64_t modifier,
     uint32_t flags
 );
 
 uint32_t drmdev_add_fb_from_dmabuf_multiplanar(
     struct drmdev *drmdev,
-    uint32_t width, uint32_t height,
+    uint32_t width,
+    uint32_t height,
     enum pixfmt pixel_format,
     int prime_fds[4],
     uint32_t pitches[4],
     uint32_t offsets[4],
-    bool has_modifiers, uint64_t modifiers[4],
+    bool has_modifiers,
+    uint64_t modifiers[4],
     uint32_t flags
 );
 
-int drmdev_rm_fb(
-    struct drmdev *drmdev,
-    uint32_t fb_id
-);
+int drmdev_rm_fb(struct drmdev *drmdev, uint32_t fb_id);
 
 int drmdev_get_last_vblank(struct drmdev *drmdev, uint32_t crtc_id, uint64_t *last_vblank_ns_out);
-
-int drmdev_plane_get_type(
-    struct drmdev *drmdev,
-    uint32_t plane_id
-);
-
-int drmdev_plane_supports_setting_rotation_value(
-    struct drmdev *drmdev,
-    uint32_t plane_id,
-    int drm_rotation,
-    bool *result
-);
-
-int drmdev_plane_get_min_zpos_value(
-    struct drmdev *drmdev,
-    uint32_t plane_id,
-    int64_t *min_zpos_out
-);
-
-int drmdev_plane_get_max_zpos_value(
-    struct drmdev *drmdev,
-    uint32_t plane_id,
-    int64_t *max_zpos_out
-);
-
-int drmdev_plane_supports_setting_zpos(
-    struct drmdev *drmdev,
-    uint32_t plane_id,
-    bool *result
-);
-
-int drmdev_plane_supports_setting_zpos_value(
-    struct drmdev *drmdev,
-    uint32_t plane_id,
-    int64_t zpos,
-    bool *result
-);
-
-int drmdev_new_atomic_req(
-    struct drmdev *drmdev,
-    struct drmdev_atomic_req **req_out
-);
-
-void drmdev_destroy_atomic_req(
-    struct drmdev_atomic_req *req
-);
-
-int drmdev_atomic_req_put_connector_property(
-    struct drmdev_atomic_req *req,
-    const char *name,
-    uint64_t value
-);
-
-int drmdev_atomic_req_put_crtc_property(
-    struct drmdev_atomic_req *req,
-    const char *name,
-    uint64_t value
-);
-
-int drmdev_atomic_req_put_plane_property(
-    struct drmdev_atomic_req *req,
-    uint32_t plane_id,
-    const char *name,
-    uint64_t value
-);
-
-int drmdev_atomic_req_put_modeset_props(
-    struct drmdev_atomic_req *req,
-    uint32_t *flags
-);
-
-int drmdev_atomic_req_reserve_plane(
-    struct drmdev_atomic_req *req,
-    struct drm_plane *plane
-);
-
-int drmdev_atomic_req_commit(
-    struct drmdev_atomic_req *req,
-    uint32_t flags,
-    void *userdata
-);
-
-int drmdev_legacy_set_mode_and_fb(
-    struct drmdev *drmdev,
-    uint32_t fb_id
-);
-
-/**
- * @brief Do a nonblocking, vblank-synced framebuffer swap.
- */
-int drmdev_legacy_primary_plane_pageflip(
-    struct drmdev *drmdev,
-    uint32_t fb_id,
-    void *userdata
-);
-
-/**
- * @brief Do a blocking, vblank-synced framebuffer swap.
- * Using this in combination with @ref drmdev_legacy_primary_plane_pageflip
- * is not a good idea, since it will block until the primary plane pageflip is complete,
- * and then block even longer till the overlay plane pageflip completes the vblank after.
- */
-int drmdev_legacy_overlay_plane_pageflip(
-    struct drmdev *drmdev,
-    uint32_t plane_id,
-    uint32_t fb_id,
-    int32_t crtc_x,
-    int32_t crtc_y,
-    int32_t crtc_w,
-    int32_t crtc_h,
-    uint32_t src_x,
-    uint32_t src_y,
-    uint32_t src_w,
-    uint32_t src_h
-);
-
-int drmdev_legacy_set_connector_property(
-    struct drmdev *drmdev,
-    const char *name,
-    uint64_t value
-);
-
-int drmdev_legacy_set_crtc_property(
-    struct drmdev *drmdev,
-    const char *name,
-    uint64_t value
-);
-
-int drmdev_legacy_set_plane_property(
-    struct drmdev *drmdev,
-    uint32_t plane_id,
-    const char *name,
-    uint64_t value
-);
 
 static inline double mode_get_vrefresh(const drmModeModeInfo *mode) {
     return mode->clock * 1000.0 / (mode->htotal * mode->vtotal);
@@ -609,17 +528,11 @@ DECLARE_REF_OPS(kms_req_builder);
 
 struct drmdev *kms_req_builder_get_drmdev(struct kms_req_builder *builder);
 
-int kms_req_builder_set_mode(
-    struct kms_req_builder *builder,
-    const drmModeModeInfo *mode
-);
+int kms_req_builder_set_mode(struct kms_req_builder *builder, const drmModeModeInfo *mode);
 
 int kms_req_builder_unset_mode(struct kms_req_builder *builder);
 
-int kms_req_builder_set_connector(
-    struct kms_req_builder *builder,
-    uint32_t connector_id
-);
+int kms_req_builder_set_connector(struct kms_req_builder *builder, uint32_t connector_id);
 
 bool kms_req_builder_prefer_next_layer_opaque(struct kms_req_builder *builder);
 
@@ -630,24 +543,25 @@ int kms_req_builder_push_fb_layer(
     void *userdata
 );
 
-int kms_req_builder_push_zpos_placeholder_layer(
-    struct kms_req_builder *builder,
-    int64_t *zpos_out
-);
+int kms_req_builder_push_zpos_placeholder_layer(struct kms_req_builder *builder, int64_t *zpos_out);
 
-int kms_req_builder_add_scanout_callback(
-    struct kms_req_builder *builder,
-    kms_scanout_cb_t callback,
-    void *userdata
-);
-
-int kms_req_builder_commit(struct kms_req_builder *builder, bool blocking);
-
-void kms_req_builder_call_scanout_callbacks(struct kms_req_builder *builder, uint64_t vblank_ns);
+int kms_req_builder_add_scanout_callback(struct kms_req_builder *builder, kms_scanout_cb_t callback, void *userdata);
 
 void kms_req_builder_call_release_callbacks(struct kms_req_builder *builder);
 
-void kms_req_builder_call_post_release_callbacks(struct kms_req_builder *builder, uint64_t vblank_ns);
+struct kms_req;
+
+DECLARE_REF_OPS(kms_req);
+
+struct kms_req *kms_req_builder_build(struct kms_req_builder *builder);
+
+int kms_req_commit(struct kms_req *req, bool blocking);
+
+void kms_req_call_scanout_callbacks(struct kms_req *req, uint64_t vblank_ns);
+
+void kms_req_call_release_callbacks(struct kms_req *req);
+
+void kms_req_call_post_release_callbacks(struct kms_req *req, uint64_t vblank_ns);
 
 struct drm_connector *__next_connector(const struct drmdev *drmdev, const struct drm_connector *connector);
 
@@ -659,18 +573,22 @@ struct drm_plane *__next_plane(const struct drmdev *drmdev, const struct drm_pla
 
 drmModeModeInfo *__next_mode(const struct drm_connector *connector, const drmModeModeInfo *mode);
 
+#define for_each_connector_in_drmdev(drmdev, connector) \
+    for (connector = __next_connector(drmdev, NULL); connector != NULL; connector = __next_connector(drmdev, connector))
 
+#define for_each_encoder_in_drmdev(drmdev, encoder) \
+    for (encoder = __next_encoder(drmdev, NULL); encoder != NULL; encoder = __next_encoder(drmdev, encoder))
 
-#define for_each_connector_in_drmdev(drmdev, connector) for (connector = __next_connector(drmdev, NULL); connector != NULL; connector = __next_connector(drmdev, connector))
+#define for_each_crtc_in_drmdev(drmdev, crtc) \
+    for (crtc = __next_crtc(drmdev, NULL); crtc != NULL; crtc = __next_crtc(drmdev, crtc))
 
-#define for_each_encoder_in_drmdev(drmdev, encoder) for (encoder = __next_encoder(drmdev, NULL); encoder != NULL; encoder = __next_encoder(drmdev, encoder))
+#define for_each_plane_in_drmdev(drmdev, plane) \
+    for (plane = __next_plane(drmdev, NULL); plane != NULL; plane = __next_plane(drmdev, plane))
 
-#define for_each_crtc_in_drmdev(drmdev, crtc) for (crtc = __next_crtc(drmdev, NULL); crtc != NULL; crtc = __next_crtc(drmdev, crtc))
+#define for_each_mode_in_connector(connector, mode) \
+    for (mode = __next_mode(connector, NULL); mode != NULL; mode = __next_mode(connector, mode))
 
-#define for_each_plane_in_drmdev(drmdev, plane) for (plane = __next_plane(drmdev, NULL); plane != NULL; plane = __next_plane(drmdev, plane))
+#define for_each_unreserved_plane_in_atomic_req(atomic_req, plane) \
+    for_each_pointer_in_pset(&(atomic_req)->available_planes, plane)
 
-#define for_each_mode_in_connector(connector, mode) for (mode = __next_mode(connector, NULL); mode != NULL; mode = __next_mode(connector, mode))
-
-#define for_each_unreserved_plane_in_atomic_req(atomic_req, plane) for_each_pointer_in_pset(&(atomic_req)->available_planes, plane)
-
-#endif // _FLUTTERPI_INCLUDE_MODESETTING_H
+#endif  // _FLUTTERPI_INCLUDE_MODESETTING_H

@@ -98,11 +98,10 @@ ATTR_PURE struct dmabuf_surface *__checked_cast_dmabuf_surface(void *ptr) {
 #endif
 
 static void dmabuf_surface_deinit(struct surface *s);
-static int dmabuf_surface_swap_buffers(struct surface *s);
 static int dmabuf_surface_present_kms(struct surface *s, const struct fl_layer_props *props, struct kms_req_builder *builder);
 static int dmabuf_surface_present_fbdev(struct surface *s, const struct fl_layer_props *props, struct fbdev_commit_builder *builder);
 
-int dmabuf_surface_init(struct dmabuf_surface *s, struct compositor *compositor, struct tracer *tracer, struct texture_registry *texture_registry) {
+int dmabuf_surface_init(struct dmabuf_surface *s, struct tracer *tracer, struct texture_registry *texture_registry) {
     struct texture *texture;
     int ok;
 
@@ -111,13 +110,12 @@ int dmabuf_surface_init(struct dmabuf_surface *s, struct compositor *compositor,
         return EIO;
     }
 
-    ok = surface_init(&s->surface, compositor, tracer);
+    ok = surface_init(&s->surface, tracer);
     if (ok != 0) {
         return ok;
     }
 
     s->surface.deinit = dmabuf_surface_deinit;
-    s->surface.swap_buffers = dmabuf_surface_swap_buffers;
     s->surface.present_kms = dmabuf_surface_present_kms;
     s->surface.present_fbdev = dmabuf_surface_present_fbdev;
     uuid_copy(&s->uuid, uuid);
@@ -135,10 +133,9 @@ static void dmabuf_surface_deinit(struct surface *s) {
 /**
  * @brief Create a new dmabuf surface.
  * 
- * @param compositor The compositor that this surface will be registered to when calling surface_register.
  * @return struct dmabuf_surface* 
  */
-ATTR_MALLOC struct dmabuf_surface *dmabuf_surface_new(struct compositor *compositor, struct tracer *tracer, struct texture_registry *texture_registry) {
+ATTR_MALLOC struct dmabuf_surface *dmabuf_surface_new(struct tracer *tracer, struct texture_registry *texture_registry) {
     struct dmabuf_surface *s;
     int ok;
     
@@ -147,7 +144,7 @@ ATTR_MALLOC struct dmabuf_surface *dmabuf_surface_new(struct compositor *composi
         goto fail_return_null;
     }
 
-    ok = dmabuf_surface_init(s, compositor, tracer, texture_registry);
+    ok = dmabuf_surface_init(s, tracer, texture_registry);
     if (ok != 0) {
         goto fail_free_surface;
     }
@@ -201,17 +198,6 @@ int dmabuf_surface_push_dmabuf(struct dmabuf_surface *s, const struct dmabuf *bu
 ATTR_PURE int64_t dmabuf_surface_get_texture_id(struct dmabuf_surface *s) {
     DEBUG_ASSERT_NOT_NULL(s);
     return texture_get_id(s->texture);
-}
-
-static int dmabuf_surface_swap_buffers(struct surface *_s) {
-    struct dmabuf_surface *s;
-
-    s = CAST_THIS(_s);
-    (void) s;
-
-    UNIMPLEMENTED();
-
-    return 0;
 }
 
 static void on_release_layer(void *userdata) {

@@ -22,14 +22,11 @@ struct backing_store {
 
     uuid_t uuid;
     struct point size;
-    int (*fill_opengl)(struct backing_store *store, FlutterOpenGLBackingStore *fl_store);
-    int (*fill_software)(struct backing_store *store, FlutterSoftwareBackingStore *fl_store);
-    int (*fill_metal)(struct backing_store *store, FlutterMetalBackingStore *fl_store);
-    int (*fill_vulkan)(struct backing_store *store, void *fl_store);
+    int (*fill)(struct backing_store *store, FlutterBackingStore *fl_store);
+    int (*queue_present)(struct backing_store *store, const FlutterBackingStore *fl_store);
 };
 
-
-int backing_store_init(struct backing_store *store, struct compositor *compositor, struct tracer *tracer, struct point size);
+int backing_store_init(struct backing_store *store, struct tracer *tracer, struct point size);
 
 void backing_store_deinit(struct surface *s);
 
