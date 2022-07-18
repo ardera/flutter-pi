@@ -25,13 +25,8 @@ ATTR_PURE struct backing_store *__checked_cast_backing_store(void *ptr);
 #   define CAST_BACKING_STORE(ptr) CAST_BACKING_STORE_UNCHECKED(ptr)
 #endif
 
-int backing_store_fill_opengl(struct backing_store *store, FlutterOpenGLBackingStore *fl_store);
+int backing_store_fill(struct backing_store *store, FlutterBackingStore *fl_store);
 
-int backing_store_fill_software(struct backing_store *store, FlutterSoftwareBackingStore *fl_store);
-
-int backing_store_fill_metal(struct backing_store *store, FlutterMetalBackingStore *fl_store);
-
-int backing_store_fill_vulkan(struct backing_store *store, void *fl_store);
-
+int backing_store_queue_present(struct backing_store *store, const FlutterBackingStore *fl_store);
 
 #endif // _FLUTTERPI_INCLUDE_BACKING_STORE_H

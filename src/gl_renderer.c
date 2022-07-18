@@ -336,7 +336,8 @@ int gl_renderer_make_flutter_rendering_context_current(struct gl_renderer *rende
     EGLBoolean egl_ok;
     
     DEBUG_ASSERT_NOT_NULL(renderer);
-    DEBUG_ASSERT(surface != EGL_NO_SURFACE);
+    /// NOTE: Allow this for now
+    /// DEBUG_ASSERT(surface != EGL_NO_SURFACE);
 
     TRACER_BEGIN(renderer->tracer, "gl_renderer_make_flutter_rendering_context_current");
     egl_ok = eglMakeCurrent(

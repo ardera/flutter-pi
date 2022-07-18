@@ -24,6 +24,8 @@ struct fbdev_pixfmt {
 #include <drm_fourcc.h>
 #endif
 
+#include <vulkan.h>
+
 /**
  * @brief A specific pixel format. Use @ref get_pixfmt_info to get information
  * about this pixel format.
@@ -48,18 +50,23 @@ enum pixfmt {
 // Just a pedantic check so we don't update the pixfmt enum without changing kMax_PixFmt
 COMPILE_ASSERT(kMax_PixFmt == kRGBX8888);
 
+
+// Vulkan doesn't support that many sRGB formats actually.
+// There's two more (one packed and one non-packed) that aren't listed here.
+/// TODO: We could support other formats as well though with manual colorspace conversions.
+
 #define PIXFMT_LIST(V) \
-    V( "RGB 5:6:5",   "RGB565",   kRGB565,   /*bpp*/ 16, /*bit_depth*/ 16, /*opaque*/ true,  /*R*/ 5, 11, /*G*/ 6,  5, /*B*/ 5,  0, /*A*/ 0,  0, /*GBM fourcc*/ GBM_FORMAT_RGB565,   /*DRM fourcc*/ DRM_FORMAT_RGB565  ) \
-    V("ARGB 4:4:4:4", "ARGB4444", kARGB4444, /*bpp*/ 16, /*bit_depth*/ 12, /*opaque*/ false, /*R*/ 4,  8, /*G*/ 4,  4, /*B*/ 4,  0, /*A*/ 4, 12, /*GBM fourcc*/ GBM_FORMAT_ARGB4444, /*DRM fourcc*/ DRM_FORMAT_ARGB4444) \
-    V("XRGB 4:4:4:4", "XRGB4444", kXRGB4444, /*bpp*/ 16, /*bit_depth*/ 12, /*opaque*/ true,  /*R*/ 4,  8, /*G*/ 4,  4, /*B*/ 4,  0, /*A*/ 0,  0, /*GBM fourcc*/ GBM_FORMAT_XRGB4444, /*DRM fourcc*/ DRM_FORMAT_XRGB4444) \
-    V("ARGB 1:5:5:5", "ARGB1555", kARGB1555, /*bpp*/ 16, /*bit_depth*/ 15, /*opaque*/ false, /*R*/ 5, 10, /*G*/ 5,  5, /*B*/ 5,  0, /*A*/ 1, 15, /*GBM fourcc*/ GBM_FORMAT_ARGB1555, /*DRM fourcc*/ DRM_FORMAT_ARGB1555) \
-    V("XRGB 1:5:5:5", "XRGB1555", kXRGB1555, /*bpp*/ 16, /*bit_depth*/ 15, /*opaque*/ true,  /*R*/ 5, 10, /*G*/ 5,  5, /*B*/ 5,  0, /*A*/ 0,  0, /*GBM fourcc*/ GBM_FORMAT_XRGB1555, /*DRM fourcc*/ DRM_FORMAT_XRGB1555) \
-    V("ARGB 8:8:8:8", "ARGB8888", kARGB8888, /*bpp*/ 32, /*bit_depth*/ 24, /*opaque*/ false, /*R*/ 8, 16, /*G*/ 8,  8, /*B*/ 8,  0, /*A*/ 8, 24, /*GBM fourcc*/ GBM_FORMAT_ARGB8888, /*DRM fourcc*/ DRM_FORMAT_ARGB8888) \
-    V("XRGB 8:8:8:8", "XRGB8888", kXRGB8888, /*bpp*/ 32, /*bit_depth*/ 24, /*opaque*/ true,  /*R*/ 8, 16, /*G*/ 8,  8, /*B*/ 8,  0, /*A*/ 0, 24, /*GBM fourcc*/ GBM_FORMAT_XRGB8888, /*DRM fourcc*/ DRM_FORMAT_XRGB8888) \
-    V("BGRA 8:8:8:8", "BGRA8888", kBGRA8888, /*bpp*/ 32, /*bit_depth*/ 24, /*opaque*/ false, /*R*/ 8,  8, /*G*/ 8, 16, /*B*/ 8, 24, /*A*/ 8,  0, /*GBM fourcc*/ GBM_FORMAT_BGRA8888, /*DRM fourcc*/ DRM_FORMAT_BGRA8888) \
-    V("BGRX 8:8:8:8", "BGRX8888", kBGRX8888, /*bpp*/ 32, /*bit_depth*/ 24, /*opaque*/ true,  /*R*/ 8,  8, /*G*/ 8, 16, /*B*/ 8, 24, /*A*/ 0,  0, /*GBM fourcc*/ GBM_FORMAT_BGRX8888, /*DRM fourcc*/ DRM_FORMAT_BGRX8888) \
-    V("RGBA 8:8:8:8", "RGBA8888", kRGBA8888, /*bpp*/ 32, /*bit_depth*/ 24, /*opaque*/ false, /*R*/ 8, 24, /*G*/ 8, 16, /*B*/ 8,  8, /*A*/ 8,  0, /*GBM fourcc*/ GBM_FORMAT_RGBA8888, /*DRM fourcc*/ DRM_FORMAT_RGBA8888) \
-    V("RGBX 8:8:8:8", "RGBX8888", kRGBX8888, /*bpp*/ 32, /*bit_depth*/ 24, /*opaque*/ true,  /*R*/ 8, 24, /*G*/ 8, 16, /*B*/ 8,  8, /*A*/ 0,  0, /*GBM fourcc*/ GBM_FORMAT_RGBX8888, /*DRM fourcc*/ DRM_FORMAT_RGBX8888)
+    V( "RGB 5:6:5",   "RGB565",   kRGB565,   /*bpp*/ 16, /*bit_depth*/ 16, /*opaque*/ true,  /*Vulkan format*/  VK_FORMAT_UNDEFINED,     /*R*/ 5, 11, /*G*/ 6,  5, /*B*/ 5,  0, /*A*/ 0,  0, /*GBM fourcc*/ GBM_FORMAT_RGB565,   /*DRM fourcc*/ DRM_FORMAT_RGB565  ) \
+    V("ARGB 4:4:4:4", "ARGB4444", kARGB4444, /*bpp*/ 16, /*bit_depth*/ 12, /*opaque*/ false, /*Vulkan format*/  VK_FORMAT_UNDEFINED,     /*R*/ 4,  8, /*G*/ 4,  4, /*B*/ 4,  0, /*A*/ 4, 12, /*GBM fourcc*/ GBM_FORMAT_ARGB4444, /*DRM fourcc*/ DRM_FORMAT_ARGB4444) \
+    V("XRGB 4:4:4:4", "XRGB4444", kXRGB4444, /*bpp*/ 16, /*bit_depth*/ 12, /*opaque*/ true,  /*Vulkan format*/  VK_FORMAT_UNDEFINED,     /*R*/ 4,  8, /*G*/ 4,  4, /*B*/ 4,  0, /*A*/ 0,  0, /*GBM fourcc*/ GBM_FORMAT_XRGB4444, /*DRM fourcc*/ DRM_FORMAT_XRGB4444) \
+    V("ARGB 1:5:5:5", "ARGB1555", kARGB1555, /*bpp*/ 16, /*bit_depth*/ 15, /*opaque*/ false, /*Vulkan format*/  VK_FORMAT_UNDEFINED,     /*R*/ 5, 10, /*G*/ 5,  5, /*B*/ 5,  0, /*A*/ 1, 15, /*GBM fourcc*/ GBM_FORMAT_ARGB1555, /*DRM fourcc*/ DRM_FORMAT_ARGB1555) \
+    V("XRGB 1:5:5:5", "XRGB1555", kXRGB1555, /*bpp*/ 16, /*bit_depth*/ 15, /*opaque*/ true,  /*Vulkan format*/  VK_FORMAT_UNDEFINED,     /*R*/ 5, 10, /*G*/ 5,  5, /*B*/ 5,  0, /*A*/ 0,  0, /*GBM fourcc*/ GBM_FORMAT_XRGB1555, /*DRM fourcc*/ DRM_FORMAT_XRGB1555) \
+    V("ARGB 8:8:8:8", "ARGB8888", kARGB8888, /*bpp*/ 32, /*bit_depth*/ 24, /*opaque*/ false, /*Vulkan format*/  VK_FORMAT_B8G8R8A8_SRGB, /*R*/ 8, 16, /*G*/ 8,  8, /*B*/ 8,  0, /*A*/ 8, 24, /*GBM fourcc*/ GBM_FORMAT_ARGB8888, /*DRM fourcc*/ DRM_FORMAT_ARGB8888) \
+    V("XRGB 8:8:8:8", "XRGB8888", kXRGB8888, /*bpp*/ 32, /*bit_depth*/ 24, /*opaque*/ true,  /*Vulkan format*/  VK_FORMAT_UNDEFINED,     /*R*/ 8, 16, /*G*/ 8,  8, /*B*/ 8,  0, /*A*/ 0, 24, /*GBM fourcc*/ GBM_FORMAT_XRGB8888, /*DRM fourcc*/ DRM_FORMAT_XRGB8888) \
+    V("BGRA 8:8:8:8", "BGRA8888", kBGRA8888, /*bpp*/ 32, /*bit_depth*/ 24, /*opaque*/ false, /*Vulkan format*/  VK_FORMAT_UNDEFINED,     /*R*/ 8,  8, /*G*/ 8, 16, /*B*/ 8, 24, /*A*/ 8,  0, /*GBM fourcc*/ GBM_FORMAT_BGRA8888, /*DRM fourcc*/ DRM_FORMAT_BGRA8888) \
+    V("BGRX 8:8:8:8", "BGRX8888", kBGRX8888, /*bpp*/ 32, /*bit_depth*/ 24, /*opaque*/ true,  /*Vulkan format*/  VK_FORMAT_UNDEFINED,     /*R*/ 8,  8, /*G*/ 8, 16, /*B*/ 8, 24, /*A*/ 0,  0, /*GBM fourcc*/ GBM_FORMAT_BGRX8888, /*DRM fourcc*/ DRM_FORMAT_BGRX8888) \
+    V("RGBA 8:8:8:8", "RGBA8888", kRGBA8888, /*bpp*/ 32, /*bit_depth*/ 24, /*opaque*/ false, /*Vulkan format*/  VK_FORMAT_UNDEFINED,     /*R*/ 8, 24, /*G*/ 8, 16, /*B*/ 8,  8, /*A*/ 8,  0, /*GBM fourcc*/ GBM_FORMAT_RGBA8888, /*DRM fourcc*/ DRM_FORMAT_RGBA8888) \
+    V("RGBX 8:8:8:8", "RGBX8888", kRGBX8888, /*bpp*/ 32, /*bit_depth*/ 24, /*opaque*/ true,  /*Vulkan format*/  VK_FORMAT_UNDEFINED,     /*R*/ 8, 24, /*G*/ 8, 16, /*B*/ 8,  8, /*A*/ 0,  0, /*GBM fourcc*/ GBM_FORMAT_RGBX8888, /*DRM fourcc*/ DRM_FORMAT_RGBX8888)
 
 // make sure the macro list we defined has as many elements as the pixfmt enum.
 #define __COUNT(...) +1
@@ -141,6 +148,12 @@ struct pixfmt_info {
      * @brief The DRM format equivalent to this pixel format.
      */
     uint32_t drm_format;
+#endif
+#ifdef HAS_VULKAN
+    /**
+     * @brief The vulkan equivalent of this pixel format.
+     */
+    VkFormat vk_format;
 #endif
 };
 

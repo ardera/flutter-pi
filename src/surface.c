@@ -36,16 +36,12 @@ ATTR_PURE struct surface *__checked_cast_surface(void *ptr) {
 }
 #endif
 
-int surface_init(struct surface *s, struct compositor *compositor, struct tracer *tracer) {
+int surface_init(struct surface *s, struct tracer *tracer) {
     uuid_copy(&s->uuid, uuid);
     s->n_refs = REFCOUNT_INIT_1;
     pthread_mutex_init(&s->lock, NULL);
-    s->compositor = compositor_ref(compositor);
     s->tracer = tracer_ref(tracer);
-    s->registered = false;
-    s->id = ptr_to_int64(s);
     s->revision = 1;
-    s->swap_buffers = NULL;
     s->present_kms = NULL;
     s->present_fbdev = NULL;
     s->deinit = surface_deinit;
@@ -53,15 +49,10 @@ int surface_init(struct surface *s, struct compositor *compositor, struct tracer
 }
 
 void surface_deinit(struct surface *s) {
-    if (s->registered) {
-        LOG_DEBUG("surface_destroy was called while surface was still registered as a platform view to the compositor.\n");
-        surface_unregister(s);
-    }
-    compositor_unref(s->compositor);
     tracer_unref(s->tracer);
 }
 
-struct surface *surface_new(struct compositor *compositor, struct tracer *tracer) {
+struct surface *surface_new(struct tracer *tracer) {
     struct surface *s;
     int ok;
     
@@ -70,7 +61,7 @@ struct surface *surface_new(struct compositor *compositor, struct tracer *tracer
         return NULL;
     }
 
-    ok = surface_init(s, compositor, tracer);
+    ok = surface_init(s, tracer);
     if (ok != 0) {
         free(s);
         return NULL;
@@ -89,65 +80,9 @@ DEFINE_LOCK_OPS(surface, lock)
 
 DEFINE_REF_OPS(surface, n_refs)
 
-int surface_register(struct surface *s) {
-    int ok;
-    
-    DEBUG_ASSERT_EQUALS(s->registered, false);
-    
-    ok = compositor_set_platform_view(s->compositor, s->id, s);
-    if (ok != 0) {
-        return ok;
-    }
-
-    s->registered = true;
-    return 0;
-}
-
-int surface_unregister(struct surface *s) {
-    int ok;
-
-    DEBUG_ASSERT_EQUALS(s->registered, true);
-    
-    ok = compositor_set_platform_view(s->compositor, s->id, NULL);
-    if (ok != 0) {
-        return ok;
-    }
-
-    s->registered = false;
-    return 0;
-}
-
-bool surface_is_registered(struct surface *s) {
-    DEBUG_ASSERT_NOT_NULL(s);
-    return s->registered;
-}
-
 int64_t surface_get_revision(struct surface *s) {
     DEBUG_ASSERT_NOT_NULL(s);
     return s->revision;
-}
-
-/// TODO: Think about locking for this one
-void surface_increase_revision(struct surface *s) {
-    DEBUG_ASSERT_NOT_NULL(s);
-    
-    s->revision++;
-
-    // check we don't overflow (reaally paranoid)
-    DEBUG_ASSERT(s->revision > 0);
-}
-
-int surface_swap_buffers(struct surface *s) {
-    int ok;
-    
-    DEBUG_ASSERT_NOT_NULL(s);
-    DEBUG_ASSERT_NOT_NULL(s->swap_buffers);
-
-    TRACER_BEGIN(s->tracer, "surface_swap_buffers");
-    ok = s->swap_buffers(s);
-    TRACER_END(s->tracer, "surface_swap_buffers");
-
-    return ok;
 }
 
 int surface_present_kms(

@@ -28,7 +28,6 @@ ATTR_PURE struct gbm_surface_backing_store *__checked_cast_gbm_surface_backing_s
 #endif
 
 ATTR_MALLOC struct gbm_surface_backing_store *gbm_surface_backing_store_new_with_egl_config(
-    struct compositor *compositor,
     struct tracer *tracer,
     struct point size,
     struct gbm_device *device,
@@ -38,7 +37,6 @@ ATTR_MALLOC struct gbm_surface_backing_store *gbm_surface_backing_store_new_with
 );
 
 ATTR_MALLOC struct gbm_surface_backing_store *gbm_surface_backing_store_new(
-    struct compositor *compositor,
     struct tracer *tracer,
     struct point size,
     struct gbm_device *device,
