@@ -25,6 +25,10 @@
 
 FILE_DESCR("gbm surface backing store")
 
+#ifndef HAS_EGL
+#   error "EGL is needed for GBM surface backing store."
+#endif
+
 struct gbm_surface_backing_store;
 
 struct locked_fb {
@@ -68,12 +72,16 @@ static const uuid_t uuid = CONST_UUID(0xf9, 0xc2, 0x5d, 0xad, 0x2e, 0x3b, 0x4e, 
 #define CAST_THIS_UNCHECKED(ptr) CAST_GBM_SURFACE_BACKING_STORE_UNCHECKED(ptr)
 
 static void locked_fb_destroy(struct locked_fb *fb) {
-    gbm_surface_release_buffer(fb->store->gbm_surface, fb->bo);
-    surface_unref(CAST_SURFACE(fb->store));
+    struct gbm_surface_backing_store *store;
+
+    store = fb->store;
+    fb->store = NULL;
+    gbm_surface_release_buffer(store->gbm_surface, fb->bo);
 #ifdef DEBUG
-    atomic_fetch_sub(&fb->store->n_locked_fbs, 1);
+    atomic_fetch_sub(&store->n_locked_fbs, 1);
 #endif
     atomic_flag_clear(&fb->is_locked);
+    surface_unref(CAST_SURFACE(store));
 }
 
 DEFINE_STATIC_REF_OPS(locked_fb, n_refs)
@@ -89,17 +97,13 @@ ATTR_PURE struct gbm_surface_backing_store *__checked_cast_gbm_surface_backing_s
 #endif
 
 void gbm_surface_backing_store_deinit(struct surface *s);
-static int gbm_surface_backing_store_swap_buffers(struct surface *s);
 static int gbm_surface_backing_store_present_kms(struct surface *s, const struct fl_layer_props *props, struct kms_req_builder *builder);
 static int gbm_surface_backing_store_present_fbdev(struct surface *s, const struct fl_layer_props *props, struct fbdev_commit_builder *builder);
-static int gbm_surface_backing_store_fill_opengl(struct backing_store *store, FlutterOpenGLBackingStore *fl_store);
-static int gbm_surface_backing_store_fill_software(struct backing_store *store, FlutterSoftwareBackingStore *fl_store);
-static int gbm_surface_backing_store_fill_metal(struct backing_store *store, FlutterMetalBackingStore *fl_store);
-static int gbm_surface_backing_store_fill_vulkan(struct backing_store *store, void *fl_store);
+static int gbm_surface_backing_store_fill(struct backing_store *store, FlutterBackingStore *fl_store);
+static int gbm_surface_backing_store_queue_present(struct backing_store *store, const FlutterBackingStore *fl_store);
 
 int gbm_surface_backing_store_init(
     struct gbm_surface_backing_store *store,
-    struct compositor *compositor,
     struct tracer *tracer,
     struct point size,
     struct gbm_device *gbm_device,
@@ -115,8 +119,6 @@ int gbm_surface_backing_store_init(
 
     DEBUG_ASSERT_NOT_NULL(renderer);
     DEBUG_ASSERT_PIXFMT_VALID(pixel_format);
-
-#ifdef HAS_EGL
     egl_display = gl_renderer_get_egl_display(renderer);
     DEBUG_ASSERT_NOT_NULL(egl_display);
 
@@ -133,7 +135,6 @@ int gbm_surface_backing_store_init(
         DEBUG_ASSERT_EQUALS_MSG(value, get_pixfmt_info(pixel_format)->gbm_format, "EGL framebuffer config pixel format doesn't match the argument pixel format.");
     }
 #endif
-#endif
     /// TODO: Think about allowing different tilings / modifiers here
     gbm_surface = gbm_surface_create(
         gbm_device,
@@ -147,7 +148,6 @@ int gbm_surface_backing_store_init(
         return ok;
     }
 
-#ifdef HAS_EGL
     if (egl_config == EGL_NO_CONFIG_KHR) {
         // choose a config
         egl_config = gl_renderer_choose_config_direct(renderer, pixel_format);
@@ -186,26 +186,18 @@ int gbm_surface_backing_store_init(
         ok = EIO;
         goto fail_destroy_gbm_surface;
     }
-#else
-    egl_display = EGL_NO_DISPLAY;
-    egl_surface = EGL_NO_SURFACE;
-    (void) egl_ok;
-#endif
 
     /// TODO: Implement 
-    ok = backing_store_init(CAST_BACKING_STORE_UNCHECKED(store), compositor, tracer, size);
+    ok = backing_store_init(CAST_BACKING_STORE_UNCHECKED(store), tracer, size);
     if (ok != 0) {
         goto fail_destroy_egl_surface;
     }
 
-    store->surface.swap_buffers = gbm_surface_backing_store_swap_buffers;
     store->surface.present_kms = gbm_surface_backing_store_present_kms;
     store->surface.present_fbdev = gbm_surface_backing_store_present_fbdev;
     store->surface.deinit = gbm_surface_backing_store_deinit;
-    store->backing_store.fill_opengl = gbm_surface_backing_store_fill_opengl;
-    store->backing_store.fill_software = gbm_surface_backing_store_fill_software;
-    store->backing_store.fill_metal = gbm_surface_backing_store_fill_metal;
-    store->backing_store.fill_vulkan = gbm_surface_backing_store_fill_vulkan;
+    store->backing_store.fill = gbm_surface_backing_store_fill;
+    store->backing_store.queue_present = gbm_surface_backing_store_queue_present;
     uuid_copy(&store->uuid, uuid);
     store->pixel_format = pixel_format;
     store->gbm_device = gbm_device;
@@ -243,7 +235,6 @@ int gbm_surface_backing_store_init(
  * @return struct gbm_surface_backing_store* 
  */
 ATTR_MALLOC struct gbm_surface_backing_store *gbm_surface_backing_store_new_with_egl_config(
-    struct compositor *compositor,
     struct tracer *tracer,
     struct point size,
     struct gbm_device *device,
@@ -259,7 +250,7 @@ ATTR_MALLOC struct gbm_surface_backing_store *gbm_surface_backing_store_new_with
         goto fail_return_null;
     }
 
-    ok = gbm_surface_backing_store_init(store, compositor, tracer, size, device, renderer, pixel_format, egl_config);
+    ok = gbm_surface_backing_store_init(store, tracer, size, device, renderer, pixel_format, egl_config);
     if (ok != 0) {
         goto fail_free_store;
     }
@@ -285,7 +276,6 @@ ATTR_MALLOC struct gbm_surface_backing_store *gbm_surface_backing_store_new_with
  * @return struct gbm_surface_backing_store*
  */
 ATTR_MALLOC struct gbm_surface_backing_store *gbm_surface_backing_store_new(
-    struct compositor *compositor,
     struct tracer *tracer,
     struct point size,
     struct gbm_device *device,
@@ -293,7 +283,6 @@ ATTR_MALLOC struct gbm_surface_backing_store *gbm_surface_backing_store_new(
     enum pixfmt pixel_format
 ) {
     return gbm_surface_backing_store_new_with_egl_config(
-        compositor,
         tracer,
         size,
         device,
@@ -320,79 +309,6 @@ struct gbm_bo_meta {
     enum pixfmt opaque_pixel_format;
     uint32_t opaque_fb_id;
 };
-
-static int gbm_surface_backing_store_swap_buffers(struct surface *s) {
-    MAYBE_UNUSED struct gbm_surface_backing_store *store;
-    struct gbm_bo *bo;
-    MAYBE_UNUSED EGLBoolean egl_ok;
-    int i, ok;
-    
-    store = CAST_THIS(s);
-
-    surface_lock(s);
-
-    // Unref the old front fb so potentially one of the locked_fbs entries gets freed 
-    if (store->locked_front_fb != NULL) {
-        locked_fb_unrefp(&store->locked_front_fb);
-    }
-
-    DEBUG_ASSERT(gbm_surface_has_free_buffers(store->gbm_surface));
-
-    // create the in fence here
-#ifdef HAS_EGL
-    TRACER_BEGIN(s->tracer, "eglSwapBuffers");
-    egl_ok = eglSwapBuffers(store->egl_display, store->egl_surface);
-    TRACER_END(s->tracer, "eglSwapBuffers");
-
-    if (egl_ok != EGL_TRUE) {
-        LOG_ERROR("Couldn't flush rendering. eglSwapBuffers: 0x%08X\n", eglGetError());
-        return EIO;
-    }
-#endif
-
-    TRACER_BEGIN(s->tracer, "gbm_surface_lock_front_buffer");
-    bo = gbm_surface_lock_front_buffer(store->gbm_surface);
-    TRACER_END(s->tracer, "gbm_surface_lock_front_buffer");
-
-    if (bo == NULL) {
-        ok = errno;
-        LOG_ERROR("Couldn't lock GBM front buffer. gbm_surface_lock_front_buffer: %s\n", strerror(ok));
-        goto fail_unlock;
-    }
-
-    // Try to find & lock a locked_fb we can use.
-    // Note we use atomics here even though we hold the surfaces' mutex because
-    // releasing a locked_fb is possibly done without the mutex.
-    for (i = 0; i < ARRAY_SIZE(store->locked_fbs); i++) {
-        if (atomic_flag_test_and_set(&store->locked_fbs[i].is_locked) == false) {
-            goto locked;
-        }
-    }
-
-    // If we reached this point, we couldn't find lock one of the 4 locked_fbs.
-    // Which shouldn't happen except we have an application bug.
-    DEBUG_ASSERT_MSG(false, "Couldn't find a free slot to lock the surfaces front framebuffer.");
-    ok = EIO;
-    goto fail_release_bo;
-
-    locked:
-    /// TODO: Remove this once we're using triple buffering
-    //DEBUG_ASSERT_MSG(atomic_fetch_add(&store->n_locked_fbs, 1) <= 1, "sanity check failed: too many locked fbs for double-buffered vsync");
-    store->locked_fbs[i].bo = bo;
-    store->locked_fbs[i].store = CAST_GBM_SURFACE_BACKING_STORE(surface_ref(s));
-    store->locked_fbs[i].n_refs = REFCOUNT_INIT_1;
-    store->locked_front_fb = store->locked_fbs + i;
-    surface_unlock(s);
-    return 0;
-
-
-    fail_release_bo:
-    gbm_surface_release_buffer(store->gbm_surface, bo);
-
-    fail_unlock:
-    surface_unlock(s);
-    return ok;
-}
 
 static void on_destroy_gbm_bo_meta(struct gbm_bo *bo, void *meta_void) {
     struct gbm_bo_meta *meta;
@@ -618,9 +534,10 @@ static int gbm_surface_backing_store_present_fbdev(struct surface *s, const stru
     return 0;
 }
 
-static int gbm_surface_backing_store_fill_opengl(struct backing_store *s, FlutterOpenGLBackingStore *fl_store) {
+static int gbm_surface_backing_store_fill(struct backing_store *s, FlutterBackingStore *fl_store) {
 #if HAS_EGL
-    *fl_store = (FlutterOpenGLBackingStore) {
+    fl_store->type = kFlutterBackingStoreTypeOpenGL;
+    fl_store->open_gl = (FlutterOpenGLBackingStore) {
         .type = kFlutterOpenGLTargetTypeFramebuffer,
         .framebuffer = {
             /* for some reason flutter wants this to be GL_BGRA8_EXT, contrary to what the docs say */
@@ -629,9 +546,11 @@ static int gbm_surface_backing_store_fill_opengl(struct backing_store *s, Flutte
             /* 0 refers to the window surface, instead of to an FBO */
             .name = 0, 
 
-            /* even though the compositor will call surface_ref too to fill the FlutterBackingStore.user_data,
-               we need to ref two times because flutter will call both this destruction callback and the
-               compositor collect callback */
+            /*
+             * even though the compositor will call surface_ref too to fill the FlutterBackingStore.user_data,
+             * we need to ref two times because flutter will call both this destruction callback and the
+             * compositor collect callback
+             */
             .user_data = surface_ref(CAST_SURFACE_UNCHECKED(s)),
             .destruction_callback = surface_unref_void
         }
@@ -645,45 +564,80 @@ static int gbm_surface_backing_store_fill_opengl(struct backing_store *s, Flutte
 #endif
 }
 
-static int gbm_surface_backing_store_fill_software(struct backing_store *s, FlutterSoftwareBackingStore *fl_store) {
-    struct gbm_surface_backing_store *store;
-
+static int gbm_surface_backing_store_queue_present(struct backing_store *s, const FlutterBackingStore *fl_store) {
+    MAYBE_UNUSED struct gbm_surface_backing_store *store;
+    struct gbm_bo *bo;
+    MAYBE_UNUSED EGLBoolean egl_ok;
+    int i, ok;
+    
     store = CAST_THIS(s);
-    (void) store;
-
-    /// TODO: Implement fill_software by mmapping the surfaces' front gbm bo
-
-    fl_store->allocation = NULL;
-    fl_store->destruction_callback = NULL;
-    fl_store->height = (size_t) s->size.y;
-    fl_store->row_bytes = (size_t) s->size.x * 4;
-    fl_store->user_data = CAST_SURFACE_UNCHECKED(s);
-    UNIMPLEMENTED();
-    return ENOTSUP;
-}
-
-static int gbm_surface_backing_store_fill_metal(struct backing_store *s, FlutterMetalBackingStore *fl_store) {
-    struct gbm_surface_backing_store *store;
-
-    store = CAST_THIS(s);
-    (void) store;
     (void) fl_store;
 
-    /// TODO: Implement
-    UNIMPLEMENTED();
+    surface_lock(CAST_SURFACE(s));
+
+    /// TODO: Handle fl_store->did_update == false here
+
+    // Unref the old front fb so potentially one of the locked_fbs entries gets freed 
+    if (store->locked_front_fb != NULL) {
+        locked_fb_unrefp(&store->locked_front_fb);
+    }
+
+    DEBUG_ASSERT(gbm_surface_has_free_buffers(store->gbm_surface));
+
+    // create the in fence here
+#ifdef HAS_EGL
+    TRACER_BEGIN(s->surface.tracer, "eglSwapBuffers");
+    egl_ok = eglSwapBuffers(store->egl_display, store->egl_surface);
+    TRACER_END(s->surface.tracer, "eglSwapBuffers");
+
+    if (egl_ok != EGL_TRUE) {
+        LOG_EGL_ERROR(eglGetError(), "Couldn't flush rendering. eglSwapBuffers");
+        return EIO;
+    }
+#endif
+
+    TRACER_BEGIN(s->surface.tracer, "gbm_surface_lock_front_buffer");
+    bo = gbm_surface_lock_front_buffer(store->gbm_surface);
+    TRACER_END(s->surface.tracer, "gbm_surface_lock_front_buffer");
+
+    if (bo == NULL) {
+        ok = errno;
+        LOG_ERROR("Couldn't lock GBM front buffer. gbm_surface_lock_front_buffer: %s\n", strerror(ok));
+        goto fail_unlock;
+    }
+
+    // Try to find & lock a locked_fb we can use.
+    // Note we use atomics here even though we hold the surfaces' mutex because
+    // releasing a locked_fb is possibly done without the mutex.
+    for (i = 0; i < ARRAY_SIZE(store->locked_fbs); i++) {
+        if (atomic_flag_test_and_set(&store->locked_fbs[i].is_locked) == false) {
+            goto locked;
+        }
+    }
+
+    // If we reached this point, we couldn't find lock one of the 4 locked_fbs.
+    // Which shouldn't happen except we have an application bug.
+    DEBUG_ASSERT_MSG(false, "Couldn't find a free slot to lock the surfaces front framebuffer.");
+    ok = EIO;
+    goto fail_release_bo;
+
+    locked:
+    /// TODO: Remove this once we're using triple buffering
+    //DEBUG_ASSERT_MSG(atomic_fetch_add(&store->n_locked_fbs, 1) <= 1, "sanity check failed: too many locked fbs for double-buffered vsync");
+    store->locked_fbs[i].bo = bo;
+    store->locked_fbs[i].store = CAST_GBM_SURFACE_BACKING_STORE(surface_ref(CAST_SURFACE(s)));
+    store->locked_fbs[i].n_refs = REFCOUNT_INIT_1;
+    store->locked_front_fb = store->locked_fbs + i;
+    surface_unlock(CAST_SURFACE(s));
     return 0;
-}
 
-static int gbm_surface_backing_store_fill_vulkan(struct backing_store *s, void *fl_store) {
-    struct gbm_surface_backing_store *store;
 
-    store = CAST_THIS(s);
-    (void) store;
-    (void) fl_store;
+    fail_release_bo:
+    gbm_surface_release_buffer(store->gbm_surface, bo);
 
-    /// TODO: Implement 
-    UNIMPLEMENTED();
-    return 0;
+    fail_unlock:
+    surface_unlock(CAST_SURFACE(s));
+    return ok;
 }
 
 /**

@@ -238,6 +238,23 @@ ATTR_MALLOC struct compositor *compositor_new(
     enum present_mode present_mode
 );
 
+ATTR_MALLOC struct compositor *compositor_new_vulkan(
+    struct drmdev *drmdev,
+    struct tracer *tracer,
+    struct vk_renderer *renderer,
+    bool has_rotation,
+    drm_plane_transform_t rotation,
+    bool has_orientation,
+    enum device_orientation orientation,
+    bool has_explicit_dimensions,
+    int width_mm,
+    int height_mm,
+    bool has_forced_pixel_format,
+    enum pixfmt forced_pixel_format,
+    bool use_frame_requests,
+    enum present_mode present_mode
+);
+
 void compositor_destroy(struct compositor *compositor);
 
 DECLARE_REF_OPS(compositor)
@@ -255,6 +272,8 @@ struct surface *compositor_get_view_by_id_locked(struct compositor *compositor, 
 const FlutterCompositor *compositor_get_flutter_compositor(struct compositor *compositor);
 
 int compositor_request_frame(struct compositor *compositor, compositor_frame_begin_cb_t cb, void *userdata);
+
+bool compositor_has_egl_surface(struct compositor *compositor);
 
 EGLSurface compositor_get_egl_surface(struct compositor *compositor);
 

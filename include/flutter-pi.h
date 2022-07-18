@@ -164,6 +164,7 @@ struct plugin_registry;
 struct texture_registry;
 struct drmdev;
 struct locales;
+struct vk_renderer;
 
 struct flutter_paths {
 	char *app_bundle_path;
@@ -281,6 +282,7 @@ struct flutterpi {
 	struct plugin_registry *plugin_registry;
 	struct texture_registry *texture_registry;
 	struct gl_renderer *gl_renderer;
+	struct vk_renderer *vk_renderer;
 };
 
 struct platform_task {

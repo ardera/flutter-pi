@@ -46,6 +46,10 @@ option(TRY_BUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN "Don't throw an error if the gstr
 option(TRY_BUILD_GSTREAMER_AUDIO_PLAYER_PLUGIN "Don't throw an error if the gstreamer libs aren't found, instead just don't build gstreamer audio plugin." ON)
 option(ENABLE_OPENGL "Build with EGL/OpenGL rendering support." ON)
 option(TRY_ENABLE_OPENGL "Don't throw an error if EGL/OpenGL aren't found, instead just build without EGL/OpenGL support in that case." ON)
+option(ENABLE_VULKAN "Build with Vulkan rendering support." OFF)
+option(TRY_ENABLE_VULKAN "Don't throw an error if vulkan isn't found, instead just build without vulkan support in that case." OFF)
+set(VULKAN_DEBUG "AUTO" CACHE STRING "Enable vulkan validation layers and verbose vulkan logging. (ON/OFF/AUTO)")
+set_property(CACHE VULKAN_DEBUG PROPERTY STRINGS ON OFF AUTO)
 option(ENABLE_SOFTWARE "Build with software rendering support." ON)
 option(DUMP_ENGINE_LAYERS "True if flutter-pi should dump the list of rendering layers that the flutter engine sends to flutter-pi on each draw." OFF)
 option(WARN_MISSING_FIELD_INITIALIZERS "True of the compiler should be instructed to warn about missing field initializers. This needs some hacky workarounds in the code so gcc won't report spurious warnings, so this should only be enabled if the warnings are explicitly required." OFF)
@@ -124,6 +128,7 @@ add_executable(flutter-pi
   src/texture_registry.c
   # src/compositor.c
   src/gl_renderer.c
+  src/vk_renderer.c
   src/modesetting.c
   src/collection.c
   src/cursor.c
@@ -137,6 +142,7 @@ add_executable(flutter-pi
   src/surface.c
   src/backing_store.c
   src/gbm_surface_backing_store.c
+  src/vk_gbm_backing_store.c
   src/tracer.c
   src/dmabuf_surface.c
   src/plugins/services.c
@@ -260,6 +266,37 @@ elseif(FILESYSTEM_LAYOUT STREQUAL meta-flutter)
   target_compile_definitions(flutter-pi PRIVATE "FILESYSTEM_LAYOUT_METAFLUTTER")
 endif()
 
+if (ENABLE_VULKAN)
+  if (TRY_ENABLE_VULKAN)
+    pkg_check_modules(VULKAN vulkan)
+  else()
+    pkg_check_modules(VULKAN REQUIRED vulkan)
+  endif()
+
+  if (VULKAN_FOUND)
+    target_compile_definitions(flutter-pi PRIVATE HAS_VULKAN)
+    target_include_directories(flutter-pi PRIVATE ${VULKAN_INCLUDE_DIRS})
+    target_compile_options(flutter-pi PRIVATE ${VULKAN_CFLAGS})
+    target_link_libraries(flutter-pi ${VULKAN_LDFLAGS})
+  else()
+    FetchContent_Declare(
+      VULKAN_HEADERS
+      GIT_REPOSITORY "https://github.com/KhronosGroup/Vulkan-Headers"
+      GIT_TAG "main"
+    )
+    FetchContent_MakeAvailable(VULKAN_HEADERS)
+    target_include_directories(flutter-pi PRIVATE ${VULKAN_HEADERS_SOURCE_DIR}/include/)
+  endif()
+
+  if ( NOT VULKAN_FOUND )
+    if (TRY_ENABLE_VULKAN)
+      message("Vulkan was not found. Flutter-pi will build without vulkan rendering support.")
+    else()
+      message(SEND_ERROR "Vulkan was not found. Try building with `-DTRY_ENABLE_VULKAN=On` if you want to just disable vulkan support in that case.")
+    endif()
+  endif()
+endif()
+
 # TODO: We actually don't need the compile definitions anymore, except for
 # text input and raw keyboard plugin (because those have special treatment
 # in flutter-pi.c)
@@ -373,6 +410,12 @@ endif()
 # Needed so dart VM can actually resolve symbols in the same
 # executable.
 target_link_options(flutter-pi PRIVATE -rdynamic)
+
+if (VULKAN_DEBUG STREQUAL "AUTO")
+  target_compile_definitions(flutter-pi PRIVATE $<$<CONFIG:Debug>:VULKAN_DEBUG>)
+elseif (VULKAN_DEBUG)
+  target_compile_definitions(flutter-pi PRIVATE VULKAN_DEBUG)
+endif()
 
 if (ENABLE_TSAN)
   target_link_options(flutter-pi PRIVATE -fsanitize=thread)

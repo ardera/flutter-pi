@@ -536,6 +536,7 @@ static inline int refcount_get_for_debug(refcount_t *refcount) {
 MAYBE_UNUSED struct obj_name *obj_name ## _ref(struct obj_name *obj); \
 MAYBE_UNUSED void obj_name ## _unref(struct obj_name *obj); \
 MAYBE_UNUSED void obj_name ## _unrefp(struct obj_name **obj); \
+MAYBE_UNUSED void obj_name ## _swap(struct obj_name **objp, struct obj_name *obj);
 
 #define DEFINE_REF_OPS(obj_name, refcount_member_name) \
 MAYBE_UNUSED struct obj_name *obj_name ## _ref(struct obj_name *obj) { \
@@ -550,6 +551,15 @@ MAYBE_UNUSED void obj_name ## _unref(struct obj_name *obj) { \
 MAYBE_UNUSED void obj_name ## _unrefp(struct obj_name **obj) { \
 	obj_name ## _unref(*obj); \
 	*obj = NULL; \
+} \
+MAYBE_UNUSED void obj_name ## _swap_ptrs(struct obj_name **objp, struct obj_name *obj) { \
+	if (obj != NULL) { \
+		obj_name ## _ref(obj); \
+	} \
+	if (*objp != NULL) { \
+		obj_name ## _unrefp(objp); \
+	} \
+	*objp = obj; \
 }
 
 #define DEFINE_STATIC_REF_OPS(obj_name, refcount_member_name) \
@@ -565,6 +575,15 @@ MAYBE_UNUSED static void obj_name ## _unref(struct obj_name *obj) { \
 MAYBE_UNUSED static void obj_name ## _unrefp(struct obj_name **obj) { \
 	obj_name ## _unref(*obj); \
 	*obj = NULL; \
+} \
+MAYBE_UNUSED static void obj_name ## _swap_ptrs(struct obj_name **objp, struct obj_name *obj) { \
+	if (obj != NULL) { \
+		obj_name ## _ref(obj); \
+	} \
+	if (*objp != NULL) { \
+		obj_name ## _unrefp(objp); \
+	} \
+	*objp = obj; \
 }
 
 #define DECLARE_LOCK_OPS(obj_name) \

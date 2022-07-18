@@ -38,7 +38,7 @@ typedef void (*dmabuf_release_cb_t)(struct dmabuf *buf);
 
 struct texture_registry;
 
-ATTR_MALLOC struct dmabuf_surface *dmabuf_surface_new(struct compositor *compositor, struct tracer *tracer, struct texture_registry *texture_registry);
+ATTR_MALLOC struct dmabuf_surface *dmabuf_surface_new(struct tracer *tracer, struct texture_registry *texture_registry);
 
 int dmabuf_surface_push_dmabuf(struct dmabuf_surface *s, const struct dmabuf *buf, dmabuf_release_cb_t release_cb);
 
