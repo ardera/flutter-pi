@@ -94,12 +94,14 @@ OPTIONS:\n\
                              of the app must be located inside the bundle directory.\n\
                              This also requires a libflutter_engine.so that was\n\
                              built with --runtime-mode=release.\n\
-                             \n\
+\n\
   --profile                  Run the app in profile mode. The AOT snapshot\n\
                              of the app must be located inside the bundle directory.\n\
                              This also requires a libflutter_engine.so that was\n\
                              built with --runtime-mode=profile.\n\
-                             \n\
+\n\
+  --vulkan                   Use vulkan for rendering.\n\
+\n\
   -o, --orientation <orientation>  Start the app in this orientation. Valid\n\
                              for <orientation> are: portrait_up, landscape_left,\n\
                              portrait_down, landscape_right.\n\
