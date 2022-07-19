@@ -81,6 +81,9 @@ struct vk_gbm_backing_store {
      * flutter using @ref vk_gbm_backing_store_fill_vulkan. Even when @ref vk_gbm_backing_store_present_kms is called,
      * we don't set this to NULL.
      * 
+     * This is the framebuffer that will be presented on screen when @ref vk_gbm_backing_store_present_kms or
+     * @ref vk_gbm_backing_store_present_fbdev is called.
+     * 
      */
     struct locked_fb *front_fb;
 
@@ -104,6 +107,7 @@ static void locked_fb_destroy(struct locked_fb *fb) {
 
     store = fb->store;
     fb->store = NULL;
+
 #ifdef DEBUG
     atomic_fetch_sub(&store->n_locked_fbs, 1);
 #endif
@@ -137,11 +141,26 @@ static int vk_gbm_backing_store_present_fbdev(struct surface *s, const struct fl
 static int vk_gbm_backing_store_fill(struct backing_store *store, FlutterBackingStore *fl_store);
 static int vk_gbm_backing_store_queue_present(struct backing_store *store, const FlutterBackingStore *fl_store);
 
+static bool is_srgb_format(VkFormat vk_format) {
+    return vk_format == VK_FORMAT_R8G8B8A8_SRGB || vk_format == VK_FORMAT_B8G8R8A8_SRGB;
+}
+
+static VkFormat srgb_to_unorm_format(VkFormat vk_format) {
+    if (vk_format == VK_FORMAT_R8G8B8A8_SRGB) {
+        return VK_FORMAT_R8G8B8A8_UNORM; 
+    } else if (vk_format == VK_FORMAT_B8G8R8A8_SRGB) {
+        return VK_FORMAT_B8G8R8A8_UNORM;
+    } else {
+        UNREACHABLE();
+    }
+}
+
 static int fb_init(struct fb *fb, struct gbm_device *gbm_device, struct vk_renderer *renderer, int width, int height, enum pixfmt pixel_format, uint64_t drm_modifier) {
     PFN_vkGetMemoryFdPropertiesKHR get_memory_fd_props;
     VkSubresourceLayout layout;
     VkDeviceMemory img_device_memory;
     struct gbm_bo *bo;
+    VkFormat vk_format;
     VkDevice device;
     VkResult ok;
     VkImage vkimg;
@@ -151,19 +170,34 @@ static int fb_init(struct fb *fb, struct gbm_device *gbm_device, struct vk_rende
 
     device = vk_renderer_get_device(renderer);
 
+    /// FIXME: Right now, using any _SRGB format (for example VK_FORMAT_B8G8R8A8_SRGB) will not work because
+    /// that'll break some assertions inside flutter / skia. (VK_FORMAT_B8G8R8A8_SRGB maps to GrColorType::kRGBA_8888_SRGB,
+    /// but some other part of flutter will use GrColorType::kRGBA_8888 so you'll get a mismatch at some point)
+    /// We're just converting the _SRGB to a _UNORM here, but I'm not really sure that's guaranteed to work.
+    /// (_UNORM can mean anything basically)
+
+    vk_format = get_pixfmt_info(pixel_format)->vk_format;
+    if (is_srgb_format(vk_format)) {
+        vk_format = srgb_to_unorm_format(vk_format);
+    }
+
     ok = vkCreateImage(
         device,
         &(VkImageCreateInfo){
             .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
             .flags = 0,
             .imageType = VK_IMAGE_TYPE_2D,
-            .format = get_pixfmt_info(pixel_format)->vk_format,
+            .format = vk_format,
             .extent = { .width = width, .height = height, .depth = 1 },
             .mipLevels = 1,
             .arrayLayers = 1,
             .samples = VK_SAMPLE_COUNT_1_BIT,
+            // Tell vulkan that the tiling we want to use is determined by a DRM format modifier
+            // (in our case DRM_FORMAT_MOD_LINEAR, but could be something else as well, using a device-supported
+            // modifier is probably faster if that's possible)
             .tiling = VK_IMAGE_TILING_DRM_FORMAT_MODIFIER_EXT,
-            .usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+            // These are the usage flags flutter will use too internally
+            .usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
             .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
             .queueFamilyIndexCount = 0,
             .pQueueFamilyIndices = 0,
@@ -180,6 +214,7 @@ static int fb_init(struct fb *fb, struct gbm_device *gbm_device, struct vk_rende
                             .pPlaneLayouts =
                                 (VkSubresourceLayout[1]){
                                     {
+                                        /// These are just dummy values, but they need to be there AFAIK
                                         .offset = 0,
                                         .size = 0,
                                         .rowPitch = 0,
@@ -198,6 +233,8 @@ static int fb_init(struct fb *fb, struct gbm_device *gbm_device, struct vk_rende
         return EIO;
     }
 
+    // We _should_ only have one plane in the linear case.
+    // Query the layout of that plane to check if it matches the GBM BOs layout.
     vkGetImageSubresourceLayout(
         device,
         vkimg,
@@ -208,7 +245,8 @@ static int fb_init(struct fb *fb, struct gbm_device *gbm_device, struct vk_rende
         },
         &layout
     );
-
+    
+    // Create a GBM BO with the actual memory we're going to use
     bo = gbm_bo_create_with_modifiers(
         gbm_device,
         width,
@@ -222,6 +260,7 @@ static int fb_init(struct fb *fb, struct gbm_device *gbm_device, struct vk_rende
         goto fail_destroy_image;
     }
 
+    // Just some paranoid checks that the layout matches (had some issues with that initially)
     if (gbm_bo_get_offset(bo, 0) != layout.offset) {
         LOG_ERROR("GBM BO layout doesn't match image layout. This is probably a driver / kernel bug.\n");
         goto fail_destroy_bo;
@@ -232,6 +271,8 @@ static int fb_init(struct fb *fb, struct gbm_device *gbm_device, struct vk_rende
         goto fail_destroy_bo;
     }
 
+    // gbm_bo_get_fd will dup us a new dmabuf fd.
+    // So if we don't use it, we need to close it.
     fd = gbm_bo_get_fd(bo);
     if (fd < 0) {
         LOG_ERROR("Couldn't get dmabuf fd for GBM buffer. gbm_bo_get_fd: %s\n", strerror(errno));
@@ -248,7 +289,7 @@ static int fb_init(struct fb *fb, struct gbm_device *gbm_device, struct vk_rende
     get_memory_fd_props = (PFN_vkGetMemoryFdPropertiesKHR) vkGetDeviceProcAddr(device, "vkGetMemoryFdPropertiesKHR");
     if (get_memory_fd_props == NULL) {
         LOG_ERROR("Couldn't resolve vkGetMemoryFdPropertiesKHR.\n");
-        goto fail_destroy_bo;
+        goto fail_close_fd;
     }
 
     ok = get_memory_fd_props(
@@ -259,7 +300,7 @@ static int fb_init(struct fb *fb, struct gbm_device *gbm_device, struct vk_rende
     );
     if (ok != VK_SUCCESS) {
         LOG_VK_ERROR(ok, "Couldn't get dmabuf memory properties. vkGetMemoryFdPropertiesKHR");
-        goto fail_destroy_bo;
+        goto fail_close_fd;
     }
 
     // Find out the memory requirements for our image (the supported memory types for import)
@@ -287,10 +328,12 @@ static int fb_init(struct fb *fb, struct gbm_device *gbm_device, struct vk_rende
     );
     if (mem < 0) {
         LOG_ERROR("Couldn't find a memory type that's both supported by the image and the dmabuffer.\n");
-        goto fail_destroy_bo;
+        goto fail_close_fd;
     }
 
     // now, create a VkDeviceMemory instance from our dmabuf.
+    // after successful import, the fd is owned by the device memory object
+    // and we don't need to close it.
     ok = vkAllocateMemory(
         device,
         &(VkMemoryAllocateInfo) {
@@ -314,7 +357,7 @@ static int fb_init(struct fb *fb, struct gbm_device *gbm_device, struct vk_rende
     );
     if (ok != VK_SUCCESS) {
         LOG_VK_ERROR(ok, "Couldn't import dmabuf as vulkan device memory. vkAllocateMemory");
-        goto fail_destroy_bo;
+        goto fail_close_fd;
     }
 
     ok = vkBindImageMemory2(
@@ -341,7 +384,7 @@ static int fb_init(struct fb *fb, struct gbm_device *gbm_device, struct vk_rende
     fb->fl_image = (FlutterVulkanImage) {
         .struct_size = sizeof(FlutterVulkanImage),
         .image = fb->image,
-        .format = get_pixfmt_info(pixel_format)->vk_format,
+        .format = vk_format,
     };
 
     return 0;
@@ -349,6 +392,10 @@ static int fb_init(struct fb *fb, struct gbm_device *gbm_device, struct vk_rende
     
     fail_free_device_memory:
     vkFreeMemory(device, img_device_memory, NULL);
+    goto fail_destroy_bo;
+
+    fail_close_fd:
+    close(fd);
 
     fail_destroy_bo:
     gbm_bo_destroy(bo);
@@ -641,8 +688,6 @@ static int vk_gbm_backing_store_present_kms(struct surface *s, const struct fl_l
         pixel_format = store->pixel_format;
     }
 
-    LOG_DEBUG("presenting fb %d\n", store->front_fb - store->locked_fbs);
-
     TRACER_BEGIN(store->surface.tracer, "kms_req_builder_push_fb_layer");
     ok = kms_req_builder_push_fb_layer(
         builder,
@@ -736,9 +781,7 @@ static int vk_gbm_backing_store_fill(struct backing_store *s, FlutterBackingStor
     locked: ;
     /// TODO: Remove this once we're using triple buffering
 #ifdef DEBUG
-    int before = atomic_fetch_add(&store->n_locked_fbs, 1);
-    LOG_DEBUG("filling with fb %d\n", i);
-    LOG_DEBUG("locked fbs: before: %d, now: %d\n", before, before+1);
+    atomic_fetch_add(&store->n_locked_fbs, 1);
     //DEBUG_ASSERT_MSG(before + 1 <= 3, "sanity check failed: too many locked fbs for double-buffered vsync");
 #endif
     store->locked_fbs[i].store = CAST_VK_GBM_BACKING_STORE(surface_ref(CAST_SURFACE_UNCHECKED(s)));
@@ -779,7 +822,6 @@ static int vk_gbm_backing_store_queue_present(struct backing_store *s, const Flu
     for (int i = 0; i < ARRAY_SIZE(store->locked_fbs); i++) {
         if (store->locked_fbs[i].fb->fl_image.image == fl_store->vulkan.image->image) {
             fb = store->locked_fbs + i;
-            LOG_DEBUG("queueing present fb %d\n", i);
             break;
         }
     }
@@ -790,7 +832,12 @@ static int vk_gbm_backing_store_queue_present(struct backing_store *s, const Flu
         return EINVAL;
     }
 
+    // Replace the front fb with the new one
+    // (will unref the old one if not NULL internally)
     locked_fb_swap_ptrs(&store->front_fb, fb);
+
+    // Since flutter no longer uses this fb for rendering, we need to unref it
+    locked_fb_unref(fb);
 
     surface_unlock(CAST_SURFACE_UNCHECKED(s));
     return 0;
