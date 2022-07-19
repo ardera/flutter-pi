@@ -467,7 +467,7 @@ static const char *__attribute__((unused)) __file_logging_name = _logging_name;
 #endif
 
 #if defined(__GNUC__) || __has_builtin(__builtin_unreachable)
-#define UNREACHABLE() __builtin_unreachable
+#define UNREACHABLE() __builtin_unreachable()
 #else
 #define UNREACHABLE() assert(0 && "Unreachable")
 #endif

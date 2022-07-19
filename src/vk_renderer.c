@@ -17,7 +17,7 @@
 
 FILE_DESCR("vulkan renderer")
 
-static VkLayerProperties *get_layer_props(int n_layers, VkLayerProperties *layers, const char *layer_name) {
+MAYBE_UNUSED static VkLayerProperties *get_layer_props(int n_layers, VkLayerProperties *layers, const char *layer_name) {
     for (int i = 0; i < n_layers; i++) {
         if (strcmp(layers[i].layerName, layer_name) == 0) {
             return layers + i;
@@ -26,7 +26,7 @@ static VkLayerProperties *get_layer_props(int n_layers, VkLayerProperties *layer
     return NULL;
 }
 
-static bool supports_layer(int n_layers, VkLayerProperties *layers, const char *layer_name) {
+MAYBE_UNUSED static bool supports_layer(int n_layers, VkLayerProperties *layers, const char *layer_name) {
     return get_layer_props(n_layers, layers, layer_name) != NULL;
 }
 
@@ -39,7 +39,7 @@ static VkExtensionProperties *get_extension_props(int n_extensions, VkExtensionP
     return NULL;
 }
 
-static bool supports_extension(int n_extensions, VkExtensionProperties *extensions, const char *extension_name) {
+MAYBE_UNUSED static bool supports_extension(int n_extensions, VkExtensionProperties *extensions, const char *extension_name) {
     return get_extension_props(n_extensions, extensions, extension_name) != NULL;
 }
 
