@@ -1857,7 +1857,7 @@ static int init_application(void) {
     if (libflutter_engine_handle == NULL) {
         libflutter_engine_handle = dlopen("libflutter_engine.so", RTLD_LOCAL | RTLD_NOW);
         if (libflutter_engine_handle == NULL) {
-            LOG_ERROR("Could not load libflutter_engine.so dlerror: %s \n", dlerror());
+            LOG_ERROR("Could not load libflutter_engine.so. dlopen: %s\n", dlerror());
             LOG_ERROR("Could not find a fitting libflutter_engine.so , make sure you installed the engine binaries.\n");
             return EINVAL;
         }
