@@ -1841,7 +1841,7 @@ static int init_application(void) {
     if (flutterpi.flutter.runtime_mode == kRelease) {
         libflutter_engine_handle = dlopen("libflutter_engine.so.release", RTLD_LOCAL | RTLD_NOW);
         if (libflutter_engine_handle == NULL) {
-            LOG_ERROR("Warning: Could not load libflutter_engine.so.release: Trying to open libflutter_engine.so.profile \n");
+            LOG_ERROR("Warning: Could not load libflutter_engine.so.release. dlopen: %s. Trying to open libflutter_engine.so...\n", dlerror());
         }
     } else if (flutterpi.flutter.runtime_mode == kProfile) {
         libflutter_engine_handle = dlopen("libflutter_engine.so.profile", RTLD_LOCAL | RTLD_NOW);
