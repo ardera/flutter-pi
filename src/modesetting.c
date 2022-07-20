@@ -29,6 +29,7 @@ struct kms_req_layer {
     drm_plane_transform_t rotation;
 
     kms_fb_release_cb_t release_callback;
+    kms_deferred_fb_release_cb_t deferred_release_callback;
     void *release_callback_userdata;
 };
 
@@ -1432,20 +1433,17 @@ drmModeModeInfo *__next_mode(const struct drm_connector *connector, const drmMod
 }
 
 static bool plane_qualifies(
+    // clang-format off
     struct drm_plane *plane,
     bool allow_primary,
     bool allow_overlay,
     bool allow_cursor,
     enum pixfmt format,
-    bool has_modifier,
-    uint64_t modifier,
-    bool has_zpos,
-    int64_t zpos_lower_limit,
-    int64_t zpos_upper_limit,
-    bool has_rotation,
-    drm_plane_transform_t rotation,
-    bool has_id_range,
-    uint32_t id_lower_limit
+    bool has_modifier, uint64_t modifier,
+    bool has_zpos, int64_t zpos_lower_limit, int64_t zpos_upper_limit,
+    bool has_rotation, drm_plane_transform_t rotation,
+    bool has_id_range, uint32_t id_lower_limit
+    // clang-format on
 ) {
     if (plane->type == kPrimary_DrmPlaneType) {
         if (!allow_primary) {
@@ -1515,20 +1513,17 @@ found:
 }
 
 static struct drm_plane *allocate_plane(
+    // clang-format off
     struct kms_req_builder *builder,
     bool allow_primary,
     bool allow_overlay,
     bool allow_cursor,
     enum pixfmt format,
-    bool has_modifier,
-    uint64_t modifier,
-    bool has_zpos,
-    int64_t zpos_lower_limit,
-    int64_t zpos_upper_limit,
-    bool has_rotation,
-    drm_plane_transform_t rotation,
-    bool has_id_range,
-    uint32_t id_lower_limit
+    bool has_modifier, uint64_t modifier,
+    bool has_zpos, int64_t zpos_lower_limit, int64_t zpos_upper_limit,
+    bool has_rotation, drm_plane_transform_t rotation,
+    bool has_id_range, uint32_t id_lower_limit
+    // clang-format on
 ) {
     for (int i = 0; i < BMAP_SIZE(builder->planes); i++) {
         struct drm_plane *plane = builder->drmdev->planes + i;
@@ -1710,6 +1705,7 @@ int kms_req_builder_push_fb_layer(
     struct kms_req_builder *builder,
     const struct kms_fb_layer *layer,
     kms_fb_release_cb_t release_callback,
+    kms_deferred_fb_release_cb_t deferred_release_callback,
     void *userdata
 ) {
     struct drm_plane *plane;
@@ -1720,6 +1716,7 @@ int kms_req_builder_push_fb_layer(
     DEBUG_ASSERT_NOT_NULL(builder);
     DEBUG_ASSERT_NOT_NULL(layer);
     DEBUG_ASSERT_NOT_NULL(release_callback);
+    DEBUG_ASSERT_EQUALS_MSG(deferred_release_callback, NULL, "deferred release callbacks are not supported right now.");
 
     if (builder->use_legacy && builder->supports_atomic && builder->n_layers > 1) {
         // if we already have a first layer and we should use legacy modesetting even though the kernel driver
@@ -1905,6 +1902,7 @@ int kms_req_builder_push_fb_layer(
     builder->layers[index].set_rotation = layer->has_rotation;
     builder->layers[index].rotation = layer->rotation;
     builder->layers[index].release_callback = release_callback;
+    builder->layers[index].deferred_release_callback = deferred_release_callback;
     builder->layers[index].release_callback_userdata = userdata;
     return 0;
 
