@@ -1825,8 +1825,7 @@ static int init_application(void) {
 
     libflutter_engine_handle = dlopen(libflutter_engine_path, RTLD_LOCAL | RTLD_NOW);
 
-    if (libflutter_engine_handle == NULL)
-    {   
+    if (libflutter_engine_handle == NULL) {   
         LOG_ERROR("Warning: Could not load libflutter_engine.so from the asset bundle: Trying to open libflutter_engine.so.%s\n", flutterpi.flutter.runtime_mode == kDebug ? "debug" :
             flutterpi.flutter.runtime_mode == kProfile ? "profile" :
             "release");
