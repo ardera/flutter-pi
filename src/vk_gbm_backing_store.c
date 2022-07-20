@@ -714,6 +714,7 @@ static int vk_gbm_backing_store_present_kms(struct surface *s, const struct fl_l
             .in_fence_fd = 0
         },
         on_release_layer,
+        NULL,
         locked_fb_ref(store->front_fb)
     );
     TRACER_END(store->surface.tracer, "kms_req_builder_push_fb_layer");
@@ -753,7 +754,6 @@ static int vk_gbm_backing_store_present_fbdev(struct surface *s, const struct fl
 
     return 0;
 }
-
 
 static int vk_gbm_backing_store_fill(struct backing_store *s, FlutterBackingStore *fl_store) {
     struct vk_gbm_backing_store *store;
@@ -842,4 +842,3 @@ static int vk_gbm_backing_store_queue_present(struct backing_store *s, const Flu
     surface_unlock(CAST_SURFACE_UNCHECKED(s));
     return 0;
 }
-

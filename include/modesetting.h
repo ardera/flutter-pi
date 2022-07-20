@@ -518,6 +518,8 @@ struct kms_fb_layer {
 
 typedef void (*kms_fb_release_cb_t)(void *userdata);
 
+typedef void (*kms_deferred_fb_release_cb_t)(void *userdata, int syncfile_fd);
+
 struct kms_req_builder;
 
 struct kms_req_builder *drmdev_create_request_builder(struct drmdev *drmdev, uint32_t crtc_id);
@@ -540,6 +542,7 @@ int kms_req_builder_push_fb_layer(
     struct kms_req_builder *builder,
     const struct kms_fb_layer *layer,
     kms_fb_release_cb_t release_callback,
+    kms_deferred_fb_release_cb_t deferred_release_callback,
     void *userdata
 );
 

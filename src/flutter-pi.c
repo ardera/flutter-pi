@@ -193,8 +193,7 @@ static bool on_make_current(void* userdata) {
     DEBUG_ASSERT_NOT_NULL(flutterpi->gl_renderer);
 
     /// TODO: Test if this works
-    
-    if (compositor_has_egl_surface(flutterpi->compositor) || true) {
+    if (compositor_has_egl_surface(flutterpi->compositor)) {
         surface = compositor_get_egl_surface(flutterpi->compositor);
         if (surface == EGL_NO_SURFACE) {
             /// TODO: Should we allow this?

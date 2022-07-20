@@ -1414,21 +1414,18 @@ static bool on_flutter_create_backing_store(
 static bool on_flutter_collect_backing_store(const FlutterBackingStore *fl_store, void *userdata);
 
 ATTR_MALLOC struct compositor *compositor_new(
+    // clang-format off
     struct drmdev *drmdev,
     struct tracer *tracer,
     struct gl_renderer *renderer,
-    bool has_rotation,
-    drm_plane_transform_t rotation,
-    bool has_orientation,
-    enum device_orientation orientation,
-    bool has_explicit_dimensions,
-    int width_mm,
-    int height_mm,
+    bool has_rotation, drm_plane_transform_t rotation,
+    bool has_orientation, enum device_orientation orientation,
+    bool has_explicit_dimensions, int width_mm, int height_mm,
     EGLConfig egl_config,
-    bool has_forced_pixel_format,
-    enum pixfmt forced_pixel_format,
+    bool has_forced_pixel_format, enum pixfmt forced_pixel_format,
     bool use_frame_requests,
     enum present_mode present_mode
+    // clang-format on
 ) {
     struct compositor *compositor;
     int ok;
@@ -1507,20 +1504,17 @@ fail_return_null:
 }
 
 ATTR_MALLOC struct compositor *compositor_new_vulkan(
+    // clang-format off
     struct drmdev *drmdev,
     struct tracer *tracer,
     struct vk_renderer *renderer,
-    bool has_rotation,
-    drm_plane_transform_t rotation,
-    bool has_orientation,
-    enum device_orientation orientation,
-    bool has_explicit_dimensions,
-    int width_mm,
-    int height_mm,
-    bool has_forced_pixel_format,
-    enum pixfmt forced_pixel_format,
+    bool has_rotation, drm_plane_transform_t rotation,
+    bool has_orientation, enum device_orientation orientation,
+    bool has_explicit_dimensions, int width_mm, int height_mm,
+    bool has_forced_pixel_format, enum pixfmt forced_pixel_format,
     bool use_frame_requests,
     enum present_mode present_mode
+    // clang-format on
 ) {
     struct compositor *compositor;
     int ok;
