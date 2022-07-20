@@ -1827,20 +1827,9 @@ static int init_application(void) {
 
     if (libflutter_engine_handle == NULL)
     {   
-
-        
-        printf("[flutter-pi] Warning: Could not load libflutter_engine.so inside the asset bundle : Trying to open libflutter_engine.so.");
-        printf(
-            flutterpi.flutter.runtime_mode == kDebug ? "debug" :
+        LOG_ERROR("Warning: Could not load libflutter_engine.so inside the asset bundle : Trying to open libflutter_engine.so.%s \n",flutterpi.flutter.runtime_mode == kDebug ? "debug" :
             flutterpi.flutter.runtime_mode == kProfile ? "profile" :
-            "release"
-        );
-        printf("\n");
-        fprintf(
-            stderr,
-            dlerror()
-        );
-        printf("\n");
+            "release");
     }
 
     free(libflutter_engine_path);
@@ -1850,20 +1839,17 @@ static int init_application(void) {
     if (flutterpi.flutter.runtime_mode == kRelease) {
         libflutter_engine_handle = dlopen("libflutter_engine.so.release", RTLD_LOCAL | RTLD_NOW);
         if (libflutter_engine_handle == NULL) {
-            LOG_ERROR("Warning: Could not load libflutter_engine.so.release: %s. Trying to open libflutter_engine.so.debug", dlerror());
-            printf("\n");
+            LOG_ERROR("Warning: Could not load libflutter_engine.so.release: Trying to open libflutter_engine.so.profile \n");
         }
     } else if (flutterpi.flutter.runtime_mode == kProfile) {
         libflutter_engine_handle = dlopen("libflutter_engine.so.profile", RTLD_LOCAL | RTLD_NOW);
         if (libflutter_engine_handle == NULL) {
-            LOG_ERROR("Warning: Could not load libflutter_engine.so.profile: %s Trying to open libflutter_engine.so.debug", dlerror());
-            printf("\n");
+            LOG_ERROR("Warning: Could not load libflutter_engine.so.profile: Trying to open libflutter_engine.so.debug \n");
         }
     } else if (flutterpi.flutter.runtime_mode == kDebug) {
         libflutter_engine_handle = dlopen("libflutter_engine.so.debug", RTLD_LOCAL | RTLD_NOW);
         if (libflutter_engine_handle == NULL) {
-            LOG_ERROR("Warning: Could not load libflutter_engine.so.debug: %s Trying to open libflutter_engine.so ", dlerror());
-            printf("\n");
+            LOG_ERROR("Warning: Could not load libflutter_engine.so.debug: Trying to open libflutter_engine.so \n");
         }
     }
     }
@@ -1871,9 +1857,8 @@ static int init_application(void) {
     if (libflutter_engine_handle == NULL) {
         libflutter_engine_handle = dlopen("libflutter_engine.so", RTLD_LOCAL | RTLD_NOW);
         if (libflutter_engine_handle == NULL) {
-            LOG_ERROR("Could not load libflutter_engine.so dlopen: %s", dlerror());
-            printf("\n");
-            LOG_ERROR("Could not find a fitting libflutter_engine.\n");
+            LOG_ERROR("Could not load libflutter_engine.so dlerror: %s \n", dlerror());
+            LOG_ERROR("Could not find a fitting libflutter_engine.so , make sure you installed the engine binaries.\n");
             return EINVAL;
         }
     }
