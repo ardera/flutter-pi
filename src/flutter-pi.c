@@ -1834,8 +1834,7 @@ static int init_application(void) {
 
     free(libflutter_engine_path);
 
-    if (libflutter_engine_handle == NULL)
-    {
+    if (libflutter_engine_handle == NULL) {
     if (flutterpi.flutter.runtime_mode == kRelease) {
         libflutter_engine_handle = dlopen("libflutter_engine.so.release", RTLD_LOCAL | RTLD_NOW);
         if (libflutter_engine_handle == NULL) {
