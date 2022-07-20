@@ -2010,7 +2010,7 @@ static int init_application(void) {
         return EINVAL;
     }
 
-    if (flutterpi.flutter.runtime_mode == kRelease) {
+    if (flutterpi.flutter.runtime_mode != kDebug) {
         aot_source = (FlutterEngineAOTDataSource) {
             .elf_path = flutterpi.flutter.app_elf_path,
             .type = kFlutterEngineAOTDataSourceTypeElfPath
