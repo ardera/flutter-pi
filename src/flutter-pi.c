@@ -1844,7 +1844,7 @@ static int init_application(void) {
     } else if (flutterpi.flutter.runtime_mode == kProfile) {
         libflutter_engine_handle = dlopen("libflutter_engine.so.profile", RTLD_LOCAL | RTLD_NOW);
         if (libflutter_engine_handle == NULL) {
-            LOG_ERROR("Warning: Could not load libflutter_engine.so.profile: Trying to open libflutter_engine.so.debug \n");
+            LOG_ERROR("Warning: Could not load libflutter_engine.so.profile. dlopen: %s. Trying to open libflutter_engine.so...\n", dlerror());
         }
     } else if (flutterpi.flutter.runtime_mode == kDebug) {
         libflutter_engine_handle = dlopen("libflutter_engine.so.debug", RTLD_LOCAL | RTLD_NOW);
