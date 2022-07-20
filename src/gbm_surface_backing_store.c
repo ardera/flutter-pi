@@ -496,6 +496,7 @@ static int gbm_surface_backing_store_present_kms(struct surface *s, const struct
             .in_fence_fd = 0
         },
         on_release_layer,
+        NULL,
         locked_fb_ref(store->locked_front_fb)
     );
     TRACER_END(store->surface.tracer, "kms_req_builder_push_fb_layer");
