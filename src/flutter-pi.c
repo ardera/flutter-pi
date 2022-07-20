@@ -1992,7 +1992,7 @@ static int init_application(void) {
     };
 
     bool engine_is_aot = libflutter_engine->FlutterEngineRunsAOTCompiledDartCode();
-    if ((engine_is_aot == true) && ((flutterpi.flutter.runtime_mode != kRelease)||(flutterpi.flutter.runtime_mode != kProfile))) {
+    if ((engine_is_aot == true) && (flutterpi.flutter.runtime_mode == kDebug)) {
         LOG_ERROR(
             "The flutter engine was built for release or profile (AOT) mode, but flutter-pi was not started up in release or profile mode.\n"
             "Either you swap out the libflutter_engine.so with one that was built for debug mode, or you start"
