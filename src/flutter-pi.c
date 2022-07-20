@@ -1991,7 +1991,7 @@ static int init_application(void) {
         .dart_entrypoint_argv = NULL,
         .log_message_callback = NULL,
         .log_tag = NULL
-    }
+    };
 
     bool engine_is_aot = libflutter_engine->FlutterEngineRunsAOTCompiledDartCode();
     if ((engine_is_aot == true) && (flutterpi.flutter.runtime_mode == kDebug)) {
