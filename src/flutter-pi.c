@@ -80,7 +80,7 @@ OPTIONS:\n\
                              asset bundle directory.\n\
                              This also requires a libflutter_engine.so that was\n\
                              built with --runtime-mode=profile.\n\
-							 \n\
+                             \n\
   -o, --orientation <orientation>  Start the app in this orientation. Valid\n\
                              for <orientation> are: portrait_up, landscape_left,\n\
                              portrait_down, landscape_right.\n\
