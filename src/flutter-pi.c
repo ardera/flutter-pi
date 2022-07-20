@@ -2304,7 +2304,7 @@ static bool setup_paths(void) {
             LOG_ERROR("Could not find \"kernel.blob\" file inside \"%s\", which is required for debug mode.\n", flutterpi.flutter.asset_bundle_path);
             return false;
         }
-    } else if ((flutterpi.flutter.runtime_mode == kRelease)||(flutterpi.flutter.runtime_mode == kProfile)) {
+    } else if ((flutterpi.flutter.runtime_mode == kRelease) || (flutterpi.flutter.runtime_mode == kProfile)) {
         if (!PATH_EXISTS(app_elf_path)) {
             LOG_ERROR("Could not find \"app.so\" file inside \"%s\", which is required for release and profile mode.\n", flutterpi.flutter.asset_bundle_path);
             return false;
