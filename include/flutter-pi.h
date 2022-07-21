@@ -215,7 +215,7 @@ struct frame {
 struct compositor;
 
 enum flutter_runtime_mode {
-	kDebug, kRelease
+	kDebug, kProfile, kRelease
 };
 
 struct plugin_registry;

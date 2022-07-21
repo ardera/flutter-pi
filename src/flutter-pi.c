@@ -74,7 +74,13 @@ OPTIONS:\n\
                              asset bundle directory.\n\
                              This also requires a libflutter_engine.so that was\n\
                              built with --runtime-mode=release.\n\
-\n\
+                             \n\
+  --profile                  Run the app in profile mode. The AOT snapshot\n\
+                             of the app (\"app.so\") must be located inside the\n\
+                             asset bundle directory.\n\
+                             This also requires a libflutter_engine.so that was\n\
+                             built with --runtime-mode=profile.\n\
+                             \n\
   -o, --orientation <orientation>  Start the app in this orientation. Valid\n\
                              for <orientation> are: portrait_up, landscape_left,\n\
                              portrait_down, landscape_right.\n\
@@ -1810,26 +1816,51 @@ static int init_application(void) {
     FlutterEngineResult engine_result;
     FlutterProjectArgs project_args = {0};
     void *libflutter_engine_handle;
+    char *libflutter_engine_path;
     int ok;
 
+    asprintf(&libflutter_engine_path, "%s/libflutter_engine.so", flutterpi.flutter.asset_bundle_path);
+
     libflutter_engine_handle = NULL;
-    if (flutterpi.flutter.runtime_mode == kRelease) {
-        libflutter_engine_handle = dlopen("libflutter_engine.so.release", RTLD_LOCAL | RTLD_NOW);
-        if (libflutter_engine_handle == NULL) {
-            LOG_ERROR("[flutter-pi] Warning: Could not load libflutter_engine.so.release: %s. Trying to open libflutter_engine.so...\n", dlerror());
-        }
-    } else if (flutterpi.flutter.runtime_mode == kDebug) {
-        libflutter_engine_handle = dlopen("libflutter_engine.so.debug", RTLD_LOCAL | RTLD_NOW);
-        if (libflutter_engine_handle == NULL) {
-            LOG_ERROR("[flutter-pi] Warning: Could not load libflutter_engine.so.debug: %s. Trying to open libflutter_engine.so...\n", dlerror());
+
+    libflutter_engine_handle = dlopen(libflutter_engine_path, RTLD_LOCAL | RTLD_NOW);
+
+    if (libflutter_engine_handle == NULL) {   
+        LOG_ERROR(
+            "Warning: Could not load libflutter_engine.so from the asset bundle. dlopen: %s. Trying to open libflutter_engine.so.%s...\n",
+            dlerror(),
+            flutterpi.flutter.runtime_mode == kDebug ? "debug" :
+            flutterpi.flutter.runtime_mode == kProfile ? "profile" :
+            "release"
+        );
+    }
+
+    free(libflutter_engine_path);
+
+    if (libflutter_engine_handle == NULL) {
+        if (flutterpi.flutter.runtime_mode == kRelease) {
+            libflutter_engine_handle = dlopen("libflutter_engine.so.release", RTLD_LOCAL | RTLD_NOW);
+            if (libflutter_engine_handle == NULL) {
+                LOG_ERROR("Warning: Could not load libflutter_engine.so.release. dlopen: %s. Trying to open libflutter_engine.so...\n", dlerror());
+            }
+        } else if (flutterpi.flutter.runtime_mode == kProfile) {
+            libflutter_engine_handle = dlopen("libflutter_engine.so.profile", RTLD_LOCAL | RTLD_NOW);
+            if (libflutter_engine_handle == NULL) {
+                LOG_ERROR("Warning: Could not load libflutter_engine.so.profile. dlopen: %s. Trying to open libflutter_engine.so...\n", dlerror());
+            }
+        } else if (flutterpi.flutter.runtime_mode == kDebug) {
+            libflutter_engine_handle = dlopen("libflutter_engine.so.debug", RTLD_LOCAL | RTLD_NOW);
+            if (libflutter_engine_handle == NULL) {
+                LOG_ERROR("Warning: Could not load libflutter_engine.so.debug. dlopen: %s. Trying to open libflutter_engine.so...\n", dlerror());
+            }
         }
     }
 
     if (libflutter_engine_handle == NULL) {
         libflutter_engine_handle = dlopen("libflutter_engine.so", RTLD_LOCAL | RTLD_NOW);
         if (libflutter_engine_handle == NULL) {
-            LOG_ERROR("Could not load libflutter_engine.so. dlopen: %s", dlerror());
-            LOG_ERROR("Could not find a fitting libflutter_engine.\n");
+            LOG_ERROR("Could not load libflutter_engine.so. dlopen: %s\n", dlerror());
+            LOG_ERROR("Could not find a fitting libflutter_engine.so, make sure you've installed the engine binaries.\n");
             return EINVAL;
         }
     }
@@ -1963,11 +1994,11 @@ static int init_application(void) {
     };
 
     bool engine_is_aot = libflutter_engine->FlutterEngineRunsAOTCompiledDartCode();
-    if ((engine_is_aot == true) && (flutterpi.flutter.runtime_mode != kRelease)) {
+    if ((engine_is_aot == true) && (flutterpi.flutter.runtime_mode == kDebug)) {
         LOG_ERROR(
-            "The flutter engine was built for release (AOT) mode, but flutter-pi was not started up in release mode.\n"
+            "The flutter engine was built for release or profile (AOT) mode, but flutter-pi was not started up in release or profile mode.\n"
             "Either you swap out the libflutter_engine.so with one that was built for debug mode, or you start"
-            "flutter-pi with the --release flag and make sure a valid \"app.so\" is located inside the asset bundle directory.\n"
+            "flutter-pi with the --release or --profile flag and make sure a valid \"app.so\" is located inside the asset bundle directory.\n"
         );
         return EINVAL;
     } else if ((engine_is_aot == false) && (flutterpi.flutter.runtime_mode != kDebug)) {
@@ -1979,7 +2010,7 @@ static int init_application(void) {
         return EINVAL;
     }
 
-    if (flutterpi.flutter.runtime_mode == kRelease) {
+    if (flutterpi.flutter.runtime_mode != kDebug) {
         aot_source = (FlutterEngineAOTDataSource) {
             .elf_path = flutterpi.flutter.app_elf_path,
             .type = kFlutterEngineAOTDataSourceTypeElfPath
@@ -2275,7 +2306,7 @@ static bool setup_paths(void) {
             LOG_ERROR("Could not find \"kernel.blob\" file inside \"%s\", which is required for debug mode.\n", flutterpi.flutter.asset_bundle_path);
             return false;
         }
-    } else if (flutterpi.flutter.runtime_mode == kRelease) {
+    } else if ((flutterpi.flutter.runtime_mode == kRelease) || (flutterpi.flutter.runtime_mode == kProfile)) {
         if (!PATH_EXISTS(app_elf_path)) {
             LOG_ERROR("Could not find \"app.so\" file inside \"%s\", which is required for release and profile mode.\n", flutterpi.flutter.asset_bundle_path);
             return false;
@@ -2305,6 +2336,7 @@ static bool parse_cmd_args(int argc, char **argv) {
 
     struct option long_options[] = {
         {"release", no_argument, &runtime_mode_int, kRelease},
+        {"profile", no_argument, &runtime_mode_int, kProfile},
         {"input", required_argument, NULL, 'i'},
         {"orientation", required_argument, NULL, 'o'},
         {"rotation", required_argument, NULL, 'r'},
