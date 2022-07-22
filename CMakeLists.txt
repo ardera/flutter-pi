@@ -145,8 +145,6 @@ add_executable(flutter-pi
 target_link_libraries(flutter-pi
   ${DRM_LDFLAGS}
   ${GBM_LDFLAGS}
-  ${EGL_LDFLAGS}
-  ${GLESV2_LDFLAGS}
   ${LIBSYSTEMD_LDFLAGS}
   ${LIBINPUT_LDFLAGS}
   ${LIBUDEV_LDFLAGS}
@@ -201,6 +199,7 @@ if (ENABLE_OPENGL)
     target_compile_definitions(flutter-pi PRIVATE HAS_EGL)
     target_include_directories(flutter-pi PRIVATE ${EGL_INCLUDE_DIRS})
     target_compile_options(flutter-pi PRIVATE ${EGL_CFLAGS})
+    target_link_libraries(flutter-pi ${EGL_LDFLAGS})
   else()
     FetchContent_Declare(
       EGL_REGISTRY
@@ -213,8 +212,9 @@ if (ENABLE_OPENGL)
 
   if (GLESV2_FOUND)
     target_compile_definitions(flutter-pi PRIVATE HAS_GL)
-    target_include_directories(flutter-pi PRIVATE ${EGL_INCLUDE_DIRS})
-    target_compile_options(flutter-pi PRIVATE ${EGL_CFLAGS})
+    target_include_directories(flutter-pi PRIVATE ${GLESV2_INCLUDE_DIRS})
+    target_compile_options(flutter-pi PRIVATE ${GLESV2_CFLAGS})
+    target_link_libraries(flutter-pi ${GLESV2_LDFLAGS})
   else()
     FetchContent_Declare(
       OGL_REGISTRY
