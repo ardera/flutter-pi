@@ -1588,7 +1588,7 @@ static int init_display(void) {
      * GBM INITIALIZATION *
      **********************/
     flutterpi.gbm.device = gbm_create_device(flutterpi.drm.drmdev->fd);
-    flutterpi.gbm.format = DRM_FORMAT_ARGB8888;
+    flutterpi.gbm.format = DRM_FORMAT_RGB565;
     flutterpi.gbm.surface = NULL;
     flutterpi.gbm.modifier = DRM_FORMAT_MOD_LINEAR;
 
