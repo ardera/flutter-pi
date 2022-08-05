@@ -1596,7 +1596,7 @@ static int init_display(void) {
     if (flutterpi.gbm.surface == NULL) {
         perror("[flutter-pi] Could not create GBM Surface. gbm_surface_create_with_modifiers. Will attempt with gbm_surface_create");
 		
-		flutterpi.gbm.surface = gbm_surface_create(flutterpi.gbm.device, flutterpi.display.width, flutterpi.display.height, flutterpi.gbm.format, 0);
+		flutterpi.gbm.surface = gbm_surface_create(flutterpi.gbm.device, flutterpi.display.width, flutterpi.display.height, flutterpi.gbm.format, GBM_BO_USE_SCANOUT | GBM_BO_USE_RENDERING | GBM_BO_USE_LINEAR);
 		
 		if (flutterpi.gbm.surface == NULL) {
 			perror("[flutter-pi] Could not create GBM Surface even with gbm_surface_create");
