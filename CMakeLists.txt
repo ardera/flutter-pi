@@ -43,6 +43,7 @@ option(BUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN "Include the gstreamer based video pl
 option(BUILD_GSTREAMER_AUDIO_PLAYER_PLUGIN "Include the gstreamer based audio plugins in the finished binary." ON)
 option(TRY_BUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN "Don't throw an error if the gstreamer libs aren't found, instead just don't build the gstreamer video player plugin in that case." ON)
 option(TRY_BUILD_GSTREAMER_AUDIO_PLAYER_PLUGIN "Don't throw an error if the gstreamer libs aren't found, instead just don't build gstreamer audio plugin." ON)
+option(BUILD_CAMERA_PLUGIN "Include the camera plugin in the finished binary. Allows using the `camera` flutter package with flutter-pi." ON)
 option(ENABLE_OPENGL "Build with EGL/OpenGL rendering support." ON)
 option(TRY_ENABLE_OPENGL "Don't throw an error if EGL/OpenGL aren't found, instead just build without EGL/OpenGL support in that case." ON)
 option(ENABLE_VULKAN "Build with Vulkan rendering support." OFF)
@@ -268,6 +269,7 @@ endif()
 if (BUILD_TEST_PLUGIN)
   target_sources(flutterpi_module PRIVATE src/plugins/testplugin.c)
 endif()
+
 if (BUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN)
   if (NOT HAVE_EGL_GLES2)
     message(NOTICE "EGL and OpenGL ES2 are required for gstreamer video player. Gstreamer video player plugin won't be build.")
@@ -335,6 +337,33 @@ if (BUILD_GSTREAMER_AUDIO_PLAYER_PLUGIN)
     )
   else()
     message(NOTICE "Couldn't find gstreamer libraries. Gstreamer audio player plugin won't be build.")
+  endif()
+endif()
+
+if (BUILD_CAMERA_PLUGIN)
+  if (NOT HAVE_EGL_GLES2)
+    message(NOTICE "EGL and OpenGL ES2 are required for camera plugin. Camera plugin won't be build.")
+  else()
+    pkg_check_modules(LIBGSTREAMER REQUIRED IMPORTED_TARGET gstreamer-1.0)
+    pkg_check_modules(LIBGSTREAMER_PLUGINS_BASE REQUIRED IMPORTED_TARGET gstreamer-plugins-base-1.0)
+    pkg_check_modules(LIBGSTREAMER_APP REQUIRED IMPORTED_TARGET gstreamer-app-1.0)
+    pkg_check_modules(LIBGSTREAMER_ALLOCATORS REQUIRED IMPORTED_TARGET gstreamer-allocators-1.0)
+    pkg_check_modules(LIBGSTREAMER_VIDEO REQUIRED IMPORTED_TARGET gstreamer-video-1.0)
+
+    if (LIBGSTREAMER_FOUND AND LIBGSTREAMER_PLUGINS_BASE_FOUND AND LIBGSTREAMER_APP_FOUND AND LIBGSTREAMER_ALLOCATORS_FOUND AND LIBGSTREAMER_VIDEO_FOUND)
+      target_sources(flutterpi_module PRIVATE
+        src/plugins/camera/plugin.c
+      )
+      target_link_libraries(flutterpi_module PUBLIC
+        PkgConfig::LIBGSTREAMER
+        PkgConfig::LIBGSTREAMER_PLUGINS_BASE
+        PkgConfig::LIBGSTREAMER_APP
+        PkgConfig::LIBGSTREAMER_ALLOCATORS
+        PkgConfig::LIBGSTREAMER_VIDEO
+      )
+    else()
+      message(NOTICE "Couldn't find gstreamer libraries. Gstreamer video player plugin won't be build.")
+    endif()
   endif()
 endif()
 
