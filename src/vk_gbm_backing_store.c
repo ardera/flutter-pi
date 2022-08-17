@@ -9,6 +9,7 @@
  */
 
 #include <stdlib.h>
+#include <unistd.h>
 
 #include <collection.h>
 #include <stdatomic.h>
@@ -116,6 +117,24 @@ static void locked_fb_destroy(struct locked_fb *fb) {
 }
 
 DEFINE_STATIC_REF_OPS(locked_fb, n_refs)
+
+static bool atomic_flag_test(atomic_flag *flag) {
+    bool before = atomic_flag_test_and_set(flag);
+    if (before == false) {
+        atomic_flag_clear(flag);
+    }
+    return before;
+}
+
+static void log_locked_fbs(struct vk_gbm_backing_store *store) {
+    LOG_DEBUG(
+        "locked: %c, %c, %c, %c\n",
+        atomic_flag_test(&store->locked_fbs[0].is_locked) ? 'y' : 'n',
+        atomic_flag_test(&store->locked_fbs[1].is_locked) ? 'y' : 'n',
+        atomic_flag_test(&store->locked_fbs[2].is_locked) ? 'y' : 'n',
+        atomic_flag_test(&store->locked_fbs[3].is_locked) ? 'y' : 'n'
+    );
+}
 
 COMPILE_ASSERT(offsetof(struct vk_gbm_backing_store, surface) == 0);
 COMPILE_ASSERT(offsetof(struct vk_gbm_backing_store, backing_store.surface) == 0);
@@ -551,12 +570,18 @@ static void on_destroy_gbm_bo_meta(struct gbm_bo *bo, void *meta_void) {
 }
 
 static void on_release_layer(void *userdata) {
+    struct vk_gbm_backing_store *store;
     struct locked_fb *fb;
 
     DEBUG_ASSERT_NOT_NULL(userdata);
 
     fb = userdata;
+    store = CAST_THIS_UNCHECKED(surface_ref(CAST_SURFACE_UNCHECKED(fb->store)));
+
     locked_fb_unref(fb);
+
+    log_locked_fbs(store);
+    surface_unref(CAST_SURFACE_UNCHECKED(store));
 }
 
 static int vk_gbm_backing_store_present_kms(struct surface *s, const struct fl_layer_props *props, struct kms_req_builder *builder) {
@@ -782,6 +807,7 @@ static int vk_gbm_backing_store_fill(struct backing_store *s, FlutterBackingStor
     /// TODO: Remove this once we're using triple buffering
 #ifdef DEBUG
     atomic_fetch_add(&store->n_locked_fbs, 1);
+    log_locked_fbs(CAST_THIS_UNCHECKED(s));
     //DEBUG_ASSERT_MSG(before + 1 <= 3, "sanity check failed: too many locked fbs for double-buffered vsync");
 #endif
     store->locked_fbs[i].store = CAST_VK_GBM_BACKING_STORE(surface_ref(CAST_SURFACE_UNCHECKED(s)));
@@ -838,6 +864,8 @@ static int vk_gbm_backing_store_queue_present(struct backing_store *s, const Flu
 
     // Since flutter no longer uses this fb for rendering, we need to unref it
     locked_fb_unref(fb);
+
+    log_locked_fbs(store);
 
     surface_unlock(CAST_SURFACE_UNCHECKED(s));
     return 0;
