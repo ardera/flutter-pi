@@ -8,7 +8,7 @@
  * 
  * the exposed flutter texture: (cold path)
  * - is an imported EGL Image, which is created from the dmabuf using the EGL_EXT_image_dma_buf_import extension (if supported)
- * - if that extension is not supported, copy the dmabuf contents into the texture
+ * - if that extension is not supported, copy the dmabuf contents into the texture (glTexImage2D)
  * - using a texture is slower than a hardware overlay
  * - (because with a texture, texture contents must be converted into the right pixel format and composited into a single framebuffer,
  *   before the frame can be scanned out => additional memory copy, but with hardware overlay that will be done in realtime, on-the-fly,
@@ -208,6 +208,7 @@ static void on_release_layer(void *userdata) {
 static int dmabuf_surface_present_kms(struct surface *_s, const struct fl_layer_props *props, struct kms_req_builder *builder) {
     struct dmabuf_surface *s;
     uint32_t fb_id;
+    int ok;
 
     DEBUG_ASSERT_MSG(props->is_aa_rect, "Only axis-aligned rectangles supported right now.");
     s = CAST_THIS(_s);
@@ -216,6 +217,8 @@ static int dmabuf_surface_present_kms(struct surface *_s, const struct fl_layer_
     (void) builder;
 
     surface_lock(_s);
+
+    DEBUG_ASSERT_NOT_NULL_MSG(s->next_buf, "dmabuf_surface_present_kms was called, but no dmabuf is queued to be presented.");
     
     if (DRM_ID_IS_VALID(s->next_buf->drm_fb_id)) {
         DEBUG_ASSERT_EQUALS_MSG(s->next_buf->drmdev, kms_req_builder_get_drmdev(builder), "Only 1 KMS instance per dmabuf supported right now.");
@@ -241,7 +244,7 @@ static int dmabuf_surface_present_kms(struct surface *_s, const struct fl_layer_
         s->next_buf->drmdev = drmdev_ref(kms_req_builder_get_drmdev(builder));
     }
 
-    kms_req_builder_push_fb_layer(
+    ok = kms_req_builder_push_fb_layer(
         builder,
         &(struct kms_fb_layer) {
             .drm_fb_id = fb_id,
@@ -260,14 +263,19 @@ static int dmabuf_surface_present_kms(struct surface *_s, const struct fl_layer_
             .dst_w = props->aa_rect.size.x,
             .dst_h = props->aa_rect.size.y,
             
-            .has_rotation = false,
-            .rotation = PLANE_TRANSFORM_ROTATE_0,
-            .has_in_fence_fd = false,
-            .in_fence_fd = 0,
+            .has_rotation = false, .rotation = PLANE_TRANSFORM_ROTATE_0,
+            .has_in_fence_fd = false, .in_fence_fd = 0,
         },
         on_release_layer,
+        NULL,
         refcounted_dmabuf_ref(s->next_buf)
     );
+    if (ok != 0) {
+        LOG_ERROR("Couldn't push KMS fb layer. kms_req_builder_push_fb_layer: %s\n", strerror(ok));
+        refcounted_dmabuf_unref(s->next_buf);
+        surface_unlock(_s);
+        return ok;
+    }
 
     surface_unlock(_s);
 
@@ -281,6 +289,7 @@ static int dmabuf_surface_present_fbdev(struct surface *_s, const struct fl_laye
     (void) s;
     (void) props;
     (void) builder;
+    UNIMPLEMENTED();
 
     return 0;
 }
