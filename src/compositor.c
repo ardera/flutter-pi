@@ -1719,7 +1719,7 @@ static int create_cursor_buffer(int width, int height, int bpp) {
 	ok = drmModeAddFB(compositor.drmdev->fd, create_req.width, create_req.height, 32, create_req.bpp, create_req.pitch, create_req.handle, &drm_fb_id);
 	if (ok < 0) {
 		ok = errno;
-		LOG_ERROR("Could not make a DRM FB out of the hardware cursor buffer. drmModeAddFB: %s", strerror(errno));
+		LOG_ERROR("Could not make a DRM FB out of the hardware cursor buffer. drmModeAddFB: %s\n", strerror(errno));
 		goto fail_destroy_dumb_buffer;
 	}
 
@@ -1729,14 +1729,14 @@ static int create_cursor_buffer(int width, int height, int bpp) {
 	ok = ioctl(compositor.drmdev->fd, DRM_IOCTL_MODE_MAP_DUMB, &map_req);
 	if (ok < 0) {
 		ok = errno;
-		LOG_ERROR("Could not prepare dumb buffer mmap for uploading the hardware cursor icon. ioctl: %s", strerror(errno));
+		LOG_ERROR("Could not prepare dumb buffer mmap for uploading the hardware cursor icon. ioctl: %s\n", strerror(errno));
 		goto fail_rm_drm_fb;
 	}
 
 	buffer = mmap(0, create_req.size, PROT_READ | PROT_WRITE, MAP_SHARED, compositor.drmdev->fd, map_req.offset);
 	if (buffer == MAP_FAILED) {
 		ok = errno;
-		LOG_ERROR("Could not mmap dumb buffer for uploading the hardware cursor icon. mmap: %s", strerror(errno));
+		LOG_ERROR("Could not mmap dumb buffer for uploading the hardware cursor icon. mmap: %s\n", strerror(errno));
 		goto fail_rm_drm_fb;
 	}
 
@@ -1843,13 +1843,6 @@ int compositor_apply_cursor_state(
 				return EINVAL;
 			}
 
-			compositor.cursor.current_rotation = rotation;
-			compositor.cursor.current_cursor = cursor;
-			compositor.cursor.cursor_size = cursor->width;
-			compositor.cursor.hot_x = rotated_hot_x;
-			compositor.cursor.hot_y = rotated_hot_y;
-			compositor.cursor.is_enabled = true;
-
 			ok = drmModeSetCursor2(
 				compositor.drmdev->fd,
 				compositor.drmdev->selected_crtc->crtc->crtc_id,
@@ -1860,7 +1853,11 @@ int compositor_apply_cursor_state(
 				rotated_hot_y
 			);
 			if (ok < 0) {
-				LOG_ERROR("Could not set the mouse cursor buffer. drmModeSetCursor: %s", strerror(errno));
+				if (errno == ENXIO) {
+					LOG_ERROR("Could not configure cursor. Hardware cursor is not supported by device.\n");
+				} else {
+					LOG_ERROR("Could not set the mouse cursor buffer. drmModeSetCursor: %s\n", strerror(errno));
+				}
 				return errno;
 			}
 
@@ -1871,9 +1868,16 @@ int compositor_apply_cursor_state(
 				compositor.cursor.y - compositor.cursor.hot_y
 			);
 			if (ok < 0) {
-				LOG_ERROR("Could not move cursor. drmModeMoveCursor: %s", strerror(errno));
+				LOG_ERROR("Could not move cursor. drmModeMoveCursor: %s\n", strerror(errno));
 				return errno;
 			}
+
+			compositor.cursor.current_rotation = rotation;
+			compositor.cursor.current_cursor = cursor;
+			compositor.cursor.cursor_size = cursor->width;
+			compositor.cursor.hot_x = rotated_hot_x;
+			compositor.cursor.hot_y = rotated_hot_y;
+			compositor.cursor.is_enabled = true;
 		}
 
 		return 0;
@@ -1905,7 +1909,7 @@ int compositor_set_cursor_pos(int x, int y) {
 	int ok;
 
 	if (compositor.cursor.is_enabled == false) {
-		return EINVAL;
+		return 0;
 	}
 
 	ok = drmModeMoveCursor(compositor.drmdev->fd, compositor.drmdev->selected_crtc->crtc->crtc_id, x - compositor.cursor.hot_x, y - compositor.cursor.hot_y);
