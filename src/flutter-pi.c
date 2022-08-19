@@ -1396,6 +1396,16 @@ static int init_display(void) {
             continue;
         }
 
+        for_each_connector_in_drmdev(flutterpi.drm.drmdev, connector) {
+            if (connector->connector->connection == DRM_MODE_CONNECTED) {
+                goto found_connected_connector;
+            }
+        }
+        LOG_ERROR("Device \"%s\" doesn't have a display connected. Skipping.\n", device->nodes[DRM_NODE_PRIMARY]);
+        continue;
+
+
+        found_connected_connector:
         break;
     }
 
