@@ -50,7 +50,7 @@ struct compositor compositor = {
 
 static struct view_cb_data *get_cbs_for_view_id_locked(int64_t view_id) {
 	struct view_cb_data *data;
-	
+
 	for_each_pointer_in_cpset(&compositor.cbs, data) {
 		if (data->view_id == view_id) {
 			return data;
@@ -62,11 +62,11 @@ static struct view_cb_data *get_cbs_for_view_id_locked(int64_t view_id) {
 
 static struct view_cb_data *get_cbs_for_view_id(int64_t view_id) {
 	struct view_cb_data *data;
-	
+
 	cpset_lock(&compositor.cbs);
 	data = get_cbs_for_view_id_locked(view_id);
 	cpset_unlock(&compositor.cbs);
-	
+
 	return data;
 }
 
@@ -98,7 +98,7 @@ static void destroy_gbm_bo(
 
 	if (fb && fb->fb_id)
 		drmModeRmFB(flutterpi.drm.drmdev->fd, fb->fb_id);
-	
+
 	free(fb);
 }
 
@@ -142,7 +142,7 @@ static uint32_t gbm_bo_get_drm_fb_id(struct gbm_bo *bo) {
 	if (ok) {
 		if (flags)
 			LOG_DEBUG("drm_fb_get_from_bo: modifiers failed!\n");
-		
+
 		memcpy(handles, (uint32_t [4]){gbm_bo_get_handle(bo).u32,0,0,0}, 16);
 		memcpy(strides, (uint32_t [4]){gbm_bo_get_stride(bo),0,0,0}, 16);
 		memset(offsets, 0, 16);
@@ -238,7 +238,7 @@ static int create_drm_rbo(
 	*/
 
 	glBindRenderbuffer(GL_RENDERBUFFER, 0);
-	
+
 	// glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
 	ok = drmModeAddFB2(
@@ -391,7 +391,7 @@ static int rendertarget_gbm_present(
 			printed = true;
 		}
 	}
-	
+
 	ok = drmdev_plane_supports_setting_zpos_value(atomic_req->drmdev, drm_plane_id, zpos, &supported);
 	if (ok != 0) return ok;
 
@@ -400,7 +400,7 @@ static int rendertarget_gbm_present(
 	} else {
 		static bool printed = false;
 
-		if (!printed) { 
+		if (!printed) {
 			LOG_ERROR(
 				"GPU does not supported the desired HW plane order.\n"
 				"  Some UI layers may be invisible.\n"
@@ -491,7 +491,7 @@ static int rendertarget_gbm_present_legacy(
 			((uint16_t) flutterpi.display.height) << 16
 		);
 	}
-	
+
 	// TODO: move this to the page flip handler.
 	// We can only be sure the buffer can be released when the buffer swap
 	// ocurred.
@@ -505,10 +505,10 @@ static int rendertarget_gbm_present_legacy(
 
 /**
  * @brief Create a type of rendertarget that is backed by a GBM Surface, used for rendering into the DRM primary plane.
- * 
+ *
  * @param[out] out A pointer to the pointer of the created rendertarget.
  * @param[in] compositor The compositor which this rendertarget should be associated with.
- * 
+ *
  * @see rendertarget_gbm
  */
 static int rendertarget_gbm_new(
@@ -583,10 +583,10 @@ static int rendertarget_nogbm_present(
 	drmdev_atomic_req_put_plane_property(req, drm_plane_id, "CRTC_Y", 0);
 	drmdev_atomic_req_put_plane_property(req, drm_plane_id, "CRTC_W", flutterpi.display.width);
 	drmdev_atomic_req_put_plane_property(req, drm_plane_id, "CRTC_H", flutterpi.display.height);
-	
+
 	ok = drmdev_plane_supports_setting_rotation_value(req->drmdev, drm_plane_id, DRM_MODE_ROTATE_0 | DRM_MODE_REFLECT_Y, &supported);
 	if (ok != 0) return ok;
-	
+
 	if (supported) {
 		drmdev_atomic_req_put_plane_property(req, drm_plane_id, "rotation", DRM_MODE_ROTATE_0 | DRM_MODE_REFLECT_Y);
 	} else {
@@ -604,13 +604,13 @@ static int rendertarget_nogbm_present(
 
 	ok = drmdev_plane_supports_setting_zpos_value(req->drmdev, drm_plane_id, zpos, &supported);
 	if (ok != 0) return ok;
-	
+
 	if (supported) {
 		drmdev_atomic_req_put_plane_property(req, drm_plane_id, "zpos", zpos);
 	} else {
 		static bool printed = false;
 
-		if (!printed) { 
+		if (!printed) {
 			LOG_ERROR(
 				"GPU does not supported the desired HW plane order.\n"
 				"  Some UI layers may be invisible.\n"
@@ -681,10 +681,10 @@ static int rendertarget_nogbm_present_legacy(
 			((uint16_t) flutterpi.display.height) << 16
 		);
 	}
-	
+
 	ok = drmdev_plane_supports_setting_rotation_value(drmdev, drm_plane_id, DRM_MODE_ROTATE_0 | DRM_MODE_REFLECT_Y, &supported);
 	if (ok != 0) return ok;
-	
+
 	if (supported) {
 		drmdev_legacy_set_plane_property(drmdev, drm_plane_id, "rotation", DRM_MODE_ROTATE_0 | DRM_MODE_REFLECT_Y);
 	} else {
@@ -702,13 +702,13 @@ static int rendertarget_nogbm_present_legacy(
 
 	ok = drmdev_plane_supports_setting_zpos_value(drmdev, drm_plane_id, zpos, &supported);
 	if (ok != 0) return ok;
-	
+
 	if (supported) {
 		drmdev_legacy_set_plane_property(drmdev, drm_plane_id, "zpos", zpos);
 	} else {
 		static bool printed = false;
 
-		if (!printed) { 
+		if (!printed) {
 			LOG_ERROR(
 				"GPU does not supported the desired HW plane order.\n"
 				"  Some UI layers may be invisible.\n"
@@ -722,10 +722,10 @@ static int rendertarget_nogbm_present_legacy(
 
 /**
  * @brief Create a type of rendertarget that is not backed by a GBM-Surface, used for rendering into DRM overlay planes.
- * 
+ *
  * @param[out] out A pointer to the pointer of the created rendertarget.
  * @param[in] compositor The compositor which this rendertarget should be associated with.
- * 
+ *
  * @see rendertarget_nogbm
  */
 static int rendertarget_nogbm_new(
@@ -805,13 +805,13 @@ static int rendertarget_nogbm_new(
  * @brief Called by flutter when the OpenGL FBO of a backing store should be destroyed.
  * Called on an internal engine-managed thread. This is actually called after the engine
  * calls @ref on_collect_backing_store.
- * 
+ *
  * @param[in] userdata The pointer to the struct flutterpi_backing_store that should be destroyed.
  */
 static void on_destroy_backing_store_gl_fb(void *userdata) {
 	struct flutterpi_backing_store *store;
 	struct compositor *compositor;
-	
+
 	store = userdata;
 	compositor = store->target->compositor;
 
@@ -828,7 +828,7 @@ static void on_destroy_backing_store_gl_fb(void *userdata) {
  * @brief A callback invoked by the engine to release the backing store. The embedder may
  * collect any resources associated with the backing store. Invoked on an internal
  * engine-managed thread. This is actually called before the engine calls @ref on_destroy_backing_store_gl_fb.
- * 
+ *
  * @param[in] backing_store The backing store to be collected.
  * @param[in] userdata A pointer to the flutterpi compositor.
  */
@@ -840,7 +840,7 @@ static bool on_collect_backing_store(
 	struct compositor *compositor;
 
 	(void) userdata;
-	
+
 	store = backing_store->user_data;
 	compositor = store->target->compositor;
 
@@ -858,7 +858,7 @@ static bool on_collect_backing_store(
 /**
  * @brief A callback invoked by the engine to obtain a FlutterBackingStore for a specific FlutterLayer.
  * Called on an internal engine-managed thread.
- * 
+ *
  * @param[in] config The dimensions of the backing store to be created, post transform.
  * @param[out] backing_store_out The created backing store.
  * @param[in] userdata A pointer to the flutterpi compositor.
@@ -1033,7 +1033,7 @@ static void fill_platform_view_params(
 	for (int i = n_mutations - 1; i >= 0; i--) {
         if (mutations[i]->type == kFlutterPlatformViewMutationTypeTransformation) {
 			apply_transform_to_quad(mutations[i]->transformation, &quad);
-			
+
 			double rotz = atan2(mutations[i]->transformation.skewX, mutations[i]->transformation.scaleX) * 180.0 / M_PI;
             if (rotz < 0) {
                 rotz += 360;
@@ -1087,7 +1087,7 @@ static bool on_present_layers(
 			LOG_DEBUG("  backing store (offset: %f, %f. size: %f, %f)\n", layers[i]->offset.x, layers[i]->offset.y, layers[i]->size.width, layers[i]->size.height);
 		} else {
 			DEBUG_ASSERT(layers[i]->type == kFlutterLayerContentTypePlatformView);
-			
+
 			LOG_DEBUG("  platform view (id: %"PRId64", offset: %f, %f, size: %f, %f) mutations:\n", layers[i]->platform_view->identifier, layers[i]->offset.x, layers[i]->offset.y, layers[i]->size.width, layers[i]->size.height);
 			for (size_t j = 0; j < layers[i]->platform_view->mutations_count; j++) {
 				const FlutterPlatformViewMutation *mut = layers[i]->platform_view->mutations[j];
@@ -1183,7 +1183,7 @@ static bool on_present_layers(
 						LOG_ERROR("Could not move cursor to front. Mouse cursor may be invisible. drmdev_plane_get_max_zpos_value: %s\n", strerror(ok));
 						continue;
 					}
-					
+
 					ok = drmdev_plane_supports_setting_zpos_value(req->drmdev, plane->plane->plane_id, max_zpos, &supported);
 					if (ok != 0) {
 						LOG_ERROR("Could not move cursor to front. Mouse cursor may be invisible. drmdev_plane_supports_setting_zpos_value: %s\n", strerror(ok));
@@ -1210,7 +1210,7 @@ static bool on_present_layers(
 						LOG_ERROR("Could not move cursor to front. Mouse cursor may be invisible. drmdev_plane_get_max_zpos_value: %s\n", strerror(ok));
 						continue;
 					}
-					
+
 					ok = drmdev_plane_supports_setting_zpos_value(drmdev, plane->plane->plane_id, max_zpos, &supported);
 					if (ok != 0) {
 						LOG_ERROR("Could not move cursor to front. Mouse cursor may be invisible. drmdev_plane_supports_setting_zpos_value: %s\n", strerror(ok));
@@ -1226,10 +1226,10 @@ static bool on_present_layers(
 				}
 			}
 		}
-		
+
 		compositor->has_applied_modeset = true;
 	}
-	
+
 	// first, the state machine phase.
 	// go through the layers, update
 	// all platform views accordingly.
@@ -1246,7 +1246,7 @@ static bool on_present_layers(
 		void *updated_views_storage[layers_count];
 		memset(updated_views_storage, 0, layers_count * sizeof(void*));
 		struct pointer_set updated_views = PSET_INITIALIZER_STATIC(updated_views_storage, layers_count);
-	
+
 		for_each_pointer_in_cpset(&compositor->cbs, cb_data) {
 			const FlutterLayer *layer = NULL;
 			bool is_present = false;
@@ -1304,7 +1304,7 @@ static bool on_present_layers(
 
 		for_each_pointer_in_pset(&updated_views, cb_data) {
 			const FlutterLayer *layer = NULL;
-			int zpos;
+			int zpos = 0;
 
 			for (int i = 0; i < layers_count; i++) {
 				if (layers[i]->type == kFlutterLayerContentTypePlatformView &&
@@ -1351,7 +1351,7 @@ static bool on_present_layers(
 
 		for_each_pointer_in_pset(&mounted_views, cb_data) {
 			const FlutterLayer *layer = NULL;
-			int zpos;
+			int zpos = 0;
 
 			for (int i = 0; i < layers_count; i++) {
 				if (layers[i]->type == kFlutterLayerContentTypePlatformView &&
@@ -1399,7 +1399,7 @@ static bool on_present_layers(
 			}
 		}
 	}
-	
+
 	int64_t min_zpos;
 	if (use_atomic_modesetting) {
 		for_each_unreserved_plane_in_atomic_req(req, plane) {
@@ -1529,7 +1529,7 @@ static bool on_present_layers(
 	}
 
 	eglMakeCurrent(stored_display, stored_read_surface, stored_write_surface, stored_context);
-	
+
 	if (use_atomic_modesetting) {
 		do_commit:
 		if (compositor->do_blocking_atomic_commits) {
@@ -1537,7 +1537,7 @@ static bool on_present_layers(
 		} else {
 			req_flags |= DRM_MODE_ATOMIC_NONBLOCK | DRM_MODE_PAGE_FLIP_EVENT;
 		}
-		
+
 		ok = drmdev_atomic_req_commit(req, req_flags, NULL);
 		if ((compositor->do_blocking_atomic_commits == false) && (ok == EBUSY)) {
 			LOG_ERROR(
@@ -1556,7 +1556,7 @@ static bool on_present_layers(
 			return false;
 		}
 
-		drmdev_destroy_atomic_req(req);	
+		drmdev_destroy_atomic_req(req);
 	}
 
 	cpset_unlock(&compositor->cbs);
@@ -1749,7 +1749,7 @@ static int create_cursor_buffer(int width, int height, int bpp) {
 	compositor.cursor.buffer_size = create_req.size;
 	compositor.cursor.drm_fb_id = drm_fb_id;
 	compositor.cursor.buffer = buffer;
-	
+
 	return 0;
 
 
@@ -1801,7 +1801,7 @@ int compositor_apply_cursor_state(
 
 		if ((compositor.cursor.is_enabled == false) || (compositor.cursor.current_rotation != rotation) || (compositor.cursor.current_cursor != cursor)) {
 			int rotated_hot_x, rotated_hot_y;
-			
+
 			if (rotation == 0) {
 				memcpy(compositor.cursor.buffer, cursor->data, compositor.cursor.buffer_size);
 				rotated_hot_x = cursor->hot_x;
@@ -1820,10 +1820,10 @@ int compositor_apply_cursor_state(
 							buffer_x = y;
 							buffer_y = cursor->width - x - 1;
 						}
-						
+
 						int buffer_offset = compositor.cursor.buffer_pitch * buffer_y + (compositor.cursor.buffer_depth / 8) * buffer_x;
 						int cursor_offset = cursor->width * y + x;
-						
+
 						compositor.cursor.buffer[buffer_offset / 4] = cursor->data[cursor_offset];
 					}
 				}
@@ -1875,7 +1875,7 @@ int compositor_apply_cursor_state(
 				return errno;
 			}
 		}
-		
+
 		return 0;
 	} else if ((is_enabled == false) && (compositor.cursor.is_enabled == true)) {
 		drmModeSetCursor(
@@ -1915,7 +1915,7 @@ int compositor_set_cursor_pos(int x, int y) {
 	}
 
 	compositor.cursor.x = x;
-	compositor.cursor.y = y;    
+	compositor.cursor.y = y;
 
 	return 0;
 }

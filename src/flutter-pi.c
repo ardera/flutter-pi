@@ -1595,9 +1595,9 @@ static int init_display(void) {
     flutterpi.gbm.surface = gbm_surface_create_with_modifiers(flutterpi.gbm.device, flutterpi.display.width, flutterpi.display.height, flutterpi.gbm.format, &flutterpi.gbm.modifier, 1);
     if (flutterpi.gbm.surface == NULL) {
         perror("[flutter-pi] Could not create GBM Surface. gbm_surface_create_with_modifiers. Will attempt with gbm_surface_create");
-		
+
 		flutterpi.gbm.surface = gbm_surface_create(flutterpi.gbm.device, flutterpi.display.width, flutterpi.display.height, flutterpi.gbm.format, GBM_BO_USE_SCANOUT | GBM_BO_USE_RENDERING | GBM_BO_USE_LINEAR);
-		
+
 		if (flutterpi.gbm.surface == NULL) {
 			perror("[flutter-pi] Could not create GBM Surface even with gbm_surface_create");
 			return errno;
@@ -1831,7 +1831,7 @@ static int init_application(void) {
 
     libflutter_engine_handle = dlopen(libflutter_engine_path, RTLD_LOCAL | RTLD_NOW);
 
-    if (libflutter_engine_handle == NULL) {   
+    if (libflutter_engine_handle == NULL) {
         LOG_ERROR(
             "Warning: Could not load libflutter_engine.so from the asset bundle. dlopen: %s. Trying to open libflutter_engine.so.%s...\n",
             dlerror(),
@@ -2319,10 +2319,14 @@ static bool setup_paths(void) {
         }
     }
 
-    asprintf(&icu_data_path, "/usr/lib/icudtl.dat");
+    asprintf(&icu_data_path, "%s/icudtl.dat", flutterpi.flutter.asset_bundle_path);
     if (!PATH_EXISTS(icu_data_path)) {
-        LOG_ERROR("Could not find \"icudtl.dat\" file inside \"/usr/lib/\".\n");
-        return false;
+        free(icu_data_path);
+        asprintf(&icu_data_path, "/usr/lib/icudtl.dat");
+        if (!PATH_EXISTS(icu_data_path)) {
+            LOG_ERROR("Could not find \"icudtl.dat\" file inside asset bundle or \"/usr/lib/\".\n");
+            return false;
+        }
     }
 
     flutterpi.flutter.kernel_blob_path = kernel_blob_path;
