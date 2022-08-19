@@ -1,6 +1,6 @@
 ## 📰 NEWS
 - There's now a new video player based on gstreamer. See [gstreamer video player](#gstreamer-video-player) section.
-- The new latest flutter gallery commit for flutter 2.10 is `5da082d`
+- The new latest flutter gallery commit for flutter 3.0 is `1dfcd617a260e4468f0883d7dfbfdfe3d021f7b3`
 
 # flutter-pi
 A light-weight Flutter Engine Embedder for Raspberry Pi. Inspired by https://github.com/chinmaygarde/flutter_from_scratch.
@@ -164,7 +164,7 @@ If you encounter issues running flutter-pi on any of the supported platforms lis
 ```bash
 git clone https://github.com/flutter/gallery.git flutter_gallery
 cd flutter_gallery
-git checkout 5da082d
+git checkout 1dfcd617a260e4468f0883d7dfbfdfe3d021f7b3
 flutter build bundle
 rsync -a ./build/flutter_assets/ pi@raspberrypi:/home/pi/flutter_gallery/
 ```
@@ -173,7 +173,7 @@ rsync -a ./build/flutter_assets/ pi@raspberrypi:/home/pi/flutter_gallery/
 <details>
   <summary>More information</summary>
     
-  - flutter_gallery is developed against flutter master. `5da082d82e2da9f57e396b5a1302dc924c81f83d` is currently the latest flutter gallery
+  - flutter_gallery is developed against flutter master. `1dfcd617a260e4468f0883d7dfbfdfe3d021f7b3` is currently the latest flutter gallery
     commit working with flutter stable.
 </details>
 
@@ -231,7 +231,7 @@ rsync -a ./build/flutter_assets/ pi@raspberrypi:/home/pi/flutter_gallery/
     git clone https://github.com/flutter/gallery.git flutter_gallery
     git clone --depth 1 https://github.com/ardera/flutter-engine-binaries-for-arm.git engine-binaries
     cd flutter_gallery
-    git checkout 5da082d82e2da9f57e396b5a1302dc924c81f83d
+    git checkout 1dfcd617a260e4468f0883d7dfbfdfe3d021f7b3
     flutter build bundle
     C:\flutter\bin\cache\dart-sdk\bin\dart.exe ^
       C:\flutter\bin\cache\dart-sdk\bin\snapshots\frontend_server.dart.snapshot ^
