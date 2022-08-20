@@ -20,7 +20,7 @@ AlignTrailingComments: false
 AllowAllArgumentsOnNextLine: false
 AllowAllParametersOfDeclarationOnNextLine: false
 AllowShortBlocksOnASingleLine: false
-AllowShortCaseLabelsOnASingleLine: false
+AllowShortCaseLabelsOnASingleLine: true
 #AllowShortEnumsOnASingleLine: false
 AllowShortFunctionsOnASingleLine: None
 AllowShortIfStatementsOnASingleLine: Never
@@ -28,7 +28,6 @@ AllowShortIfStatementsOnASingleLine: Never
 AllowShortLoopsOnASingleLine: false
 AlwaysBreakAfterDefinitionReturnType: None
 AlwaysBreakAfterReturnType: None
-AlwaysBreakBeforeMultilineStrings: false
 AlwaysBreakTemplateDeclarations: false
 AttributeMacros:
   - 'MAYBE_UNUSED'
@@ -64,7 +63,7 @@ BreakConstructorInitializers: BeforeComma
 BreakAfterJavaFieldAnnotations: false
 BreakStringLiterals: true
 AlwaysBreakBeforeMultilineStrings: true
-ColumnLimit: 120
+ColumnLimit: 140
 CommentPragmas: '^ IWYU pragma:'
 CompactNamespaces: false
 ConstructorInitializerAllOnOneLineOrOnePerLine: false
@@ -96,15 +95,15 @@ IncludeCategories:
     Priority: 3
   - Regex: '^<(linux/[^.]*|sys/eventfd)\.h>$'
     Priority: 4
-  - Regex: '^<(plugins/[^.]*|backing_store[^.]*|collection|compositor_ng|cursor|dmabuf_surface|egl_info|egl|flutter-pi|gbm_surface_backing_store|gl_renderer|gles|jsmn|keyboard|locales|modesetting|notifier_listener|pixel_format|platform_view|platformchannel|pluginregistry|surface[^.]*|texture_registry|tracer|user_input)\.h>$'
+  - Regex: '^<(plugins/[^.]*|backing_store[^.]*|collection|compositor_ng|cursor|dmabuf_surface|egl_info|egl|flutter-pi|gbm_surface_backing_store|gl_renderer|gles|jsmn|keyboard|locales|modesetting|notifier_listener|pixel_format|platform_view|platformchannel|pluginregistry|surface[^.]*|texture_registry|tracer|user_input|vk_gbm_backing_store|vk_renderer)\.h>$'
     Priority: 6
   - Regex: '.*'
     Priority: 5
 
 IncludeIsMainRegex: '(Test)?$'
-IndentCaseLabels: false
+IndentCaseLabels: true
 IndentGotoLabels: false
-IndentPPDirectives: AfterHash
+IndentPPDirectives: BeforeHash
 IndentWidth: 4
 IndentWrappedFunctionNames: false
 JavaScriptQuotes: Leave
