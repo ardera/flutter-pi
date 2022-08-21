@@ -38,9 +38,10 @@
 
 FILE_DESCR("compositor-ng")
 
+
 /**
  * @brief A nicer, ref-counted version of the FlutterLayer's passed by the engine to the present layer callback.
- * 
+ *
  * Differences to the FlutterLayer's passed to the present layer callback:
  *  - for platform views:
  *    - struct platform_view* object as the platform view instead of int64_t view id
@@ -105,7 +106,7 @@ struct frame_req {
 /**
  * @brief A single display / screen / window that flutter-pi can display flutter contents on. For example, this
  * would be a drmdev with a specific CRTC, mode and connector, or a single fbdev.
- * 
+ *
  */
 struct window {
     struct compositor *compositor;
@@ -128,7 +129,7 @@ struct window {
     /// (Due to the flutter embedder API architecture, we always need to have
     /// a primary surface, other backing stores can only be framebuffers.)
     struct backing_store *backing_store;
-    
+
     /// @brief The EGL/GL compatible backing store if this is a normal egl/gl window.
     struct gbm_surface_backing_store *egl_backing_store;
 
@@ -1077,7 +1078,7 @@ static struct backing_store *window_create_backing_store(struct window *window, 
             window_unlock(window);
             return NULL;
         }
-        
+
         window->egl_backing_store = CAST_GBM_SURFACE_BACKING_STORE_UNCHECKED(surface_ref(CAST_SURFACE_UNCHECKED(egl_store)));
         window->backing_store = CAST_BACKING_STORE_UNCHECKED(surface_ref(CAST_SURFACE_UNCHECKED(egl_store)));
         store = CAST_BACKING_STORE_UNCHECKED(egl_store);
@@ -1382,7 +1383,7 @@ fail_unlock:
 /**
  * @brief The flutter compositor. Responsible for taking the FlutterLayers, processing them into a struct fl_layer_composition*, then passing
  * those to the window so it can show it on screen.
- * 
+ *
  * Right now this is only supports a single output screen only, but in the future we might add multi-screen support.
  * (Possibly one Flutter Engine per view)
  */
@@ -1918,7 +1919,10 @@ static bool on_flutter_create_backing_store(
     COMPILE_ASSERT(sizeof(FlutterBackingStore) == 56);
     memset(backing_store_out, 0, sizeof *backing_store_out);
     backing_store_out->struct_size = sizeof(FlutterBackingStore);
-    
+
+    /// TODO: Make this better
+    // compositor_on_event_fd_ready(compositor);
+
     // backing_store_fill asserts that the user_data is null so it can make sure
     // any concrete backing_store_fill implementation doesn't try to set the user_data.
     // so we set the user_data after the fill
