@@ -145,6 +145,7 @@ add_executable(flutter-pi
   src/vk_gbm_backing_store.c
   src/tracer.c
   src/dmabuf_surface.c
+  src/vsync_waiter.c
   src/plugins/services.c
 )
 

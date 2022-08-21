@@ -54,50 +54,50 @@ struct vk_gbm_backing_store {
 
     /**
      * @brief The vulkan renderer we use for talking to vulkan.
-     * 
+     *
      */
     struct vk_renderer *renderer;
 
     /**
      * @brief Just some vulkan images that are compatible with GBM/DRM/KMS.
-     * 
+     *
      * 4 framebuffers is good enough for most use-cases.
      */
     struct fb fbs[4];
 
     /**
      * @brief This is just some locking wrapper around the simple fbs above.
-     * 
+     *
      * Any locked_fb for which is_locked is false can be locked and then freely used for anything.
      * Everything that needs that locked_fb for something should keep a reference on it.
      * Once the reference count drops to zero, is_locked will be set to false and the fb is ready to be reused again.
-     * 
+     *
      */
     struct locked_fb locked_fbs[4];
 
     /**
      * @brief The framebuffer that was last queued to be presented using @ref vk_gbm_backing_store_queue_present_vulkan.
-     * 
+     *
      * This framebuffer is still locked so we can present it again any time, without worrying about it being acquired by
      * flutter using @ref vk_gbm_backing_store_fill_vulkan. Even when @ref vk_gbm_backing_store_present_kms is called,
      * we don't set this to NULL.
-     * 
+     *
      * This is the framebuffer that will be presented on screen when @ref vk_gbm_backing_store_present_kms or
      * @ref vk_gbm_backing_store_present_fbdev is called.
-     * 
+     *
      */
     struct locked_fb *front_fb;
 
     /**
      * @brief The pixel format to use for all framebuffers.
-     * 
+     *
      */
     enum pixfmt pixel_format;
 
 #ifdef DEBUG
     /**
      * @brief The number of framebuffers that are currently locked.
-     * 
+     *
      */
     atomic_int n_locked_fbs;
 #endif
@@ -118,7 +118,7 @@ static void locked_fb_destroy(struct locked_fb *fb) {
 
 DEFINE_STATIC_REF_OPS(locked_fb, n_refs)
 
-static bool atomic_flag_test(atomic_flag *flag) {
+MAYBE_UNUSED static bool atomic_flag_test(atomic_flag *flag) {
     bool before = atomic_flag_test_and_set(flag);
     if (before == false) {
         atomic_flag_clear(flag);
@@ -126,14 +126,25 @@ static bool atomic_flag_test(atomic_flag *flag) {
     return before;
 }
 
-static void log_locked_fbs(struct vk_gbm_backing_store *store) {
+static void log_locked_fbs(struct vk_gbm_backing_store *store, const char *note) {
+#ifdef VK_LOG_LOCKED_FBS
     LOG_DEBUG(
-        "locked: %c, %c, %c, %c\n",
+        "locked: %c, %c, %c, %c",
         atomic_flag_test(&store->locked_fbs[0].is_locked) ? 'y' : 'n',
         atomic_flag_test(&store->locked_fbs[1].is_locked) ? 'y' : 'n',
         atomic_flag_test(&store->locked_fbs[2].is_locked) ? 'y' : 'n',
         atomic_flag_test(&store->locked_fbs[3].is_locked) ? 'y' : 'n'
     );
+
+    if (note != NULL) {
+        LOG_DEBUG_UNPREFIXED(" (%s)\n", note);
+    } else {
+        LOG_DEBUG_UNPREFIXED("\n");
+    }
+#else
+    (void) store;
+    (void) note;
+#endif
 }
 
 COMPILE_ASSERT(offsetof(struct vk_gbm_backing_store, surface) == 0);
@@ -147,7 +158,7 @@ static const uuid_t uuid = CONST_UUID(0x26, 0xfe, 0x91, 0x53, 0x75, 0xf2, 0x41, 
 #ifdef DEBUG
 ATTR_PURE struct vk_gbm_backing_store *__checked_cast_vk_gbm_backing_store(void *ptr) {
     struct vk_gbm_backing_store *store;
-    
+
     store = CAST_VK_GBM_BACKING_STORE_UNCHECKED(ptr);
     DEBUG_ASSERT(uuid_equals(store->uuid, uuid));
     return store;
@@ -166,7 +177,7 @@ static bool is_srgb_format(VkFormat vk_format) {
 
 static VkFormat srgb_to_unorm_format(VkFormat vk_format) {
     if (vk_format == VK_FORMAT_R8G8B8A8_SRGB) {
-        return VK_FORMAT_R8G8B8A8_UNORM; 
+        return VK_FORMAT_R8G8B8A8_UNORM;
     } else if (vk_format == VK_FORMAT_B8G8R8A8_SRGB) {
         return VK_FORMAT_B8G8R8A8_UNORM;
     } else {
@@ -264,7 +275,7 @@ static int fb_init(struct fb *fb, struct gbm_device *gbm_device, struct vk_rende
         },
         &layout
     );
-    
+
     // Create a GBM BO with the actual memory we're going to use
     bo = gbm_bo_create_with_modifiers(
         gbm_device,
@@ -407,8 +418,8 @@ static int fb_init(struct fb *fb, struct gbm_device *gbm_device, struct vk_rende
     };
 
     return 0;
-    
-    
+
+
     fail_free_device_memory:
     vkFreeMemory(device, img_device_memory, NULL);
     goto fail_destroy_bo;
@@ -478,7 +489,7 @@ int vk_gbm_backing_store_init(
     store->surface.deinit = vk_gbm_backing_store_deinit;
     store->backing_store.fill = vk_gbm_backing_store_fill;
     store->backing_store.queue_present = vk_gbm_backing_store_queue_present;
-    
+
     uuid_copy(&store->uuid, uuid);
     store->renderer = vk_renderer_ref(renderer);
     store->front_fb = NULL;
@@ -503,7 +514,7 @@ ATTR_MALLOC struct vk_gbm_backing_store *vk_gbm_backing_store_new(
 ) {
     struct vk_gbm_backing_store *store;
     int ok;
-    
+
     store = malloc(sizeof *store);
     if (store == NULL) {
         goto fail_return_null;
@@ -548,7 +559,7 @@ struct gbm_bo_meta {
 static void on_destroy_gbm_bo_meta(struct gbm_bo *bo, void *meta_void) {
     struct gbm_bo_meta *meta;
     int ok;
-    
+
     DEBUG_ASSERT_NOT_NULL(bo);
     DEBUG_ASSERT_NOT_NULL(meta_void);
     meta = meta_void;
@@ -580,7 +591,7 @@ static void on_release_layer(void *userdata) {
 
     locked_fb_unref(fb);
 
-    log_locked_fbs(store);
+    log_locked_fbs(store, "release_layer");
     surface_unref(CAST_SURFACE_UNCHECKED(store));
 }
 
@@ -643,7 +654,7 @@ static int vk_gbm_backing_store_present_kms(struct surface *s, const struct fl_l
             has_opaque_fb = false;
             opaque_pixel_format = pixfmt_opaque(store->pixel_format);
             if (get_pixfmt_info(opaque_pixel_format)->is_opaque) {
-                
+
                 TRACER_BEGIN(store->surface.tracer, "drmdev_add_fb (opaque)");
                 opaque_fb_id = drmdev_add_fb(
                     drmdev,
@@ -721,20 +732,20 @@ static int vk_gbm_backing_store_present_kms(struct surface *s, const struct fl_l
             .format = pixel_format,
             .has_modifier = false,
             .modifier = 0,
-            
+
             .dst_x = (int32_t) props->aa_rect.offset.x,
             .dst_y = (int32_t) props->aa_rect.offset.y,
             .dst_w = (uint32_t) props->aa_rect.size.x,
             .dst_h = (uint32_t) props->aa_rect.size.y,
-            
+
             .src_x = 0,
             .src_y = 0,
             .src_w = DOUBLE_TO_FP1616_ROUNDED(store->backing_store.size.x),
             .src_h = DOUBLE_TO_FP1616_ROUNDED(store->backing_store.size.y),
-            
+
             .has_rotation = false,
             .rotation = PLANE_TRANSFORM_ROTATE_0,
-            
+
             .has_in_fence_fd = false,
             .in_fence_fd = 0
         },
@@ -807,12 +818,12 @@ static int vk_gbm_backing_store_fill(struct backing_store *s, FlutterBackingStor
     /// TODO: Remove this once we're using triple buffering
 #ifdef DEBUG
     atomic_fetch_add(&store->n_locked_fbs, 1);
-    log_locked_fbs(CAST_THIS_UNCHECKED(s));
+    log_locked_fbs(CAST_THIS_UNCHECKED(s), "fill");
     //DEBUG_ASSERT_MSG(before + 1 <= 3, "sanity check failed: too many locked fbs for double-buffered vsync");
 #endif
     store->locked_fbs[i].store = CAST_VK_GBM_BACKING_STORE(surface_ref(CAST_SURFACE_UNCHECKED(s)));
     store->locked_fbs[i].n_refs = REFCOUNT_INIT_1;
-    
+
     COMPILE_ASSERT(sizeof(FlutterVulkanBackingStore) == 16);
     fl_store->type = kFlutterBackingStoreTypeVulkan;
     fl_store->vulkan = (FlutterVulkanBackingStore) {
@@ -837,7 +848,7 @@ static int vk_gbm_backing_store_queue_present(struct backing_store *s, const Flu
     struct locked_fb *fb;
 
     store = CAST_THIS(s);
-    
+
     DEBUG_ASSERT_EQUALS(fl_store->type, kFlutterBackingStoreTypeVulkan);
     /// TODO: Implement handling if fl_store->did_update == false
 
@@ -865,7 +876,7 @@ static int vk_gbm_backing_store_queue_present(struct backing_store *s, const Flu
     // Since flutter no longer uses this fb for rendering, we need to unref it
     locked_fb_unref(fb);
 
-    log_locked_fbs(store);
+    log_locked_fbs(store, "queue_present");
 
     surface_unlock(CAST_SURFACE_UNCHECKED(s));
     return 0;
