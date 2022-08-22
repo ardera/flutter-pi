@@ -1,11 +1,13 @@
+#include <stdio.h>
+
 #include "gst/gst.h"
 #include "gst/gstelementfactory.h"
 #include "gst/gstmessage.h"
 #include "gst/gstsegment.h"
 #include "platformchannel.h"
+
 #include <flutter-pi.h>
 #include <plugins/audioplayers.h>
-#include <stdio.h>
 
 FILE_DESCR("audioplayers player")
 
@@ -25,25 +27,24 @@ struct audio_player {
 };
 
 // Private Class functions
-static void audio_player_source_setup(GstElement* playbin, GstElement* source, GstElement** p_src);
-static gboolean audio_player_on_bus_message(GstBus* bus, GstMessage* message, struct audio_player* data);
-static gboolean audio_player_on_refresh(struct audio_player* data);
-static void audio_player_set_playback(struct audio_player* self, int64_t seekTo, double rate);
-static void audio_player_on_media_error(struct audio_player* self, GError* error, gchar* debug);
-static void audio_player_on_media_state_change(struct audio_player* self, GstObject* src, GstState* old_state, GstState* new_state);
-static void audio_player_on_position_update(struct audio_player* self);
-static void audio_player_on_duration_update(struct audio_player* self);
-static void audio_player_on_seek_completed(struct audio_player* self);
-static void audio_player_on_playback_ended(struct audio_player* self);
+static void audio_player_source_setup(GstElement *playbin, GstElement *source, GstElement **p_src);
+static gboolean audio_player_on_bus_message(GstBus *bus, GstMessage *message, struct audio_player *data);
+static gboolean audio_player_on_refresh(struct audio_player *data);
+static void audio_player_set_playback(struct audio_player *self, int64_t seekTo, double rate);
+static void audio_player_on_media_error(struct audio_player *self, GError *error, gchar *debug);
+static void audio_player_on_media_state_change(struct audio_player *self, GstObject *src, GstState *old_state, GstState *new_state);
+static void audio_player_on_position_update(struct audio_player *self);
+static void audio_player_on_duration_update(struct audio_player *self);
+static void audio_player_on_seek_completed(struct audio_player *self);
+static void audio_player_on_playback_ended(struct audio_player *self);
 
-static int on_bus_fd_ready(sd_event_source* src, int fd, uint32_t revents, void* userdata)
-{
-    struct audio_player* player = userdata;
-    GstMessage* msg;
+static int on_bus_fd_ready(sd_event_source *src, int fd, uint32_t revents, void *userdata) {
+    struct audio_player *player = userdata;
+    GstMessage *msg;
 
-    (void)src;
-    (void)fd;
-    (void)revents;
+    (void) src;
+    (void) fd;
+    (void) revents;
 
     /* DEBUG_TRACE_BEGIN(player, "on_bus_fd_ready"); */
 
@@ -58,12 +59,11 @@ static int on_bus_fd_ready(sd_event_source* src, int fd, uint32_t revents, void*
     return 0;
 }
 
-struct audio_player* audio_player_new(char* player_id, char* channel)
-{
+struct audio_player *audio_player_new(char *player_id, char *channel) {
     GPollFD fd;
-    sd_event_source* busfd_event_source;
+    sd_event_source *busfd_event_source;
 
-    struct audio_player* self = malloc(sizeof(struct audio_player));
+    struct audio_player *self = malloc(sizeof(struct audio_player));
     if (self == NULL) {
         return NULL;
     }
@@ -88,7 +88,7 @@ struct audio_player* audio_player_new(char* player_id, char* channel)
     flutterpi_sd_event_add_io(&busfd_event_source, fd.fd, EPOLLIN, on_bus_fd_ready, self);
 
     // Refresh continuously to emit recurring events
-    g_timeout_add(1000, (GSourceFunc)audio_player_on_refresh, self);
+    g_timeout_add(1000, (GSourceFunc) audio_player_on_refresh, self);
 
     self->player_id = malloc(strlen(player_id) + 1);
     if (self->player_id == NULL)
@@ -118,22 +118,20 @@ deinit_player:
     return NULL;
 }
 
-void audio_player_source_setup(GstElement* playbin, GstElement* source, GstElement** p_src)
-{
-    (void)playbin;
-    (void)p_src;
+void audio_player_source_setup(GstElement *playbin, GstElement *source, GstElement **p_src) {
+    (void) playbin;
+    (void) p_src;
     if (g_object_class_find_property(G_OBJECT_GET_CLASS(source), "ssl-strict") != 0) {
         g_object_set(G_OBJECT(source), "ssl-strict", FALSE, NULL);
     }
 }
 
-gboolean audio_player_on_bus_message(GstBus* bus, GstMessage* message, struct audio_player* data)
-{
-    (void)bus;
+gboolean audio_player_on_bus_message(GstBus *bus, GstMessage *message, struct audio_player *data) {
+    (void) bus;
     switch (GST_MESSAGE_TYPE(message)) {
         case GST_MESSAGE_ERROR: {
-            GError* err;
-            gchar* debug;
+            GError *err;
+            gchar *debug;
 
             gst_message_parse_error(message, &err, &debug);
             audio_player_on_media_error(data, err, debug);
@@ -152,9 +150,7 @@ gboolean audio_player_on_bus_message(GstBus* bus, GstMessage* message, struct au
             gst_element_set_state(data->playbin, GST_STATE_READY);
             audio_player_on_playback_ended(data);
             break;
-        case GST_MESSAGE_DURATION_CHANGED:
-            audio_player_on_duration_update(data);
-            break;
+        case GST_MESSAGE_DURATION_CHANGED: audio_player_on_duration_update(data); break;
         case GST_MESSAGE_ASYNC_DONE:
             if (!data->is_seek_completed) {
                 audio_player_on_seek_completed(data);
@@ -171,16 +167,14 @@ gboolean audio_player_on_bus_message(GstBus* bus, GstMessage* message, struct au
     return TRUE;
 }
 
-gboolean audio_player_on_refresh(struct audio_player* data)
-{
+gboolean audio_player_on_refresh(struct audio_player *data) {
     if (data->playbin->current_state == GST_STATE_PLAYING) {
         audio_player_on_position_update(data);
     }
     return TRUE;
 }
 
-void audio_player_set_playback(struct audio_player* self, int64_t seekTo, double rate)
-{
+void audio_player_set_playback(struct audio_player *self, int64_t seekTo, double rate) {
     const GstSeekFlags seek_flags = GST_SEEK_FLAG_FLUSH | GST_SEEK_FLAG_ACCURATE;
 
     if (!self->is_initialized) {
@@ -202,24 +196,11 @@ void audio_player_set_playback(struct audio_player* self, int64_t seekTo, double
     }
     self->is_seek_completed = false;
 
-    GstEvent* seek_event;
+    GstEvent *seek_event;
     if (rate > 0) {
-        seek_event = gst_event_new_seek(
-                rate,
-                GST_FORMAT_TIME,
-                seek_flags,
-                GST_SEEK_TYPE_SET, seekTo * GST_MSECOND,
-                GST_SEEK_TYPE_NONE,
-                -1
-        );
+        seek_event = gst_event_new_seek(rate, GST_FORMAT_TIME, seek_flags, GST_SEEK_TYPE_SET, seekTo * GST_MSECOND, GST_SEEK_TYPE_NONE, -1);
     } else {
-        seek_event = gst_event_new_seek(
-            rate,
-            GST_FORMAT_TIME,
-            seek_flags,
-            GST_SEEK_TYPE_SET, 0,
-            GST_SEEK_TYPE_SET, seekTo * GST_MSECOND
-        );
+        seek_event = gst_event_new_seek(rate, GST_FORMAT_TIME, seek_flags, GST_SEEK_TYPE_SET, 0, GST_SEEK_TYPE_SET, seekTo * GST_MSECOND);
     }
     if (!gst_element_send_event(self->playbin, seek_event)) {
         // FIXME
@@ -227,10 +208,9 @@ void audio_player_set_playback(struct audio_player* self, int64_t seekTo, double
         self->is_seek_completed = true;
     }
 }
-void audio_player_on_media_error(struct audio_player* self, GError* error, gchar* debug)
-{
-    (void)debug;
-    char* error_message = malloc(256 * sizeof(char));
+void audio_player_on_media_error(struct audio_player *self, GError *error, gchar *debug) {
+    (void) debug;
+    char *error_message = malloc(256 * sizeof(char));
     snprintf(error_message, 256, "Error: %d; message=%s", error->code, error->message);
     LOG_ERROR("%s", error_message);
     if (self->channel) {
@@ -251,22 +231,20 @@ void audio_player_on_media_error(struct audio_player* self, GError* error, gchar
     }
 }
 
-void audio_player_on_media_state_change(struct audio_player* self, GstObject* src, GstState* old_state, GstState* new_state)
-{
-    (void)old_state;
+void audio_player_on_media_state_change(struct audio_player *self, GstObject *src, GstState *old_state, GstState *new_state) {
+    (void) old_state;
     if (strcmp(GST_OBJECT_NAME(src), "playbin") == 0) {
         if (*new_state >= GST_STATE_READY) {
             if (!self->is_initialized) {
                 self->is_initialized = true;
-                audio_player_pause(self); // Need to set to pause state, in order to get duration
+                audio_player_pause(self);  // Need to set to pause state, in order to get duration
             }
         } else if (self->is_initialized) {
             self->is_initialized = false;
         }
     }
 }
-void audio_player_on_position_update(struct audio_player* self)
-{
+void audio_player_on_position_update(struct audio_player *self) {
     if (self->channel) {
         // clang-format off
         platch_call_std(
@@ -284,8 +262,7 @@ void audio_player_on_position_update(struct audio_player* self)
         // clang-format on
     }
 }
-void audio_player_on_duration_update(struct audio_player* self)
-{
+void audio_player_on_duration_update(struct audio_player *self) {
     if (self->channel) {
         // clang-format off
         platch_call_std(
@@ -303,8 +280,7 @@ void audio_player_on_duration_update(struct audio_player* self)
         // clang-format on
     }
 }
-void audio_player_on_seek_completed(struct audio_player* self)
-{
+void audio_player_on_seek_completed(struct audio_player *self) {
     if (self->channel) {
         audio_player_on_position_update(self);
         // clang-format off
@@ -323,8 +299,7 @@ void audio_player_on_seek_completed(struct audio_player* self)
         // clang-format on
     }
 }
-void audio_player_on_playback_ended(struct audio_player* self)
-{
+void audio_player_on_playback_ended(struct audio_player *self) {
     audio_player_set_position(self, 0);
     if (audio_player_get_loopin(self)) {
         audio_player_play(self);
@@ -347,18 +322,15 @@ void audio_player_on_playback_ended(struct audio_player* self)
     }
 }
 
-void audio_player_set_looping(struct audio_player* self, bool is_looping)
-{
+void audio_player_set_looping(struct audio_player *self, bool is_looping) {
     self->is_looping = is_looping;
 }
 
-bool audio_player_get_loopin(struct audio_player* self)
-{
+bool audio_player_get_loopin(struct audio_player *self) {
     return self->is_looping;
 }
 
-void audio_player_play(struct audio_player* self)
-{
+void audio_player_play(struct audio_player *self) {
     if (!self->is_initialized) {
         return;
     }
@@ -366,18 +338,16 @@ void audio_player_play(struct audio_player* self)
     audio_player_resume(self);
 }
 
-void audio_player_pause(struct audio_player* self)
-{
+void audio_player_pause(struct audio_player *self) {
     GstStateChangeReturn ret = gst_element_set_state(self->playbin, GST_STATE_PAUSED);
     if (ret == GST_STATE_CHANGE_FAILURE) {
         LOG_ERROR("Unable to set the pipeline to the paused state.");
         return;
     }
-    audio_player_on_position_update(self); // Update to exact position when pausing
+    audio_player_on_position_update(self);  // Update to exact position when pausing
 }
 
-void audio_player_resume(struct audio_player* self)
-{
+void audio_player_resume(struct audio_player *self) {
     if (!self->is_initialized) {
         return;
     }
@@ -386,11 +356,10 @@ void audio_player_resume(struct audio_player* self)
         LOG_ERROR("Unable to set the pipeline to the playing state.");
         return;
     }
-    audio_player_on_duration_update(self); // Update duration when start playing, as no event is emitted elsewhere
+    audio_player_on_duration_update(self);  // Update duration when start playing, as no event is emitted elsewhere
 }
 
-void audio_player_dispose(struct audio_player* self)
-{
+void audio_player_dispose(struct audio_player *self) {
     if (self->is_initialized) {
         audio_player_pause(self);
     }
@@ -421,8 +390,7 @@ void audio_player_dispose(struct audio_player* self)
     }
 }
 
-int64_t audio_player_get_position(struct audio_player* self)
-{
+int64_t audio_player_get_position(struct audio_player *self) {
     gint64 current = 0;
     if (!gst_element_query_position(self->playbin, GST_FORMAT_TIME, &current)) {
         LOG_ERROR("Could not query current position.");
@@ -431,8 +399,7 @@ int64_t audio_player_get_position(struct audio_player* self)
     return current / 1000000;
 }
 
-int64_t audio_player_get_duration(struct audio_player* self)
-{
+int64_t audio_player_get_duration(struct audio_player *self) {
     gint64 duration = 0;
     if (!gst_element_query_duration(self->playbin, GST_FORMAT_TIME, &duration)) {
         LOG_ERROR("Could not query current duration.");
@@ -441,8 +408,7 @@ int64_t audio_player_get_duration(struct audio_player* self)
     return duration / 1000000;
 }
 
-void audio_player_set_volume(struct audio_player* self, double volume)
-{
+void audio_player_set_volume(struct audio_player *self, double volume) {
     if (volume > 1) {
         volume = 1;
     } else if (volume < 0) {
@@ -451,21 +417,18 @@ void audio_player_set_volume(struct audio_player* self, double volume)
     g_object_set(G_OBJECT(self->playbin), "volume", volume, NULL);
 }
 
-void audio_player_set_playback_rate(struct audio_player* self, double rate)
-{
+void audio_player_set_playback_rate(struct audio_player *self, double rate) {
     audio_player_set_playback(self, audio_player_get_position(self), rate);
 }
 
-void audio_player_set_position(struct audio_player* self, int64_t position)
-{
+void audio_player_set_position(struct audio_player *self, int64_t position) {
     if (!self->is_initialized) {
         return;
     }
     audio_player_set_playback(self, position, self->playback_rate);
 }
 
-void audio_player_set_source_url(struct audio_player* self, char* url)
-{
+void audio_player_set_source_url(struct audio_player *self, char *url) {
     if (self->url == NULL || strcmp(self->url, url)) {
         if (self->url != NULL) {
             free(self->url);
@@ -484,6 +447,6 @@ void audio_player_set_source_url(struct audio_player* self, char* url)
     }
 }
 
-bool audio_player_is_id(struct audio_player* self, char* player_id) {
+bool audio_player_is_id(struct audio_player *self, char *player_id) {
     return strcmp(self->player_id, player_id) == 0;
 }
