@@ -1,53 +1,40 @@
 #ifndef AUDIOPLAYERS_H_
 #define AUDIOPLAYERS_H_
 
-#include <gst/gst.h>
 #include <stdbool.h>
+#include <stdint.h>
+#include <gst/gst.h>
 
-typedef struct AudioPlayer
-{
-    GstElement* playbin;
-    GstElement* source;
-    GstBus* bus;
+struct audio_player;
 
-    bool _isInitialized;
-    bool _isLooping;
-    bool _isSeekCompleted;
-    double _playbackRate;
-
-    char* url;
-    char* playerId;
-    /* FlMethodChannel* _channel; */
-    char* _channel;
-
-} AudioPlayer;
-
-AudioPlayer* AudioPlayer_new(char* playerId, char* channel);
+struct audio_player* audio_player_new(char* playerId, char* channel);
 
 // Instance function
 
-int64_t AudioPlayer_GetPosition(AudioPlayer* self);
+int64_t audio_player_get_position(struct audio_player* self);
 
-int64_t AudioPlayer_GetDuration(AudioPlayer* self);
+int64_t audio_player_get_duration(struct audio_player* self);
 
-bool AudioPlayer_GetLooping(AudioPlayer* self);
+bool audio_player_get_loopin(struct audio_player* self);
 
-void AudioPlayer_Play(AudioPlayer* self);
+void audio_player_play(struct audio_player* self);
 
-void AudioPlayer_Pause(AudioPlayer* self);
+void audio_player_pause(struct audio_player* self);
 
-void AudioPlayer_Resume(AudioPlayer* self);
+void audio_player_resume(struct audio_player* self);
 
-void AudioPlayer_Dispose(AudioPlayer* self);
+void audio_player_dispose(struct audio_player* self);
 
-void AudioPlayer_SetLooping(AudioPlayer* self, bool isLooping);
+void audio_player_set_looping(struct audio_player* self, bool isLooping);
 
-void AudioPlayer_SetVolume(AudioPlayer* self, double volume);
+void audio_player_set_volume(struct audio_player* self, double volume);
 
-void AudioPlayer_SetPlaybackRate(AudioPlayer* self, double rate);
+void audio_player_set_playback_rate(struct audio_player* self, double rate);
 
-void AudioPlayer_SetPosition(AudioPlayer* self, int64_t position);
+void audio_player_set_position(struct audio_player* self, int64_t position);
 
-void AudioPlayer_SetSourceUrl(AudioPlayer* self, char* url);
+void audio_player_set_source_url(struct audio_player* self, char* url);
+
+bool audio_player_is_id(struct audio_player* self, char* id);
 
 #endif // AUDIOPLAYERS_H_

@@ -5,12 +5,12 @@
 
 #include "plugins/audioplayers.h"
 
-FILE_DESCR("Audioplayers")
+FILE_DESCR("audioplayers plugin")
 
 #define AUDIOPLAYERS_LOCAL_CHANNEL "xyz.luan/audioplayers"
 #define AUDIOPLAYERS_GLOBAL_CHANNEL "xyz.luan/audioplayers.global"
 
-static AudioPlayer* audioplayers_linux_plugin_get_player(char* playerId, char* mode);
+static struct audio_player* audioplayers_linux_plugin_get_player(char* player_id, char* mode);
 
 static struct plugin
 {
@@ -28,96 +28,86 @@ static int on_local_method_call(char* channel, struct platch_obj* object, Flutte
     (void)channel;
 
     method = object->method;
-    struct std_value* flPlayerId = stdmap_get_str(&object->std_arg, "playerId");
-    if (flPlayerId == NULL) {
-        LOG_ERROR("Call missing mandatory parameter playerId.");
-        result = 0;
+    struct std_value* fl_player_id = stdmap_get_str(&object->std_arg, "player_id");
+    if (fl_player_id == NULL) {
+        LOG_ERROR("Call missing mandatory parameter player_id.");
+        return platch_respond_illegal_arg_std(responsehandle, "Expected `arg['player_id'] to be a string.");
     }
-    char* playerId = STDVALUE_AS_STRING(*flPlayerId);
+    char* player_id = STDVALUE_AS_STRING(*fl_player_id);
 
     struct std_value* args = &object->std_arg;
-    struct std_value* flMode = stdmap_get_str(args, "mode");
+    struct std_value* fl_mode = stdmap_get_str(args, "mode");
 
-    char* mode = flMode == NULL ? "" : STDVALUE_AS_STRING(*flMode);
+    char* mode = fl_mode == NULL ? "" : STDVALUE_AS_STRING(*fl_mode);
 
     // CONTINE
-    AudioPlayer* player = audioplayers_linux_plugin_get_player(playerId, mode);
+    struct audio_player* player = audioplayers_linux_plugin_get_player(player_id, mode);
 
     if (strcmp(method, "pause") == 0) {
-        AudioPlayer_Pause(player);
-        result = 1;
+        audio_player_pause(player);
     } else if (strcmp(method, "resume") == 0) {
-        AudioPlayer_Resume(player);
-        result = 1;
+        audio_player_resume(player);
     } else if (strcmp(method, "stop") == 0) {
-        AudioPlayer_Pause(player);
-        AudioPlayer_SetPosition(player, 0);
-        result = 1;
+        audio_player_pause(player);
+        audio_player_set_position(player, 0);
     } else if (strcmp(method, "release") == 0) {
-        AudioPlayer_Pause(player);
-        AudioPlayer_SetPosition(player, 0);
-        result = 1;
+        audio_player_pause(player);
+        audio_player_set_position(player, 0);
     } else if (strcmp(method, "seek") == 0) {
-        struct std_value* flPosition = stdmap_get_str(args, "position");
-        int position = flPosition == NULL ? (int)(AudioPlayer_GetPosition(player)) : STDVALUE_AS_INT(*flPosition);
-        AudioPlayer_SetPosition(player, position);
-        result = 1;
+        struct std_value* fl_position = stdmap_get_str(args, "position");
+        int position = fl_position == NULL ? (int)(audio_player_get_position(player)) : STDVALUE_AS_INT(*fl_position);
+        audio_player_set_position(player, position);
     } else if (strcmp(method, "setSourceUrl") == 0) {
-        struct std_value* flUrl = stdmap_get_str(args, "url");
-        if (flUrl == NULL) {
+        struct std_value* fl_url = stdmap_get_str(args, "url");
+        if (fl_url == NULL) {
             LOG_ERROR("Null URL received on setSourceUrl");
             result = 0;
             return platch_respond_illegal_arg_std(responsehandle, "URL is NULL");
         }
-        char* url = STDVALUE_AS_STRING(*flUrl);
+        char* url = STDVALUE_AS_STRING(*fl_url);
 
-        struct std_value* flIsLocal = stdmap_get_str(args, "isLocal");
-        bool isLocal = (flIsLocal == NULL) ? false : STDVALUE_AS_BOOL(*flIsLocal);
-        if (isLocal) {
+        struct std_value* fl_is_local = stdmap_get_str(args, "is_local");
+        bool is_local = (fl_is_local == NULL) ? false : STDVALUE_AS_BOOL(*fl_is_local);
+        if (is_local) {
             size_t size = strlen(url) + 7 + 1;
             char* tmp = malloc(size);
             snprintf(tmp, size, "file://%s", url);
             url = tmp;
         }
-        AudioPlayer_SetSourceUrl(player, url);
-        result = 1;
+        audio_player_set_source_url(player, url);
     } else if (strcmp(method, "getDuration") == 0) {
-        result = AudioPlayer_GetDuration(player);
+        result = audio_player_get_duration(player);
     } else if (strcmp(method, "setVolume") == 0) {
-        struct std_value* flVolume = stdmap_get_str(args, "volume");
-        if (flVolume == NULL) {
+        struct std_value* fl_volume = stdmap_get_str(args, "volume");
+        if (fl_volume == NULL) {
             LOG_ERROR("setVolume called with NULL arg, setting vol to 1.0");
-            AudioPlayer_SetVolume(player, 1.0);
-        } else if (!STDVALUE_IS_FLOAT(*flVolume)) {
+            audio_player_set_volume(player, 1.0);
+        } else if (!STDVALUE_IS_FLOAT(*fl_volume)) {
             LOG_ERROR("setVolume called with non float arg, setting vol to 1.0");
-            AudioPlayer_SetVolume(player, 1.0);
+            audio_player_set_volume(player, 1.0);
         } else {
-            double volume = STDVALUE_AS_FLOAT(*flVolume);
-            AudioPlayer_SetVolume(player, volume);
+            double volume = STDVALUE_AS_FLOAT(*fl_volume);
+            audio_player_set_volume(player, volume);
         }
-        result = 1;
     } else if (strcmp(method, "getCurrentPosition") == 0) {
-        result = AudioPlayer_GetPosition(player);
+        result = audio_player_get_position(player);
     } else if (strcmp(method, "setPlaybackRate") == 0) {
-        struct std_value* flPlaybackRate = stdmap_get_str(args, "playbackRate");
-        double playbackRate = flPlaybackRate == NULL ? 1.0 : STDVALUE_AS_FLOAT(*flPlaybackRate);
-        AudioPlayer_SetPlaybackRate(player, playbackRate);
-        result = 1;
+        struct std_value* fl_playback_rate = stdmap_get_str(args, "playback_rate");
+        double playback_rate = fl_playback_rate == NULL ? 1.0 : STDVALUE_AS_FLOAT(*fl_playback_rate);
+        audio_player_set_playback_rate(player, playback_rate);
     } else if (strcmp(method, "setReleaseMode") == 0) {
-        struct std_value* flReleaseMode = stdmap_get_str(args, "releaseMode");
-        char* releaseMode = flReleaseMode == NULL ? "" : STDVALUE_AS_STRING(*flReleaseMode);
-        if (releaseMode == NULL) {
-            LOG_ERROR("Error calling setReleaseMode, releaseMode cannot be null");
+        struct std_value* fl_release_mode = stdmap_get_str(args, "release_mode");
+        char* release_mode = fl_release_mode == NULL ? "" : STDVALUE_AS_STRING(*fl_release_mode);
+        if (release_mode == NULL) {
+            LOG_ERROR("Error calling setReleaseMode, release_mode cannot be null");
             result = 0;
-            return platch_respond_illegal_arg_std(responsehandle, "releaseMode cannot be null");
+            return platch_respond_illegal_arg_std(responsehandle, "release_mode cannot be null");
         }
-        bool looping = strstr(releaseMode, "loop") != NULL;
-        AudioPlayer_SetLooping(player, looping);
-        result = 1;
+        bool looping = strstr(release_mode, "loop") != NULL;
+        audio_player_set_looping(player, looping);
     } else if (strcmp(method, "setPlayerMode") == 0) {
         // TODO check support for low latency mode:
         // https://gstreamer.freedesktop.org/documentation/additional/design/latency.html?gi-language=c
-        result = 1;
     } else {
         return platch_respond_not_implemented(responsehandle);
     }
@@ -178,23 +168,23 @@ void audioplayers_plugin_deinit(struct flutterpi* flutterpi, void* userdata)
     plugin_registry_remove_receiver(AUDIOPLAYERS_GLOBAL_CHANNEL);
     plugin_registry_remove_receiver(AUDIOPLAYERS_LOCAL_CHANNEL);
 
-    AudioPlayer* ptr;
+    struct audio_player* ptr;
     for_each_pointer_in_cpset(&plugin.players, ptr)
     {
-        AudioPlayer_Dispose(ptr);
+        audio_player_dispose(ptr);
     }
 
     cpset_deinit(&plugin.players);
 }
 
-static AudioPlayer* audioplayers_linux_plugin_get_player(char* playerId, char* mode)
+static struct audio_player* audioplayers_linux_plugin_get_player(char* player_id, char* mode)
 {
     (void)mode;
-    AudioPlayer* player = NULL;
-    AudioPlayer* p;
+    struct audio_player* player = NULL;
+    struct audio_player* p;
     for_each_pointer_in_cpset(&plugin.players, p)
     {
-        if (!strcmp(p->playerId, playerId)) {
+        if (audio_player_is_id(p, player_id)) {
             player = p;
             break;
         }
@@ -202,10 +192,10 @@ static AudioPlayer* audioplayers_linux_plugin_get_player(char* playerId, char* m
     if (player != NULL) {
         return player;
     } else {
-        AudioPlayer* player = AudioPlayer_new(playerId, AUDIOPLAYERS_LOCAL_CHANNEL);
+        player = audio_player_new(player_id, AUDIOPLAYERS_LOCAL_CHANNEL);
         cpset_put_locked(&plugin.players, player);
         return player;
     }
 }
 
-FLUTTERPI_PLUGIN("audioplayers_flutter_pi", audioplayers, audioplayers_plugin_init, audioplayers_plugin_deinit)
+FLUTTERPI_PLUGIN("audioplayers", audioplayers, audioplayers_plugin_init, audioplayers_plugin_deinit)
