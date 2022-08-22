@@ -77,7 +77,8 @@ struct audio_player *audio_player_new(char *player_id, char *channel) {
     gst_init(NULL, NULL);
     self->playbin = gst_element_factory_make("playbin", "playbin");
     if (!self->playbin) {
-        LOG_ERROR("Not all elements could be created");
+        LOG_ERROR("Could not create gstreamer playbin.\n");
+        goto deinit_self;
     }
     g_signal_connect(self->playbin, "source-setup", G_CALLBACK(audio_player_source_setup), &self->source);
 
@@ -90,15 +91,13 @@ struct audio_player *audio_player_new(char *player_id, char *channel) {
     // Refresh continuously to emit recurring events
     g_timeout_add(1000, (GSourceFunc) audio_player_on_refresh, self);
 
-    self->player_id = malloc(strlen(player_id) + 1);
+    self->player_id = strdup(player_id);
     if (self->player_id == NULL)
         goto deinit_player;
-    strcpy(self->player_id, player_id);
 
-    self->channel = malloc(strlen(channel) + 1);
+    self->channel = strdup(channel);
     if (self->channel == NULL)
         goto deinit_player_id;
-    strcpy(self->channel, channel);
 
     return self;
 
@@ -114,16 +113,21 @@ deinit_player:
     gst_element_set_state(self->playbin, GST_STATE_NULL);
     gst_object_unref(self->playbin);
 
+deinit_self:
     free(self);
     return NULL;
 }
 
 void audio_player_source_setup(GstElement *playbin, GstElement *source, GstElement **p_src) {
     (void) playbin;
+    (void) source;
     (void) p_src;
+    /**
+     * Consider if we want to add option to enable strict SSL check.
     if (g_object_class_find_property(G_OBJECT_GET_CLASS(source), "ssl-strict") != 0) {
         g_object_set(G_OBJECT(source), "ssl-strict", FALSE, NULL);
     }
+    */
 }
 
 gboolean audio_player_on_bus_message(GstBus *bus, GstMessage *message, struct audio_player *data) {
@@ -203,16 +207,15 @@ void audio_player_set_playback(struct audio_player *self, int64_t seekTo, double
         seek_event = gst_event_new_seek(rate, GST_FORMAT_TIME, seek_flags, GST_SEEK_TYPE_SET, 0, GST_SEEK_TYPE_SET, seekTo * GST_MSECOND);
     }
     if (!gst_element_send_event(self->playbin, seek_event)) {
-        // FIXME
-        LOG_ERROR("Could not set playback to position %ld and rate %f.", seekTo, rate);
+        // Not clear how to treat this error?
+        LOG_ERROR("Could not set playback to position " GST_TIME_FORMAT " and rate %u.\n", GST_TIME_ARGS(seekTo * GST_MSECOND), rate);
         self->is_seek_completed = true;
     }
 }
 void audio_player_on_media_error(struct audio_player *self, GError *error, gchar *debug) {
     (void) debug;
-    char *error_message = malloc(256 * sizeof(char));
-    snprintf(error_message, 256, "Error: %d; message=%s", error->code, error->message);
-    LOG_ERROR("%s", error_message);
+    char error_message[256] = {0};
+    snprintf(error_message, sizeof(error_message), "Error: %d; message=%s", error->code, error->message);
     if (self->channel) {
         // clang-format off
         platch_call_std(
@@ -301,7 +304,7 @@ void audio_player_on_seek_completed(struct audio_player *self) {
 }
 void audio_player_on_playback_ended(struct audio_player *self) {
     audio_player_set_position(self, 0);
-    if (audio_player_get_loopin(self)) {
+    if (audio_player_get_looping(self)) {
         audio_player_play(self);
     }
     if (self->channel) {
@@ -326,7 +329,7 @@ void audio_player_set_looping(struct audio_player *self, bool is_looping) {
     self->is_looping = is_looping;
 }
 
-bool audio_player_get_loopin(struct audio_player *self) {
+bool audio_player_get_looping(struct audio_player *self) {
     return self->is_looping;
 }
 
@@ -341,7 +344,7 @@ void audio_player_play(struct audio_player *self) {
 void audio_player_pause(struct audio_player *self) {
     GstStateChangeReturn ret = gst_element_set_state(self->playbin, GST_STATE_PAUSED);
     if (ret == GST_STATE_CHANGE_FAILURE) {
-        LOG_ERROR("Unable to set the pipeline to the paused state.");
+        LOG_ERROR("Unable to set the pipeline to the paused state.\n");
         return;
     }
     audio_player_on_position_update(self);  // Update to exact position when pausing
@@ -353,13 +356,14 @@ void audio_player_resume(struct audio_player *self) {
     }
     GstStateChangeReturn ret = gst_element_set_state(self->playbin, GST_STATE_PLAYING);
     if (ret == GST_STATE_CHANGE_FAILURE) {
-        LOG_ERROR("Unable to set the pipeline to the playing state.");
+        LOG_ERROR("Unable to set the pipeline to the playing state.\n");
         return;
     }
-    audio_player_on_duration_update(self);  // Update duration when start playing, as no event is emitted elsewhere
+    // Update duration when start playing, as no event is emitted elsewhere
+    audio_player_on_duration_update(self);
 }
 
-void audio_player_dispose(struct audio_player *self) {
+void audio_player_destroy(struct audio_player *self) {
     if (self->is_initialized) {
         audio_player_pause(self);
     }
@@ -393,7 +397,7 @@ void audio_player_dispose(struct audio_player *self) {
 int64_t audio_player_get_position(struct audio_player *self) {
     gint64 current = 0;
     if (!gst_element_query_position(self->playbin, GST_FORMAT_TIME, &current)) {
-        LOG_ERROR("Could not query current position.");
+        LOG_ERROR("Could not query current position.\n");
         return 0;
     }
     return current / 1000000;
@@ -402,7 +406,7 @@ int64_t audio_player_get_position(struct audio_player *self) {
 int64_t audio_player_get_duration(struct audio_player *self) {
     gint64 duration = 0;
     if (!gst_element_query_duration(self->playbin, GST_FORMAT_TIME, &duration)) {
-        LOG_ERROR("Could not query current duration.");
+        LOG_ERROR("Could not query current duration.\n");
         return 0;
     }
     return duration / 1000000;
@@ -434,8 +438,7 @@ void audio_player_set_source_url(struct audio_player *self, char *url) {
             free(self->url);
             self->url = NULL;
         }
-        self->url = malloc(strlen(url) + 1);
-        strcpy(self->url, url);
+        self->url = strdup(url);
         gst_element_set_state(self->playbin, GST_STATE_NULL);
         if (strlen(self->url) != 0) {
             g_object_set(self->playbin, "uri", self->url, NULL);

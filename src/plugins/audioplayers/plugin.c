@@ -19,28 +19,36 @@ static struct plugin {
 } plugin;
 
 static int on_local_method_call(char *channel, struct platch_obj *object, FlutterPlatformMessageResponseHandle *responsehandle) {
+    struct audio_player *player;
+    struct std_value *args, *tmp;
     const char *method;
+    char *player_id, *mode;
     int result = 1;
-
     (void) responsehandle;
     (void) channel;
-
     method = object->method;
-    struct std_value *fl_player_id = stdmap_get_str(&object->std_arg, "player_id");
-    if (fl_player_id == NULL) {
-        LOG_ERROR("Call missing mandatory parameter player_id.");
+    args = &object->std_arg;
+
+    if (args == NULL || !STDVALUE_IS_MAP(*args)) {
+        return platch_respond_illegal_arg_std(responsehandle, "Expected `arg` to be a map.");
+    }
+
+    tmp = stdmap_get_str(&object->std_arg, "player_id");
+    if (tmp == NULL || !STDVALUE_IS_STRING(*tmp)) {
+        LOG_ERROR("Call missing mandatory parameter player_id.\n");
         return platch_respond_illegal_arg_std(responsehandle, "Expected `arg['player_id'] to be a string.");
     }
-    char *player_id = STDVALUE_AS_STRING(*fl_player_id);
+    player_id = STDVALUE_AS_STRING(*tmp);
+    tmp = stdmap_get_str(args, "mode");
+    if (tmp == NULL) {
+        mode = "";
+    } else if (STDVALUE_IS_STRING(*tmp)) {
+        mode = STDVALUE_AS_STRING(*tmp);
+    } else {
+        return platch_respond_illegal_arg_std(responsehandle, "Expected `arg['mode']` to be a string or null.");
+    }
 
-    struct std_value *args = &object->std_arg;
-    struct std_value *fl_mode = stdmap_get_str(args, "mode");
-
-    char *mode = fl_mode == NULL ? "" : STDVALUE_AS_STRING(*fl_mode);
-
-    // CONTINE
-    struct audio_player *player = audioplayers_linux_plugin_get_player(player_id, mode);
-
+    player = audioplayers_linux_plugin_get_player(player_id, mode);
     if (strcmp(method, "pause") == 0) {
         audio_player_pause(player);
     } else if (strcmp(method, "resume") == 0) {
@@ -58,7 +66,7 @@ static int on_local_method_call(char *channel, struct platch_obj *object, Flutte
     } else if (strcmp(method, "setSourceUrl") == 0) {
         struct std_value *fl_url = stdmap_get_str(args, "url");
         if (fl_url == NULL) {
-            LOG_ERROR("Null URL received on setSourceUrl");
+            LOG_ERROR("Null URL received on setSourceUrl\n");
             result = 0;
             return platch_respond_illegal_arg_std(responsehandle, "URL is NULL");
         }
@@ -78,10 +86,10 @@ static int on_local_method_call(char *channel, struct platch_obj *object, Flutte
     } else if (strcmp(method, "setVolume") == 0) {
         struct std_value *fl_volume = stdmap_get_str(args, "volume");
         if (fl_volume == NULL) {
-            LOG_ERROR("setVolume called with NULL arg, setting vol to 1.0");
+            LOG_ERROR("setVolume called with NULL arg, setting vol to 1.0\n");
             audio_player_set_volume(player, 1.0);
         } else if (!STDVALUE_IS_FLOAT(*fl_volume)) {
-            LOG_ERROR("setVolume called with non float arg, setting vol to 1.0");
+            LOG_ERROR("setVolume called with non float arg, setting vol to 1.0\n");
             audio_player_set_volume(player, 1.0);
         } else {
             double volume = STDVALUE_AS_FLOAT(*fl_volume);
@@ -97,7 +105,7 @@ static int on_local_method_call(char *channel, struct platch_obj *object, Flutte
         struct std_value *fl_release_mode = stdmap_get_str(args, "release_mode");
         char *release_mode = fl_release_mode == NULL ? "" : STDVALUE_AS_STRING(*fl_release_mode);
         if (release_mode == NULL) {
-            LOG_ERROR("Error calling setReleaseMode, release_mode cannot be null");
+            LOG_ERROR("Error calling setReleaseMode, release_mode cannot be null\n");
             result = 0;
             return platch_respond_illegal_arg_std(responsehandle, "release_mode cannot be null");
         }
@@ -121,10 +129,7 @@ static int on_global_method_call(char *channel, struct platch_obj *object, Flutt
 
     method = object->method;
 
-    return platch_respond(
-        responsehandle,
-        &(struct platch_obj){ .codec = kStandardMethodCallResponse, .success = true, .std_result = { .type = kStdTrue } }
-    );
+    return platch_respond_success_std(responsehandle, &STDBOOL(true));
 }
 
 enum plugin_init_result audioplayers_plugin_init(struct flutterpi *flutterpi, void **userdata_out) {
@@ -166,7 +171,7 @@ void audioplayers_plugin_deinit(struct flutterpi *flutterpi, void *userdata) {
 
     struct audio_player *ptr;
     for_each_pointer_in_cpset(&plugin.players, ptr) {
-        audio_player_dispose(ptr);
+        audio_player_destroy(ptr);
     }
 
     cpset_deinit(&plugin.players);
@@ -174,21 +179,16 @@ void audioplayers_plugin_deinit(struct flutterpi *flutterpi, void *userdata) {
 
 static struct audio_player *audioplayers_linux_plugin_get_player(char *player_id, char *mode) {
     (void) mode;
-    struct audio_player *player = NULL;
-    struct audio_player *p;
-    for_each_pointer_in_cpset(&plugin.players, p) {
-        if (audio_player_is_id(p, player_id)) {
-            player = p;
-            break;
+    struct audio_player *player;
+    for_each_pointer_in_cpset(&plugin.players, player) {
+        if (audio_player_is_id(player, player_id)) {
+            return player;
         }
     }
-    if (player != NULL) {
-        return player;
-    } else {
-        player = audio_player_new(player_id, AUDIOPLAYERS_LOCAL_CHANNEL);
-        cpset_put_locked(&plugin.players, player);
-        return player;
-    }
+
+    player = audio_player_new(player_id, AUDIOPLAYERS_LOCAL_CHANNEL);
+    cpset_put_locked(&plugin.players, player);
+    return player;
 }
 
 FLUTTERPI_PLUGIN("audioplayers", audioplayers, audioplayers_plugin_init, audioplayers_plugin_deinit)

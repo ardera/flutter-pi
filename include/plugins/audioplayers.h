@@ -16,7 +16,7 @@ int64_t audio_player_get_position(struct audio_player *self);
 
 int64_t audio_player_get_duration(struct audio_player *self);
 
-bool audio_player_get_loopin(struct audio_player *self);
+bool audio_player_get_looping(struct audio_player *self);
 
 void audio_player_play(struct audio_player *self);
 
@@ -24,7 +24,7 @@ void audio_player_pause(struct audio_player *self);
 
 void audio_player_resume(struct audio_player *self);
 
-void audio_player_dispose(struct audio_player *self);
+void audio_player_destroy(struct audio_player *self);
 
 void audio_player_set_looping(struct audio_player *self, bool isLooping);
 
