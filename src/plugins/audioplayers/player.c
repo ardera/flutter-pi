@@ -208,7 +208,8 @@ void audio_player_set_playback(struct audio_player *self, int64_t seekTo, double
     }
     if (!gst_element_send_event(self->playbin, seek_event)) {
         // Not clear how to treat this error?
-        LOG_ERROR("Could not set playback to position " GST_TIME_FORMAT " and rate %u.\n", GST_TIME_ARGS(seekTo * GST_MSECOND), rate);
+        const int64_t seekMs = seekTo * GST_MSECOND;
+        LOG_ERROR("Could not set playback to position " GST_STIME_FORMAT " and rate %f.\n", GST_TIME_ARGS(seekMs), rate);
         self->is_seek_completed = true;
     }
 }

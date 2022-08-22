@@ -122,12 +122,9 @@ static int on_local_method_call(char *channel, struct platch_obj *object, Flutte
 }
 
 static int on_global_method_call(char *channel, struct platch_obj *object, FlutterPlatformMessageResponseHandle *responsehandle) {
-    const char *method;
-
     (void) responsehandle;
     (void) channel;
-
-    method = object->method;
+    (void) object;
 
     return platch_respond_success_std(responsehandle, &STDBOOL(true));
 }
