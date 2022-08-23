@@ -434,6 +434,7 @@ void audio_player_set_position(struct audio_player *self, int64_t position) {
 }
 
 void audio_player_set_source_url(struct audio_player *self, char *url) {
+    DEBUG_ASSERT_NOT_NULL(url);
     if (self->url == NULL || strcmp(self->url, url)) {
         if (self->url != NULL) {
             free(self->url);
