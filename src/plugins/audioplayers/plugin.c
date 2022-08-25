@@ -60,8 +60,12 @@ static int on_local_method_call(char *channel, struct platch_obj *object, Flutte
         audio_player_pause(player);
         audio_player_set_position(player, 0);
     } else if (strcmp(method, "seek") == 0) {
-        struct std_value *fl_position = stdmap_get_str(args, "position");
-        int position = fl_position == NULL ? (int) (audio_player_get_position(player)) : STDVALUE_AS_INT(*fl_position);
+        tmp = stdmap_get_str(args, "position");
+        if (tmp == NULL || !STDVALUE_IS_INT(*tmp)) {
+            return platch_respond_illegal_arg_std(responsehandle, "Expected `arg['position']` to be an int.");
+        }
+        
+        int64_t position = STDVALUE_AS_INT(*tmp);
         audio_player_set_position(player, position);
     } else if (strcmp(method, "setSourceUrl") == 0) {
         struct std_value *fl_url = stdmap_get_str(args, "url");
