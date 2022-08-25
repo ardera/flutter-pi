@@ -4,8 +4,6 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#include <gst/gst.h>
-
 struct audio_player;
 
 struct audio_player *audio_player_new(char *playerId, char *channel);
