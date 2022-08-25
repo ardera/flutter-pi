@@ -40,8 +40,10 @@ option(BUILD_TEXT_INPUT_PLUGIN "Include the text input plugin in the finished bi
 option(BUILD_RAW_KEYBOARD_PLUGIN "Include the raw keyboard plugin in the finished binary. Enables raw keycode listening in flutter via the flutter RawKeyboard interface." ON)
 option(BUILD_TEST_PLUGIN "Include the test plugin in the finished binary. Allows testing platform channel communication." OFF)
 option(BUILD_OMXPLAYER_VIDEO_PLAYER_PLUGIN "Include the omxplayer_video_player plugin in the finished binary. Allows for hardware accelerated video playback in flutter using omxplayer." ON)
-option(BUILD_GSTREAMER_AUDIO_VIDEO_PLAYER_PLUGIN "Include the gstreamer based video and audio plugins in the finished binary. Allows for more stable, hardware accelerated video playback in flutter using gstreamer." ON)
-option(TRY_BUILD_GSTREAMER_AUDIO_VIDEO_PLAYER_PLUGIN "Don't throw an error if the gstreamer libs aren't found, instead just don't build the gstreamer audio and video player plugin in that case." ON)
+option(BUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN "Include the gstreamer based video plugins in the finished binary. Allows for more stable, hardware accelerated video playback in flutter using gstreamer." ON)
+option(BUILD_GSTREAMER_AUDIO_PLAYER_PLUGIN "Include the gstreamer based audio plugins in the finished binary." ON)
+option(TRY_BUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN "Don't throw an error if the gstreamer libs aren't found, instead just don't build the gstreamer video player plugin in that case." ON)
+option(TRY_BUILD_GSTREAMER_AUDIO_PLAYER_PLUGIN "Don't throw an error if the gstreamer libs aren't found, instead just don't build gstreamer audio plugin." ON)
 option(DUMP_ENGINE_LAYERS "True if flutter-pi should dump the list of rendering layers that the flutter engine sends to flutter-pi on each draw." OFF)
 option(ENABLE_TSAN "True to build & link with -fsanitize=thread" OFF)
 option(ENABLE_ASAN "True to build & link with -fsanitize=address" OFF)
@@ -130,7 +132,7 @@ target_link_libraries(flutter-pi
   ${GBM_LDFLAGS}
   ${EGL_LDFLAGS}
   ${GLESV2_LDFLAGS}
-  EGL 
+  EGL
   systemd #${LIBSYSTEMD_LDFLAGS}
   input #${LIBINPUT_LDFLAGS}
   xkbcommon #${LIBUDEV_LDFLAGS}
@@ -153,7 +155,7 @@ target_include_directories(flutter-pi PRIVATE
 )
 
 target_compile_options(flutter-pi PRIVATE
-  ${DRM_CFLAGS}  
+  ${DRM_CFLAGS}
   ${GBM_CFLAGS}
   ${EGL_CFLAGS}
   ${GLESV2_CFLAGS}
@@ -166,7 +168,7 @@ target_compile_options(flutter-pi PRIVATE
   $<$<CONFIG:Release>:-O2 -Wall -Wextra -Wno-unused-function -Wno-sign-compare -Wno-missing-field-initializers -ggdb>
 )
 
-# TODO: Just unconditionally define those, make them optional later 
+# TODO: Just unconditionally define those, make them optional later
 target_compile_definitions(flutter-pi PRIVATE HAS_KMS HAS_EGL HAS_GBM HAS_FBDEV)
 
 # TODO: We actually don't need the compile definitions anymore, except for
@@ -191,21 +193,19 @@ endif()
 if (OMXPLAYER_SUPPORTS_RUNTIME_ROTATION)
   target_compile_definitions(flutter-pi PRIVATE "OMXPLAYER_SUPPORTS_RUNTIME_ROTATION")
 endif()
-if (BUILD_GSTREAMER_AUDIO_VIDEO_PLAYER_PLUGIN)
-  if (TRY_BUILD_GSTREAMER_AUDIO_VIDEO_PLAYER_PLUGIN)
+if (BUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN)
+  if (TRY_BUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN)
     pkg_check_modules(LIBGSTREAMER gstreamer-1.0)
     pkg_check_modules(LIBGSTREAMER_PLUGINS_BASE gstreamer-plugins-base-1.0)
     pkg_check_modules(LIBGSTREAMER_APP gstreamer-app-1.0)
     pkg_check_modules(LIBGSTREAMER_ALLOCATORS gstreamer-allocators-1.0)
     pkg_check_modules(LIBGSTREAMER_VIDEO gstreamer-video-1.0)
-    pkg_check_modules(LIBGSTREAMER-AUDIO REQUIRED gstreamer-audio-1.0)
   else()
     pkg_check_modules(LIBGSTREAMER REQUIRED gstreamer-1.0)
     pkg_check_modules(LIBGSTREAMER_PLUGINS_BASE REQUIRED gstreamer-plugins-base-1.0)
     pkg_check_modules(LIBGSTREAMER_APP REQUIRED gstreamer-app-1.0)
     pkg_check_modules(LIBGSTREAMER_ALLOCATORS REQUIRED gstreamer-allocators-1.0)
     pkg_check_modules(LIBGSTREAMER_VIDEO REQUIRED gstreamer-video-1.0)
-    pkg_check_modules(LIBGSTREAMER-AUDIO REQUIRED gstreamer-audio-1.0)
   endif()
 
   if (LIBGSTREAMER_FOUND AND LIBGSTREAMER_PLUGINS_BASE_FOUND AND LIBGSTREAMER_APP_FOUND AND LIBGSTREAMER_ALLOCATORS_FOUND AND LIBGSTREAMER_VIDEO_FOUND)
@@ -213,8 +213,6 @@ if (BUILD_GSTREAMER_AUDIO_VIDEO_PLAYER_PLUGIN)
       src/plugins/gstreamer_video_player/plugin.c
       src/plugins/gstreamer_video_player/player.c
       src/plugins/gstreamer_video_player/frame.c
-      src/plugins/audioplayers/plugin.c
-      src/plugins/audioplayers/player.c
     )
     target_compile_definitions(flutter-pi PRIVATE "BUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN")
     target_link_libraries(flutter-pi
@@ -223,7 +221,7 @@ if (BUILD_GSTREAMER_AUDIO_VIDEO_PLAYER_PLUGIN)
       ${LIBGSTREAMER_APP_LDFLAGS}
       ${LIBGSTREAMER_ALLOCATORS_LDFLAGS}
       ${LIBGSTREAMER_VIDEO_LDFLAGS}
-      ${LIBGSTREAMER-AUDIO_LIBRARY_DIRS}
+      ${LIBGSTREAMER_AUDIO_LIBRARY_DIRS}
     )
     target_include_directories(flutter-pi PRIVATE
       ${LIBGSTREAMER_INCLUDE_DIRS}
@@ -231,7 +229,7 @@ if (BUILD_GSTREAMER_AUDIO_VIDEO_PLAYER_PLUGIN)
       ${LIBGSTREAMER_APP_INCLUDE_DIRS}
       ${LIBGSTREAMER_ALLOCATORS_INCLUDE_DIRS}
       ${LIBGSTREAMER_VIDEO_INCLUDE_DIRS}
-      ${LIBGSTREAMER-AUDIO_INCLUDE_DIRS}
+      ${LIBGSTREAMER_AUDIO_INCLUDE_DIRS}
     )
     target_compile_options(flutter-pi PRIVATE
       ${LIBGSTREAMER_CFLAGS}
@@ -243,6 +241,43 @@ if (BUILD_GSTREAMER_AUDIO_VIDEO_PLAYER_PLUGIN)
     )
   else()
     message(NOTICE "Couldn't find gstreamer libraries. Gstreamer video player plugin won't be build.")
+  endif()
+endif()
+
+if (BUILD_GSTREAMER_AUDIO_PLAYER_PLUGIN)
+  if (TRY_BUILD_GSTREAMER_AUDIO_PLAYER_PLUGIN)
+    pkg_check_modules(LIBGSTREAMER gstreamer-1.0)
+    pkg_check_modules(LIBGSTREAMER_APP gstreamer-app-1.0)
+    pkg_check_modules(LIBGSTREAMER_AUDIO gstreamer-audio-1.0)
+  else()
+    pkg_check_modules(LIBGSTREAMER REQUIRED gstreamer-1.0)
+    pkg_check_modules(LIBGSTREAMER_APP REQUIRED gstreamer-app-1.0)
+    pkg_check_modules(LIBGSTREAMER_AUDIO REQUIRED gstreamer-audio-1.0)
+  endif()
+
+  if (LIBGSTREAMER_FOUND AND LIBGSTREAMER_APP_FOUND AND LIBGSTREAMER_AUDIO_FOUND)
+    target_sources(flutter-pi PRIVATE
+      src/plugins/audioplayers/plugin.c
+      src/plugins/audioplayers/player.c
+    )
+    target_compile_definitions(flutter-pi PRIVATE "BUILD_GSTREAMER_AUDIO_PLAYER_PLUGIN")
+    target_link_libraries(flutter-pi
+      ${LIBGSTREAMER_LDFLAGS}
+      ${LIBGSTREAMER_APP_LDFLAGS}
+      ${LIBGSTREAMER_AUDIO_LIBRARY_DIRS}
+    )
+    target_include_directories(flutter-pi PRIVATE
+      ${LIBGSTREAMER_INCLUDE_DIRS}
+      ${LIBGSTREAMER_APP_INCLUDE_DIRS}
+      ${LIBGSTREAMER_AUDIO_INCLUDE_DIRS}
+    )
+    target_compile_options(flutter-pi PRIVATE
+      ${LIBGSTREAMER_CFLAGS}
+      ${LIBGSTREAMER_APP_CFLAGS}
+      ${LIBGSTREAMER_AUDIO_CFLAGS}
+    )
+  else()
+    message(NOTICE "Couldn't find gstreamer libraries. Gstreamer audio player plugin won't be build.")
   endif()
 endif()
 
