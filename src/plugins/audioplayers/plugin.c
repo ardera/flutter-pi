@@ -90,16 +90,11 @@ static int on_local_method_call(char *channel, struct platch_obj *object, Flutte
     } else if (strcmp(method, "getDuration") == 0) {
         result = audio_player_get_duration(player);
     } else if (strcmp(method, "setVolume") == 0) {
-        struct std_value *fl_volume = stdmap_get_str(args, "volume");
-        if (fl_volume == NULL) {
-            LOG_ERROR("setVolume called with NULL arg, setting vol to 1.0\n");
-            audio_player_set_volume(player, 1.0);
-        } else if (!STDVALUE_IS_FLOAT(*fl_volume)) {
-            LOG_ERROR("setVolume called with non float arg, setting vol to 1.0\n");
-            audio_player_set_volume(player, 1.0);
-        } else {
-            double volume = STDVALUE_AS_FLOAT(*fl_volume);
-            audio_player_set_volume(player, volume);
+        tmp = stdmap_get_str(args, "volume");
+        if (tmp != NULL && STDVALUE_IS_FLOAT(*tmp)) {
+            audio_player_set_volume(player, STDVALUE_AS_FLOAT(*tmp));
+        } else if {
+            return platch_respond_illegal_arg_std(responsehandle, "Expected `arg['volume']` to be a float.");
         }
     } else if (strcmp(method, "getCurrentPosition") == 0) {
         result = audio_player_get_position(player);
