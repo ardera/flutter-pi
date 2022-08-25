@@ -74,14 +74,18 @@ static int on_local_method_call(char *channel, struct platch_obj *object, Flutte
         }
         char *url = STDVALUE_AS_STRING(*tmp);
 
-        struct std_value *fl_is_local = stdmap_get_str(args, "is_local");
-        bool is_local = (fl_is_local == NULL) ? false : STDVALUE_AS_BOOL(*fl_is_local);
-        if (is_local) {
-            size_t size = strlen(url) + 7 + 1;
-            char *tmp = malloc(size);
-            snprintf(tmp, size, "file://%s", url);
-            url = tmp;
+        tmp = stdmap_get_str(args, "is_local");
+        if (tmp == NULL || !STDVALUE_IS_BOOL(*tmp)) {
+            return platch_respond_illegal_arg_std(responsehandle, "Expected `arg['is_local']` to be a bool.");
         }
+        
+        bool is_local = STDVALUE_AS_BOOL(*tmp);
+        if (is_local) {
+            char *local_url = NULL;
+            asprintf(&local_url, "file://%s", url);
+            url = local_url;
+        }
+        
         audio_player_set_source_url(player, url);
     } else if (strcmp(method, "getDuration") == 0) {
         result = audio_player_get_duration(player);
