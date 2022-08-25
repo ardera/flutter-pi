@@ -68,13 +68,11 @@ static int on_local_method_call(char *channel, struct platch_obj *object, Flutte
         int64_t position = STDVALUE_AS_INT(*tmp);
         audio_player_set_position(player, position);
     } else if (strcmp(method, "setSourceUrl") == 0) {
-        struct std_value *fl_url = stdmap_get_str(args, "url");
-        if (fl_url == NULL) {
-            LOG_ERROR("Null URL received on setSourceUrl\n");
-            result = 0;
-            return platch_respond_illegal_arg_std(responsehandle, "URL is NULL");
+        tmp = stdmap_get_str(args, "url");
+        if (tmp == NULL || !STDVALUE_IS_STRING(*tmp)) {
+            return platch_respond_illegal_arg_std(responsehandle, "Expected `arg['url']` to be a string.");
         }
-        char *url = STDVALUE_AS_STRING(*fl_url);
+        char *url = STDVALUE_AS_STRING(*tmp);
 
         struct std_value *fl_is_local = stdmap_get_str(args, "is_local");
         bool is_local = (fl_is_local == NULL) ? false : STDVALUE_AS_BOOL(*fl_is_local);
