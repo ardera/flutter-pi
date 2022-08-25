@@ -103,15 +103,14 @@ static int on_local_method_call(char *channel, struct platch_obj *object, Flutte
         double playback_rate = fl_playback_rate == NULL ? 1.0 : STDVALUE_AS_FLOAT(*fl_playback_rate);
         audio_player_set_playback_rate(player, playback_rate);
     } else if (strcmp(method, "setReleaseMode") == 0) {
-        struct std_value *fl_release_mode = stdmap_get_str(args, "release_mode");
-        char *release_mode = fl_release_mode == NULL ? "" : STDVALUE_AS_STRING(*fl_release_mode);
-        if (release_mode == NULL) {
-            LOG_ERROR("Error calling setReleaseMode, release_mode cannot be null\n");
-            result = 0;
-            return platch_respond_illegal_arg_std(responsehandle, "release_mode cannot be null");
+        tmp = stdmap_get_str(args, "release_mode");
+        if (tmp != NULL && STDVALUE_IS_STRING(*tmp)) {
+            char *release_mode = STDVALUE_AS_STRING(*tmp);
+            bool looping = strstr(release_mode, "loop") != NULL;
+            audio_player_set_looping(player, looping);
+        } else {
+            return platch_respond_illegal_arg_std(responsehandle, "Expected `arg['release_mode']` to be a string.");
         }
-        bool looping = strstr(release_mode, "loop") != NULL;
-        audio_player_set_looping(player, looping);
     } else if (strcmp(method, "setPlayerMode") == 0) {
         // TODO check support for low latency mode:
         // https://gstreamer.freedesktop.org/documentation/additional/design/latency.html?gi-language=c
