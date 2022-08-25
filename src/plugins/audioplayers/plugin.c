@@ -99,9 +99,12 @@ static int on_local_method_call(char *channel, struct platch_obj *object, Flutte
     } else if (strcmp(method, "getCurrentPosition") == 0) {
         result = audio_player_get_position(player);
     } else if (strcmp(method, "setPlaybackRate") == 0) {
-        struct std_value *fl_playback_rate = stdmap_get_str(args, "playback_rate");
-        double playback_rate = fl_playback_rate == NULL ? 1.0 : STDVALUE_AS_FLOAT(*fl_playback_rate);
-        audio_player_set_playback_rate(player, playback_rate);
+        tmp = stdmap_get_str(args, "playback_rate");
+        if (tmp != NULL && STDVALUE_IS_FLOAT(*tmp)) {
+            audio_player_set_playback_rate(player, STDVALUE_AS_FLOAT(*tmp));
+        } else {
+            return platch_respond_illegal_arg_std(responsehandle, "Expected `arg['playback_rate']` to be a float.");
+        }
     } else if (strcmp(method, "setReleaseMode") == 0) {
         tmp = stdmap_get_str(args, "release_mode");
         if (tmp != NULL && STDVALUE_IS_STRING(*tmp)) {
