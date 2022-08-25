@@ -13,7 +13,6 @@ FILE_DESCR("audioplayers player")
 
 struct audio_player {
     GstElement *playbin;
-    GstElement *source;
     GstBus *bus;
 
     bool is_initialized;
@@ -27,7 +26,6 @@ struct audio_player {
 };
 
 // Private Class functions
-static void audio_player_source_setup(GstElement *playbin, GstElement *source, GstElement **p_src);
 static gboolean audio_player_on_bus_message(GstBus *bus, GstMessage *message, struct audio_player *data);
 static gboolean audio_player_on_refresh(struct audio_player *data);
 static void audio_player_set_playback(struct audio_player *self, int64_t seekTo, double rate);
@@ -80,7 +78,6 @@ struct audio_player *audio_player_new(char *player_id, char *channel) {
         LOG_ERROR("Could not create gstreamer playbin.\n");
         goto deinit_self;
     }
-    g_signal_connect(self->playbin, "source-setup", G_CALLBACK(audio_player_source_setup), &self->source);
 
     self->bus = gst_element_get_bus(self->playbin);
 
@@ -109,7 +106,6 @@ deinit_player:
     free(self->channel);
 
     gst_object_unref(self->bus);
-    gst_object_unref(self->source);
     gst_element_set_state(self->playbin, GST_STATE_NULL);
     gst_object_unref(self->playbin);
 
@@ -370,8 +366,6 @@ void audio_player_destroy(struct audio_player *self) {
     }
     gst_object_unref(self->bus);
     self->bus = NULL;
-    gst_object_unref(self->source);
-    self->source = NULL;
 
     gst_element_set_state(self->playbin, GST_STATE_NULL);
     gst_object_unref(self->playbin);
@@ -393,6 +387,8 @@ void audio_player_destroy(struct audio_player *self) {
         free(self->channel);
         self->channel = NULL;
     }
+
+    free(self);
 }
 
 int64_t audio_player_get_position(struct audio_player *self) {

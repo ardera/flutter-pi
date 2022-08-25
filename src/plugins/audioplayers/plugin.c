@@ -1,3 +1,5 @@
+#define _GNU_SOURCE
+
 #include "plugins/audioplayers.h"
 
 #include <collection.h>
@@ -49,6 +51,10 @@ static int on_local_method_call(char *channel, struct platch_obj *object, Flutte
     }
 
     player = audioplayers_linux_plugin_get_player(player_id, mode);
+    if (player == NULL) {
+        return platch_respond_native_error_std(responsehandle, ENOMEM);
+    }
+
     if (strcmp(method, "pause") == 0) {
         audio_player_pause(player);
     } else if (strcmp(method, "resume") == 0) {
@@ -64,7 +70,7 @@ static int on_local_method_call(char *channel, struct platch_obj *object, Flutte
         if (tmp == NULL || !STDVALUE_IS_INT(*tmp)) {
             return platch_respond_illegal_arg_std(responsehandle, "Expected `arg['position']` to be an int.");
         }
-        
+
         int64_t position = STDVALUE_AS_INT(*tmp);
         audio_player_set_position(player, position);
     } else if (strcmp(method, "setSourceUrl") == 0) {
@@ -78,14 +84,17 @@ static int on_local_method_call(char *channel, struct platch_obj *object, Flutte
         if (tmp == NULL || !STDVALUE_IS_BOOL(*tmp)) {
             return platch_respond_illegal_arg_std(responsehandle, "Expected `arg['is_local']` to be a bool.");
         }
-        
+
         bool is_local = STDVALUE_AS_BOOL(*tmp);
         if (is_local) {
             char *local_url = NULL;
             asprintf(&local_url, "file://%s", url);
+            if (local_url == NULL) {
+                return platch_respond_native_error_std(responsehandle, ENOMEM);
+            }
             url = local_url;
         }
-        
+
         audio_player_set_source_url(player, url);
     } else if (strcmp(method, "getDuration") == 0) {
         result = audio_player_get_duration(player);
@@ -93,7 +102,7 @@ static int on_local_method_call(char *channel, struct platch_obj *object, Flutte
         tmp = stdmap_get_str(args, "volume");
         if (tmp != NULL && STDVALUE_IS_FLOAT(*tmp)) {
             audio_player_set_volume(player, STDVALUE_AS_FLOAT(*tmp));
-        } else if {
+        } else {
             return platch_respond_illegal_arg_std(responsehandle, "Expected `arg['volume']` to be a float.");
         }
     } else if (strcmp(method, "getCurrentPosition") == 0) {
