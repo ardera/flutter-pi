@@ -32,6 +32,12 @@ struct input_device_data {
      * Only applies to devices which have LIBINPUT_DEVICE_CAP_POINTER.
      */
     bool has_emitted_pointer_events;
+
+    /**
+     * @brief Only applies to tablets. True if the tablet tool is in contact with the screen right now.
+     * 
+     */
+    bool tip;
 };
 
 struct user_input {
@@ -336,6 +342,7 @@ static int on_device_added(struct user_input *input, struct libinput_event *even
     data->buttons = 0;
     data->timestamp = timestamp;
     data->has_emitted_pointer_events = false;
+    data->tip = false;
 
     libinput_device_set_user_data(device, data);
 
@@ -367,6 +374,19 @@ static int on_device_added(struct user_input *input, struct libinput_event *even
             // If we don't have a keyboard config
             data->keyboard_state = NULL;
         }
+    } else if (libinput_device_has_capability(device, LIBINPUT_DEVICE_CAP_TABLET_TOOL)) {
+        device_id = input->next_unused_flutter_device_id++;
+
+        /// TODO: Use kFlutterPointerDeviceKindStylus here
+        emit_pointer_events(
+            input,
+            &FLUTTER_POINTER_TOUCH_ADD_EVENT(
+                timestamp,
+                0.0, 0.0,
+                device_id
+            ),
+            1
+        );
     } else {
         // We don't handle this device, so we don't need the data.
         libinput_device_set_user_data(device, NULL);
@@ -936,6 +956,134 @@ static int on_touch_frame(struct user_input *input, struct libinput_event *event
     return 0;
 }
 
+static int on_tablet_tool_axis(struct user_input *input, struct libinput_event *event) {
+    struct libinput_event_tablet_tool *tablet_event;
+    struct input_device_data *data;
+    uint64_t timestamp;
+    int64_t device_id;
+    double x, y;
+
+    DEBUG_ASSERT_NOT_NULL(input);
+    DEBUG_ASSERT_NOT_NULL(event);
+
+    data = libinput_device_get_user_data(libinput_event_get_device(event));
+    DEBUG_ASSERT_NOT_NULL(data);
+
+    tablet_event = libinput_event_get_tablet_tool_event(event);
+    timestamp = libinput_event_tablet_tool_get_time_usec(tablet_event);
+
+    device_id = data->flutter_device_id_offset;
+
+    // Only report down events when the tool is in contact with the tablet.
+    /// TODO: Maybe report hover events when it's not in contact?
+    /// FIXME: Use kFlutterPointerDeviceKindStylus here
+    if (data->tip) {
+        x = libinput_event_tablet_tool_get_x_transformed(tablet_event, input->display_width - 1);
+        y = libinput_event_tablet_tool_get_y_transformed(tablet_event, input->display_height - 1);
+
+        apply_flutter_transformation(input->display_to_view_transform, &x, &y);
+        
+        emit_pointer_events(input, &FLUTTER_POINTER_TOUCH_MOVE_EVENT(timestamp, x, y, device_id), 1);
+    }
+
+    return 0;
+}
+
+static int on_tablet_tool_proximity(struct user_input *input, struct libinput_event *event) {
+    DEBUG_ASSERT_NOT_NULL(input);
+    DEBUG_ASSERT_NOT_NULL(event);
+
+    (void) input;
+    (void) event;
+
+    return 0;
+}
+
+static int on_tablet_tool_tip(struct user_input *input, struct libinput_event *event) {
+    struct libinput_event_tablet_tool *tablet_event;
+    struct input_device_data *data;
+    uint64_t timestamp;
+    int64_t device_id;
+    double x, y;
+
+    DEBUG_ASSERT_NOT_NULL(input);
+    DEBUG_ASSERT_NOT_NULL(event);
+
+    data = libinput_device_get_user_data(libinput_event_get_device(event));
+    DEBUG_ASSERT_NOT_NULL(data);
+
+    tablet_event = libinput_event_get_tablet_tool_event(event);
+    timestamp = libinput_event_tablet_tool_get_time_usec(tablet_event);
+
+    device_id = data->flutter_device_id_offset;
+
+    x = libinput_event_tablet_tool_get_x_transformed(tablet_event, input->display_width - 1);
+    y = libinput_event_tablet_tool_get_y_transformed(tablet_event, input->display_height - 1);
+
+    apply_flutter_transformation(input->display_to_view_transform, &x, &y);
+
+    /// FIXME: Use kFlutterPointerDeviceKindStylus here
+    if (libinput_event_tablet_tool_get_tip_state(tablet_event) == LIBINPUT_TABLET_TOOL_TIP_DOWN) {
+        data->tip = true;
+        emit_pointer_events(input, &FLUTTER_POINTER_TOUCH_DOWN_EVENT(timestamp, x, y, device_id), 1);
+    } else {
+        data->tip = false;
+        emit_pointer_events(input, &FLUTTER_POINTER_TOUCH_UP_EVENT(timestamp, x, y, device_id), 1);
+    }
+
+    return 0;
+}
+
+static int on_tablet_tool_button(struct user_input *input, struct libinput_event *event) {
+    DEBUG_ASSERT_NOT_NULL(input);
+    DEBUG_ASSERT_NOT_NULL(event);
+
+    (void) input;
+    (void) event;
+
+    return 0;
+}
+
+static int on_tablet_pad_button(struct user_input *input, struct libinput_event *event) {
+    DEBUG_ASSERT_NOT_NULL(input);
+    DEBUG_ASSERT_NOT_NULL(event);
+
+    (void) input;
+    (void) event;
+
+    return 0;
+}
+
+static int on_tablet_pad_ring(struct user_input *input, struct libinput_event *event) {
+    DEBUG_ASSERT_NOT_NULL(input);
+    DEBUG_ASSERT_NOT_NULL(event);
+
+    (void) input;
+    (void) event;
+
+    return 0;
+}
+
+static int on_tablet_pad_strip(struct user_input *input, struct libinput_event *event) {
+    DEBUG_ASSERT_NOT_NULL(input);
+    DEBUG_ASSERT_NOT_NULL(event);
+
+    (void) input;
+    (void) event;
+
+    return 0;
+}
+
+static int on_tablet_pad_key(struct user_input *input, struct libinput_event *event) {
+    DEBUG_ASSERT_NOT_NULL(input);
+    DEBUG_ASSERT_NOT_NULL(event);
+
+    (void) input;
+    (void) event;
+
+    return 0;
+}
+
 
 static int process_libinput_events(struct user_input *input, uint64_t timestamp) {
     enum libinput_event_type event_type;
@@ -1017,6 +1165,54 @@ static int process_libinput_events(struct user_input *input, uint64_t timestamp)
                 break;
             case LIBINPUT_EVENT_TOUCH_FRAME:
                 ok = on_touch_frame(input, event);
+                if (ok != 0) {
+                    goto fail_destroy_event;
+                }
+                break;
+            case LIBINPUT_EVENT_TABLET_TOOL_AXIS:
+                ok = on_tablet_tool_axis(input, event);
+                if (ok != 0) {
+                    goto fail_destroy_event;
+                }
+                break;
+            case LIBINPUT_EVENT_TABLET_TOOL_PROXIMITY:
+                ok = on_tablet_tool_proximity(input, event);
+                if (ok != 0) {
+                    goto fail_destroy_event;
+                }
+                break;
+            case LIBINPUT_EVENT_TABLET_TOOL_TIP:
+                ok = on_tablet_tool_tip(input, event);
+                if (ok != 0) {
+                    goto fail_destroy_event;
+                }
+                break;
+            case LIBINPUT_EVENT_TABLET_TOOL_BUTTON:
+                ok = on_tablet_tool_button(input, event);
+                if (ok != 0) {
+                    goto fail_destroy_event;
+                }
+                break;
+            case LIBINPUT_EVENT_TABLET_PAD_BUTTON:
+                ok = on_tablet_pad_button(input, event);
+                if (ok != 0) {
+                    goto fail_destroy_event;
+                }
+                break;
+            case LIBINPUT_EVENT_TABLET_PAD_RING:
+                ok = on_tablet_pad_ring(input, event);
+                if (ok != 0) {
+                    goto fail_destroy_event;
+                }
+                break;
+            case LIBINPUT_EVENT_TABLET_PAD_STRIP:
+                ok = on_tablet_pad_strip(input, event);
+                if (ok != 0) {
+                    goto fail_destroy_event;
+                }
+                break;
+            case LIBINPUT_EVENT_TABLET_PAD_KEY:
+                ok = on_tablet_pad_key(input, event);
                 if (ok != 0) {
                     goto fail_destroy_event;
                 }
