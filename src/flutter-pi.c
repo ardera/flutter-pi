@@ -89,6 +89,8 @@ USAGE:\n\
   flutter-pi [options] <asset bundle path> [flutter engine options]\n\
 \n\
 OPTIONS:\n\
+  --config-file=<path>       Path to the configuration file.\n\
+\n\
   --release                  Run the app in release mode. The AOT snapshot\n\
                              of the app (\"app.so\") must be located inside the\n\
                              asset bundle directory.\n\
@@ -1890,6 +1892,7 @@ static bool parse_cmd_args(int argc, char **argv, struct cmd_args *result_out) {
     int opt, ok;
 
     struct option long_options[] = {
+        {"config", required_argument, NULL, 'c'},
         {"release", no_argument, &runtime_mode_int, kRelease},
         {"input", required_argument, NULL, 'i'},
         {"orientation", required_argument, NULL, 'o'},
@@ -1921,7 +1924,6 @@ static bool parse_cmd_args(int argc, char **argv, struct cmd_args *result_out) {
             case 0:
                 // flag was encountered. just continue
                 break;
-
             case 'o':
                 if (STREQ(optarg, "portrait_up")) {
                     result_out->orientation = kPortraitUp;
