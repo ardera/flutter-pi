@@ -123,7 +123,7 @@ If you encounter issues running flutter-pi on any of the supported platforms lis
     usermod -a -G render pi
     ```
 
-5. Finish and reboot.
+7. Finish and reboot.
 
 <details>
   <summary>More information</summary>
@@ -195,12 +195,18 @@ rsync -a ./build/flutter_assets/ pi@raspberrypi:/home/pi/flutter_gallery/
       --aot ^
       --tfa ^
       -Ddart.vm.product=true ^
-      --packages .packages ^
+      --packages .dart_tool\package_config.json ^
       --output-dill build\kernel_snapshot.dill ^
       --verbose ^
       --depfile build\kernel_snapshot.d ^
       package:my_app_name/main.dart
     ```
+
+<details>
+  <summary>More information</summary>
+
+  - In versions prior to Flutter 3.3.0 the `--packages` argument should be set to `.packages`. In versions greater than or equal to 3.3.0 the `--packages` argument should be set to `.dart_tool\package_config.json`.
+</details>
 
 5. Fetch the latest `gen_snapshot_linux_x64_release` I provide in the [engine binaries repo](https://github.com/ardera/flutter-engine-binaries-for-arm).
 6. The following steps must be executed on a linux x64 machine. If you're on windows, you can use [WSL](https://docs.microsoft.com/de-de/windows/wsl/install-win10). If you're on macOS, you can use a linux VM.
@@ -240,7 +246,7 @@ rsync -a ./build/flutter_assets/ pi@raspberrypi:/home/pi/flutter_gallery/
       --aot ^
       --tfa ^
       -Ddart.vm.product=true ^
-      --packages .packages ^
+      --packages .dart_tool\package_config.json ^
       --output-dill build\kernel_snapshot.dill ^
       --verbose ^
       --depfile build\kernel_snapshot.d ^
