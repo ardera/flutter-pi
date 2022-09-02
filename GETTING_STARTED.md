@@ -69,7 +69,7 @@ In each step below with Bash commands, the commands start with a set of `export`
      --sdk-root ~/dev/flutter-for-pi/bin/cache/artifacts/engine/common/flutter_patched_sdk_product \
      --target=flutter \
      --aot --tfa -Ddart.vm.product=true \
-     --packages .packages --output-dill build/kernel_snapshot.dill --depfile build/kernel_snapshot.d \
+     --packages .dart_tool\package_config.json --output-dill build/kernel_snapshot.dill --depfile build/kernel_snapshot.d \
      package:$APPNAME/main.dart
    ../engine-binaries/$ARM/gen_snapshot_linux_x64_release \
      --deterministic --snapshot_kind=app-aot-elf \
