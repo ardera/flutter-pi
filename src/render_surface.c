@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 /*
- * backing stores
+ * render surface
  *
- * - simple flutter backing store implementation
+ * - A surface that can be scanned out, and that flutter can render into.
  *
  * Copyright (c) 2022, Hannes Winkler <hanneswinkler2000@web.de>
  */
@@ -14,55 +14,55 @@
 
 #include <collection.h>
 #include <surface.h>
-#include <backing_store.h>
-#include <backing_store_private.h>
+#include <render_surface.h>
+#include <render_surface_private.h>
 #include <compositor_ng.h>
 #include <tracer.h>
 
-FILE_DESCR("flutter backing store")
+FILE_DESCR("flutter render surface")
 
-// just so we can be sure &backing_store->surface is the same as (struct surface*) backing_store
-COMPILE_ASSERT(offsetof(struct backing_store, surface) == 0);
+// just so we can be sure &render_surface->surface is the same as (struct surface*) render_surface
+COMPILE_ASSERT(offsetof(struct render_surface, surface) == 0);
 
 static const uuid_t uuid = CONST_UUID(0x78, 0x70, 0x45, 0x13, 0xa8, 0xf3, 0x43, 0x34, 0xa0, 0xa3, 0xae, 0x90, 0xf1, 0x11, 0x41, 0xe0);
 
-void backing_store_deinit(struct surface *s);
+void render_surface_deinit(struct surface *s);
 
-int backing_store_init(struct backing_store *store, struct tracer *tracer, struct point size) {
+int render_surface_init(struct render_surface *surface, struct tracer *tracer, struct point size) {
     int ok;
 
-    ok = surface_init(&store->surface, tracer);
+    ok = surface_init(&surface->surface, tracer);
     if (ok != 0) {
         return ok;
     }
 
-    store->surface.deinit = backing_store_deinit;
-    store->surface.present_kms = NULL;
-    store->surface.present_fbdev = NULL;
-    uuid_copy(&store->uuid, uuid);
-    store->size = size;
-    store->fill = NULL;
-    store->queue_present = NULL;
+    surface->surface.deinit = render_surface_deinit;
+    surface->surface.present_kms = NULL;
+    surface->surface.present_fbdev = NULL;
+    uuid_copy(&surface->uuid, uuid);
+    surface->size = size;
+    surface->fill = NULL;
+    surface->queue_present = NULL;
     return 0;
 }
 
-void backing_store_deinit(struct surface *s) {
+void render_surface_deinit(struct surface *s) {
     surface_deinit(s);
 }
 
-int backing_store_fill(struct backing_store *store, FlutterBackingStore *fl_store) {
+int render_surface_fill(struct render_surface *surface, FlutterBackingStore *fl_store) {
     int ok;
 
-    DEBUG_ASSERT_NOT_NULL(store);
+    DEBUG_ASSERT_NOT_NULL(surface);
     DEBUG_ASSERT_NOT_NULL(fl_store);
-    DEBUG_ASSERT_NOT_NULL(store->fill);
+    DEBUG_ASSERT_NOT_NULL(surface->fill);
 
     DEBUG_ASSERT_EQUALS(fl_store->user_data, NULL);
     DEBUG_ASSERT_EQUALS(fl_store->did_update, false);
 
-    TRACER_BEGIN(store->surface.tracer, "backing_store_fill");
-    ok = store->fill(store, fl_store);
-    TRACER_END(store->surface.tracer, "backing_store_fill");
+    TRACER_BEGIN(surface->surface.tracer, "render_surface_fill");
+    ok = surface->fill(surface, fl_store);
+    TRACER_END(surface->surface.tracer, "render_surface_fill");
 
     DEBUG_ASSERT_EQUALS(fl_store->user_data, NULL);
     DEBUG_ASSERT_EQUALS(fl_store->did_update, false);
@@ -70,26 +70,26 @@ int backing_store_fill(struct backing_store *store, FlutterBackingStore *fl_stor
     return ok;
 }
 
-int backing_store_queue_present(struct backing_store *store, const FlutterBackingStore *fl_store) {
+int render_surface_queue_present(struct render_surface *surface, const FlutterBackingStore *fl_store) {
     int ok;
 
-    DEBUG_ASSERT_NOT_NULL(store);
+    DEBUG_ASSERT_NOT_NULL(surface);
     DEBUG_ASSERT_NOT_NULL(fl_store);
-    DEBUG_ASSERT_NOT_NULL(store->queue_present);
+    DEBUG_ASSERT_NOT_NULL(surface->queue_present);
 
-    TRACER_BEGIN(store->surface.tracer, "backing_store_queue_present");
-    ok = store->queue_present(store, fl_store);
-    TRACER_END(store->surface.tracer, "backing_store_queue_present");
+    TRACER_BEGIN(surface->surface.tracer, "render_surface_queue_present");
+    ok = surface->queue_present(surface, fl_store);
+    TRACER_END(surface->surface.tracer, "render_surface_queue_present");
 
     return ok;
 }
 
 #ifdef DEBUG
-ATTR_PURE struct backing_store *__checked_cast_backing_store(void *ptr) {
-    struct backing_store *store;
+ATTR_PURE struct render_surface *__checked_cast_render_surface(void *ptr) {
+    struct render_surface *surface;
     
-    store = CAST_BACKING_STORE_UNCHECKED(ptr);
-    DEBUG_ASSERT(uuid_equals(store->uuid, uuid));
-    return store;
+    surface = CAST_RENDER_SURFACE_UNCHECKED(ptr);
+    DEBUG_ASSERT(uuid_equals(surface->uuid, uuid));
+    return surface;
 }
 #endif

@@ -27,6 +27,6 @@ void vsync_waiter_on_fl_vsync_request(struct vsync_waiter *waiter, intptr_t vsyn
 
 void vsync_waiter_on_rendering_complete(struct vsync_waiter *waiter);
 
-void vsync_waiter_on_fb_released(struct vsync_waiter *waiter);
+void vsync_waiter_on_fb_released(struct vsync_waiter *waiter, bool has_timestamp, uint64_t timestamp_ns);
 
 #endif // _FLUTTERPI_INCLUDE_VSYNC_WAITER_H

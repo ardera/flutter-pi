@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 /*
- * Vulkan GBM backing store
+ * Vulkan GBM render surface
  *
  * - used as a render target for flutter vulkan rendering
  * - can be scanned out using KMS
@@ -9,8 +9,8 @@
  */
 
 
-#ifndef _FLUTTERPI_INCLUDE_VK_GBM_BACKING_STORE_H
-#define _FLUTTERPI_INCLUDE_VK_GBM_BACKING_STORE_H
+#ifndef _FLUTTERPI_INCLUDE_VK_GBM_RENDER_SURFACE_H
+#define _FLUTTERPI_INCLUDE_VK_GBM_RENDER_SURFACE_H
 
 #include <collection.h>
 #include <pixel_format.h>
@@ -18,17 +18,17 @@
 
 struct tracer;
 struct gbm_device;
-struct vk_gbm_backing_store;
+struct vk_gbm_render_surface;
 
-#define CAST_VK_GBM_BACKING_STORE_UNCHECKED(ptr) ((struct vk_gbm_backing_store*) (ptr))
+#define CAST_VK_GBM_RENDER_SURFACE_UNCHECKED(ptr) ((struct vk_gbm_render_surface*) (ptr))
 #ifdef DEBUG
-#   define CAST_VK_GBM_BACKING_STORE(ptr) __checked_cast_vk_gbm_backing_store (ptr)
-ATTR_PURE struct vk_gbm_backing_store *__checked_cast_vk_gbm_backing_store(void *ptr);
+#   define CAST_VK_GBM_RENDER_SURFACE(ptr) __checked_cast_vk_gbm_render_surface (ptr)
+ATTR_PURE struct vk_gbm_render_surface *__checked_cast_vk_gbm_render_surface(void *ptr);
 #else
-#   define CAST_VK_GBM_BACKING_STORE(ptr) CAST_VK_GBM_BACKING_STORE_UNCHECKED(ptr)
+#   define CAST_VK_GBM_RENDER_SURFACE(ptr) CAST_VK_GBM_RENDER_SURFACE_UNCHECKED(ptr)
 #endif
 
-ATTR_MALLOC struct vk_gbm_backing_store *vk_gbm_backing_store_new(
+ATTR_MALLOC struct vk_gbm_render_surface *vk_gbm_render_surface_new(
     struct tracer *tracer,
     struct point size,
     struct gbm_device *device,
@@ -36,4 +36,4 @@ ATTR_MALLOC struct vk_gbm_backing_store *vk_gbm_backing_store_new(
     enum pixfmt pixel_format
 );
 
-#endif // _FLUTTERPI_INCLUDE_VK_GBM_BACKING_STORE_H
+#endif // _FLUTTERPI_INCLUDE_VK_GBM_RENDER_SURFACE_H

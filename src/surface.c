@@ -5,7 +5,7 @@
  * - provides an object that can be composited by flutter-pi
  * - (by calling present_kms or present_fbdev on it)
  * - == basically the thing that stores the graphics of a FlutterLayer
- * - backing stores are special kinds of scanout surfaces that flutter can render into
+ * - render surfaces are special kinds of scanout surfaces that flutter can render into
  * - every scanout surface can be registered as a platform view to display it
  *
  * Copyright (c) 2022, Hannes Winkler <hanneswinkler2000@web.de>

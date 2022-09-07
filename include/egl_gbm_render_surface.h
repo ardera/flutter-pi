@@ -8,26 +8,26 @@
  */
 
 
-#ifndef _FLUTTERPI_INCLUDE_GBM_SURFACE_BACKING_STORE_H
-#define _FLUTTERPI_INCLUDE_GBM_SURFACE_BACKING_STORE_H
+#ifndef _FLUTTERPI_INCLUDE_EGL_GBM_RENDER_SURFACE_H
+#define _FLUTTERPI_INCLUDE_EGL_GBM_RENDER_SURFACE_H
 
 #include <collection.h>
 #include <pixel_format.h>
 #include <compositor_ng.h>
 
-struct backing_store;
+struct render_surface;
 struct gbm_device;
-struct gbm_surface_backing_store;
+struct egl_gbm_render_surface;
 
-#define CAST_GBM_SURFACE_BACKING_STORE_UNCHECKED(ptr) ((struct gbm_surface_backing_store*) (ptr))
+#define CAST_EGL_GBM_RENDER_SURFACE_UNCHECKED(ptr) ((struct egl_gbm_render_surface*) (ptr))
 #ifdef DEBUG
-#   define CAST_GBM_SURFACE_BACKING_STORE(ptr) __checked_cast_gbm_surface_backing_store(ptr)
-ATTR_PURE struct gbm_surface_backing_store *__checked_cast_gbm_surface_backing_store(void *ptr);
+#   define CAST_EGL_GBM_RENDER_SURFACE(ptr) __checked_cast_egl_gbm_render_surface(ptr)
+ATTR_PURE struct egl_gbm_render_surface *__checked_cast_egl_gbm_render_surface(void *ptr);
 #else
-#   define CAST_GBM_SURFACE_BACKING_STORE(ptr) CAST_GBM_SURFACE_BACKING_STORE_UNCHECKED(ptr)
+#   define CAST_EGL_GBM_RENDER_SURFACE(ptr) CAST_EGL_GBM_RENDER_SURFACE_UNCHECKED(ptr)
 #endif
 
-ATTR_MALLOC struct gbm_surface_backing_store *gbm_surface_backing_store_new_with_egl_config(
+ATTR_MALLOC struct egl_gbm_render_surface *egl_gbm_render_surface_new_with_egl_config(
     struct tracer *tracer,
     struct point size,
     struct gbm_device *device,
@@ -36,7 +36,7 @@ ATTR_MALLOC struct gbm_surface_backing_store *gbm_surface_backing_store_new_with
     EGLConfig egl_config
 );
 
-ATTR_MALLOC struct gbm_surface_backing_store *gbm_surface_backing_store_new(
+ATTR_MALLOC struct egl_gbm_render_surface *egl_gbm_render_surface_new(
     struct tracer *tracer,
     struct point size,
     struct gbm_device *device,
@@ -44,8 +44,8 @@ ATTR_MALLOC struct gbm_surface_backing_store *gbm_surface_backing_store_new(
     enum pixfmt pixel_format
 );
 
-ATTR_PURE EGLSurface gbm_surface_backing_store_get_egl_surface(struct gbm_surface_backing_store *s);
+ATTR_PURE EGLSurface egl_gbm_render_surface_get_egl_surface(struct egl_gbm_render_surface *s);
 
-ATTR_PURE EGLConfig gbm_surface_backing_store_get_egl_config(struct gbm_surface_backing_store *s);
+ATTR_PURE EGLConfig egl_gbm_render_surface_get_egl_config(struct egl_gbm_render_surface *s);
 
-#endif // _FLUTTERPI_INCLUDE_GBM_SURFACE_BACKING_STORE_H
+#endif // _FLUTTERPI_INCLUDE_EGL_GBM_RENDER_SURFACE_H
