@@ -53,6 +53,15 @@ void vsync_waiter_destroy(struct vsync_waiter *waiter) {
     free(waiter);
 }
 
+/**
+ * @brief Called when flutter calls the embedder supplied vsync_callback.
+ * Embedder should reply on the platform task thread with the timestamp
+ * of the next vsync request. Engine will wait till that time and then begin
+ * rendering the next frame.
+ * 
+ * @param waiter 
+ * @param vsync_baton 
+ */
 void vsync_waiter_on_fl_vsync_request(struct vsync_waiter *waiter, intptr_t vsync_baton) {
     DEBUG_ASSERT_NOT_NULL(waiter);
     DEBUG_ASSERT(vsync_baton != 0);
@@ -63,18 +72,31 @@ void vsync_waiter_on_fl_vsync_request(struct vsync_waiter *waiter, intptr_t vsyn
     } else if (waiter->present_mode == kDoubleBufferedVsync_PresentMode) {
 
     }
+    
+    /// TODO: Implement
+    UNIMPLEMENTED();
 }
 
 void vsync_waiter_on_rendering_complete(struct vsync_waiter *waiter) {
     DEBUG_ASSERT_NOT_NULL(waiter);
 
-
+    /// TODO: Implement
+    UNIMPLEMENTED();
 }
 
 void vsync_waiter_on_fb_released(struct vsync_waiter *waiter, bool has_timestamp, uint64_t timestamp_ns) {
     DEBUG_ASSERT_NOT_NULL(waiter);
+    (void) has_timestamp;
+    (void) timestamp_ns;
+
+    /// TODO: Implement
+    UNIMPLEMENTED();
 }
 
 void vsync_waiter_request_fb(struct vsync_waiter *waiter, uint64_t scanout_time_ns) {
     DEBUG_ASSERT_NOT_NULL(waiter);
+    (void) scanout_time_ns;
+
+    /// TODO: Implement
+    UNIMPLEMENTED();
 }

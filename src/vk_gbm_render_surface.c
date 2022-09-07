@@ -2,7 +2,7 @@
 /*
  * Vulkan GBM Backing Store
  *
- * - a surface that can be used for filling flutter vulkan backing stores
+ * - a render surface that can be used for filling flutter vulkan backing stores
  * - and for scanout using KMS
  *
  * Copyright (c) 2022, Hannes Winkler <hanneswinkler2000@web.de>
@@ -17,17 +17,17 @@
 #include <tracer.h>
 #include <surface.h>
 #include <surface_private.h>
-#include <backing_store.h>
-#include <backing_store_private.h>
+#include <render_surface.h>
+#include <render_surface_private.h>
 
 #include <vk_renderer.h>
 #include <vulkan.h>
 
-#include <vk_gbm_backing_store.h>
+#include <vk_gbm_render_surface.h>
 
-FILE_DESCR("vulkan gbm backing store")
+FILE_DESCR("gbm/vulkan render surface")
 
-struct vk_gbm_backing_store;
+struct vk_gbm_render_surface;
 struct vk_renderer;
 
 struct fb {
@@ -38,16 +38,16 @@ struct fb {
 };
 
 struct locked_fb {
-    struct vk_gbm_backing_store *store;
+    struct vk_gbm_render_surface *surface;
     atomic_flag is_locked;
     refcount_t n_refs;
     struct fb *fb;
 };
 
-struct vk_gbm_backing_store {
+struct vk_gbm_render_surface {
     union {
         struct surface surface;
-        struct backing_store backing_store;
+        struct render_surface render_surface;
     };
 
     uuid_t uuid;
@@ -76,14 +76,14 @@ struct vk_gbm_backing_store {
     struct locked_fb locked_fbs[4];
 
     /**
-     * @brief The framebuffer that was last queued to be presented using @ref vk_gbm_backing_store_queue_present_vulkan.
+     * @brief The framebuffer that was last queued to be presented using @ref vk_gbm_render_surface_queue_present_vulkan.
      *
      * This framebuffer is still locked so we can present it again any time, without worrying about it being acquired by
-     * flutter using @ref vk_gbm_backing_store_fill_vulkan. Even when @ref vk_gbm_backing_store_present_kms is called,
+     * flutter using @ref vk_gbm_render_surface_fill_vulkan. Even when @ref vk_gbm_render_surface_present_kms is called,
      * we don't set this to NULL.
      *
-     * This is the framebuffer that will be presented on screen when @ref vk_gbm_backing_store_present_kms or
-     * @ref vk_gbm_backing_store_present_fbdev is called.
+     * This is the framebuffer that will be presented on screen when @ref vk_gbm_render_surface_present_kms or
+     * @ref vk_gbm_render_surface_present_fbdev is called.
      *
      */
     struct locked_fb *front_fb;
@@ -104,16 +104,16 @@ struct vk_gbm_backing_store {
 };
 
 static void locked_fb_destroy(struct locked_fb *fb) {
-    struct vk_gbm_backing_store *store;
+    struct vk_gbm_render_surface *surface;
 
-    store = fb->store;
-    fb->store = NULL;
+    surface = fb->surface;
+    fb->surface = NULL;
 
 #ifdef DEBUG
-    atomic_fetch_sub(&store->n_locked_fbs, 1);
+    atomic_fetch_sub(&surface->n_locked_fbs, 1);
 #endif
     atomic_flag_clear(&fb->is_locked);
-    surface_unref(CAST_SURFACE(store));
+    surface_unref(CAST_SURFACE(surface));
 }
 
 DEFINE_STATIC_REF_OPS(locked_fb, n_refs)
@@ -126,14 +126,14 @@ MAYBE_UNUSED static bool atomic_flag_test(atomic_flag *flag) {
     return before;
 }
 
-static void log_locked_fbs(struct vk_gbm_backing_store *store, const char *note) {
+static void log_locked_fbs(struct vk_gbm_render_surface *surface, const char *note) {
 #ifdef VK_LOG_LOCKED_FBS
     LOG_DEBUG(
         "locked: %c, %c, %c, %c",
-        atomic_flag_test(&store->locked_fbs[0].is_locked) ? 'y' : 'n',
-        atomic_flag_test(&store->locked_fbs[1].is_locked) ? 'y' : 'n',
-        atomic_flag_test(&store->locked_fbs[2].is_locked) ? 'y' : 'n',
-        atomic_flag_test(&store->locked_fbs[3].is_locked) ? 'y' : 'n'
+        atomic_flag_test(&surface->locked_fbs[0].is_locked) ? 'y' : 'n',
+        atomic_flag_test(&surface->locked_fbs[1].is_locked) ? 'y' : 'n',
+        atomic_flag_test(&surface->locked_fbs[2].is_locked) ? 'y' : 'n',
+        atomic_flag_test(&surface->locked_fbs[3].is_locked) ? 'y' : 'n'
     );
 
     if (note != NULL) {
@@ -142,34 +142,34 @@ static void log_locked_fbs(struct vk_gbm_backing_store *store, const char *note)
         LOG_DEBUG_UNPREFIXED("\n");
     }
 #else
-    (void) store;
+    (void) surface;
     (void) note;
 #endif
 }
 
-COMPILE_ASSERT(offsetof(struct vk_gbm_backing_store, surface) == 0);
-COMPILE_ASSERT(offsetof(struct vk_gbm_backing_store, backing_store.surface) == 0);
+COMPILE_ASSERT(offsetof(struct vk_gbm_render_surface, surface) == 0);
+COMPILE_ASSERT(offsetof(struct vk_gbm_render_surface, render_surface.surface) == 0);
 
 static const uuid_t uuid = CONST_UUID(0x26, 0xfe, 0x91, 0x53, 0x75, 0xf2, 0x41, 0x90, 0xa1, 0xf5, 0xba, 0xe1, 0x1b, 0x28, 0xd5, 0xe5);
 
-#define CAST_THIS(ptr) CAST_VK_GBM_BACKING_STORE(ptr)
-#define CAST_THIS_UNCHECKED(ptr) CAST_VK_GBM_BACKING_STORE_UNCHECKED(ptr)
+#define CAST_THIS(ptr) CAST_VK_GBM_RENDER_SURFACE(ptr)
+#define CAST_THIS_UNCHECKED(ptr) CAST_VK_GBM_RENDER_SURFACE_UNCHECKED(ptr)
 
 #ifdef DEBUG
-ATTR_PURE struct vk_gbm_backing_store *__checked_cast_vk_gbm_backing_store(void *ptr) {
-    struct vk_gbm_backing_store *store;
+ATTR_PURE struct vk_gbm_render_surface *__checked_cast_vk_gbm_render_surface(void *ptr) {
+    struct vk_gbm_render_surface *surface;
 
-    store = CAST_VK_GBM_BACKING_STORE_UNCHECKED(ptr);
-    DEBUG_ASSERT(uuid_equals(store->uuid, uuid));
-    return store;
+    surface = CAST_VK_GBM_RENDER_SURFACE_UNCHECKED(ptr);
+    DEBUG_ASSERT(uuid_equals(surface->uuid, uuid));
+    return surface;
 }
 #endif
 
-void vk_gbm_backing_store_deinit(struct surface *s);
-static int vk_gbm_backing_store_present_kms(struct surface *s, const struct fl_layer_props *props, struct kms_req_builder *builder);
-static int vk_gbm_backing_store_present_fbdev(struct surface *s, const struct fl_layer_props *props, struct fbdev_commit_builder *builder);
-static int vk_gbm_backing_store_fill(struct backing_store *store, FlutterBackingStore *fl_store);
-static int vk_gbm_backing_store_queue_present(struct backing_store *store, const FlutterBackingStore *fl_store);
+void vk_gbm_render_surface_deinit(struct surface *s);
+static int vk_gbm_render_surface_present_kms(struct surface *s, const struct fl_layer_props *props, struct kms_req_builder *builder);
+static int vk_gbm_render_surface_present_fbdev(struct surface *s, const struct fl_layer_props *props, struct fbdev_commit_builder *builder);
+static int vk_gbm_render_surface_fill(struct render_surface *surface, FlutterBackingStore *fl_store);
+static int vk_gbm_render_surface_queue_present(struct render_surface *surface, const FlutterBackingStore *fl_store);
 
 static bool is_srgb_format(VkFormat vk_format) {
     return vk_format == VK_FORMAT_R8G8B8A8_SRGB || vk_format == VK_FORMAT_B8G8R8A8_SRGB;
@@ -443,8 +443,8 @@ static void fb_deinit(struct fb *fb, VkDevice device) {
     vkDestroyImage(device, fb->image, NULL);
 }
 
-int vk_gbm_backing_store_init(
-    struct vk_gbm_backing_store *store,
+int vk_gbm_render_surface_init(
+    struct vk_gbm_render_surface *surface,
     struct tracer *tracer,
     struct point size,
     struct gbm_device *gbm_device,
@@ -453,13 +453,13 @@ int vk_gbm_backing_store_init(
 ) {
     int ok;
 
-    ok = backing_store_init(CAST_BACKING_STORE_UNCHECKED(store), tracer, size);
+    ok = render_surface_init(CAST_RENDER_SURFACE_UNCHECKED(surface), tracer, size);
     if (ok != 0) {
         return EIO;
     }
 
-    for (int i = 0; i < ARRAY_SIZE(store->fbs); i++) {
-        ok = fb_init(store->fbs + i, gbm_device, renderer, (int) size.x, (int) size.y, pixel_format, DRM_FORMAT_MOD_LINEAR);
+    for (int i = 0; i < ARRAY_SIZE(surface->fbs); i++) {
+        ok = fb_init(surface->fbs + i, gbm_device, renderer, (int) size.x, (int) size.y, pixel_format, DRM_FORMAT_MOD_LINEAR);
         if (ok != 0) {
             LOG_ERROR("Could not initialize vulkan GBM framebuffer.\n");
             goto fail_deinit_previous_fbs;
@@ -470,82 +470,81 @@ int vk_gbm_backing_store_init(
 
         fail_deinit_previous_fbs:
         for (int j = 0; j < i; j++) {
-            fb_deinit(store->fbs + j, vk_renderer_get_device(renderer));
+            fb_deinit(surface->fbs + j, vk_renderer_get_device(renderer));
         }
-        goto fail_deinit_backing_store;
+        goto fail_deinit_render_surface;
     }
 
-    for (int i = 0; i < ARRAY_SIZE(store->locked_fbs); i++) {
-        store->locked_fbs[i].store = NULL;
-        store->locked_fbs[i].is_locked = (atomic_flag) ATOMIC_FLAG_INIT;
-        store->locked_fbs[i].n_refs = REFCOUNT_INIT_0;
-        store->locked_fbs[i].fb = store->fbs + i;
+    for (int i = 0; i < ARRAY_SIZE(surface->locked_fbs); i++) {
+        surface->locked_fbs[i].surface = NULL;
+        surface->locked_fbs[i].is_locked = (atomic_flag) ATOMIC_FLAG_INIT;
+        surface->locked_fbs[i].n_refs = REFCOUNT_INIT_0;
+        surface->locked_fbs[i].fb = surface->fbs + i;
     }
 
-    COMPILE_ASSERT(ARRAY_SIZE(store->fbs) == ARRAY_SIZE(store->locked_fbs));
+    COMPILE_ASSERT(ARRAY_SIZE(surface->fbs) == ARRAY_SIZE(surface->locked_fbs));
 
-    store->surface.present_kms = vk_gbm_backing_store_present_kms;
-    store->surface.present_fbdev = vk_gbm_backing_store_present_fbdev;
-    store->surface.deinit = vk_gbm_backing_store_deinit;
-    store->backing_store.fill = vk_gbm_backing_store_fill;
-    store->backing_store.queue_present = vk_gbm_backing_store_queue_present;
+    surface->surface.present_kms = vk_gbm_render_surface_present_kms;
+    surface->surface.present_fbdev = vk_gbm_render_surface_present_fbdev;
+    surface->surface.deinit = vk_gbm_render_surface_deinit;
+    surface->render_surface.fill = vk_gbm_render_surface_fill;
+    surface->render_surface.queue_present = vk_gbm_render_surface_queue_present;
 
-    uuid_copy(&store->uuid, uuid);
-    store->renderer = vk_renderer_ref(renderer);
-    store->front_fb = NULL;
-    store->pixel_format = pixel_format;
+    uuid_copy(&surface->uuid, uuid);
+    surface->renderer = vk_renderer_ref(renderer);
+    surface->front_fb = NULL;
+    surface->pixel_format = pixel_format;
 #ifdef DEBUG
-    store->n_locked_fbs = ATOMIC_VAR_INIT(0);
+    surface->n_locked_fbs = ATOMIC_VAR_INIT(0);
 #endif
     return 0;
 
 
-    fail_deinit_backing_store:
-    backing_store_deinit(CAST_SURFACE_UNCHECKED(store));
+    fail_deinit_render_surface:
+    render_surface_deinit(CAST_SURFACE_UNCHECKED(surface));
     return EIO;
 }
 
-ATTR_MALLOC struct vk_gbm_backing_store *vk_gbm_backing_store_new(
+ATTR_MALLOC struct vk_gbm_render_surface *vk_gbm_render_surface_new(
     struct tracer *tracer,
     struct point size,
     struct gbm_device *device,
     struct vk_renderer *renderer,
     enum pixfmt pixel_format
 ) {
-    struct vk_gbm_backing_store *store;
+    struct vk_gbm_render_surface *surface;
     int ok;
 
-    store = malloc(sizeof *store);
-    if (store == NULL) {
+    surface = malloc(sizeof *surface);
+    if (surface == NULL) {
         goto fail_return_null;
     }
 
-    ok = vk_gbm_backing_store_init(store, tracer, size, device, renderer, pixel_format);
+    ok = vk_gbm_render_surface_init(surface, tracer, size, device, renderer, pixel_format);
     if (ok != 0) {
-        goto fail_free_store;
+        goto fail_free_surface;
     }
 
-    return store;
+    return surface;
 
 
-    fail_free_store:
-    free(store);
+    fail_free_surface:
+    free(surface);
 
     fail_return_null:
     return NULL;
 }
 
-void vk_gbm_backing_store_deinit(struct surface *s) {
-    struct vk_gbm_backing_store *store;
+void vk_gbm_render_surface_deinit(struct surface *s) {
+    struct vk_gbm_render_surface *vk_surface;
 
-    store = CAST_THIS(s);
-    (void) store;
+    vk_surface = CAST_THIS(s);
 
-    for (int i = 0; i < ARRAY_SIZE(store->fbs); i++) {
-        fb_deinit(store->fbs + i, vk_renderer_get_device(store->renderer));
+    for (int i = 0; i < ARRAY_SIZE(vk_surface->fbs); i++) {
+        fb_deinit(vk_surface->fbs + i, vk_renderer_get_device(vk_surface->renderer));
     }
 
-    backing_store_deinit(s);
+    render_surface_deinit(s);
 }
 
 struct gbm_bo_meta {
@@ -581,22 +580,22 @@ static void on_destroy_gbm_bo_meta(struct gbm_bo *bo, void *meta_void) {
 }
 
 static void on_release_layer(void *userdata) {
-    struct vk_gbm_backing_store *store;
+    struct vk_gbm_render_surface *surface;
     struct locked_fb *fb;
 
     DEBUG_ASSERT_NOT_NULL(userdata);
 
     fb = userdata;
-    store = CAST_THIS_UNCHECKED(surface_ref(CAST_SURFACE_UNCHECKED(fb->store)));
+    surface = CAST_THIS_UNCHECKED(surface_ref(CAST_SURFACE_UNCHECKED(fb->surface)));
 
     locked_fb_unref(fb);
 
-    log_locked_fbs(store, "release_layer");
-    surface_unref(CAST_SURFACE_UNCHECKED(store));
+    log_locked_fbs(surface, "release_layer");
+    surface_unref(CAST_SURFACE_UNCHECKED(surface));
 }
 
-static int vk_gbm_backing_store_present_kms(struct surface *s, const struct fl_layer_props *props, struct kms_req_builder *builder) {
-    struct vk_gbm_backing_store *store;
+static int vk_gbm_render_surface_present_kms(struct surface *s, const struct fl_layer_props *props, struct kms_req_builder *builder) {
+    struct vk_gbm_render_surface *vk_surface;
     struct gbm_bo_meta *meta;
     struct drmdev *drmdev;
     struct gbm_bo *bo;
@@ -604,8 +603,7 @@ static int vk_gbm_backing_store_present_kms(struct surface *s, const struct fl_l
     uint32_t fb_id, opaque_fb_id;
     int ok;
 
-    store = CAST_THIS(s);
-    (void) store;
+    vk_surface = CAST_THIS(s);
     (void) props;
     (void) builder;
 
@@ -614,9 +612,9 @@ static int vk_gbm_backing_store_present_kms(struct surface *s, const struct fl_l
 
     surface_lock(s);
 
-    DEBUG_ASSERT_NOT_NULL_MSG(store->front_fb, "There's no framebuffer available for scanout right now. Make sure you called backing_store_swap_buffers() before presenting.");
+    DEBUG_ASSERT_NOT_NULL_MSG(vk_surface->front_fb, "There's no framebuffer available for scanout right now. Make sure you called render_surface_swap_buffers() before presenting.");
 
-    bo = store->front_fb->fb->bo;
+    bo = vk_surface->front_fb->fb->bo;
     meta = gbm_bo_get_user_data(bo);
     if (meta == NULL) {
         bool has_opaque_fb;
@@ -630,19 +628,19 @@ static int vk_gbm_backing_store_present_kms(struct surface *s, const struct fl_l
         drmdev = kms_req_builder_get_drmdev(builder);
         DEBUG_ASSERT_NOT_NULL(drmdev);
 
-        TRACER_BEGIN(store->surface.tracer, "drmdev_add_fb (non-opaque)");
+        TRACER_BEGIN(vk_surface->surface.tracer, "drmdev_add_fb (non-opaque)");
         fb_id = drmdev_add_fb(
             drmdev,
             gbm_bo_get_width(bo),
             gbm_bo_get_height(bo),
-            store->pixel_format,
+            vk_surface->pixel_format,
             gbm_bo_get_handle(bo).u32,
             gbm_bo_get_stride(bo),
             gbm_bo_get_offset(bo, 0),
             true, gbm_bo_get_modifier(bo),
             0
         );
-        TRACER_END(store->surface.tracer, "drmdev_add_fb (non-opaque)");
+        TRACER_END(vk_surface->surface.tracer, "drmdev_add_fb (non-opaque)");
 
         if (fb_id == 0) {
             ok = EIO;
@@ -650,12 +648,12 @@ static int vk_gbm_backing_store_present_kms(struct surface *s, const struct fl_l
             goto fail_free_meta;
         }
 
-        if (get_pixfmt_info(store->pixel_format)->is_opaque == false) {
+        if (get_pixfmt_info(vk_surface->pixel_format)->is_opaque == false) {
             has_opaque_fb = false;
-            opaque_pixel_format = pixfmt_opaque(store->pixel_format);
+            opaque_pixel_format = pixfmt_opaque(vk_surface->pixel_format);
             if (get_pixfmt_info(opaque_pixel_format)->is_opaque) {
 
-                TRACER_BEGIN(store->surface.tracer, "drmdev_add_fb (opaque)");
+                TRACER_BEGIN(vk_surface->surface.tracer, "drmdev_add_fb (opaque)");
                 opaque_fb_id = drmdev_add_fb(
                     drmdev,
                     gbm_bo_get_width(bo),
@@ -667,7 +665,7 @@ static int vk_gbm_backing_store_present_kms(struct surface *s, const struct fl_l
                     true, gbm_bo_get_modifier(bo),
                     0
                 );
-                TRACER_END(store->surface.tracer, "drmdev_add_fb (opaque)");
+                TRACER_END(vk_surface->surface.tracer, "drmdev_add_fb (opaque)");
 
                 if (opaque_fb_id != 0) {
                     has_opaque_fb = true;
@@ -676,7 +674,7 @@ static int vk_gbm_backing_store_present_kms(struct surface *s, const struct fl_l
         } else {
             has_opaque_fb = true;
             opaque_fb_id = fb_id;
-            opaque_pixel_format = store->pixel_format;
+            opaque_pixel_format = vk_surface->pixel_format;
         }
 
         meta->drmdev = drmdev_ref(drmdev);
@@ -692,12 +690,12 @@ static int vk_gbm_backing_store_present_kms(struct surface *s, const struct fl_l
 
     /*
     LOG_DEBUG(
-        "vk_gbm_backing_store_present_kms:\n"
+        "vk_gbm_render_surface_present_kms:\n"
         "    src_x, src_y, src_w, src_h: %f %f %f %f\n"
         "    dst_x, dst_y, dst_w, dst_h: %f %f %f %f\n",
         0.0, 0.0,
-        store->backing_store.size.x,
-        store->backing_store.size.y,
+        s->render_surface.size.x,
+        s->render_surface.size.y,
         props->aa_rect.offset.x,
         props->aa_rect.offset.y,
         props->aa_rect.size.x,
@@ -717,14 +715,14 @@ static int vk_gbm_backing_store_present_kms(struct surface *s, const struct fl_l
             LOG_DEBUG("Bottom-most framebuffer layer should be opaque, but an opaque framebuffer couldn't be created.\n");
             LOG_DEBUG("Using non-opaque framebuffer instead, which can result in visual glitches.\n");
             fb_id = meta->fb_id;
-            pixel_format = store->pixel_format;
+            pixel_format = vk_surface->pixel_format;
         }
     } else {
         fb_id = meta->fb_id;
-        pixel_format = store->pixel_format;
+        pixel_format = vk_surface->pixel_format;
     }
 
-    TRACER_BEGIN(store->surface.tracer, "kms_req_builder_push_fb_layer");
+    TRACER_BEGIN(vk_surface->surface.tracer, "kms_req_builder_push_fb_layer");
     ok = kms_req_builder_push_fb_layer(
         builder,
         &(const struct kms_fb_layer) {
@@ -740,8 +738,8 @@ static int vk_gbm_backing_store_present_kms(struct surface *s, const struct fl_l
 
             .src_x = 0,
             .src_y = 0,
-            .src_w = DOUBLE_TO_FP1616_ROUNDED(store->backing_store.size.x),
-            .src_h = DOUBLE_TO_FP1616_ROUNDED(store->backing_store.size.y),
+            .src_w = DOUBLE_TO_FP1616_ROUNDED(vk_surface->render_surface.size.x),
+            .src_h = DOUBLE_TO_FP1616_ROUNDED(vk_surface->render_surface.size.y),
 
             .has_rotation = false,
             .rotation = PLANE_TRANSFORM_ROTATE_0,
@@ -751,9 +749,9 @@ static int vk_gbm_backing_store_present_kms(struct surface *s, const struct fl_l
         },
         on_release_layer,
         NULL,
-        locked_fb_ref(store->front_fb)
+        locked_fb_ref(vk_surface->front_fb)
     );
-    TRACER_END(store->surface.tracer, "kms_req_builder_push_fb_layer");
+    TRACER_END(vk_surface->surface.tracer, "kms_req_builder_push_fb_layer");
     if (ok != 0) {
         goto fail_unref_locked_fb;
     }
@@ -764,7 +762,7 @@ static int vk_gbm_backing_store_present_kms(struct surface *s, const struct fl_l
 
 
     fail_unref_locked_fb:
-    locked_fb_unref(store->front_fb);
+    locked_fb_unref(vk_surface->front_fb);
     goto fail_unlock;
 
     fail_free_meta:
@@ -775,14 +773,14 @@ static int vk_gbm_backing_store_present_kms(struct surface *s, const struct fl_l
     return ok;
 }
 
-static int vk_gbm_backing_store_present_fbdev(struct surface *s, const struct fl_layer_props *props, struct fbdev_commit_builder *builder) {
-    struct vk_gbm_backing_store *store;
+static int vk_gbm_render_surface_present_fbdev(struct surface *s, const struct fl_layer_props *props, struct fbdev_commit_builder *builder) {
+    struct vk_gbm_render_surface *render_surface;
 
     /// TODO: Implement by mmapping the current front bo, copy it into the fbdev
     /// TODO: Print a warning here if we're not using explicit linear tiling and use glReadPixels instead of gbm_bo_map in that case
 
-    store = CAST_THIS(s);
-    (void) store;
+    render_surface = CAST_THIS(s);
+    (void) render_surface;
     (void) props;
     (void) builder;
 
@@ -791,19 +789,19 @@ static int vk_gbm_backing_store_present_fbdev(struct surface *s, const struct fl
     return 0;
 }
 
-static int vk_gbm_backing_store_fill(struct backing_store *s, FlutterBackingStore *fl_store) {
-    struct vk_gbm_backing_store *store;
+static int vk_gbm_render_surface_fill(struct render_surface *s, FlutterBackingStore *fl_store) {
+    struct vk_gbm_render_surface *render_surface;
     int i, ok;
 
-    store = CAST_THIS(s);
+    render_surface = CAST_THIS(s);
 
     surface_lock(CAST_SURFACE_UNCHECKED(s));
 
     // Try to find & lock a locked_fb we can use.
     // Note we use atomics here even though we hold the surfaces' mutex because
     // releasing a locked_fb is possibly done without the mutex.
-    for (i = 0; i < ARRAY_SIZE(store->locked_fbs); i++) {
-        if (atomic_flag_test_and_set(&store->locked_fbs[i].is_locked) == false) {
+    for (i = 0; i < ARRAY_SIZE(render_surface->locked_fbs); i++) {
+        if (atomic_flag_test_and_set(&render_surface->locked_fbs[i].is_locked) == false) {
             goto locked;
         }
     }
@@ -817,19 +815,19 @@ static int vk_gbm_backing_store_fill(struct backing_store *s, FlutterBackingStor
     locked: ;
     /// TODO: Remove this once we're using triple buffering
 #ifdef DEBUG
-    atomic_fetch_add(&store->n_locked_fbs, 1);
+    atomic_fetch_add(&render_surface->n_locked_fbs, 1);
     log_locked_fbs(CAST_THIS_UNCHECKED(s), "fill");
     //DEBUG_ASSERT_MSG(before + 1 <= 3, "sanity check failed: too many locked fbs for double-buffered vsync");
 #endif
-    store->locked_fbs[i].store = CAST_VK_GBM_BACKING_STORE(surface_ref(CAST_SURFACE_UNCHECKED(s)));
-    store->locked_fbs[i].n_refs = REFCOUNT_INIT_1;
+    render_surface->locked_fbs[i].surface = CAST_VK_GBM_RENDER_SURFACE(surface_ref(CAST_SURFACE_UNCHECKED(s)));
+    render_surface->locked_fbs[i].n_refs = REFCOUNT_INIT_1;
 
     COMPILE_ASSERT(sizeof(FlutterVulkanBackingStore) == 16);
     fl_store->type = kFlutterBackingStoreTypeVulkan;
     fl_store->vulkan = (FlutterVulkanBackingStore) {
         .struct_size = sizeof(FlutterVulkanBackingStore),
-        .image = &store->locked_fbs[i].fb->fl_image,
-        .user_data = surface_ref(CAST_SURFACE_UNCHECKED(store)),
+        .image = &render_surface->locked_fbs[i].fb->fl_image,
+        .user_data = surface_ref(CAST_SURFACE_UNCHECKED(render_surface)),
         .destruction_callback = surface_unref_void,
     };
 
@@ -843,11 +841,11 @@ static int vk_gbm_backing_store_fill(struct backing_store *s, FlutterBackingStor
     return ok;
 }
 
-static int vk_gbm_backing_store_queue_present(struct backing_store *s, const FlutterBackingStore *fl_store) {
-    struct vk_gbm_backing_store *store;
+static int vk_gbm_render_surface_queue_present(struct render_surface *s, const FlutterBackingStore *fl_store) {
+    struct vk_gbm_render_surface *vk_surface;
     struct locked_fb *fb;
 
-    store = CAST_THIS(s);
+    vk_surface = CAST_THIS(s);
 
     DEBUG_ASSERT_EQUALS(fl_store->type, kFlutterBackingStoreTypeVulkan);
     /// TODO: Implement handling if fl_store->did_update == false
@@ -856,27 +854,27 @@ static int vk_gbm_backing_store_queue_present(struct backing_store *s, const Flu
 
     // find out which fb this image belongs too
     fb = NULL;
-    for (int i = 0; i < ARRAY_SIZE(store->locked_fbs); i++) {
-        if (store->locked_fbs[i].fb->fl_image.image == fl_store->vulkan.image->image) {
-            fb = store->locked_fbs + i;
+    for (int i = 0; i < ARRAY_SIZE(vk_surface->locked_fbs); i++) {
+        if (vk_surface->locked_fbs[i].fb->fl_image.image == fl_store->vulkan.image->image) {
+            fb = vk_surface->locked_fbs + i;
             break;
         }
     }
 
     if (fb == NULL) {
-        LOG_ERROR("The vulkan image flutter wants to present is not known to this backing store.\n");
+        LOG_ERROR("The vulkan image flutter wants to present is not known to this render surface.\n");
         surface_unlock(CAST_SURFACE_UNCHECKED(s));
         return EINVAL;
     }
 
     // Replace the front fb with the new one
     // (will unref the old one if not NULL internally)
-    locked_fb_swap_ptrs(&store->front_fb, fb);
+    locked_fb_swap_ptrs(&vk_surface->front_fb, fb);
 
     // Since flutter no longer uses this fb for rendering, we need to unref it
     locked_fb_unref(fb);
 
-    log_locked_fbs(store, "queue_present");
+    log_locked_fbs(vk_surface, "queue_present");
 
     surface_unlock(CAST_SURFACE_UNCHECKED(s));
     return 0;
