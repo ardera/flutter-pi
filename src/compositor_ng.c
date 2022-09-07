@@ -21,13 +21,13 @@
 #include <flutter_embedder.h>
 #include <systemd/sd-event.h>
 
-#include <backing_store.h>
+#include <render_surface.h>
 #include <collection.h>
 #include <compositor_ng.h>
 #include <egl.h>
 #include <flutter-pi.h>
-#include <gbm_surface_backing_store.h>
-#include <vk_gbm_backing_store.h>
+#include <egl_gbm_render_surface.h>
+#include <vk_gbm_render_surface.h>
 #include <gl_renderer.h>
 #include <vk_renderer.h>
 #include <modesetting.h>
@@ -49,7 +49,7 @@ FILE_DESCR("compositor-ng")
  *    - same for clip rects
  *    - opacity and rotation as individual numbers
  *  - for backing stores:
- *    - struct backing_store* object instead of FlutterBackingStore
+ *    - struct render_surface* object instead of FlutterBackingStore
  *    - offset & size as as a struct aa_rect
  *  - refcounted
  */
@@ -125,16 +125,16 @@ struct window {
     /// The last presented composition.
     struct fl_layer_composition *composition;
 
-    /// @brief The main backing store.
+    /// @brief The main render surface.
     /// (Due to the flutter embedder API architecture, we always need to have
-    /// a primary surface, other backing stores can only be framebuffers.)
-    struct backing_store *backing_store;
+    /// a primary surface, other render surfaces can only be framebuffers.)
+    struct render_surface *render_surface;
 
-    /// @brief The EGL/GL compatible backing store if this is a normal egl/gl window.
-    struct gbm_surface_backing_store *egl_backing_store;
+    /// @brief The EGL/GL compatible render surface if this is a normal egl/gl window.
+    struct egl_gbm_render_surface *egl_render_surface;
 
-    /// @brief The vulkan compatible backing store if this is a vulkan window.
-    struct vk_gbm_backing_store *vk_backing_store;
+    /// @brief The vulkan compatible render surface if this is a vulkan window.
+    struct vk_gbm_render_surface *vk_render_surface;
 
     /// The frame request queue.
     /// Normally, flutter would request a frame using the flutter engine vsync callback
@@ -216,7 +216,7 @@ struct window {
     enum pixfmt forced_pixel_format;
 
     /// @brief The EGLConfig to use for creating any EGL surfaces.
-    /// Can be EGL_NO_CONFIG_KHR if backing stores should automatically select one.
+    /// Can be EGL_NO_CONFIG_KHR if render surfaces should automatically select one.
     EGLConfig egl_config;
 
     /// @brief How many buffers to use and how we should schedule frames.
@@ -236,7 +236,7 @@ struct window {
     /// will commit the next frame.
     bool present_immediately;
 
-    /// @brief The EGL/OpenGL renderer used to create any GL backing stores.
+    /// @brief The EGL/OpenGL renderer used to create any GL render surfaces.
     struct gl_renderer *renderer;
 
     /// @brief The vulkan renderer if this is a vulkan window.
@@ -535,8 +535,7 @@ static int window_init(
     LOG_DEBUG_UNPREFIXED(
         "===================================\n"
         "display mode:\n"
-        "  resolution: %" PRIu16 " x %" PRIu16
-        "\n"
+        "  resolution: %" PRIu16 " x %" PRIu16 "\n"
         "  refresh rate: %fHz\n"
         "  physical size: %dmm x %dmm\n"
         "  flutter device pixel ratio: %f\n"
@@ -555,9 +554,9 @@ static int window_init(
     window->drmdev = drmdev_ref(drmdev);
     window->gbm_device = drmdev_get_gbm_device(drmdev);
     window->composition = NULL;
-    window->backing_store = NULL;
-    window->egl_backing_store = NULL;
-    window->vk_backing_store = NULL;
+    window->render_surface = NULL;
+    window->egl_render_surface = NULL;
+    window->vk_render_surface = NULL;
     window->selected_connector = selected_connector;
     window->selected_crtc = selected_crtc;
     window->selected_encoder = selected_encoder;
@@ -581,7 +580,7 @@ static int window_init(
     window->next_frame = NULL;
     window->renderer = gl_renderer_ref(renderer);
     window->vk_renderer = NULL;
-    window->vk_backing_store = NULL;
+    window->vk_render_surface = NULL;
     return 0;
 
 fail_deinit_queue:
@@ -752,9 +751,9 @@ static int window_init_vulkan(
     window->drmdev = drmdev_ref(drmdev);
     window->gbm_device = drmdev_get_gbm_device(drmdev);
     window->composition = NULL;
-    window->backing_store = NULL;
-    window->egl_backing_store = NULL;
-    window->vk_backing_store = NULL;
+    window->render_surface = NULL;
+    window->egl_render_surface = NULL;
+    window->vk_render_surface = NULL;
     window->selected_connector = selected_connector;
     window->selected_crtc = selected_crtc;
     window->selected_encoder = selected_encoder;
@@ -1053,20 +1052,20 @@ fail_unlock:
     return ok;
 }
 
-static struct backing_store *window_create_backing_store(struct window *window, struct point size) {
-    struct backing_store *store;
+static struct render_surface *window_create_render_surface(struct window *window, struct point size) {
+    struct render_surface *surface;
 
     DEBUG_ASSERT_NOT_NULL(window);
 
     /// TODO: Make pixel format configurable or automatically select one
-    /// TODO: Only create one real GBM Surface backing store, otherwise create
-    ///       custom GBM BO backing stores
+    /// TODO: Only create one real GBM Surface render surface, otherwise create
+    ///       custom GBM BO render surfaces.
     window_lock(window);
 
-    if (window->egl_backing_store == NULL && window->renderer != NULL) {
-        struct gbm_surface_backing_store *egl_store;
+    if (window->egl_render_surface == NULL && window->renderer != NULL) {
+        struct egl_gbm_render_surface *egl_surface;
 
-        egl_store = gbm_surface_backing_store_new_with_egl_config(
+        egl_surface = egl_gbm_render_surface_new_with_egl_config(
             window->tracer,
             size,
             window->gbm_device,
@@ -1074,40 +1073,40 @@ static struct backing_store *window_create_backing_store(struct window *window, 
             window->has_forced_pixel_format ? window->forced_pixel_format : kARGB8888,
             window->egl_config
         );
-        if (egl_store == NULL) {
+        if (egl_surface == NULL) {
             window_unlock(window);
             return NULL;
         }
 
-        window->egl_backing_store = CAST_GBM_SURFACE_BACKING_STORE_UNCHECKED(surface_ref(CAST_SURFACE_UNCHECKED(egl_store)));
-        window->backing_store = CAST_BACKING_STORE_UNCHECKED(surface_ref(CAST_SURFACE_UNCHECKED(egl_store)));
-        store = CAST_BACKING_STORE_UNCHECKED(egl_store);
-    } else if (window->vk_backing_store == NULL && window->vk_renderer != NULL) {
-        struct vk_gbm_backing_store *vk_store;
+        window->egl_render_surface = CAST_EGL_GBM_RENDER_SURFACE_UNCHECKED(surface_ref(CAST_SURFACE_UNCHECKED(egl_surface)));
+        window->render_surface = CAST_RENDER_SURFACE_UNCHECKED(surface_ref(CAST_SURFACE_UNCHECKED(egl_surface)));
+        surface = CAST_RENDER_SURFACE_UNCHECKED(egl_surface);
+    } else if (window->vk_render_surface == NULL && window->vk_renderer != NULL) {
+        struct vk_gbm_render_surface *vk_surface;
 
-        vk_store = vk_gbm_backing_store_new(
+        vk_surface = vk_gbm_render_surface_new(
             window->tracer,
             size,
             window->gbm_device,
             window->vk_renderer,
             window->forced_pixel_format
         );
-        if (vk_store == NULL) {
+        if (vk_surface == NULL) {
             window_unlock(window);
             return NULL;
         }
 
-        window->vk_backing_store = CAST_VK_GBM_BACKING_STORE_UNCHECKED(surface_ref(CAST_SURFACE_UNCHECKED(vk_store)));
-        window->backing_store = CAST_BACKING_STORE_UNCHECKED(surface_ref(CAST_SURFACE_UNCHECKED(vk_store)));
-        store = CAST_BACKING_STORE_UNCHECKED(vk_store);
+        window->vk_render_surface = CAST_VK_GBM_RENDER_SURFACE_UNCHECKED(surface_ref(CAST_SURFACE_UNCHECKED(vk_surface)));
+        window->render_surface = CAST_RENDER_SURFACE_UNCHECKED(surface_ref(CAST_SURFACE_UNCHECKED(vk_surface)));
+        surface = CAST_RENDER_SURFACE_UNCHECKED(vk_surface);
     } else {
-        DEBUG_ASSERT((window->egl_backing_store || window->vk_backing_store) && window->backing_store);
-        store = CAST_BACKING_STORE_UNCHECKED(surface_ref(CAST_SURFACE_UNCHECKED(window->backing_store)));
+        DEBUG_ASSERT((window->egl_render_surface || window->vk_render_surface) && window->render_surface);
+        surface = CAST_RENDER_SURFACE_UNCHECKED(surface_ref(CAST_SURFACE_UNCHECKED(window->render_surface)));
     }
 
     window_unlock(window);
 
-    return CAST_BACKING_STORE_UNCHECKED(store);
+    return CAST_RENDER_SURFACE_UNCHECKED(surface);
 }
 
 static bool window_has_egl_surface(struct window *window) {
@@ -1116,20 +1115,20 @@ static bool window_has_egl_surface(struct window *window) {
     DEBUG_ASSERT_NOT_NULL(window);
 
     window_lock(window);
-    result = window->egl_backing_store != NULL;
+    result = window->egl_render_surface != NULL;
     window_unlock(window);
 
     return result;
 }
 
 static EGLSurface window_get_egl_surface(struct window *window) {
-    struct gbm_surface_backing_store *store;
+    struct egl_gbm_render_surface *s;
 
     DEBUG_ASSERT_NOT_NULL(window);
 
     window_lock(window);
 
-    if (window->egl_backing_store == NULL) {
+    if (window->egl_render_surface == NULL) {
         if (window->renderer == NULL) {
             LOG_DEBUG("EGL Surface was requested but there's not EGL/GL renderer configured.\n");
             window_unlock(window);
@@ -1138,7 +1137,7 @@ static EGLSurface window_get_egl_surface(struct window *window) {
 
         LOG_DEBUG("EGL Surface was requested before flutter supplied the surface dimensions.\n");
 
-        store = gbm_surface_backing_store_new_with_egl_config(
+        s = egl_gbm_render_surface_new_with_egl_config(
             window->tracer,
             POINT(window->selected_mode->hdisplay, window->selected_mode->vdisplay),
             drmdev_get_gbm_device(window->drmdev),
@@ -1146,18 +1145,18 @@ static EGLSurface window_get_egl_surface(struct window *window) {
             window->has_forced_pixel_format ? window->forced_pixel_format : kARGB8888,
             window->egl_config
         );
-        if (store == NULL) {
+        if (s == NULL) {
             window_unlock(window);
             return EGL_NO_SURFACE;
         }
 
-        window->egl_backing_store = CAST_GBM_SURFACE_BACKING_STORE_UNCHECKED(surface_ref(CAST_SURFACE_UNCHECKED(store)));
-        window->backing_store = CAST_BACKING_STORE_UNCHECKED(store);
+        window->egl_render_surface = CAST_EGL_GBM_RENDER_SURFACE_UNCHECKED(surface_ref(CAST_SURFACE_UNCHECKED(s)));
+        window->render_surface = CAST_RENDER_SURFACE_UNCHECKED(s);
     }
 
     window_unlock(window);
 
-    return gbm_surface_backing_store_get_egl_surface(window->egl_backing_store);
+    return egl_gbm_render_surface_get_egl_surface(window->egl_render_surface);
 }
 
 static void on_frame_begin_signal_semaphore(void *userdata, uint64_t vblank_ns, uint64_t next_vblank_ns) {
@@ -1481,13 +1480,14 @@ ATTR_MALLOC struct compositor *compositor_new(
     compositor->composition = NULL;
     // just so we get an error if the FlutterCompositor struct was updated
     COMPILE_ASSERT(sizeof(FlutterCompositor) == 24);
-    compositor->flutter_compositor = (FlutterCompositor
-    ){ .struct_size = sizeof(FlutterCompositor),
-       .user_data = compositor,
-       .create_backing_store_callback = on_flutter_create_backing_store,
-       .collect_backing_store_callback = on_flutter_collect_backing_store,
-       .present_layers_callback = on_flutter_present_layers,
-       .avoid_backing_store_cache = true };
+    compositor->flutter_compositor = (FlutterCompositor){ 
+        .struct_size = sizeof(FlutterCompositor),
+        .user_data = compositor,
+        .create_backing_store_callback = on_flutter_create_backing_store,
+        .collect_backing_store_callback = on_flutter_collect_backing_store,
+        .present_layers_callback = on_flutter_present_layers,
+        .avoid_backing_store_cache = true,
+    };
     compositor->tracer = tracer_ref(tracer);
     return compositor;
 
@@ -1737,7 +1737,7 @@ static int compositor_push_fl_layers(struct compositor *compositor, size_t n_fl_
 
             // Tell the surface that flutter has rendered into this framebuffer / texture / image.
             // It'll also read the did_update field and not update the surface revision in that case.
-            backing_store_queue_present(CAST_BACKING_STORE(layer->surface), fl_layer->backing_store);
+            render_surface_queue_present(CAST_RENDER_SURFACE(layer->surface), fl_layer->backing_store);
 
             layer->props.is_aa_rect = true;
             layer->props.aa_rect =
@@ -1876,9 +1876,9 @@ struct surface *compositor_get_view_by_id_locked(struct compositor *compositor, 
     return NULL;
 }
 
-static struct backing_store *compositor_create_backing_store(struct compositor *compositor, struct point size) {
+static struct render_surface *compositor_create_render_surface(struct compositor *compositor, struct point size) {
     DEBUG_ASSERT_NOT_NULL(compositor);
-    return window_create_backing_store(&compositor->main_window, size);
+    return window_create_render_surface(&compositor->main_window, size);
 }
 
 bool compositor_has_egl_surface(struct compositor *compositor) {
@@ -1899,7 +1899,7 @@ static bool on_flutter_create_backing_store(
     FlutterBackingStore *backing_store_out,
     void *userdata
 ) {
-    struct backing_store *store;
+    struct render_surface *s;
     struct compositor *compositor;
     int ok;
 
@@ -1908,11 +1908,11 @@ static bool on_flutter_create_backing_store(
     DEBUG_ASSERT_NOT_NULL(userdata);
     compositor = userdata;
 
-    // we have a reference on this store.
+    // we have a reference on this surface.
     // i.e. when we don't use it, we need to unref it.
-    store = compositor_create_backing_store(compositor, POINT(config->size.width, config->size.height));
-    if (store == NULL) {
-        LOG_ERROR("Couldn't create backing store for flutter to render into.\n");
+    s = compositor_create_render_surface(compositor, POINT(config->size.width, config->size.height));
+    if (s == NULL) {
+        LOG_ERROR("Couldn't create render surface for flutter to render into.\n");
         return false;
     }
 
@@ -1923,18 +1923,18 @@ static bool on_flutter_create_backing_store(
     /// TODO: Make this better
     // compositor_on_event_fd_ready(compositor);
 
-    // backing_store_fill asserts that the user_data is null so it can make sure
-    // any concrete backing_store_fill implementation doesn't try to set the user_data.
+    // render_surface_fill asserts that the user_data is null so it can make sure
+    // any concrete render_surface_fill implementation doesn't try to set the user_data.
     // so we set the user_data after the fill
-    ok = backing_store_fill(store, backing_store_out);
+    ok = render_surface_fill(s, backing_store_out);
     if (ok != 0) {
         LOG_ERROR("Couldn't fill flutter backing store with concrete OpenGL framebuffer/texture or Vulkan image.\n");
-        surface_unref(CAST_SURFACE_UNCHECKED(store));
+        surface_unref(CAST_SURFACE_UNCHECKED(s));
         return false;
     }
 
     // now we can set the user_data.
-    backing_store_out->user_data = store;
+    backing_store_out->user_data = s;
 
     return true;
 }

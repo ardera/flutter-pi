@@ -140,9 +140,9 @@ add_executable(flutter-pi
   src/filesystem_layout.c
   src/compositor_ng.c
   src/surface.c
-  src/backing_store.c
-  src/gbm_surface_backing_store.c
-  src/vk_gbm_backing_store.c
+  src/render_surface.c
+  src/egl_gbm_render_surface.c
+  src/vk_gbm_render_surface.c
   src/tracer.c
   src/dmabuf_surface.c
   src/vsync_waiter.c
