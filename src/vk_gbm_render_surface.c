@@ -176,6 +176,7 @@ static bool is_srgb_format(VkFormat vk_format) {
 }
 
 static VkFormat srgb_to_unorm_format(VkFormat vk_format) {
+    DEBUG_ASSERT(is_srgb_format(vk_format));
     if (vk_format == VK_FORMAT_R8G8B8A8_SRGB) {
         return VK_FORMAT_R8G8B8A8_UNORM;
     } else if (vk_format == VK_FORMAT_B8G8R8A8_SRGB) {
@@ -612,7 +613,7 @@ static int vk_gbm_render_surface_present_kms(struct surface *s, const struct fl_
 
     surface_lock(s);
 
-    DEBUG_ASSERT_NOT_NULL_MSG(vk_surface->front_fb, "There's no framebuffer available for scanout right now. Make sure you called render_surface_swap_buffers() before presenting.");
+    DEBUG_ASSERT_NOT_NULL_MSG(vk_surface->front_fb, "There's no framebuffer available for scanout right now. Make sure you called render_surface_queue_present() before presenting.");
 
     bo = vk_surface->front_fb->fb->bo;
     meta = gbm_bo_get_user_data(bo);
@@ -777,7 +778,7 @@ static int vk_gbm_render_surface_present_fbdev(struct surface *s, const struct f
     struct vk_gbm_render_surface *render_surface;
 
     /// TODO: Implement by mmapping the current front bo, copy it into the fbdev
-    /// TODO: Print a warning here if we're not using explicit linear tiling and use glReadPixels instead of gbm_bo_map in that case
+    /// TODO: Print a warning here if we're not using explicit linear tiling and transition to linear layout with vulkan instead of gbm_bo_map in that case
 
     render_surface = CAST_THIS(s);
     (void) render_surface;

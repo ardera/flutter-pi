@@ -352,7 +352,6 @@ static int egl_gbm_render_surface_present_kms(struct surface *s, const struct fl
     uint32_t fb_id, opaque_fb_id;
     int ok;
 
-    /// TODO: Implement by adding the current front bo as a KMS fb (if that's not already done)
     egl_surface = CAST_THIS(s);
 
     /// TODO: Implement non axis-aligned fl_layer_props
@@ -360,7 +359,7 @@ static int egl_gbm_render_surface_present_kms(struct surface *s, const struct fl
 
     surface_lock(s);
 
-    DEBUG_ASSERT_NOT_NULL_MSG(egl_surface->locked_front_fb, "There's no framebuffer available for scanout right now. Make sure you called render_surface_swap_buffers() before presenting.");
+    DEBUG_ASSERT_NOT_NULL_MSG(egl_surface->locked_front_fb, "There's no framebuffer available for scanout right now. Make sure you called render_surface_queue_present() before presenting.");
 
     bo = egl_surface->locked_front_fb->bo;
     meta = gbm_bo_get_user_data(bo);
@@ -399,6 +398,9 @@ static int egl_gbm_render_surface_present_kms(struct surface *s, const struct fl
         if (get_pixfmt_info(egl_surface->pixel_format)->is_opaque == false) {
             has_opaque_fb = false;
             opaque_pixel_format = pixfmt_opaque(egl_surface->pixel_format);
+
+            // If there's bit-compatible opaque equivalent for the pixel format,
+            // pixfmt_opaque will just return the original pixel format.
             if (get_pixfmt_info(opaque_pixel_format)->is_opaque) {
                 
                 TRACER_BEGIN(egl_surface->surface.tracer, "drmdev_add_fb (opaque)");
@@ -579,7 +581,6 @@ static int egl_gbm_render_surface_queue_present(struct render_surface *s, const 
     DEBUG_ASSERT(gbm_surface_has_free_buffers(egl_surface->gbm_surface));
 
     // create the in fence here
-#ifdef HAS_EGL
     TRACER_BEGIN(s->surface.tracer, "eglSwapBuffers");
     egl_ok = eglSwapBuffers(egl_surface->egl_display, egl_surface->egl_surface);
     TRACER_END(s->surface.tracer, "eglSwapBuffers");
@@ -588,7 +589,6 @@ static int egl_gbm_render_surface_queue_present(struct render_surface *s, const 
         LOG_EGL_ERROR(eglGetError(), "Couldn't flush rendering. eglSwapBuffers");
         return EIO;
     }
-#endif
 
     TRACER_BEGIN(s->surface.tracer, "gbm_surface_lock_front_buffer");
     bo = gbm_surface_lock_front_buffer(egl_surface->gbm_surface);

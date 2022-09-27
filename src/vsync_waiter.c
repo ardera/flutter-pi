@@ -35,6 +35,9 @@ struct vsync_waiter *vsync_waiter_new(
     void *userdata
 ) {
     struct vsync_waiter *waiter;
+    
+    // uses_frame_requests? => vsync_cb != NULL
+    DEBUG_ASSERT(!uses_frame_requests || vsync_cb != NULL);
 
     waiter = malloc(sizeof *waiter);
     if (waiter == NULL) {
@@ -67,14 +70,36 @@ void vsync_waiter_on_fl_vsync_request(struct vsync_waiter *waiter, intptr_t vsyn
     DEBUG_ASSERT(vsync_baton != 0);
     DEBUG_ASSERT(waiter->uses_frame_requests);
 
-    if (waiter->present_mode == kTripleBufferedVsync_PresentMode) {
+    // flutter called the vsync callback.
+    //  - when do we reply to it?
+    //  - what timestamps do we send as a reply?
+    //
+    // Some things to keep in mind:
+    //  - GPU rendering is a big pipeline:
+    //      uploading -> vertex shading -> tesselation -> geometry shading -> rasterization -> fragment shading
+    //  - Some parts of the pipeline might execute on different parts of the GPU, maybe there's specific
+    //    fixed-function hardware for different steps of the pipeline. For example, on PowerVR, there's a tiler (vertex)
+    //    stage and a separate renderer (fragment) stage.
+    //  - So it might not be smart to render just one frame at a time.
+    //  - On PowerVR, it's best to have a 3-frame pipeline:
+    //
+    //                               Frame 0       Frame 1       Frame 2
+    //      Geometry Submission  | In Progress |      .      |      .      |
+    //      Vertex Processing    |             | In Progress |      .      |
+    //      Fragment Processing  |             |             | In Progress |
+    //
+    //  - That way, occupancy & throughput is optimal, and rendering can be at 60FPS even though maybe fragment processing takes > 16ms.
+    //  - On the other hand, normally a mesa EGL surface only has 4 buffers available, so we could run out of framebuffers for surfaces
+    //    as well if we draw too many frames at once. (Especially considering one framebuffer is probably busy with scanout right now)
+    //
 
-    } else if (waiter->present_mode == kDoubleBufferedVsync_PresentMode) {
-
-    }
-    
     /// TODO: Implement
-    UNIMPLEMENTED();
+    /// For now, just unconditionally reply 
+    if (waiter->present_mode == kTripleBufferedVsync_PresentMode) {
+        waiter->vsync_cb(waiter->userdata, vsync_baton, 0, 0);
+    } else if (waiter->present_mode == kDoubleBufferedVsync_PresentMode) {
+        waiter->vsync_cb(waiter->userdata, vsync_baton, 0, 0);
+    }
 }
 
 void vsync_waiter_on_rendering_complete(struct vsync_waiter *waiter) {
