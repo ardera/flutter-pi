@@ -221,12 +221,14 @@ enum present_mode {
 
 struct drmdev;
 struct compositor;
+struct vsync_waiter;
 
 typedef void (*compositor_frame_begin_cb_t)(void *userdata, uint64_t vblank_ns, uint64_t next_vblank_ns);
 
 ATTR_MALLOC struct compositor *compositor_new(
     struct drmdev *drmdev,
     struct tracer *tracer,
+    struct vsync_waiter *waiter,
     struct gl_renderer *renderer,
     bool has_rotation, drm_plane_transform_t rotation,
     bool has_orientation, enum device_orientation orientation,
@@ -241,6 +243,7 @@ ATTR_MALLOC struct compositor *compositor_new(
 ATTR_MALLOC struct compositor *compositor_new_vulkan(
     struct drmdev *drmdev,
     struct tracer *tracer,
+    struct vsync_waiter *waiter,
     struct vk_renderer *renderer,
     bool has_rotation,
     drm_plane_transform_t rotation,

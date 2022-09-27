@@ -35,6 +35,7 @@
 #include <pixel_format.h>
 #include <surface.h>
 #include <tracer.h>
+#include <vsync_waiter.h>
 
 FILE_DESCR("compositor-ng")
 
@@ -241,6 +242,9 @@ struct window {
 
     /// @brief The vulkan renderer if this is a vulkan window.
     struct vk_renderer *vk_renderer;
+
+    /// @brief Manages the frame scheduling for this window.
+    struct vsync_waiter *waiter;
 };
 
 static void fill_view_matrices(
@@ -392,6 +396,7 @@ static int window_init(
     struct compositor *compositor,
     struct tracer *tracer,
     struct drmdev *drmdev,
+    struct vsync_waiter *waiter,
     struct gl_renderer *renderer,
     bool has_rotation,
     drm_plane_transform_t rotation,
@@ -419,6 +424,7 @@ static int window_init(
     DEBUG_ASSERT_NOT_NULL(compositor);
     DEBUG_ASSERT_NOT_NULL(tracer);
     DEBUG_ASSERT_NOT_NULL(drmdev);
+    DEBUG_ASSERT_NOT_NULL(waiter);
     DEBUG_ASSERT_NOT_NULL(renderer);
     DEBUG_ASSERT(!has_rotation || PLANE_TRANSFORM_IS_ONLY_ROTATION(rotation));
     DEBUG_ASSERT(!has_orientation || ORIENTATION_IS_VALID(orientation));
@@ -581,6 +587,7 @@ static int window_init(
     window->renderer = gl_renderer_ref(renderer);
     window->vk_renderer = NULL;
     window->vk_render_surface = NULL;
+    window->waiter = vsync_waiter_ref(waiter);
     return 0;
 
 fail_deinit_queue:
@@ -593,6 +600,7 @@ static int window_init_vulkan(
     struct compositor *compositor,
     struct tracer *tracer,
     struct drmdev *drmdev,
+    struct vsync_waiter *waiter,
     struct vk_renderer *renderer,
     bool has_rotation, drm_plane_transform_t rotation,
     bool has_orientation, enum device_orientation orientation,
@@ -615,6 +623,7 @@ static int window_init_vulkan(
     DEBUG_ASSERT_NOT_NULL(compositor);
     DEBUG_ASSERT_NOT_NULL(tracer);
     DEBUG_ASSERT_NOT_NULL(drmdev);
+    DEBUG_ASSERT_NOT_NULL(waiter);
     DEBUG_ASSERT_NOT_NULL(renderer);
     DEBUG_ASSERT(!has_rotation || PLANE_TRANSFORM_IS_ONLY_ROTATION(rotation));
     DEBUG_ASSERT(!has_orientation || ORIENTATION_IS_VALID(orientation));
@@ -777,6 +786,7 @@ static int window_init_vulkan(
     window->next_frame = NULL;
     window->renderer = NULL;
     window->vk_renderer = vk_renderer_ref(renderer);
+    window->waiter = vsync_waiter_ref(waiter);
     return 0;
 
     fail_deinit_queue:
@@ -1417,6 +1427,7 @@ ATTR_MALLOC struct compositor *compositor_new(
     // clang-format off
     struct drmdev *drmdev,
     struct tracer *tracer,
+    struct vsync_waiter *waiter,
     struct gl_renderer *renderer,
     bool has_rotation, drm_plane_transform_t rotation,
     bool has_orientation, enum device_orientation orientation,
@@ -1457,6 +1468,7 @@ ATTR_MALLOC struct compositor *compositor_new(
         compositor,
         tracer,
         drmdev,
+        waiter,
         renderer,
         has_rotation,
         rotation,
@@ -1508,6 +1520,7 @@ ATTR_MALLOC struct compositor *compositor_new_vulkan(
     // clang-format off
     struct drmdev *drmdev,
     struct tracer *tracer,
+    struct vsync_waiter *waiter,
     struct vk_renderer *renderer,
     bool has_rotation, drm_plane_transform_t rotation,
     bool has_orientation, enum device_orientation orientation,
@@ -1542,6 +1555,7 @@ ATTR_MALLOC struct compositor *compositor_new_vulkan(
         compositor,
         tracer,
         drmdev,
+        waiter,
         renderer,
         has_rotation, rotation,
         has_orientation, orientation,

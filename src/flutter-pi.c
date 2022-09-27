@@ -56,6 +56,7 @@
 #include <plugins/raw_keyboard.h>
 #include <filesystem_layout.h>
 #include <vk_renderer.h>
+#include <vsync_waiter.h>
 
 #ifdef ENABLE_MTRACE
 #   include <mcheck.h>
@@ -1161,18 +1162,15 @@ static int init_display(
     bool use_vulkan
 ) {
     // clang-format on
-
-    /**********************
-     * DRM INITIALIZATION *
-     **********************/
+    struct vsync_waiter *waiter;
+    struct gl_renderer *gl_renderer;
+    struct vk_renderer *vk_renderer;
     struct compositor *compositor;
     struct gbm_device *gbm_device;
     sd_event_source *compositor_event_source;
     struct drmdev *drmdev;
     struct tracer *tracer;
     drmDevicePtr devices[64];
-    struct gl_renderer *gl_renderer;
-    struct vk_renderer *vk_renderer;
     int ok, n_devices;
 
     /**********************
@@ -1238,18 +1236,26 @@ static int init_display(
         goto fail_unref_drmdev;
     }
 
+    waiter = vsync_waiter_new(false, kDoubleBufferedVsync_PresentMode, NULL, NULL);
+    if (waiter == NULL) {
+        LOG_ERROR("Couldn't create vsync scheduler.\n");
+        ok = EIO;
+        goto fail_unref_tracer;
+    }
+
     if (use_vulkan) {
         gl_renderer = NULL;
         vk_renderer = vk_renderer_new();
         if (vk_renderer == NULL) {
             LOG_ERROR("Couldn't create vulkan renderer.\n");
             ok = EIO;
-            goto fail_unref_tracer;
+            goto fail_unref_waiter;
         }
 
         compositor = compositor_new_vulkan(
             drmdev,
             tracer,
+            waiter,
             vk_renderer,
             has_rotation, rotation,
             has_orientation, orientation,
@@ -1269,7 +1275,7 @@ static int init_display(
         if (gl_renderer == NULL) {
             LOG_ERROR("Couldn't create EGL/OpenGL renderer.\n");
             ok = EIO;
-            goto fail_unref_tracer;
+            goto fail_unref_waiter;
         }
 
         // it seems that after some Raspbian update, regular users are sometimes no longer allowed
@@ -1291,6 +1297,7 @@ static int init_display(
         compositor = compositor_new(
             drmdev,
             tracer,
+            waiter,
             gl_renderer,
             has_rotation, rotation,
             has_orientation, orientation,
@@ -1338,6 +1345,9 @@ static int init_display(
     if (vk_renderer) {
         vk_renderer_unref(vk_renderer);
     }
+
+    fail_unref_waiter:
+    vsync_waiter_unref(waiter);
 
     fail_unref_tracer:
     tracer_unref(tracer);
