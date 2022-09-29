@@ -1848,59 +1848,25 @@ static int init_application(void) {
     }
 
     if (engine_handle == NULL) {
-#ifdef ENGINE_DLOPEN_NAME_RELEASE
-        if (runtime_mode == kRelease) {
-            engine_handle = dlopen(ENGINE_DLOPEN_NAME_RELEASE, RTLD_LOCAL | RTLD_NOW);
-            if (engine_handle == NULL) {
-                LOG_DEBUG("Info: Could not load " ENGINE_DLOPEN_NAME_RELEASE ". dlopen: %s.\n", dlerror());
-            }
-        } 
-#endif
-#ifdef ENGINE_DLOPEN_NAME_PROFILE
-        if (runtime_mode == kProfile) {
-            engine_handle = dlopen(ENGINE_DLOPEN_NAME_PROFILE, RTLD_LOCAL | RTLD_NOW);
-            if (engine_handle == NULL) {
-                LOG_DEBUG("Info: Could not load " ENGINE_DLOPEN_NAME_PROFILE ". dlopen: %s.\n", dlerror());
-            }
-
+        engine_handle = dlopen(flutterpi.flutter.paths->flutter_engine_dlopen_name, RTLD_LOCAL | RTLD_NOW);
+        if (engine_handle == NULL) {
+            LOG_DEBUG(
+                "Info: Could not load flutter engine. dlopen(\"%s\"): %s.\n",
+                flutterpi.flutter.paths->flutter_engine_dlopen_name,
+                dlerror()
+            );
         }
-#endif
-#ifdef ENGINE_DLOPEN_NAME_DEBUG
-        if (runtime_mode == kDebug) {
-            engine_handle = dlopen(ENGINE_DLOPEN_NAME_DEBUG, RTLD_LOCAL | RTLD_NOW);
-            if (engine_handle == NULL) {
-                LOG_DEBUG("Info: Could not load " ENGINE_DLOPEN_NAME_DEBUG ". dlopen: %s.\n", dlerror());
-            }
-        }
-#endif
     }
 
     if (engine_handle == NULL) {
-#ifdef ENGINE_DLOPEN_NAME_RELEASE_FALLBACK
-        if (runtime_mode == kRelease) {
-            engine_handle = dlopen(ENGINE_DLOPEN_NAME_RELEASE_FALLBACK, RTLD_LOCAL | RTLD_NOW);
-            if (engine_handle == NULL) {
-                LOG_DEBUG("Info: Could not load " ENGINE_DLOPEN_NAME_RELEASE_FALLBACK ". dlopen: %s.\n", dlerror());
-            }
-        } 
-#endif
-#ifdef ENGINE_DLOPEN_NAME_PROFILE_FALLBACK
-        if (runtime_mode == kProfile) {
-            engine_handle = dlopen(ENGINE_DLOPEN_NAME_PROFILE_FALLBACK, RTLD_LOCAL | RTLD_NOW);
-            if (engine_handle == NULL) {
-                LOG_DEBUG("Info: Could not load " ENGINE_DLOPEN_NAME_PROFILE_FALLBACK ". dlopen: %s.\n", dlerror());
-            }
-
+        engine_handle = dlopen(flutterpi.flutter.paths->flutter_engine_dlopen_name_fallback, RTLD_LOCAL | RTLD_NOW);
+        if (engine_handle == NULL) {
+            LOG_DEBUG(
+                "Info: Could not load flutter engine. dlopen(\"%s\"): %s.\n",
+                flutterpi.flutter.paths->flutter_engine_dlopen_name_fallback,
+                dlerror()
+            );
         }
-#endif
-#ifdef ENGINE_DLOPEN_NAME_DEBUG_FALLBACK
-        if (runtime_mode == kDebug) {
-            engine_handle = dlopen(ENGINE_DLOPEN_NAME_DEBUG_FALLBACK, RTLD_LOCAL | RTLD_NOW);
-            if (engine_handle == NULL) {
-                LOG_DEBUG("Info: Could not load " ENGINE_DLOPEN_NAME_DEBUG_FALLBACK ". dlopen: %s.\n", dlerror());
-            }
-        }
-#endif
     }
 
     if (engine_handle == NULL) {
