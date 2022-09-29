@@ -1847,7 +1847,7 @@ static int init_application(void) {
         }
     }
 
-    if (engine_handle == NULL) {
+    if (engine_handle == NULL && flutterpi.flutter.paths->flutter_engine_dlopen_name != NULL) {
         engine_handle = dlopen(flutterpi.flutter.paths->flutter_engine_dlopen_name, RTLD_LOCAL | RTLD_NOW);
         if (engine_handle == NULL) {
             LOG_DEBUG(
@@ -1858,7 +1858,7 @@ static int init_application(void) {
         }
     }
 
-    if (engine_handle == NULL) {
+    if (engine_handle == NULL && flutterpi.flutter.paths->flutter_engine_dlopen_name_fallback != NULL) {
         engine_handle = dlopen(flutterpi.flutter.paths->flutter_engine_dlopen_name_fallback, RTLD_LOCAL | RTLD_NOW);
         if (engine_handle == NULL) {
             LOG_DEBUG(
