@@ -155,11 +155,16 @@ static struct flutter_paths *resolve(
     // Try to find the engine inside the asset bundle. If we don't find it, that's not an error because
     // it could still be inside /usr/lib and we can just dlopen it using the filename.
     ok = asprintf(&engine_path, "%s/%s", app_bundle_path_real, app_engine_subpath);
-    if (ok != -1) {
+    if (ok == -1) {
         goto fail_free_app_elf_path;
     }
 
     if (path_exists(engine_path) == false) {
+        if (engine_dlopen_name == NULL && engine_dlopen_name_fallback == NULL) {
+            LOG_ERROR("flutter engine file \"%s\" does not exist.\n", engine_path);
+            goto fail_maybe_free_engine_path;
+        }
+
         free(engine_path);
         engine_path = NULL;
     }
@@ -255,27 +260,11 @@ struct flutter_paths *fs_layout_flutterpi_resolve(const char *app_bundle_path, e
     );
 }
 
-struct flutter_paths *fs_layout_dunfell_resolve(const char *app_bundle_path, enum flutter_runtime_mode runtime_mode) {
+struct flutter_paths *fs_layout_metaflutter_resolve(const char *app_bundle_path, enum flutter_runtime_mode runtime_mode) {
     return resolve(
         app_bundle_path,
         runtime_mode,
-        /*        asset bundle subpath */ "flutter_assets/",
-        /*              icudtl subpath */ "data/icudtl.dat",
-        /*          icudtl system path */ "/usr/share/flutter/icudtl.dat",
-        /* icudtl system path fallback */ NULL,
-        /*         kernel blob subpath */ "flutter_assets/kernel_blob.bin",
-        /*             app elf subpath */ "lib/libapp.so",
-        /*      flutter engine subpath */ "lib/libflutter_engine.so",
-        /*          engine dlopen name */ "libflutter_engine.so",
-        /* engine dlopen name fallback */ NULL
-    );
-}
-
-struct flutter_paths *fs_layout_kirkstone_resolve(const char *app_bundle_path, enum flutter_runtime_mode runtime_mode) {
-    return resolve(
-        app_bundle_path,
-        runtime_mode,
-        /*        asset bundle subpath */ "flutter_assets/",
+        /*        asset bundle subpath */ "data/flutter_assets/",
         /*              icudtl subpath */ "data/icudtl.dat",
         /*          icudtl system path */ "/usr/share/flutter/icudtl.dat",
         /* icudtl system path fallback */ NULL,

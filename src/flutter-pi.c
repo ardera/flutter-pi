@@ -2338,12 +2338,10 @@ static bool path_exists(const char *path) {
 static struct flutter_paths *setup_paths(enum flutter_runtime_mode runtime_mode, const char *app_bundle_path) {
 #if defined(FILESYSTEM_LAYOUT_DEFAULT)
     return fs_layout_flutterpi_resolve(app_bundle_path, runtime_mode);
-#elif defined(FILESYSTEM_LAYOUT_DUNFELL)
-    return fs_layout_dunfell_resolve(app_bundle_path, runtime_mode);
-#elif defined(FILESYSTEM_LAYOUT_KIRKSTONE)
-    return fs_layout_kirkstone_resolve(app_bundle_path, runtime_mode);
+#elif defined(FILESYSTEM_LAYOUT_METAFLUTTER)
+    return fs_layout_metaflutter_resolve(app_bundle_path, runtime_mode);
 #else
-    #error "Exactly one of FILESYSTEM_LAYOUT_DEFAULT, FILESYSTEM_LAYOUT_DUNFELL and FILESYSTEM_LAYOUT_KIRKSTONE must be defined."
+    #error "Exactly one of FILESYSTEM_LAYOUT_DEFAULT or FILESYSTEM_LAYOUT_METAFLUTTER must be defined."
     return NULL;
 #endif
 }

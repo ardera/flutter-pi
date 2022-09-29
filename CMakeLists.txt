@@ -50,7 +50,7 @@ option(ENABLE_ASAN "True to build & link with -fsanitize=address" OFF)
 option(ENABLE_UBSAN "True to build & link with -fsanitize=undefined" OFF)
 option(ENABLE_MTRACE "True if flutter-pi should call GNU mtrace() on startup." OFF)
 
-set(FILESYSTEM_LAYOUTS default meta-flutter-dunfell meta-flutter-kirkstone)
+set(FILESYSTEM_LAYOUTS default meta-flutter)
 set(FILESYSTEM_LAYOUT "default" CACHE STRING "Where to look for the icudtl.dat, app.so/libapp.so, flutter asset bundle.")
 set_property(CACHE FILESYSTEM_LAYOUT PROPERTY STRINGS ${FILESYSTEM_LAYOUTS})
 
@@ -185,10 +185,8 @@ message(STATUS "Filesystem Layout ...... ${FILESYSTEM_LAYOUT}")
 
 if(FILESYSTEM_LAYOUT STREQUAL default)
   target_compile_definitions(flutter-pi PRIVATE "FILESYSTEM_LAYOUT_DEFAULT")
-elseif(FILESYSTEM_LAYOUT STREQUAL meta-flutter-dunfell)
-  target_compile_definitions(flutter-pi PRIVATE "FILESYSTEM_LAYOUT_DUNFELL")
-elseif(FILESYSTEM_LAYOUT STREQUAL meta-flutter-kirkstone)
-  target_compile_definitions(flutter-pi PRIVATE "FILESYSTEM_LAYOUT_KIRKSTONE")
+elseif(FILESYSTEM_LAYOUT STREQUAL meta-flutter)
+  target_compile_definitions(flutter-pi PRIVATE "FILESYSTEM_LAYOUT_METAFLUTTER")
 endif()
 
 # TODO: We actually don't need the compile definitions anymore, except for
