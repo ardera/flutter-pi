@@ -143,7 +143,8 @@ add_executable(flutter-pi
   src/vk_gbm_render_surface.c
   src/tracer.c
   src/dmabuf_surface.c
-  src/vsync_waiter.c
+  src/frame_scheduler.c
+  src/window.c
   src/plugins/services.c
 )
 

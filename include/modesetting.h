@@ -548,23 +548,15 @@ int kms_req_builder_push_fb_layer(
 
 int kms_req_builder_push_zpos_placeholder_layer(struct kms_req_builder *builder, int64_t *zpos_out);
 
-int kms_req_builder_add_scanout_callback(struct kms_req_builder *builder, kms_scanout_cb_t callback, void *userdata);
-
-void kms_req_builder_call_release_callbacks(struct kms_req_builder *builder);
-
 struct kms_req;
 
 DECLARE_REF_OPS(kms_req);
 
 struct kms_req *kms_req_builder_build(struct kms_req_builder *builder);
 
-int kms_req_commit(struct kms_req *req, bool blocking);
+int kms_req_commit_blocking(struct kms_req *req, uint64_t *vblank_ns_out);
 
-void kms_req_call_scanout_callbacks(struct kms_req *req, uint64_t vblank_ns);
-
-void kms_req_call_release_callbacks(struct kms_req *req);
-
-void kms_req_call_post_release_callbacks(struct kms_req *req, uint64_t vblank_ns);
+int kms_req_commit_nonblocking(struct kms_req *req, kms_scanout_cb_t scanout_cb, void *userdata, void_callback_t destroy_cb);
 
 struct drm_connector *__next_connector(const struct drmdev *drmdev, const struct drm_connector *connector);
 

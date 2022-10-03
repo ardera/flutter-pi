@@ -50,18 +50,6 @@ struct kms_req_builder {
     int n_layers;
     struct kms_req_layer layers[32];
 
-    int n_scanout_callbacks;
-    struct {
-        kms_scanout_cb_t callback;
-        void *userdata;
-    } scanout_cbs[32];
-
-    int n_post_release_cbs;
-    struct {
-        kms_scanout_cb_t callback;
-        void *userdata;
-    } post_release_cbs[32];
-
     bool unset_mode;
     bool has_mode;
     drmModeModeInfo mode;
@@ -89,19 +77,17 @@ struct drmdev {
     drmModeRes *res;
     drmModePlaneRes *plane_res;
 
-    /*
-    bool is_configured;
-    const struct drm_connector *selected_connector;
-    const struct drm_encoder *selected_encoder;
-    const struct drm_crtc *selected_crtc;
-    const drmModeModeInfo *selected_mode;
-    uint32_t selected_mode_blob_id;
-    */
-
     struct gbm_device *gbm_device;
 
     int event_fd;
-    struct kms_req *last_flipped;
+
+    struct {
+        kms_scanout_cb_t scanout_callback;
+        void *userdata;
+        void_callback_t destroy_callback;
+
+        struct kms_req *last_flipped;
+    } per_crtc_state[32];
 };
 
 struct drmdev_atomic_req {
@@ -971,7 +957,7 @@ int drmdev_new_from_fd(struct drmdev **drmdev_out, int fd) {
     drmdev->supports_atomic_modesetting = supports_atomic_modesetting;
     drmdev->gbm_device = gbm_device;
     drmdev->event_fd = event_fd;
-    drmdev->last_flipped = NULL;
+    memset(drmdev->per_crtc_state, 0, sizeof(drmdev->per_crtc_state));
 
     *drmdev_out = drmdev;
 
@@ -1053,7 +1039,10 @@ static void drmdev_on_page_flip_locked(
     void *userdata
 ) {
     struct kms_req_builder *builder;
+    struct drm_crtc *crtc;
+    struct kms_req **last_flipped;
     struct kms_req *req;
+    struct drmdev *drmdev;
 
     DEBUG_ASSERT_NOT_NULL(userdata);
     builder = userdata;
@@ -1063,32 +1052,44 @@ static void drmdev_on_page_flip_locked(
     (void) sequence;
     (void) crtc_id;
 
-    uint64_t vblank_ns = tv_sec * 1000000000ull + tv_usec * 1000ull;
-
-    if (builder->drmdev->last_flipped != NULL) {
-        kms_req_call_release_callbacks(builder->drmdev->last_flipped);
-        kms_req_call_post_release_callbacks(builder->drmdev->last_flipped, vblank_ns);
-        DEBUG_ASSERT(refcount_is_one(&((struct kms_req_builder*) builder->drmdev->last_flipped)->n_refs));
-        kms_req_unref(builder->drmdev->last_flipped);
+    drmdev = builder->drmdev;
+    for_each_crtc_in_drmdev(drmdev, crtc) {
+        if (crtc->id == crtc_id) {
+            break;
+        }
     }
 
-    //DEBUG_ASSERT(refcount_is_one(&builder->n_refs));
-    builder->drmdev->last_flipped = req;
+    DEBUG_ASSERT_NOT_NULL_MSG(crtc, "Invalid CRTC id");
 
-    /// TODO: Fix this
-    drmdev_unlock(builder->drmdev);
-    kms_req_call_scanout_callbacks(req, vblank_ns);
-    drmdev_lock(builder->drmdev);
+    if (drmdev->per_crtc_state[crtc->index].scanout_callback != NULL) {
+        uint64_t vblank_ns = tv_sec * 1000000000ull + tv_usec * 1000ull;
+        drmdev->per_crtc_state[crtc->index].scanout_callback(drmdev, vblank_ns, drmdev->per_crtc_state[crtc->index].userdata);
+
+        // clear the scanout callback
+        drmdev->per_crtc_state[crtc->index].scanout_callback = NULL;
+        drmdev->per_crtc_state[crtc->index].destroy_callback = NULL;
+        drmdev->per_crtc_state[crtc->index].userdata = NULL;
+    }
+
+    last_flipped = &drmdev->per_crtc_state[crtc->index].last_flipped;
+    if (*last_flipped != NULL) {
+        /// TODO: Remove this if we ever cache KMS reqs.
+        DEBUG_ASSERT(refcount_is_one(&((struct kms_req_builder*) *last_flipped)->n_refs));
+    }
+
+    kms_req_swap_ptrs(last_flipped, req);
 }
 
 static int drmdev_on_modesetting_fd_ready_locked(struct drmdev *drmdev) {
     int ok;
 
-    static drmEventContext ctx = { .version = DRM_EVENT_CONTEXT_VERSION,
-                                   .vblank_handler = NULL,
-                                   .page_flip_handler = NULL,
-                                   .page_flip_handler2 = drmdev_on_page_flip_locked,
-                                   .sequence_handler = NULL };
+    static drmEventContext ctx = {
+        .version = DRM_EVENT_CONTEXT_VERSION,
+        .vblank_handler = NULL,
+        .page_flip_handler = NULL,
+        .page_flip_handler2 = drmdev_on_page_flip_locked,
+        .sequence_handler = NULL,
+    };
 
     ok = drmHandleEvent(drmdev->fd, &ctx);
     if (ok != 0) {
@@ -1351,6 +1352,34 @@ int drmdev_rm_fb(struct drmdev *drmdev, uint32_t fb_id) {
     }
 
     return 0;
+}
+
+static void drmdev_set_scanout_callback_locked(
+    struct drmdev *drmdev,
+    uint32_t crtc_id,
+    kms_scanout_cb_t scanout_callback,
+    void *userdata,
+    void_callback_t destroy_callback
+) {
+    struct drm_crtc *crtc;
+
+    DEBUG_ASSERT_NOT_NULL(drmdev);
+
+    for_each_crtc_in_drmdev(drmdev, crtc) {
+        if (crtc->id == crtc_id) {
+            break;
+        }
+    }
+
+    DEBUG_ASSERT_NOT_NULL_MSG(crtc, "Could not find CRTC with given id.");
+
+    // If there's already a scanout callback configured, this is probably a state machine error.
+    // The scanout callback is configured in kms_req_commit and is cleared after it was called.
+    // So if this is called again this mean kms_req_commit is called but the previous frame wasn't committed yet.
+    DEBUG_ASSERT_EQUALS_MSG(drmdev->per_crtc_state[crtc->index].scanout_callback, NULL, "There's already a scanout callback configured for this CRTC.");
+    drmdev->per_crtc_state[crtc->index].scanout_callback = scanout_callback;
+    drmdev->per_crtc_state[crtc->index].destroy_callback = destroy_callback;
+    drmdev->per_crtc_state[crtc->index].userdata = userdata;
 }
 
 MAYBE_UNUSED static struct drm_plane *get_plane_by_id(struct drmdev *drmdev, uint32_t plane_id) {
@@ -1642,8 +1671,6 @@ struct kms_req_builder *drmdev_create_request_builder(struct drmdev *drmdev, uin
     /// TODO: Use the actual min zpos here
     builder->next_zpos = min_zpos;
     builder->n_layers = 0;
-    builder->n_scanout_callbacks = 0;
-    builder->n_post_release_cbs = 0;
     builder->has_mode = false;
     builder->unset_mode = false;
     return builder;
@@ -1651,6 +1678,11 @@ struct kms_req_builder *drmdev_create_request_builder(struct drmdev *drmdev, uin
 
 void kms_req_builder_destroy(struct kms_req_builder *builder) {
     /// TODO: Is this complete?
+    for (int i = 0; i < builder->n_layers; i++) {
+        if (builder->layers[i].release_callback != NULL) {
+            builder->layers[i].release_callback(builder->layers[i].release_callback_userdata);
+        }
+    }
     free(builder);
 }
 
@@ -1918,45 +1950,6 @@ int kms_req_builder_push_zpos_placeholder_layer(struct kms_req_builder *builder,
     return 0;
 }
 
-int kms_req_builder_add_scanout_callback(struct kms_req_builder *builder, kms_scanout_cb_t callback, void *userdata) {
-    int i;
-
-    DEBUG_ASSERT_NOT_NULL(builder);
-    DEBUG_ASSERT_NOT_NULL(callback);
-    DEBUG_ASSERT(builder->n_scanout_callbacks < ARRAY_SIZE(builder->scanout_cbs));
-
-    i = builder->n_scanout_callbacks++;
-    builder->scanout_cbs[i].callback = callback;
-    builder->scanout_cbs[i].userdata = userdata;
-    return 0;
-}
-
-int kms_req_builder_add_post_release_callback(
-    struct kms_req_builder *builder,
-    kms_scanout_cb_t callback,
-    void *userdata
-) {
-    int i;
-
-    DEBUG_ASSERT_NOT_NULL(builder);
-    DEBUG_ASSERT_NOT_NULL(callback);
-    DEBUG_ASSERT(builder->n_post_release_cbs < ARRAY_SIZE(builder->post_release_cbs));
-
-    i = builder->n_post_release_cbs++;
-    builder->post_release_cbs[i].callback = callback;
-    builder->post_release_cbs[i].userdata = userdata;
-    return 0;
-}
-
-void kms_req_builder_call_release_callbacks(struct kms_req_builder *builder) {
-    DEBUG_ASSERT_NOT_NULL(builder);
-    for (int i = 0; i < builder->n_layers; i++) {
-        if (builder->layers[i].release_callback != NULL) {
-            builder->layers[i].release_callback(builder->layers[i].release_callback_userdata);
-        }
-    }
-}
-
 struct kms_req *kms_req_builder_build(struct kms_req_builder *builder) {
     return (struct kms_req *) kms_req_builder_ref(builder);
 }
@@ -1973,40 +1966,17 @@ MAYBE_UNUSED void kms_req_unrefp(struct kms_req **req) {
     return kms_req_builder_unrefp((struct kms_req_builder **) req);
 }
 
-void kms_req_call_scanout_callbacks(struct kms_req *req, uint64_t vblank_ns) {
-    struct kms_req_builder *builder;
-
-    DEBUG_ASSERT_NOT_NULL(req);
-    builder = (struct kms_req_builder *) req;
-
-    for (int i = 0; i < builder->n_scanout_callbacks; i++) {
-        DEBUG_ASSERT_NOT_NULL(builder->scanout_cbs[i].callback);
-        builder->scanout_cbs[i].callback(builder->drmdev, vblank_ns, builder->scanout_cbs[i].userdata);
-    }
+MAYBE_UNUSED void kms_req_swap_ptrs(struct kms_req **oldp, struct kms_req *new) {
+    return kms_req_builder_swap_ptrs((struct kms_req_builder**) oldp, (struct kms_req_builder*) new);
 }
 
-void kms_req_call_release_callbacks(struct kms_req *req) {
-    struct kms_req_builder *builder;
-
-    DEBUG_ASSERT_NOT_NULL(req);
-    builder = (struct kms_req_builder *) req;
-
-    return kms_req_builder_call_release_callbacks(builder);
-}
-
-void kms_req_call_post_release_callbacks(struct kms_req *req, uint64_t vblank_ns) {
-    struct kms_req_builder *builder;
-
-    DEBUG_ASSERT_NOT_NULL(req);
-    builder = (struct kms_req_builder *) req;
-
-    for (int i = 0; i < builder->n_post_release_cbs; i++) {
-        DEBUG_ASSERT_NOT_NULL(builder->post_release_cbs[i].callback);
-        builder->post_release_cbs[i].callback(builder->drmdev, vblank_ns, builder->post_release_cbs[i].userdata);
-    }
-}
-
-int kms_req_commit(struct kms_req *req, bool blocking) {
+static int kms_req_commit_common(
+    struct kms_req *req,
+    bool blocking,
+    kms_scanout_cb_t scanout_cb,
+    void *userdata,
+    void_callback_t destroy_cb
+) {
     struct kms_req_builder *builder;
     struct drm_mode_blob *mode_blob;
     uint32_t flags;
@@ -2022,13 +1992,28 @@ int kms_req_commit(struct kms_req *req, bool blocking) {
     drmdev_lock(builder->drmdev);
 
     // only change the mode if the new mode differs from the old one
+    
     /// TODO: Maybe let the user of this API track whether the mode changes
     /// and set mode unconditionally here?
+    
     /// TOOD: If this is not a standard mode reported by connector/CRTC,
-    /// is there a way to verify if it is valid?
-    if (builder->has_mode &&
-        (!builder->crtc->committed_state.has_mode ||
-         memcmp(&builder->crtc->committed_state.mode, &builder->mode, sizeof(drmModeModeInfo)) != 0)) {
+    /// is there a way to verify if it is valid? (maybe use DRM_MODE_ATOMIC_TEST)
+
+    // this could be a single expression but this way you see a bit better what's going on.
+    // We need to upload the new mode blob if:
+    //  - we have a new mode
+    //  - and: we don't have an old mode
+    //  - or: the old mode differs from the new mode
+    bool upload_mode = false;
+    if (builder->has_mode) {
+        if (!builder->crtc->committed_state.has_mode) {
+            upload_mode = true;
+        } else if (memcmp(&builder->crtc->committed_state.mode, &builder->mode, sizeof(drmModeModeInfo)) != 0) {
+            upload_mode = true;
+        }
+    }
+    
+    if (upload_mode) {
         update_mode = true;
         mode_blob = drm_mode_blob_new(builder->drmdev->fd, &builder->mode);
         if (mode_blob == NULL) {
@@ -2130,6 +2115,8 @@ int kms_req_commit(struct kms_req *req, bool blocking) {
         }
     }
 
+    drmdev_set_scanout_callback_locked(builder->drmdev, builder->crtc->id, scanout_cb, userdata, destroy_cb);
+
     if (blocking) {
         // handle the page-flip event here, rather than via the eventfd
         ok = drmdev_on_modesetting_fd_ready_locked(builder->drmdev);
@@ -2154,4 +2141,45 @@ fail_unlock:
     drmdev_unlock(builder->drmdev);
 
     return ok;
+}
+
+void set_vblank_ns(struct drmdev *drmdev, uint64_t vblank_ns, void *userdata) {
+    uint64_t *vblank_ns_out;
+
+    DEBUG_ASSERT_NOT_NULL(userdata);
+    vblank_ns_out = userdata;
+    (void) drmdev;
+    
+    *vblank_ns_out = vblank_ns;
+}
+
+int kms_req_commit_blocking(struct kms_req *req, uint64_t *vblank_ns_out) {
+    uint64_t vblank_ns;
+    int ok;
+
+    vblank_ns = int64_to_uint64(-1);
+    ok = kms_req_commit_common(
+        req,
+        true,
+        set_vblank_ns, &vblank_ns, NULL
+    );
+    if (ok != 0) {
+        return ok;
+    }
+
+    // make sure the vblank_ns is actually set
+    DEBUG_ASSERT(vblank_ns != int64_to_uint64(-1));
+    if (vblank_ns_out != NULL) {
+        *vblank_ns_out = vblank_ns;
+    }
+
+    return 0;
+}
+
+int kms_req_commit_nonblocking(struct kms_req *req, kms_scanout_cb_t scanout_cb, void *userdata, void_callback_t destroy_cb) {
+    return kms_req_commit_common(
+        req,
+        true,
+        scanout_cb, userdata, destroy_cb
+    );
 }
