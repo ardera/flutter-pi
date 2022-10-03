@@ -33,11 +33,6 @@ DECLARE_LOCK_OPS(surface)
 
 DECLARE_REF_OPS(surface)
 
-static inline void surface_unref_void(void *ptr) {
-    DEBUG_ASSERT_NOT_NULL(ptr);
-    return surface_unref(CAST_SURFACE(ptr));
-}
-
 ATTR_PURE static inline struct surface *surface_from_id(int64_t id) {
     return CAST_SURFACE(int64_to_ptr(id));
 }

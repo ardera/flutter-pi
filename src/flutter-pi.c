@@ -56,7 +56,8 @@
 #include <plugins/raw_keyboard.h>
 #include <filesystem_layout.h>
 #include <vk_renderer.h>
-#include <vsync_waiter.h>
+#include <frame_scheduler.h>
+#include <window.h>
 
 #ifdef ENABLE_MTRACE
 #   include <mcheck.h>
@@ -1111,8 +1112,8 @@ static int init_main_loop(void) {
 /**************************
  * DISPLAY INITIALIZATION *
  **************************/
-static int on_compositor_ready(sd_event_source *s, int fd, uint32_t revents, void *userdata) {
-    struct compositor *compositor;
+static int on_drmdev_ready(sd_event_source *s, int fd, uint32_t revents, void *userdata) {
+    struct drmdev *drmdev;
 
     (void) s;
     (void) fd;
@@ -1120,9 +1121,9 @@ static int on_compositor_ready(sd_event_source *s, int fd, uint32_t revents, voi
     (void) userdata;
 
     DEBUG_ASSERT_NOT_NULL(userdata);
-    compositor = userdata;
+    drmdev = userdata;
 
-    return compositor_on_event_fd_ready(compositor);
+    return drmdev_on_event_fd_ready(drmdev);
 }
 
 static const FlutterLocale* on_compute_platform_resolved_locales(const FlutterLocale **locales, size_t n_locales) {
@@ -1162,7 +1163,7 @@ static int init_display(
     bool use_vulkan
 ) {
     // clang-format on
-    struct vsync_waiter *waiter;
+    struct frame_scheduler *scheduler;
     struct gl_renderer *gl_renderer;
     struct vk_renderer *vk_renderer;
     struct compositor *compositor;
@@ -1236,13 +1237,14 @@ static int init_display(
         goto fail_unref_drmdev;
     }
 
-    waiter = vsync_waiter_new(false, kDoubleBufferedVsync_PresentMode, NULL, NULL);
-    if (waiter == NULL) {
+    scheduler = frame_scheduler_new(false, kDoubleBufferedVsync_PresentMode, NULL, NULL);
+    if (scheduler == NULL) {
         LOG_ERROR("Couldn't create vsync scheduler.\n");
         ok = EIO;
         goto fail_unref_tracer;
     }
 
+    struct render_surface_interface render_surface_interface;
     if (use_vulkan) {
         gl_renderer = NULL;
         vk_renderer = vk_renderer_new();
@@ -1250,24 +1252,6 @@ static int init_display(
             LOG_ERROR("Couldn't create vulkan renderer.\n");
             ok = EIO;
             goto fail_unref_waiter;
-        }
-
-        compositor = compositor_new_vulkan(
-            drmdev,
-            tracer,
-            waiter,
-            vk_renderer,
-            has_rotation, rotation,
-            has_orientation, orientation,
-            has_explicit_dimensions, width_mm, height_mm,
-            has_pixel_format, pixel_format,
-            false,
-            kTripleBufferedVsync_PresentMode
-        );
-        if (compositor == NULL) {
-            LOG_ERROR("Couldn't create compositor.\n");
-            ok = EIO;
-            goto fail_unref_renderer;
         }
     } else {
         vk_renderer = NULL;
@@ -1293,34 +1277,38 @@ static int init_display(
             ok = EINVAL;
             goto fail_unref_renderer;
         }
+    }
 
-        compositor = compositor_new(
-            drmdev,
-            tracer,
-            waiter,
-            gl_renderer,
-            has_rotation, rotation,
-            has_orientation, orientation,
-            has_explicit_dimensions, width_mm, height_mm,
-            gl_renderer_get_forced_egl_config(gl_renderer),
-            has_pixel_format, pixel_format,
-            false,
-            kTripleBufferedVsync_PresentMode
-        );
-        if (compositor == NULL) {
-            LOG_ERROR("Couldn't create compositor.\n");
-            ok = EIO;
-            goto fail_unref_renderer;
-        }
+    struct window *window = kms_window_new(
+        // clang-format off
+        tracer,
+        scheduler,
+        &render_surface_interface,
+        has_rotation, rotation,
+        has_orientation, orientation,
+        has_explicit_dimensions, width_mm, height_mm,
+        has_pixel_format, pixel_format,
+        drmdev
+        // clang-format on
+    );
+    if (window == NULL) {
+        LOG_ERROR("Couldn't create KMS window.\n");
+        goto fail_unref_renderer;
+    }
+
+    compositor = compositor_new(tracer, window);
+    if (compositor == NULL) {
+        LOG_ERROR("Couldn't create compositor.\n");
+        goto fail_unref_window;
     }
 
     ok = sd_event_add_io(
         event_loop,
         &compositor_event_source,
-        compositor_get_event_fd(compositor),
+        drmdev_get_event_fd(drmdev),
         EPOLLIN | EPOLLHUP | EPOLLPRI,
-        on_compositor_ready,
-        compositor_ref(compositor)
+        on_drmdev_ready,
+        drmdev_ref(drmdev)
     );
     if (ok < 0) {
         ok = -ok;
@@ -1338,6 +1326,9 @@ static int init_display(
     fail_unref_compositor:
     compositor_unref(compositor);
 
+    fail_unref_window:
+    window_unref(window);
+
     fail_unref_renderer:
     if (gl_renderer) {
         gl_renderer_unref(gl_renderer);
@@ -1347,7 +1338,7 @@ static int init_display(
     }
 
     fail_unref_waiter:
-    vsync_waiter_unref(waiter);
+    frame_scheduler_unref(scheduler);
 
     fail_unref_tracer:
     tracer_unref(tracer);

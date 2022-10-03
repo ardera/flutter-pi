@@ -536,7 +536,8 @@ static inline int refcount_get_for_debug(refcount_t *refcount) {
 MAYBE_UNUSED struct obj_name *obj_name ## _ref(struct obj_name *obj); \
 MAYBE_UNUSED void obj_name ## _unref(struct obj_name *obj); \
 MAYBE_UNUSED void obj_name ## _unrefp(struct obj_name **obj); \
-MAYBE_UNUSED void obj_name ## _swap(struct obj_name **objp, struct obj_name *obj);
+MAYBE_UNUSED void obj_name ## _swap_ptrs(struct obj_name **objp, struct obj_name *obj); \
+MAYBE_UNUSED void obj_name ## _unref_void(void *obj);
 
 #define DEFINE_REF_OPS(obj_name, refcount_member_name) \
 MAYBE_UNUSED struct obj_name *obj_name ## _ref(struct obj_name *obj) { \
@@ -560,6 +561,9 @@ MAYBE_UNUSED void obj_name ## _swap_ptrs(struct obj_name **objp, struct obj_name
 		obj_name ## _unrefp(objp); \
 	} \
 	*objp = obj; \
+} \
+MAYBE_UNUSED void obj_name ## _unref_void(void *obj) { \
+	obj_name ## _unref((struct obj_name*) obj); \
 }
 
 #define DEFINE_STATIC_REF_OPS(obj_name, refcount_member_name) \
@@ -584,6 +588,9 @@ MAYBE_UNUSED static void obj_name ## _swap_ptrs(struct obj_name **objp, struct o
 		obj_name ## _unrefp(objp); \
 	} \
 	*objp = obj; \
+} \
+MAYBE_UNUSED static void obj_name ## _unref_void(void *obj) { \
+	obj_name ## _unref((struct obj_name*) obj); \
 }
 
 #define DECLARE_LOCK_OPS(obj_name) \
@@ -622,6 +629,14 @@ static inline int32_t uint32_to_int32(const uint32_t v) {
 
 static inline uint32_t int32_to_uint32(const int32_t v) {
 	return BITCAST(uint32_t, v);
+}
+
+static inline uint64_t int64_to_uint64(const int64_t v) {
+	return BITCAST(uint64_t, v);
+}
+
+static inline int64_t uint64_to_int64(const uint64_t v) {
+	return BITCAST(int64_t, v);
 }
 
 static inline int64_t ptr_to_int64(const void *const ptr) {
@@ -694,5 +709,7 @@ static inline void uuid_copy(uuid_t *dst, const uuid_t src) {
 #define DOUBLE_TO_FP1616_ROUNDED(v) (((uint32_t) (v)) << 16)
 
 #define ARRAY_SIZE(a) (sizeof(a) / sizeof((a)[0]))
+
+typedef void (*void_callback_t)(void *userdata);
 
 #endif

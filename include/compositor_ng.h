@@ -17,6 +17,7 @@
 #include <modesetting.h>
 #include <flutter-pi.h>
 #include <egl.h>
+#include <frame_scheduler.h>
 
 struct compositor;
 
@@ -136,13 +137,6 @@ struct compositor_config {
     struct device_config *device_configs;
 };
 
-struct view_geometry {
-    struct point view_size, display_size;
-    FlutterTransformation display_to_view_transform;
-	FlutterTransformation view_to_display_transform;
-	double device_pixel_ratio;
-};
-
 struct clip_rect {
     struct quad rect;
     bool is_aa;
@@ -214,49 +208,51 @@ struct fl_layer_composition {
     struct fl_layer layers[];
 };
 
-enum present_mode {
-    kDoubleBufferedVsync_PresentMode,
-    kTripleBufferedVsync_PresentMode
-};
-
 struct drmdev;
 struct compositor;
-struct vsync_waiter;
+struct frame_scheduler;
+struct view_geometry;
+struct window;
 
 typedef void (*compositor_frame_begin_cb_t)(void *userdata, uint64_t vblank_ns, uint64_t next_vblank_ns);
 
 ATTR_MALLOC struct compositor *compositor_new(
-    struct drmdev *drmdev,
     struct tracer *tracer,
-    struct vsync_waiter *waiter,
-    struct gl_renderer *renderer,
-    bool has_rotation, drm_plane_transform_t rotation,
-    bool has_orientation, enum device_orientation orientation,
-    bool has_explicit_dimensions, int width_mm, int height_mm,
-    EGLConfig egl_config,
-    bool has_forced_pixel_format,
-    enum pixfmt forced_pixel_format,
-    bool use_frame_requests,
-    enum present_mode present_mode
+    struct window *main_window
 );
 
-ATTR_MALLOC struct compositor *compositor_new_vulkan(
-    struct drmdev *drmdev,
-    struct tracer *tracer,
-    struct vsync_waiter *waiter,
-    struct vk_renderer *renderer,
-    bool has_rotation,
-    drm_plane_transform_t rotation,
-    bool has_orientation,
-    enum device_orientation orientation,
-    bool has_explicit_dimensions,
-    int width_mm,
-    int height_mm,
-    bool has_forced_pixel_format,
-    enum pixfmt forced_pixel_format,
-    bool use_frame_requests,
-    enum present_mode present_mode
-);
+// ATTR_MALLOC struct compositor *compositor_new(
+//     struct drmdev *drmdev,
+//     struct tracer *tracer,
+//     struct vsync_waiter *waiter,
+//     struct gl_renderer *renderer,
+//     bool has_rotation, drm_plane_transform_t rotation,
+//     bool has_orientation, enum device_orientation orientation,
+//     bool has_explicit_dimensions, int width_mm, int height_mm,
+//     EGLConfig egl_config,
+//     bool has_forced_pixel_format,
+//     enum pixfmt forced_pixel_format,
+//     bool use_frame_requests,
+//     enum present_mode present_mode
+// );
+
+// ATTR_MALLOC struct compositor *compositor_new_vulkan(
+//     struct drmdev *drmdev,
+//     struct tracer *tracer,
+//     struct vsync_waiter *waiter,
+//     struct vk_renderer *renderer,
+//     bool has_rotation,
+//     drm_plane_transform_t rotation,
+//     bool has_orientation,
+//     enum device_orientation orientation,
+//     bool has_explicit_dimensions,
+//     int width_mm,
+//     int height_mm,
+//     bool has_forced_pixel_format,
+//     enum pixfmt forced_pixel_format,
+//     bool use_frame_requests,
+//     enum present_mode present_mode
+// );
 
 void compositor_destroy(struct compositor *compositor);
 
@@ -285,5 +281,15 @@ int compositor_get_event_fd(struct compositor *compositor);
 int compositor_on_event_fd_ready(struct compositor *compositor);
 
 ATTR_PURE EGLConfig egl_choose_config_with_pixel_format(EGLDisplay egl_display, const EGLint *config_attribs, enum pixfmt pixel_format);
+
+
+struct fl_layer_composition;
+
+struct fl_layer_composition *fl_layer_composition_new(size_t n_layers);
+void fl_layer_composition_destroy(struct fl_layer_composition *composition);
+DECLARE_REF_OPS(fl_layer_composition)
+
+size_t fl_layer_composition_get_n_layers(struct fl_layer_composition *composition);
+struct fl_layer *fl_layer_composition_peek_layer(struct fl_layer_composition *composition, int layer);
 
 #endif // _FLUTTERPI_INCLUDE_COMPOSITOR_NG_H

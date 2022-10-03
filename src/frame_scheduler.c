@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 /*
- * Vsync Waiter
+ * Frame scheduler
  *
  * Manages scheduling of frames, rendering, flutter vsync requests/replies.
  *
@@ -12,9 +12,9 @@
 
 #include <collection.h>
 #include <compositor_ng.h>
-#include <vsync_waiter.h>
+#include <frame_scheduler.h>
 
-struct vsync_waiter {
+struct frame_scheduler {
     refcount_t n_refs;
 
     bool uses_frame_requests;
@@ -25,50 +25,42 @@ struct vsync_waiter {
     pthread_mutex_t mutex;
 };
 
-DEFINE_REF_OPS(vsync_waiter, n_refs)
-DEFINE_STATIC_LOCK_OPS(vsync_waiter, mutex)
+DEFINE_REF_OPS(frame_scheduler, n_refs)
+DEFINE_STATIC_LOCK_OPS(frame_scheduler, mutex)
 
-struct vsync_waiter *vsync_waiter_new(
+struct frame_scheduler *frame_scheduler_new(
     bool uses_frame_requests,
     enum present_mode present_mode,
     fl_vsync_callback_t vsync_cb,
     void *userdata
 ) {
-    struct vsync_waiter *waiter;
+    struct frame_scheduler *scheduler;
     
     // uses_frame_requests? => vsync_cb != NULL
     DEBUG_ASSERT(!uses_frame_requests || vsync_cb != NULL);
 
-    waiter = malloc(sizeof *waiter);
-    if (waiter == NULL) {
+    scheduler = malloc(sizeof *scheduler);
+    if (scheduler == NULL) {
         return NULL;
     }
 
-    waiter->n_refs = REFCOUNT_INIT_1;
-    waiter->uses_frame_requests = uses_frame_requests;
-    waiter->present_mode = present_mode;
-    waiter->vsync_cb = vsync_cb;
-    waiter->userdata = userdata;
-    return waiter;
+    scheduler->n_refs = REFCOUNT_INIT_1;
+    scheduler->uses_frame_requests = uses_frame_requests;
+    scheduler->present_mode = present_mode;
+    scheduler->vsync_cb = vsync_cb;
+    scheduler->userdata = userdata;
+    return scheduler;
 }
 
-void vsync_waiter_destroy(struct vsync_waiter *waiter) {
-    free(waiter);
+void frame_scheduler_destroy(struct frame_scheduler *scheduler) {
+    free(scheduler);
 }
 
-/**
- * @brief Called when flutter calls the embedder supplied vsync_callback.
- * Embedder should reply on the platform task thread with the timestamp
- * of the next vsync request. Engine will wait till that time and then begin
- * rendering the next frame.
- * 
- * @param waiter 
- * @param vsync_baton 
- */
-void vsync_waiter_on_fl_vsync_request(struct vsync_waiter *waiter, intptr_t vsync_baton) {
-    DEBUG_ASSERT_NOT_NULL(waiter);
+
+void frame_scheduler_on_fl_vsync_request(struct frame_scheduler *scheduler, intptr_t vsync_baton) {
+    DEBUG_ASSERT_NOT_NULL(scheduler);
     DEBUG_ASSERT(vsync_baton != 0);
-    DEBUG_ASSERT(waiter->uses_frame_requests);
+    DEBUG_ASSERT(scheduler->uses_frame_requests);
 
     // flutter called the vsync callback.
     //  - when do we reply to it?
@@ -95,22 +87,22 @@ void vsync_waiter_on_fl_vsync_request(struct vsync_waiter *waiter, intptr_t vsyn
 
     /// TODO: Implement
     /// For now, just unconditionally reply 
-    if (waiter->present_mode == kTripleBufferedVsync_PresentMode) {
-        waiter->vsync_cb(waiter->userdata, vsync_baton, 0, 0);
-    } else if (waiter->present_mode == kDoubleBufferedVsync_PresentMode) {
-        waiter->vsync_cb(waiter->userdata, vsync_baton, 0, 0);
+    if (scheduler->present_mode == kTripleBufferedVsync_PresentMode) {
+        scheduler->vsync_cb(scheduler->userdata, vsync_baton, 0, 0);
+    } else if (scheduler->present_mode == kDoubleBufferedVsync_PresentMode) {
+        scheduler->vsync_cb(scheduler->userdata, vsync_baton, 0, 0);
     }
 }
 
-void vsync_waiter_on_rendering_complete(struct vsync_waiter *waiter) {
-    DEBUG_ASSERT_NOT_NULL(waiter);
+void frame_scheduler_on_rendering_complete(struct frame_scheduler *scheduler) {
+    DEBUG_ASSERT_NOT_NULL(scheduler);
 
     /// TODO: Implement
     UNIMPLEMENTED();
 }
 
-void vsync_waiter_on_fb_released(struct vsync_waiter *waiter, bool has_timestamp, uint64_t timestamp_ns) {
-    DEBUG_ASSERT_NOT_NULL(waiter);
+void frame_scheduler_on_fb_released(struct frame_scheduler *scheduler, bool has_timestamp, uint64_t timestamp_ns) {
+    DEBUG_ASSERT_NOT_NULL(scheduler);
     (void) has_timestamp;
     (void) timestamp_ns;
 
@@ -118,10 +110,19 @@ void vsync_waiter_on_fb_released(struct vsync_waiter *waiter, bool has_timestamp
     UNIMPLEMENTED();
 }
 
-void vsync_waiter_request_fb(struct vsync_waiter *waiter, uint64_t scanout_time_ns) {
-    DEBUG_ASSERT_NOT_NULL(waiter);
+void frame_scheduler_request_fb(struct frame_scheduler *scheduler, uint64_t scanout_time_ns) {
+    DEBUG_ASSERT_NOT_NULL(scheduler);
     (void) scanout_time_ns;
 
     /// TODO: Implement
     UNIMPLEMENTED();
+}
+
+void frame_scheduler_present_frame(struct frame_scheduler *scheduler, void_callback_t present_cb, void *userdata, void_callback_t cancel_cb) {
+    DEBUG_ASSERT_NOT_NULL(scheduler);
+    DEBUG_ASSERT_NOT_NULL(present_cb);
+    (void) cancel_cb;
+
+    /// TODO: Implement
+    present_cb(userdata);
 }
