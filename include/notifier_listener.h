@@ -10,8 +10,6 @@ enum listener_return {
 
 typedef enum listener_return (*listener_cb_t)(void *arg, void *userdata);
 
-typedef void (*void_callback_t)(void *arg);
-
 struct listener;
 
 struct notifier {
