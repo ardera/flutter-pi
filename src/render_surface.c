@@ -28,7 +28,7 @@ static const uuid_t uuid = CONST_UUID(0x78, 0x70, 0x45, 0x13, 0xa8, 0xf3, 0x43, 
 
 void render_surface_deinit(struct surface *s);
 
-int render_surface_init(struct render_surface *surface, struct tracer *tracer, struct point size) {
+int render_surface_init(struct render_surface *surface, struct tracer *tracer, struct vec2f size) {
     int ok;
 
     ok = surface_init(&surface->surface, tracer);

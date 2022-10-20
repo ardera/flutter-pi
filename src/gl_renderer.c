@@ -217,6 +217,37 @@ struct gl_renderer *gl_renderer_new_from_gbm_device(
         goto fail_clear_current;
     }
 
+    LOG_DEBUG_UNPREFIXED(
+        "===================================\n"
+        "EGL information:\n"
+        "  version: %s\n"
+        "  vendor: %s\n"
+        "  client extensions: %s\n"
+        "  display extensions: %s\n"
+        "===================================\n",
+        eglQueryString(egl_display, EGL_VERSION),
+        eglQueryString(egl_display, EGL_VENDOR),
+        egl_client_exts,
+        egl_display_exts
+    );
+
+    // this needs to be here because the EGL context needs to be current.
+    LOG_DEBUG_UNPREFIXED(
+        "===================================\n"
+        "OpenGL ES information:\n"
+        "  version: \"%s\"\n"
+        "  shading language version: \"%s\"\n"
+        "  vendor: \"%s\"\n"
+        "  renderer: \"%s\"\n"
+        "  extensions: \"%s\"\n"
+        "===================================\n",
+        glGetString(GL_VERSION),
+        glGetString(GL_SHADING_LANGUAGE_VERSION),
+        glGetString(GL_VENDOR),
+        gl_renderer,
+        gl_exts
+    );
+
     egl_ok = eglMakeCurrent(egl_display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
     if (egl_ok != EGL_TRUE) {
         LOG_ERROR("Could not clear EGL OpenGL ES context. eglMakeCurrent: 0x%08X\n", eglGetError());

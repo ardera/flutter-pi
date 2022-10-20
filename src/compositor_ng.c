@@ -466,10 +466,6 @@ struct surface *compositor_get_view_by_id_locked(struct compositor *compositor, 
     return NULL;
 }
 
-bool compositor_has_egl_surface(struct compositor *compositor) {
-    return window_has_egl_surface(compositor->main_window);
-}
-
 EGLSurface compositor_get_egl_surface(struct compositor *compositor) {
     return window_get_egl_surface(compositor->main_window);
 }
@@ -490,7 +486,7 @@ static bool on_flutter_create_backing_store(
 
     // we have a reference on this surface.
     // i.e. when we don't use it, we need to unref it.
-    s = window_create_render_surface(compositor->main_window, POINT(config->size.width, config->size.height));
+    s = window_get_render_surface(compositor->main_window, VEC2F(config->size.width, config->size.height));
     if (s == NULL) {
         LOG_ERROR("Couldn't create render surface for flutter to render into.\n");
         return false;

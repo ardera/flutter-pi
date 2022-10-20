@@ -29,7 +29,7 @@ ATTR_PURE struct egl_gbm_render_surface *__checked_cast_egl_gbm_render_surface(v
 
 ATTR_MALLOC struct egl_gbm_render_surface *egl_gbm_render_surface_new_with_egl_config(
     struct tracer *tracer,
-    struct point size,
+    struct vec2f size,
     struct gbm_device *device,
     struct gl_renderer *renderer,
     enum pixfmt pixel_format,
@@ -38,7 +38,7 @@ ATTR_MALLOC struct egl_gbm_render_surface *egl_gbm_render_surface_new_with_egl_c
 
 ATTR_MALLOC struct egl_gbm_render_surface *egl_gbm_render_surface_new(
     struct tracer *tracer,
-    struct point size,
+    struct vec2f size,
     struct gbm_device *device,
     struct gl_renderer *renderer,
     enum pixfmt pixel_format
