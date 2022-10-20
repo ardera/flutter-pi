@@ -233,7 +233,7 @@ static bool on_clear_current(void* userdata) {
 /// still needs to be present)
 static bool on_present(void *userdata) {
     (void) userdata;
-    return true;
+    UNREACHABLE();
 }
 
 /// Called on some flutter internal thread to get the
@@ -323,7 +323,7 @@ static bool on_present_vulkan_image(
     (void) flutterpi;
     (void) image;
 
-    UNIMPLEMENTED();
+    UNREACHABLE();
 }
 
 static void on_platform_message(
@@ -1240,8 +1240,6 @@ static int init_display(
         goto fail_unref_tracer;
     }
 
-    
-
     if (renderer_type == kVulkan_RendererType) {
         gl_renderer = NULL;
         vk_renderer = vk_renderer_new();
@@ -1450,8 +1448,6 @@ static int init_application(void) {
         return EIO;
     }
 
-
-
     // configure flutter rendering
     if (flutterpi.vk_renderer) {
         renderer_config = (FlutterRendererConfig) {
@@ -1513,7 +1509,7 @@ static int init_application(void) {
         .update_semantics_custom_action_callback = NULL,
         .persistent_cache_path = flutterpi.flutter.paths->asset_bundle_path,
         .is_persistent_cache_read_only = false,
-        .vsync_callback = on_frame_request, /* broken since 2.2, kinda */
+        .vsync_callback = NULL, // on_frame_request, /* broken since 2.2, kinda */
         .custom_dart_entrypoint = NULL,
         .custom_task_runners = &(FlutterCustomTaskRunners) {
             .struct_size = sizeof(FlutterCustomTaskRunners),
