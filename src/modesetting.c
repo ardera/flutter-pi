@@ -1074,10 +1074,12 @@ static void drmdev_on_page_flip_locked(
     last_flipped = &drmdev->per_crtc_state[crtc->index].last_flipped;
     if (*last_flipped != NULL) {
         /// TODO: Remove this if we ever cache KMS reqs.
-        DEBUG_ASSERT(refcount_is_one(&((struct kms_req_builder*) *last_flipped)->n_refs));
+        /// FIXME: This will fail if we're using blocking commits.
+        // DEBUG_ASSERT(refcount_is_one(&((struct kms_req_builder*) *last_flipped)->n_refs));
     }
 
     kms_req_swap_ptrs(last_flipped, req);
+    kms_req_unref(req);
 }
 
 static int drmdev_on_modesetting_fd_ready_locked(struct drmdev *drmdev) {
@@ -2179,7 +2181,7 @@ int kms_req_commit_blocking(struct kms_req *req, uint64_t *vblank_ns_out) {
 int kms_req_commit_nonblocking(struct kms_req *req, kms_scanout_cb_t scanout_cb, void *userdata, void_callback_t destroy_cb) {
     return kms_req_commit_common(
         req,
-        true,
+        false,
         scanout_cb, userdata, destroy_cb
     );
 }
