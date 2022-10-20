@@ -105,7 +105,7 @@ static int egl_gbm_render_surface_queue_present(struct render_surface *s, const 
 int egl_gbm_render_surface_init(
     struct egl_gbm_render_surface *s,
     struct tracer *tracer,
-    struct point size,
+    struct vec2f size,
     struct gbm_device *gbm_device,
     struct gl_renderer *renderer,
     enum pixfmt pixel_format,
@@ -236,7 +236,7 @@ int egl_gbm_render_surface_init(
  */
 ATTR_MALLOC struct egl_gbm_render_surface *egl_gbm_render_surface_new_with_egl_config(
     struct tracer *tracer,
-    struct point size,
+    struct vec2f size,
     struct gbm_device *device,
     struct gl_renderer *renderer,
     enum pixfmt pixel_format,
@@ -277,7 +277,7 @@ ATTR_MALLOC struct egl_gbm_render_surface *egl_gbm_render_surface_new_with_egl_c
  */
 ATTR_MALLOC struct egl_gbm_render_surface *egl_gbm_render_surface_new(
     struct tracer *tracer,
-    struct point size,
+    struct vec2f size,
     struct gbm_device *device,
     struct gl_renderer *renderer,
     enum pixfmt pixel_format

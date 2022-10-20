@@ -712,4 +712,76 @@ static inline void uuid_copy(uuid_t *dst, const uuid_t src) {
 
 typedef void (*void_callback_t)(void *userdata);
 
+/**
+ * @brief A 2-dimensional vector with 2 float coordinates.
+ * 
+ */
+struct vec2f {
+    double x, y;
+};
+
+#define VEC2F(_x, _y) ((struct vec2f) {.x = _x, .y = _y})
+
+/**
+ * @brief A quadrilateral with 4 2-dimensional float coordinates.
+ * 
+ */
+struct quad {
+    struct vec2f top_left, top_right, bottom_left, bottom_right;
+};
+
+#define QUAD(_top_left, _top_right, _bottom_left, _bottom_right) ((struct quad) {.top_left = _top_left, .top_right = _top_right, .bottom_left = _bottom_left, .bottom_right = _bottom_right})
+#define QUAD_FROM_COORDS(_x1, _y1, _x2, _y2, _x3, _y3, _x4, _y4) QUAD(VEC2F(_x1, _y1), VEC2F(_x2, _y2), VEC2F(_x3, _y3), VEC2F(_x4, _y4))
+
+struct aa_rect {
+    struct vec2f offset, size;
+};
+
+#define AA_RECT(_offset, _size) ((struct aa_rect) {.offset = offset, .size = size})
+#define AA_RECT_FROM_COORDS(offset_x, offset_y, width, height) ((struct aa_rect) {.offset = VEC2F(offset_x, offset_y), .size = VEC2F(width, height)})
+
+ATTR_CONST static inline struct aa_rect get_aa_bounding_rect(const struct quad _rect) {
+    double l = min(min(min(_rect.top_left.x, _rect.top_right.x), _rect.bottom_left.x), _rect.bottom_right.x);
+	double r = max(max(max(_rect.top_left.x, _rect.top_right.x), _rect.bottom_left.x), _rect.bottom_right.x);
+	double t = min(min(min(_rect.top_left.y, _rect.top_right.y), _rect.bottom_left.y), _rect.bottom_right.y);
+	double b = max(max(max(_rect.top_left.y, _rect.top_right.y), _rect.bottom_left.y), _rect.bottom_right.y);
+    return AA_RECT_FROM_COORDS(l, t, r - l, b - t);
+}
+
+ATTR_CONST static inline struct quad get_quad(const struct aa_rect rect) {
+    return (struct quad) {
+        .top_left = rect.offset,
+        .top_right.x = rect.offset.x + rect.size.x,
+        .top_right.y = rect.offset.y,
+        .bottom_left.x = rect.offset.x,
+        .bottom_left.y = rect.offset.y + rect.size.y,
+        .bottom_right.x = rect.offset.x + rect.size.x,
+        .bottom_right.y = rect.offset.y + rect.size.y
+    };
+}
+
+ATTR_CONST static inline struct vec2f transform_point(const FlutterTransformation transform, const struct vec2f point) {
+    return VEC2F(
+        transform.scaleX*point.x + transform.skewX*point.y + transform.transX, 
+        transform.skewY*point.x + transform.scaleY*point.y + transform.transY
+    );
+}
+
+ATTR_CONST static inline struct quad transform_quad(const FlutterTransformation transform, const struct quad rect) {
+    return QUAD(
+        transform_point(transform, rect.top_left),
+        transform_point(transform, rect.top_right),
+        transform_point(transform, rect.bottom_left),
+        transform_point(transform, rect.bottom_right)
+    );
+}
+
+ATTR_CONST static inline struct quad transform_aa_rect(const FlutterTransformation transform, const struct aa_rect rect) {
+    return transform_quad(transform, get_quad(rect));
+}
+
+ATTR_CONST static inline struct vec2f point_swap_xy(const struct vec2f point) {
+    return VEC2F(point.y, point.x);
+}
+
 #endif

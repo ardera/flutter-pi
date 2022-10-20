@@ -439,6 +439,39 @@ ATTR_MALLOC struct vk_renderer *vk_renderer_new() {
         goto fail_destroy_device;
     }
 
+    LOG_DEBUG_UNPREFIXED(
+        "===================================\n"
+        "Vulkan Info:\n"
+        "  enabled layers: "
+    );
+
+    for (int i = 0; i < n_enabled_layers; i++) {
+        LOG_DEBUG_UNPREFIXED("%s%s", enabled_layers[i], (i + 1 != n_enabled_layers) ? ", " : "");
+    }
+
+    LOG_DEBUG_UNPREFIXED(
+        "\n"
+        "  enabled instance extensions: "
+    );
+
+    for (int i = 0; i < n_enabled_instance_extensions; i++) {
+        LOG_DEBUG_UNPREFIXED("%s%s", enabled_instance_extensions[i], (i + 1 != n_enabled_instance_extensions) ? ", " : "");
+    }
+
+    LOG_DEBUG_UNPREFIXED(
+        "\n"
+        "  enabled device extensions: "
+    );
+
+    for (int i = 0; i < n_enabled_device_extensions; i++) {
+        LOG_DEBUG_UNPREFIXED("%s%s", enabled_device_extensions[i], (i + 1 != n_enabled_device_extensions) ? ", " : "");
+    }
+
+    LOG_DEBUG_UNPREFIXED(
+        "\n"
+        "===================================\n"
+    );
+
     renderer->device = device;
     renderer->physical_device = physical_device;
     renderer->instance = instance;

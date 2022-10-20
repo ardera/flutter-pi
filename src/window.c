@@ -21,6 +21,10 @@
 #include <tracer.h>
 #include <surface.h>
 #include <render_surface.h>
+#include <vk_renderer.h>
+#include <gl_renderer.h>
+#include <egl_gbm_render_surface.h>
+#include <vk_gbm_render_surface.h>
 
 FILE_DESCR("native windows")
 
@@ -28,33 +32,46 @@ struct window {
     pthread_mutex_t lock;
     refcount_t n_refs;
     
-    /// Event tracing interface.
+    /**
+     * @brief Event tracing interface.
+     * 
+     * Used to report timing information to the dart observatory.
+     * 
+     */
     struct tracer *tracer;
 
-    /// Manages the frame scheduling for this window.
+    /**
+     * @brief Manages the frame scheduling for this window.
+     * 
+     */
     struct frame_scheduler *frame_scheduler;
-
-    /// Manages the render surface creation for this window.
-    struct render_surface_interface render_surface_interface;
     
-    /// Refresh rate of the selected mode / display.
+    /**
+     * @brief Refresh rate of the selected video mode / display.
+     * 
+     */
     double refresh_rate;
-
-    /// Flutter device pixel ratio (in the horizontal axis)
-    /// Number of physical pixels per logical pixel.
-    /// There are always 38 logical pixels per cm, or 96 per inch.
-    /// This is roughly equivalent to DPI / 100.
-    /// A device pixel ratio of 1.0 is roughly a dpi of 96, which is the most common
-    /// dpi for full-hd desktop displays.
-    /// To calculate this, the physical dimensions of the display are required.
-    /// If there are no physical dimensions this will default to 1.0.
+    
+    /**
+     * @brief Flutter device pixel ratio (in the horizontal axis). Number of physical pixels per logical pixel.
+     * 
+     * There are always 38 logical pixels per cm, or 96 per inch. This is roughly equivalent to DPI / 100.
+     * A device pixel ratio of 1.0 is roughly a dpi of 96, which is the most common dpi for full-hd desktop displays.
+     * To calculate this, the physical dimensions of the display are required. If there are no physical dimensions,
+     * this will default to 1.0.
+     */
     double pixel_ratio;
 
-    /// Whether we have physical screen dimensions and @ref width_mm and @ref height_mm
-    /// contain usable values.
+    /**
+     * @brief Whether we have physical screen dimensions and @ref width_mm and @ref height_mm contain usable values.
+     * 
+     */
     bool has_dimensions;
 
-    /// Width, height of the screen in millimeters.
+    /**
+     * @brief Width, height of the display in millimeters.
+     * 
+     */
     int width_mm, height_mm;
 
     /**
@@ -64,50 +81,72 @@ struct window {
      * For example, if flutter-pi should render at 1/2 the resolution of a full-hd display, this would be
      * 960x540 and the display size 1920x1080.
      */
-    struct point view_size;
+    struct vec2f view_size;
 
     /**
      * @brief The actual size of the view on the display, pixels.
      * 
      */
-    struct point display_size;
+    struct vec2f display_size;
 
-    /// The rotation we should apply to the flutter layers to present them on screen.
+    /**
+     * @brief The rotation we should apply to the flutter layers to present them on screen.
+     */
     drm_plane_transform_t rotation;
     
-    /// The current device orientation and the original (startup) device orientation.
-    /// @ref original_orientation is kLandscapeLeft for displays that are more wide than high,
-    /// and kPortraitUp for displays that are more high than wide.
-    ///
-    /// @ref orientation should always equal to rotating @ref original_orientation clock-wise by the
-    /// angle in the @ref rotation field.
+    /**
+     * @brief The current device orientation and the original (startup) device orientation.
+     * 
+     * @ref original_orientation is kLandscapeLeft for displays that are more wide than high, and kPortraitUp for displays that are
+     * more high than wide. Though this can also be anything else theoretically, if the user specifies weird combinations of rotation
+     * and orientation via cmdline arguments.
+     * 
+     * @ref orientation should always equal to rotating @ref original_orientation clock-wise by the angle in the @ref rotation field.
+     */
     enum device_orientation orientation, original_orientation;
 
-    /// Matrix for transforming display coordinates to view coordinates.
-    ///
-    /// For example for transforming pointer events (which are in the display coordinate space)
-    /// to flutter coordinates.
-    /// Useful if for example flutter has specified a custom device orientation (for example kPortraitDown),
-    /// in that case we of course also need to transform the touch coords.
+    /**
+     * @brief Matrix for transforming display coordinates to view coordinates.
+     * 
+     * For example for transforming pointer events (which are in the display coordinate space) to flutter coordinates.
+     * Useful if for example flutter has specified a custom device orientation (for example kPortraitDown), in that case we of course
+     * also need to transform the touch coords.
+     * 
+     */
     FlutterTransformation display_to_view_transform;
 
-    /// Matrix for transforming view coordinates to display coordinates.
-    ///
-    /// Can be used as a root surface transform, for fitting the flutter view into
-    /// the desired display frame.
-    /// Useful if for example flutter has specified a custom device orientation (for example kPortraitDown),
-    /// because we need to rotate the flutter view in that case.
+    /**
+     * @brief Matrix for transforming view coordinates to display coordinates.
+     * 
+     * Can be used as a root surface transform, for fitting the flutter view into the desired display frame.
+     * 
+     * Useful if for example flutter has specified a custom device orientation (for example kPortraitDown),
+     * because we need to rotate the flutter view in that case.
+     */
     FlutterTransformation view_to_display_transform;
     
-    /// True if we should use a specific pixel format.
+    /**
+     * @brief True if we should use a specific pixel format.
+     * 
+     */
     bool has_forced_pixel_format;
 
-    /// The forced pixel format if @ref has_forced_pixel_format is true.
+    /**
+     * @brief The forced pixel format if @ref has_forced_pixel_format is true.
+     * 
+     */
     enum pixfmt forced_pixel_format;
 
-    /// The current flutter layer composition that should be output on screen.
+    /**
+     * @brief The current flutter layer composition that should be output on screen.
+     * 
+     */
     struct fl_layer_composition *composition;
 
+    /**
+     * @brief KMS-specific fields if this is a KMS window.
+     * 
+     */
     struct {
         struct drmdev *drmdev;
         struct drm_connector *connector;
@@ -117,6 +156,24 @@ struct window {
         
         bool should_apply_mode;
     } kms;
+
+    /**
+     * @brief The type of rendering that should be used. (gl, vk)
+     * 
+     */
+    enum renderer_type renderer_type;
+
+    /**
+     * @brief The OpenGL renderer if OpenGL rendering should be used.
+     * 
+     */
+    struct gl_renderer *gl_renderer;
+
+    /**
+     * @brief The Vulkan renderer if Vulkan rendering should be used.
+     * 
+     */
+    struct vk_renderer *vk_renderer;
 
     /**
      * @brief Our main render surface, if we have one yet.
@@ -137,6 +194,8 @@ struct window {
     EGLSurface egl_surface;
 
     int (*push_composition)(struct window *window, struct fl_layer_composition *composition);
+    struct render_surface *(*get_render_surface)(struct window *window, struct vec2f size);
+    EGLSurface (*get_egl_surface)(struct window *window);
     void (*deinit)(struct window *window);
 };
 
@@ -188,7 +247,6 @@ static int window_init(
     struct window *window,
     struct tracer *tracer,
     struct frame_scheduler *scheduler,
-    const struct render_surface_interface *render_surface_interface,
     bool has_rotation, drm_plane_transform_t rotation,
     bool has_orientation, enum device_orientation orientation,
     int width, int height,
@@ -203,7 +261,6 @@ static int window_init(
     DEBUG_ASSERT_NOT_NULL(window);
     DEBUG_ASSERT_NOT_NULL(tracer);
     DEBUG_ASSERT_NOT_NULL(scheduler);
-    DEBUG_ASSERT_NOT_NULL(render_surface_interface);
     DEBUG_ASSERT(!has_rotation || PLANE_TRANSFORM_IS_ONLY_ROTATION(rotation));
     DEBUG_ASSERT(!has_orientation || ORIENTATION_IS_VALID(orientation));
     DEBUG_ASSERT(!has_dimensions || (width_mm > 0 && height_mm > 0));
@@ -292,7 +349,6 @@ static int window_init(
     pthread_mutex_init(&window->lock, NULL);
     window->tracer = tracer_ref(tracer);
     window->frame_scheduler = frame_scheduler_ref(scheduler);
-    window->render_surface_interface = *render_surface_interface;
     window->refresh_rate = refresh_rate;
     window->pixel_ratio = pixel_ratio;
     window->has_dimensions = has_dimensions;
@@ -303,10 +359,15 @@ static int window_init(
     window->original_orientation = original_orientation;
     window->has_forced_pixel_format = has_forced_pixel_format;
     window->forced_pixel_format = forced_pixel_format;
-    window->push_composition = NULL;
-    window->deinit = window_deinit;
     window->egl_surface = NULL;
     window->render_surface = NULL;
+    window->renderer_type = kOpenGL_RendererType;
+    window->gl_renderer = NULL;
+    window->vk_renderer = NULL;
+    window->get_render_surface = NULL;
+    window->get_egl_surface = NULL;
+    window->push_composition = NULL;
+    window->deinit = window_deinit;
     return 0;
 }
 
@@ -384,50 +445,18 @@ int window_get_next_vblank(struct window *window, uint64_t *next_vblank_ns_out) 
     return 0;
 }
 
-bool window_has_egl_surface(struct window *window) {
-    DEBUG_ASSERT_NOT_NULL(window);
-    return window->egl_surface != EGL_NO_SURFACE;
-}
-
 EGLSurface window_get_egl_surface(struct window *window) {
     DEBUG_ASSERT_NOT_NULL(window);
-    DEBUG_ASSERT(window_has_egl_surface(window));
-    return window->egl_surface;
+    DEBUG_ASSERT_NOT_NULL(window->get_egl_surface);
+    return window->get_egl_surface(window);
 }
 
-struct render_surface *window_create_render_surface(struct window *window, struct point size) {
-    struct render_surface *render_surface;
-    struct surface *surface;
-
+struct render_surface *window_get_render_surface(struct window *window, struct vec2f size) {
     DEBUG_ASSERT_NOT_NULL(window);
-
-    if (window->render_surface != NULL) {
-        surface_ref(CAST_SURFACE_UNCHECKED(window->render_surface));;
-        return window->render_surface;
-    }
-
-    surface = window->render_surface_interface.create_render_surface(
-        // clang-format off
-        window->render_surface_interface.userdata,
-        (int) size.x, (int) size.y,
-        window->has_forced_pixel_format,
-        window->forced_pixel_format
-        // clang-format on
-    );
-    if (surface == NULL) {
-        LOG_ERROR("Could not create render surface using render surface interface.\n");
-        return NULL;
-    }
-
-    /// TODO: Cache these
-    render_surface = CAST_RENDER_SURFACE(surface);
-
-    // One ref for our struct member, one ref for the caller of this functoin.
-    surface_ref(CAST_SURFACE_UNCHECKED(window->render_surface));
-    window->render_surface = render_surface;
-
-    return render_surface;
+    DEBUG_ASSERT_NOT_NULL(window->get_render_surface);
+    return window->get_render_surface(window, size);
 }
+
 
 static int select_mode(
     struct drmdev *drmdev,
@@ -538,14 +567,17 @@ static int select_mode(
 }
 
 static int kms_window_push_composition(struct window *window, struct fl_layer_composition *composition);
-
+static struct render_surface *kms_window_get_render_surface(struct window *window, struct vec2f size);
+static EGLSurface kms_window_get_egl_surface(struct window *window);
 static void kms_window_deinit(struct window *window);
 
-struct window *kms_window_new(
+ATTR_MALLOC struct window *kms_window_new(
     // clang-format off
     struct tracer *tracer,
     struct frame_scheduler *scheduler,
-    const struct render_surface_interface *render_surface_interface,
+    enum renderer_type renderer_type,
+    struct gl_renderer *gl_renderer,
+    struct vk_renderer *vk_renderer,
     bool has_rotation, drm_plane_transform_t rotation,
     bool has_orientation, enum device_orientation orientation,
     bool has_explicit_dimensions, int width_mm, int height_mm,
@@ -563,6 +595,20 @@ struct window *kms_window_new(
 
     DEBUG_ASSERT_NOT_NULL(drmdev);
 
+#ifndef HAS_VULKAN
+    DEBUG_ASSERT(renderer_type != kVulkan_RendererType);
+#endif
+
+#if !defined(HAS_EGL) || !defined(HAS_GL)
+    DEBUG_ASSERT(renderer_type != kOpenGL_RendererType);
+#endif
+    
+    // if opengl --> gl_renderer != NULL && vk_renderer == NULL
+    DEBUG_ASSERT(renderer_type != kOpenGL_RendererType || (gl_renderer != NULL && vk_renderer == NULL));
+    
+    // if vulkan --> vk_renderer != NULL && gl_renderer == NULL
+    DEBUG_ASSERT(renderer_type != kVulkan_RendererType || (vk_renderer != NULL && gl_renderer == NULL));
+
     window = malloc(sizeof *window);
     if (window == NULL) {
         return NULL;
@@ -576,12 +622,15 @@ struct window *kms_window_new(
     if (has_explicit_dimensions) {
         has_dimensions = true;
     } else if (selected_connector->variable_state.width_mm % 10 || selected_connector->variable_state.height_mm % 10) {
+        // as a heuristic, assume the physical dimensions are valid if they're not both multiples of 10.
+        // dimensions like 160x90mm, 150x100mm are often bogus.
         has_dimensions = true;
         width_mm = selected_connector->variable_state.width_mm;
         height_mm = selected_connector->variable_state.height_mm;
     } else if (selected_connector->type == DRM_MODE_CONNECTOR_DSI
         && selected_connector->variable_state.width_mm == 0
         && selected_connector->variable_state.height_mm == 0) {
+        // assume this is the official Raspberry Pi DSI display.
         has_dimensions = true;
         width_mm = 155;
         height_mm = 86;
@@ -594,7 +643,6 @@ struct window *kms_window_new(
         window,
         tracer,
         scheduler,
-        render_surface_interface,
         has_rotation, rotation,
         has_orientation, orientation,
         selected_mode->hdisplay, selected_mode->vdisplay,
@@ -608,12 +656,31 @@ struct window *kms_window_new(
         return NULL;
     }
 
+    LOG_DEBUG_UNPREFIXED(
+        "display mode:\n"
+        "  resolution: %"PRIu16" x %"PRIu16"\n"
+        "  refresh rate: %fHz\n"
+        "  physical size: %dmm x %dmm\n"
+        "  flutter device pixel ratio: %f\n"
+        "  pixel format: %s\n",
+        selected_mode->hdisplay, selected_mode->vdisplay,
+        mode_get_vrefresh(selected_mode),
+        width_mm, height_mm,
+        window->pixel_ratio,
+        has_forced_pixel_format ? get_pixfmt_info(forced_pixel_format)->name : "(any)"
+    );
+
     window->kms.drmdev = drmdev_ref(drmdev);
     window->kms.connector = selected_connector;
     window->kms.encoder = selected_encoder;
     window->kms.crtc = selected_crtc;
     window->kms.mode = selected_mode;
+    window->renderer_type = renderer_type;
+    window->gl_renderer = gl_renderer != NULL ? gl_renderer_ref(gl_renderer) : NULL;
+    window->vk_renderer = vk_renderer != NULL ? vk_renderer_ref(vk_renderer) : NULL;
     window->push_composition = kms_window_push_composition;
+    window->get_render_surface = kms_window_get_render_surface;
+    window->get_egl_surface = kms_window_get_egl_surface;
     window->deinit = kms_window_deinit;
     return window;
 
@@ -688,6 +755,8 @@ static int kms_window_push_composition(struct window *window, struct fl_layer_co
 
     DEBUG_ASSERT_NOT_NULL(window);
     DEBUG_ASSERT_NOT_NULL(composition);
+
+    LOG_DEBUG("kms_window_push_composition");
 
     // If flutter won't request frames (because the vsync callback is broken),
     // we'll wait here for the previous frame to be presented / rendered.
@@ -840,4 +909,76 @@ fail_unref_builder:
 fail_unlock:
     window_unlock(window);
     return ok;
+}
+
+static struct render_surface *kms_window_get_render_surface_internal(struct window *window, bool has_size, struct vec2f size) {
+    struct render_surface *render_surface;
+
+    DEBUG_ASSERT_NOT_NULL(window);
+
+    if (window->render_surface != NULL) {
+        surface_ref(CAST_SURFACE_UNCHECKED(window->render_surface));;
+        return window->render_surface;
+    }
+
+    if (!has_size) {
+        // Flutter wants a render surface, but hasn't told us the backing store dimensions yet.
+        // Just make a good guess about the dimensions.
+        LOG_DEBUG("Flutter requested render surface before supplying surface dimensions.\n");
+        size = VEC2F(window->kms.mode->hdisplay, window->kms.mode->vdisplay);
+    }
+
+    if (window->renderer_type == kOpenGL_RendererType) {
+        // opengl
+        
+        struct egl_gbm_render_surface *egl_surface = egl_gbm_render_surface_new(
+            window->tracer,
+            size,
+            gl_renderer_get_gbm_device(window->gl_renderer),
+            window->gl_renderer,
+            window->has_forced_pixel_format ? window->forced_pixel_format : kARGB8888
+        );
+        if (egl_surface == NULL) {
+            LOG_ERROR("Couldn't create EGL GBM rendering surface.\n");
+            return NULL;
+        }
+
+        render_surface = CAST_RENDER_SURFACE(egl_surface);
+    } else {
+        // vulkan
+
+        struct vk_gbm_render_surface *vk_surface = vk_gbm_render_surface_new(
+            window->tracer,
+            size,
+            drmdev_get_gbm_device(window->kms.drmdev),
+            window->vk_renderer,
+            window->has_forced_pixel_format ? window->forced_pixel_format : kARGB8888
+        );
+        if (vk_surface == NULL) {
+            LOG_ERROR("Couldn't create Vulkan GBM rendering surface.\n");
+            return NULL;
+        }
+
+        render_surface = CAST_RENDER_SURFACE(vk_surface);
+    }
+
+    // One ref for our struct member, one ref for the caller of this functoin.
+    surface_ref(CAST_SURFACE_UNCHECKED(render_surface));
+    window->render_surface = render_surface;
+    return render_surface;
+}
+
+static struct render_surface *kms_window_get_render_surface(struct window *window, struct vec2f size) {
+    DEBUG_ASSERT_NOT_NULL(window);
+    return kms_window_get_render_surface_internal(window, true, size);
+}
+
+static EGLSurface kms_window_get_egl_surface(struct window *window) {
+    if (window->renderer_type == kOpenGL_RendererType) {
+        struct render_surface *render_surface = kms_window_get_render_surface_internal(window, false, VEC2F(0, 0));
+        surface_unref(CAST_SURFACE(render_surface));
+        return egl_gbm_render_surface_get_egl_surface(CAST_EGL_GBM_RENDER_SURFACE(render_surface));
+    } else {
+        return EGL_NO_SURFACE;
+    }
 }
