@@ -23,8 +23,8 @@ struct fl_layer_composition;
 
 struct view_geometry {
     struct vec2f view_size, display_size;
-    FlutterTransformation display_to_view_transform;
-	FlutterTransformation view_to_display_transform;
+    struct mat3f display_to_view_transform;
+	struct mat3f view_to_display_transform;
 	double device_pixel_ratio;
 };
 
