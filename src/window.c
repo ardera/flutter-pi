@@ -354,6 +354,8 @@ static int window_init(
     window->has_dimensions = has_dimensions;
     window->width_mm = width_mm;
     window->height_mm = height_mm;
+    window->view_size = rotation.rotate_90 || rotation.rotate_270 ? VEC2F(height, width) : VEC2F(width, height);
+    window->display_size = VEC2F(width, height);
     window->rotation = rotation;
     window->orientation = orientation;
     window->original_orientation = original_orientation;
@@ -701,13 +703,12 @@ struct frame {
     bool unset_should_apply_mode_on_commit;
 };
 
-static void on_scanout(struct drmdev *drmdev, uint64_t vblank_ns, void *userdata) {
+MAYBE_UNUSED static void on_scanout(struct drmdev *drmdev, uint64_t vblank_ns, void *userdata) {
     DEBUG_ASSERT_NOT_NULL(drmdev);
     (void) vblank_ns;
     (void) userdata;
 
-    /// TODO: Implement
-    UNIMPLEMENTED();
+    /// TODO: What should we do here?
 }
 
 static void on_present_frame(void *userdata) {
@@ -719,12 +720,7 @@ static void on_present_frame(void *userdata) {
     frame = userdata;
     
     TRACER_BEGIN(frame->tracer, "kms_req_commit_nonblocking");
-    ok = kms_req_commit_nonblocking(
-        frame->req,
-        on_scanout,
-        frame,
-        NULL
-    );
+    ok = kms_req_commit_blocking(frame->req, NULL);
     TRACER_END(frame->tracer, "kms_req_commit_nonblocking");
 
     if (ok != 0) {
@@ -756,7 +752,7 @@ static int kms_window_push_composition(struct window *window, struct fl_layer_co
     DEBUG_ASSERT_NOT_NULL(window);
     DEBUG_ASSERT_NOT_NULL(composition);
 
-    LOG_DEBUG("kms_window_push_composition");
+    LOG_DEBUG("kms_window_push_composition\n");
 
     // If flutter won't request frames (because the vsync callback is broken),
     // we'll wait here for the previous frame to be presented / rendered.
