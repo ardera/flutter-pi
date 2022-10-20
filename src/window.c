@@ -113,7 +113,7 @@ struct window {
      * also need to transform the touch coords.
      * 
      */
-    FlutterTransformation display_to_view_transform;
+    struct mat3f display_to_view_transform;
 
     /**
      * @brief Matrix for transforming view coordinates to display coordinates.
@@ -123,7 +123,7 @@ struct window {
      * Useful if for example flutter has specified a custom device orientation (for example kPortraitDown),
      * because we need to rotate the flutter view in that case.
      */
-    FlutterTransformation view_to_display_transform;
+    struct mat3f view_to_display_transform;
     
     /**
      * @brief True if we should use a specific pixel format.
@@ -208,34 +208,34 @@ static void fill_view_matrices(
     drm_plane_transform_t transform,
     int display_width,
     int display_height,
-    FlutterTransformation *display_to_view_transform_out,
-    FlutterTransformation *view_to_display_transform_out
+    struct mat3f *display_to_view_transform_out,
+    struct mat3f *view_to_display_transform_out
 ) {
     DEBUG_ASSERT(PLANE_TRANSFORM_IS_ONLY_ROTATION(transform));
 
     if (transform.rotate_0) {
-        *view_to_display_transform_out = FLUTTER_TRANSLATION_TRANSFORMATION(0, 0);
+        *view_to_display_transform_out = MAT3F_TRANSLATION(0, 0);
 
-        *display_to_view_transform_out = FLUTTER_TRANSLATION_TRANSFORMATION(0, 0);
+        *display_to_view_transform_out = MAT3F_TRANSLATION(0, 0);
     } else if (transform.rotate_90) {
-        *view_to_display_transform_out = FLUTTER_ROTZ_TRANSFORMATION(90);
+        *view_to_display_transform_out = MAT3F_ROTZ(90);
         view_to_display_transform_out->transX = display_width;
 
-        *display_to_view_transform_out = FLUTTER_ROTZ_TRANSFORMATION(-90);
+        *display_to_view_transform_out = MAT3F_ROTZ(-90);
         display_to_view_transform_out->transY = display_width;
     } else if (transform.rotate_180) {
-        *view_to_display_transform_out = FLUTTER_ROTZ_TRANSFORMATION(180);
+        *view_to_display_transform_out = MAT3F_ROTZ(180);
         view_to_display_transform_out->transX = display_width;
         view_to_display_transform_out->transY = display_height;
 
-        *display_to_view_transform_out = FLUTTER_ROTZ_TRANSFORMATION(-180);
+        *display_to_view_transform_out = MAT3F_ROTZ(-180);
         display_to_view_transform_out->transX = display_width;
         display_to_view_transform_out->transY = display_height;
     } else if (transform.rotate_270) {
-        *view_to_display_transform_out = FLUTTER_ROTZ_TRANSFORMATION(270);
+        *view_to_display_transform_out = MAT3F_ROTZ(270);
         view_to_display_transform_out->transY = display_height;
 
-        *display_to_view_transform_out = FLUTTER_ROTZ_TRANSFORMATION(-270);
+        *display_to_view_transform_out = MAT3F_ROTZ(-270);
         display_to_view_transform_out->transX = display_height;
     }
 }

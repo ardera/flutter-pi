@@ -58,8 +58,8 @@ struct user_input {
      * @brief transforms normalized display coordinates (0 .. display_width-1, 0 .. display_height-1) to the coordinates
      * used in the flutter pointer events
      */
-    FlutterTransformation display_to_view_transform;
-    FlutterTransformation view_to_display_transform_nontranslating;
+    struct mat3f display_to_view_transform;
+    struct mat3f view_to_display_transform_nontranslating;
 	unsigned int display_width;
 	unsigned int display_height;
     
@@ -106,8 +106,8 @@ static const struct libinput_interface libinput_interface = {
 struct user_input *user_input_new(
     const struct user_input_interface *interface, 
     void *userdata,
-    const FlutterTransformation *display_to_view_transform,
-    const FlutterTransformation *view_to_display_transform,
+    const struct mat3f *display_to_view_transform,
+    const struct mat3f *view_to_display_transform,
 	unsigned int display_width,
 	unsigned int display_height
 ) {
@@ -210,8 +210,8 @@ void user_input_destroy(struct user_input *input) {
 
 void user_input_set_transform(
     struct user_input *input,
-    const FlutterTransformation *display_to_view_transform,
-    const FlutterTransformation *view_to_display_transform,
+    const struct mat3f *display_to_view_transform,
+    const struct mat3f *view_to_display_transform,
     unsigned int display_width,
     unsigned int display_height
 ) {
@@ -920,7 +920,7 @@ static int on_touch_motion(struct user_input *input, struct libinput_event *even
 
     // transform the display coordinates to view (flutter) coordinates
     pos_view = transform_point(
-        input->display_to_view_transform,
+        FLUTTER_TRANSFORM_AS_MAT3F(input->display_to_view_transform),
         VEC2F(
             libinput_event_touch_get_x_transformed(touch_event, input->display_width),
             libinput_event_touch_get_y_transformed(touch_event, input->display_height)

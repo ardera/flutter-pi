@@ -225,8 +225,8 @@ static void fill_platform_view_layer_props(
     const FlutterSize *size,
     const FlutterPlatformViewMutation **mutations,
     size_t n_mutations,
-    const FlutterTransformation *display_to_view_transform,
-    const FlutterTransformation *view_to_display_transform,
+    const struct mat3f *display_to_view_transform,
+    const struct mat3f *view_to_display_transform,
     double device_pixel_ratio
 ) {
     (void) view_to_display_transform;
@@ -240,7 +240,7 @@ static void fill_platform_view_layer_props(
 	 */
 
     struct quad quad = transform_aa_rect(
-        *display_to_view_transform,
+        FLUTTER_TRANSFORM_AS_MAT3F(*display_to_view_transform),
         (struct aa_rect){ .offset.x = offset->x, .offset.y = offset->y, .size.x = size->width, .size.y = size->height }
     );
 
@@ -277,7 +277,7 @@ static void fill_platform_view_layer_props(
     double rotation = 0, opacity = 1;
     for (int i = n_mutations - 1; i >= 0; i--) {
         if (mutations[i]->type == kFlutterPlatformViewMutationTypeTransformation) {
-            quad = transform_quad(mutations[i]->transformation, quad);
+            quad = transform_quad(FLUTTER_TRANSFORM_AS_MAT3F(mutations[i]->transformation), quad);
 
             double rotz = atan2(mutations[i]->transformation.skewX, mutations[i]->transformation.scaleX) * 180.0 / M_PI;
             if (rotz < 0) {
