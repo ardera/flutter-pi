@@ -99,8 +99,8 @@ struct user_input;
 struct user_input *user_input_new(
     const struct user_input_interface *interface, 
     void *userdata,
-    const FlutterTransformation *display_to_view_transform,
-    const FlutterTransformation *view_to_display_transform,
+    const struct mat3f *display_to_view_transform,
+    const struct mat3f *view_to_display_transform,
 	unsigned int display_width,
 	unsigned int display_height
 );
@@ -120,8 +120,8 @@ void user_input_destroy(struct user_input *input);
  */
 void user_input_set_transform(
     struct user_input *input,
-    const FlutterTransformation *display_to_view_transform,
-    const FlutterTransformation *view_to_display_transform,
+    const struct mat3f *display_to_view_transform,
+    const struct mat3f *view_to_display_transform,
     unsigned int display_width,
     unsigned int display_height
 );

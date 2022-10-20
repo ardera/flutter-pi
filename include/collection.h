@@ -760,14 +760,109 @@ ATTR_CONST static inline struct quad get_quad(const struct aa_rect rect) {
     };
 }
 
-ATTR_CONST static inline struct vec2f transform_point(const FlutterTransformation transform, const struct vec2f point) {
+struct mat3f {
+	double scaleX;
+	double skewX;
+	double transX;
+	double skewY;
+	double scaleY;
+	double transY;
+	double pers0;
+	double pers1;
+	double pers2;
+};
+
+#define FLUTTER_TRANSFORM_AS_MAT3F(_transform) (*(struct mat3f*) &(_transform))
+#define MAT3F_AS_FLUTTER_TRANSFORM(_transform) (*(FlutterTransformation*) &(_transform))
+
+
+#define MAT3F_TRANSLATION(translate_x, translate_y) ((struct mat3f) \
+	{.scaleX = 1, .skewX  = 0, .transX = translate_x, \
+	 .skewY  = 0, .scaleY = 1, .transY = translate_y, \
+	 .pers0  = 0, .pers1  = 0, .pers2  = 1})
+
+/**
+ * @brief A flutter transformation that rotates any coords around the x-axis, counter-clockwise.
+ */
+#define MAT3F_ROTX(deg) ((struct mat3f) \
+	{.scaleX = 1, .skewX  = 0,                                .transX = 0, \
+	 .skewY  = 0, .scaleY = cos(((double) (deg))/180.0*M_PI), .transY = -sin(((double) (deg))/180.0*M_PI), \
+	 .pers0  = 0, .pers1  = sin(((double) (deg))/180.0*M_PI), .pers2  = cos(((double) (deg))/180.0*M_PI)})
+
+/**
+ * @brief A flutter transformation that rotates any coords around the y-axis, counter-clockwise.
+ */
+#define MAT3F_ROTY(deg) ((struct mat3f) \
+	{.scaleX = cos(((double) (deg))/180.0*M_PI),  .skewX  = 0, .transX = sin(((double) (deg))/180.0*M_PI), \
+	 .skewY  = 0,                                 .scaleY = 1, .transY = 0, \
+	 .pers0  = -sin(((double) (deg))/180.0*M_PI), .pers1  = 0, .pers2  = cos(((double) (deg))/180.0*M_PI)})
+
+/**
+ * @brief A flutter transformation that rotates any coords around the z-axis, counter-clockwise.
+ */
+#define MAT3F_ROTZ(deg) ((struct mat3f) \
+	{.scaleX = cos(((double) (deg))/180.0*M_PI), .skewX  = -sin(((double) (deg))/180.0*M_PI), .transX = 0, \
+	 .skewY  = sin(((double) (deg))/180.0*M_PI), .scaleY = cos(((double) (deg))/180.0*M_PI),  .transY = 0, \
+	 .pers0  = 0,                                .pers1  = 0,                                 .pers2  = 1})
+
+/**
+ * @brief Returns a matrix that is the result of matrix-multiplying a with b.
+ * 
+ * @param a The first (lhs) input matrix. 
+ * @param b The second (rhs) input matrix.
+ * @return struct mat3f The product of a x b.
+ */
+ATTR_CONST static inline struct mat3f multiply_mat3f(const struct mat3f a, const struct mat3f b) {
+	return (struct mat3f) {
+		.scaleX = a.scaleX * b.scaleX + a.skewX  * b.skewY  + a.transX * b.pers0,
+		.skewX  = a.scaleX * b.skewX  + a.skewX  * b.scaleY + a.transX * b.pers1,
+		.transX = a.scaleX * b.transX + a.skewX  * b.transY + a.transX * b.pers2,
+		.skewY  = a.skewY  * b.scaleX + a.scaleY * b.skewY  + a.transY * b.pers0,
+		.scaleY = a.skewY  * b.skewX  + a.scaleY * b.scaleY + a.transY * b.pers1,
+		.transY = a.skewY  * b.transX + a.scaleY * b.transY + a.transY * b.pers2,
+		.pers0  = a.pers0  * b.scaleX + a.pers1  * b.skewY  + a.pers2  * b.pers0,
+		.pers1  = a.pers0  * b.skewX  + a.pers1  * b.scaleY + a.pers2  * b.pers1,
+		.pers2  = a.pers0  * b.transX + a.pers1  * b.transY + a.pers2  * b.pers2
+	};
+}
+
+/**
+ * @brief Returns a matrix that is the result of element-wise addition of a and b.
+ * 
+ * @param a The lhs input matrix.
+ * @param b The rhs input matrix.
+ * @return struct mat3f The result of a + b. (element-wise)
+ */
+ATTR_CONST static inline struct mat3f add_mat3f(const struct mat3f a, const struct mat3f b) {
+	return (struct mat3f) {
+		.scaleX = a.scaleX + b.scaleX, .skewX  = a.skewX  + b.skewX,  .transX = a.transX + b.transX,
+		.skewY  = a.skewY  + b.skewY,  .scaleY = a.scaleY + b.scaleY, .transY = a.transY + b.transY,
+		.pers0  = a.pers0  + b.pers0,  .pers1  = a.pers1  + b.pers1,  .pers2  = a.pers2  + b.pers2
+	};
+}
+
+/**
+ * @brief Returns the transponated of a.
+ * 
+ * @param a The input matrix.
+ * @return struct mat3f a transponated.
+ */
+ATTR_CONST static inline struct mat3f transponate_mat3f(const struct mat3f a) {
+	return (struct mat3f) {
+		.scaleX = a.scaleX, .skewX  = a.skewY,  .transX = a.pers0,
+	 	.skewY  = a.skewX,  .scaleY = a.scaleY, .transY = a.pers1,
+	 	.pers0  = a.transX, .pers1  = a.transY, .pers2  = a.pers2,
+	};
+}
+
+ATTR_CONST static inline struct vec2f transform_point(const struct mat3f transform, const struct vec2f point) {
     return VEC2F(
         transform.scaleX*point.x + transform.skewX*point.y + transform.transX, 
         transform.skewY*point.x + transform.scaleY*point.y + transform.transY
     );
 }
 
-ATTR_CONST static inline struct quad transform_quad(const FlutterTransformation transform, const struct quad rect) {
+ATTR_CONST static inline struct quad transform_quad(const struct mat3f transform, const struct quad rect) {
     return QUAD(
         transform_point(transform, rect.top_left),
         transform_point(transform, rect.top_right),
@@ -776,11 +871,11 @@ ATTR_CONST static inline struct quad transform_quad(const FlutterTransformation 
     );
 }
 
-ATTR_CONST static inline struct quad transform_aa_rect(const FlutterTransformation transform, const struct aa_rect rect) {
+ATTR_CONST static inline struct quad transform_aa_rect(const struct mat3f transform, const struct aa_rect rect) {
     return transform_quad(transform, get_quad(rect));
 }
 
-ATTR_CONST static inline struct vec2f point_swap_xy(const struct vec2f point) {
+ATTR_CONST static inline struct vec2f vec2f_swap_xy(const struct vec2f point) {
     return VEC2F(point.y, point.x);
 }
 

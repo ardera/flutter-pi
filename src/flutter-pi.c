@@ -481,7 +481,7 @@ static FlutterTransformation on_get_transformation(void *userdata) {
 
     compositor_get_view_geometry(flutterpi->compositor, &geometry);
 
-    return geometry.view_to_display_transform;
+    return MAT3F_AS_FLUTTER_TRANSFORM(geometry.view_to_display_transform);
 }
 
 atomic_int_least64_t platform_task_counter = 0;
