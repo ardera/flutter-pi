@@ -194,16 +194,11 @@ static bool on_make_current(void* userdata) {
     flutterpi = userdata;
     DEBUG_ASSERT_NOT_NULL(flutterpi->gl_renderer);
 
-    /// TODO: Test if this works
-    if (compositor_has_egl_surface(flutterpi->compositor)) {
-        surface = compositor_get_egl_surface(flutterpi->compositor);
-        if (surface == EGL_NO_SURFACE) {
-            /// TODO: Should we allow this?
-            LOG_ERROR("Couldn't get an EGL surface from the compositor.\n");
-            return false;
-        }
-    } else {
-        surface = EGL_NO_SURFACE;
+    surface = compositor_get_egl_surface(flutterpi->compositor);
+    if (surface == EGL_NO_SURFACE) {
+        /// TODO: Get a fake EGL Surface just for initialization.
+        LOG_ERROR("Couldn't get an EGL surface from the compositor.\n");
+        return false;
     }
 
     ok = gl_renderer_make_flutter_rendering_context_current(flutterpi->gl_renderer, surface);
@@ -1156,11 +1151,11 @@ static bool on_gl_external_texture_frame_callback(
 static int init_display(
     struct flutterpi *flutterpi,
     sd_event *event_loop,
+    enum renderer_type renderer_type,
     bool has_pixel_format, enum pixfmt pixel_format,
     bool has_rotation, drm_plane_transform_t rotation,
     bool has_orientation, enum device_orientation orientation,
-    bool has_explicit_dimensions, int width_mm, int height_mm,
-    bool use_vulkan
+    bool has_explicit_dimensions, int width_mm, int height_mm
 ) {
     // clang-format on
     struct frame_scheduler *scheduler;
@@ -1169,6 +1164,7 @@ static int init_display(
     struct compositor *compositor;
     struct gbm_device *gbm_device;
     sd_event_source *compositor_event_source;
+    struct window *window;
     struct drmdev *drmdev;
     struct tracer *tracer;
     drmDevicePtr devices[64];
@@ -1244,8 +1240,9 @@ static int init_display(
         goto fail_unref_tracer;
     }
 
-    struct render_surface_interface render_surface_interface;
-    if (use_vulkan) {
+    
+
+    if (renderer_type == kVulkan_RendererType) {
         gl_renderer = NULL;
         vk_renderer = vk_renderer_new();
         if (vk_renderer == NULL) {
@@ -1253,7 +1250,7 @@ static int init_display(
             ok = EIO;
             goto fail_unref_waiter;
         }
-    } else {
+    } else if (renderer_type == kOpenGL_RendererType) {
         vk_renderer = NULL;
         gl_renderer = gl_renderer_new_from_gbm_device(tracer, gbm_device, has_pixel_format, pixel_format);
         if (gl_renderer == NULL) {
@@ -1277,13 +1274,17 @@ static int init_display(
             ok = EINVAL;
             goto fail_unref_renderer;
         }
+    } else {
+        UNREACHABLE();
     }
 
-    struct window *window = kms_window_new(
+    window = kms_window_new(
         // clang-format off
         tracer,
         scheduler,
-        &render_surface_interface,
+        renderer_type,
+        gl_renderer,
+        vk_renderer,
         has_rotation, rotation,
         has_orientation, orientation,
         has_explicit_dimensions, width_mm, height_mm,
@@ -2088,6 +2089,7 @@ int init(int argc, char **argv) {
     ok = init_display(
         &flutterpi,
         flutterpi.event_loop,
+        cmd_args.use_vulkan ? kVulkan_RendererType : kOpenGL_RendererType,
         cmd_args.has_pixel_format, cmd_args.pixel_format,
         cmd_args.has_rotation,
             cmd_args.rotation == 0   ? PLANE_TRANSFORM_ROTATE_0   :
@@ -2096,8 +2098,7 @@ int init(int argc, char **argv) {
             cmd_args.rotation == 270 ? PLANE_TRANSFORM_ROTATE_270 :
             (assert(0 && "invalid rotation"), PLANE_TRANSFORM_ROTATE_0),
         cmd_args.has_orientation, cmd_args.orientation,
-        cmd_args.has_physical_dimensions, cmd_args.width_mm, cmd_args.height_mm,
-        cmd_args.use_vulkan
+        cmd_args.has_physical_dimensions, cmd_args.width_mm, cmd_args.height_mm
     );
     if (ok != 0) {
         return ok;

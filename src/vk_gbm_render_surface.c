@@ -447,7 +447,7 @@ static void fb_deinit(struct fb *fb, VkDevice device) {
 int vk_gbm_render_surface_init(
     struct vk_gbm_render_surface *surface,
     struct tracer *tracer,
-    struct point size,
+    struct vec2f size,
     struct gbm_device *gbm_device,
     struct vk_renderer *renderer,
     enum pixfmt pixel_format
@@ -508,7 +508,7 @@ int vk_gbm_render_surface_init(
 
 ATTR_MALLOC struct vk_gbm_render_surface *vk_gbm_render_surface_new(
     struct tracer *tracer,
-    struct point size,
+    struct vec2f size,
     struct gbm_device *device,
     struct vk_renderer *renderer,
     enum pixfmt pixel_format

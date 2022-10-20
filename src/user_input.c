@@ -562,7 +562,7 @@ static int on_mouse_motion_event(struct user_input *input, struct libinput_event
     struct libinput_event_pointer *pointer_event;
     struct input_device_data *data;
     struct libinput_device *device;
-    struct point delta, pos_display, pos_view;
+    struct vec2f delta, pos_display, pos_view;
     uint64_t timestamp;
 
     DEBUG_ASSERT(input != NULL);
@@ -577,13 +577,13 @@ static int on_mouse_motion_event(struct user_input *input, struct libinput_event
 
     delta = transform_point(
         input->view_to_display_transform_nontranslating,
-        POINT(
+        VEC2F(
             libinput_event_pointer_get_dx(pointer_event),
             libinput_event_pointer_get_dy(pointer_event)
         )
     );
 
-    pos_display = POINT(input->cursor_x + delta.x, input->cursor_y + delta.y);
+    pos_display = VEC2F(input->cursor_x + delta.x, input->cursor_y + delta.y);
 
     // check if we're ran over the display boundaries.
     if (pos_display.x < 0.0) {
@@ -636,7 +636,7 @@ static int on_mouse_motion_absolute_event(struct user_input *input, struct libin
     struct libinput_event_pointer *pointer_event;
     struct input_device_data *data;
     struct libinput_device *device;
-    struct point pos_display, pos_view;
+    struct vec2f pos_display, pos_view;
     uint64_t timestamp;
 
     DEBUG_ASSERT(input != NULL);
@@ -648,7 +648,7 @@ static int on_mouse_motion_absolute_event(struct user_input *input, struct libin
     timestamp = libinput_event_pointer_get_time_usec(pointer_event);
 
     // get the new mouse position in display coordinates
-    pos_display = POINT(
+    pos_display = VEC2F(
         libinput_event_pointer_get_absolute_x_transformed(pointer_event, input->display_width),
         libinput_event_pointer_get_absolute_y_transformed(pointer_event, input->display_height)
     );
@@ -691,7 +691,7 @@ static int on_mouse_button_event(struct user_input *input, struct libinput_event
     struct input_device_data *data;
     struct libinput_device *device;
     FlutterPointerPhase pointer_phase;
-    struct point pos_view;
+    struct vec2f pos_view;
     uint64_t timestamp;
     uint16_t evdev_code;
     int64_t flutter_button;
@@ -757,7 +757,7 @@ static int on_mouse_button_event(struct user_input *input, struct libinput_event
 
         // since the stored coords are in display, not view coordinates,
         // we need to transform them again
-        pos_view = transform_point(input->display_to_view_transform, POINT(input->cursor_x, input->cursor_y));
+        pos_view = transform_point(input->display_to_view_transform, VEC2F(input->cursor_x, input->cursor_y));
 
         emit_pointer_events(
             input,
@@ -782,7 +782,7 @@ static int on_mouse_axis_event(struct user_input *input, struct libinput_event *
     struct libinput_event_pointer *pointer_event;
     struct input_device_data *data;
     struct libinput_device *device;
-    struct point pos_view;
+    struct vec2f pos_view;
     uint64_t timestamp;
 
     DEBUG_ASSERT(input != NULL);
@@ -795,7 +795,7 @@ static int on_mouse_axis_event(struct user_input *input, struct libinput_event *
 
     // since the stored coords are in display, not view coordinates,
     // we need to transform them again
-    pos_view = transform_point(input->display_to_view_transform, POINT(input->cursor_x, input->cursor_y));
+    pos_view = transform_point(input->display_to_view_transform, VEC2F(input->cursor_x, input->cursor_y));
 
     double scroll_x = libinput_event_pointer_has_axis(pointer_event, LIBINPUT_POINTER_AXIS_SCROLL_HORIZONTAL)
         ? libinput_event_pointer_get_axis_value(pointer_event, LIBINPUT_POINTER_AXIS_SCROLL_HORIZONTAL)
@@ -825,7 +825,7 @@ static int on_mouse_axis_event(struct user_input *input, struct libinput_event *
 static int on_touch_down(struct user_input *input, struct libinput_event *event) {
     struct libinput_event_touch *touch_event;
     struct input_device_data *data;
-    struct point pos_view;
+    struct vec2f pos_view;
     uint64_t timestamp;
     int64_t device_id;
     int slot;
@@ -849,7 +849,7 @@ static int on_touch_down(struct user_input *input, struct libinput_event *event)
     // transform the display coordinates to view (flutter) coordinates
     pos_view = transform_point(
         input->display_to_view_transform,
-        POINT(
+        VEC2F(
             libinput_event_touch_get_x_transformed(touch_event, input->display_width),
             libinput_event_touch_get_y_transformed(touch_event, input->display_height)
         )
@@ -897,7 +897,7 @@ static int on_touch_up(struct user_input *input, struct libinput_event *event) {
 static int on_touch_motion(struct user_input *input, struct libinput_event *event) {
     struct libinput_event_touch *touch_event;
     struct input_device_data *data;
-    struct point pos_view;
+    struct vec2f pos_view;
     uint64_t timestamp;
     int64_t device_id;
     int slot;
@@ -921,7 +921,7 @@ static int on_touch_motion(struct user_input *input, struct libinput_event *even
     // transform the display coordinates to view (flutter) coordinates
     pos_view = transform_point(
         input->display_to_view_transform,
-        POINT(
+        VEC2F(
             libinput_event_touch_get_x_transformed(touch_event, input->display_width),
             libinput_event_touch_get_y_transformed(touch_event, input->display_height)
         )

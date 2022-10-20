@@ -21,70 +21,6 @@
 
 struct compositor;
 
-struct point {
-    double x, y;
-};
-
-#define POINT(_x, _y) ((struct point) {.x = _x, .y = _y})
-
-struct quad {
-    struct point top_left, top_right, bottom_left, bottom_right;
-};
-
-#define QUAD(_top_left, _top_right, _bottom_left, _bottom_right) ((struct quad) {.top_left = _top_left, .top_right = _top_right, .bottom_left = _bottom_left, .bottom_right = _bottom_right})
-#define QUAD_FROM_COORDS(_x1, _y1, _x2, _y2, _x3, _y3, _x4, _y4) QUAD(POINT(_x1, _y1), POINT(_x2, _y2), POINT(_x3, _y3), POINT(_x4, _y4))
-
-struct aa_rect {
-    struct point offset, size;
-};
-
-#define AA_RECT(_offset, _size) ((struct aa_rect) {.offset = offset, .size = size})
-#define AA_RECT_FROM_COORDS(offset_x, offset_y, width, height) ((struct aa_rect) {.offset = POINT(offset_x, offset_y), .size = POINT(width, height)})
-
-ATTR_CONST static inline struct aa_rect get_aa_bounding_rect(const struct quad _rect) {
-    double l = min(min(min(_rect.top_left.x, _rect.top_right.x), _rect.bottom_left.x), _rect.bottom_right.x);
-	double r = max(max(max(_rect.top_left.x, _rect.top_right.x), _rect.bottom_left.x), _rect.bottom_right.x);
-	double t = min(min(min(_rect.top_left.y, _rect.top_right.y), _rect.bottom_left.y), _rect.bottom_right.y);
-	double b = max(max(max(_rect.top_left.y, _rect.top_right.y), _rect.bottom_left.y), _rect.bottom_right.y);
-    return AA_RECT_FROM_COORDS(l, t, r - l, b - t);
-}
-
-ATTR_CONST static inline struct quad get_quad(const struct aa_rect rect) {
-    return (struct quad) {
-        .top_left = rect.offset,
-        .top_right.x = rect.offset.x + rect.size.x,
-        .top_right.y = rect.offset.y,
-        .bottom_left.x = rect.offset.x,
-        .bottom_left.y = rect.offset.y + rect.size.y,
-        .bottom_right.x = rect.offset.x + rect.size.x,
-        .bottom_right.y = rect.offset.y + rect.size.y
-    };
-}
-
-ATTR_CONST static inline struct point transform_point(const FlutterTransformation transform, const struct point point) {
-    return POINT(
-        transform.scaleX*point.x + transform.skewX*point.y + transform.transX, 
-        transform.skewY*point.x + transform.scaleY*point.y + transform.transY
-    );
-}
-
-ATTR_CONST static inline struct quad transform_quad(const FlutterTransformation transform, const struct quad rect) {
-    return QUAD(
-        transform_point(transform, rect.top_left),
-        transform_point(transform, rect.top_right),
-        transform_point(transform, rect.bottom_left),
-        transform_point(transform, rect.bottom_right)
-    );
-}
-
-ATTR_CONST static inline struct quad transform_aa_rect(const FlutterTransformation transform, const struct aa_rect rect) {
-    return transform_quad(transform, get_quad(rect));
-}
-
-ATTR_CONST static inline struct point point_swap_xy(const struct point point) {
-    return POINT(point.y, point.x);
-}
-
 struct drm_connector_config {
     uint32_t connector_type;
     uint32_t connector_type_id;
@@ -144,10 +80,10 @@ struct clip_rect {
     struct aa_rect aa_rect;
     
     bool is_rounded;
-    struct point upper_left_corner_radius;
-    struct point upper_right_corner_radius;
-    struct point lower_right_corner_radius;
-    struct point lower_left_corner_radius;
+    struct vec2f upper_left_corner_radius;
+    struct vec2f upper_right_corner_radius;
+    struct vec2f lower_right_corner_radius;
+    struct vec2f lower_left_corner_radius;
 };
 
 /// TODO: Remove
@@ -220,39 +156,6 @@ ATTR_MALLOC struct compositor *compositor_new(
     struct tracer *tracer,
     struct window *main_window
 );
-
-// ATTR_MALLOC struct compositor *compositor_new(
-//     struct drmdev *drmdev,
-//     struct tracer *tracer,
-//     struct vsync_waiter *waiter,
-//     struct gl_renderer *renderer,
-//     bool has_rotation, drm_plane_transform_t rotation,
-//     bool has_orientation, enum device_orientation orientation,
-//     bool has_explicit_dimensions, int width_mm, int height_mm,
-//     EGLConfig egl_config,
-//     bool has_forced_pixel_format,
-//     enum pixfmt forced_pixel_format,
-//     bool use_frame_requests,
-//     enum present_mode present_mode
-// );
-
-// ATTR_MALLOC struct compositor *compositor_new_vulkan(
-//     struct drmdev *drmdev,
-//     struct tracer *tracer,
-//     struct vsync_waiter *waiter,
-//     struct vk_renderer *renderer,
-//     bool has_rotation,
-//     drm_plane_transform_t rotation,
-//     bool has_orientation,
-//     enum device_orientation orientation,
-//     bool has_explicit_dimensions,
-//     int width_mm,
-//     int height_mm,
-//     bool has_forced_pixel_format,
-//     enum pixfmt forced_pixel_format,
-//     bool use_frame_requests,
-//     enum present_mode present_mode
-// );
 
 void compositor_destroy(struct compositor *compositor);
 
