@@ -49,6 +49,11 @@ option(ENABLE_TSAN "True to build & link with -fsanitize=thread" OFF)
 option(ENABLE_ASAN "True to build & link with -fsanitize=address" OFF)
 option(ENABLE_UBSAN "True to build & link with -fsanitize=undefined" OFF)
 option(ENABLE_MTRACE "True if flutter-pi should call GNU mtrace() on startup." OFF)
+
+set(FILESYSTEM_LAYOUTS default meta-flutter)
+set(FILESYSTEM_LAYOUT "default" CACHE STRING "Where to look for the icudtl.dat, app.so/libapp.so, flutter asset bundle.")
+set_property(CACHE FILESYSTEM_LAYOUT PROPERTY STRINGS ${FILESYSTEM_LAYOUTS})
+
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 if(NOT FLUTTER_EMBEDDER_HEADER)
@@ -124,6 +129,7 @@ add_executable(flutter-pi
   src/locales.c
   src/notifier_listener.c
   src/pixel_format.c
+  src/filesystem_layout.c
   src/plugins/services.c
 )
 
@@ -170,6 +176,18 @@ target_compile_options(flutter-pi PRIVATE
 
 # TODO: Just unconditionally define those, make them optional later
 target_compile_definitions(flutter-pi PRIVATE HAS_KMS HAS_EGL HAS_GBM HAS_FBDEV)
+
+if(NOT FILESYSTEM_LAYOUT IN_LIST FILESYSTEM_LAYOUTS)
+  message(FATAL_ERROR "FILESYSTEM_LAYOUT must be one of ${FILESYSTEM_LAYOUTS}")
+endif()
+
+message(STATUS "Filesystem Layout ...... ${FILESYSTEM_LAYOUT}")
+
+if(FILESYSTEM_LAYOUT STREQUAL default)
+  target_compile_definitions(flutter-pi PRIVATE "FILESYSTEM_LAYOUT_DEFAULT")
+elseif(FILESYSTEM_LAYOUT STREQUAL meta-flutter)
+  target_compile_definitions(flutter-pi PRIVATE "FILESYSTEM_LAYOUT_METAFLUTTER")
+endif()
 
 # TODO: We actually don't need the compile definitions anymore, except for
 # text input and raw keyboard plugin (because those have special treatment

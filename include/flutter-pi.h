@@ -218,8 +218,22 @@ enum flutter_runtime_mode {
 	kDebug, kProfile, kRelease
 };
 
+#define FLUTTER_RUNTIME_MODE_IS_JIT(runtime_mode) ((runtime_mode) == kDebug)
+#define FLUTTER_RUNTIME_MODE_IS_AOT(runtime_mode) ((runtime_mode) == kProfile || (runtime_mode) == kRelease)
+
 struct plugin_registry;
 struct texture_registry;
+
+struct flutter_paths {
+	char *app_bundle_path;
+	char *asset_bundle_path;
+	char *app_elf_path;
+	char *icudtl_path;
+	char *kernel_blob_path;
+	char *flutter_engine_path;
+	char *flutter_engine_dlopen_name;
+	char *flutter_engine_dlopen_name_fallback;
+};
 
 struct flutterpi {
 	/// graphics stuff
@@ -336,11 +350,9 @@ struct flutterpi {
 	
 	/// flutter stuff
 	struct {
-		char *asset_bundle_path;
-		char *kernel_blob_path;
-		char *app_elf_path;
+		char *bundle_path;
+		struct flutter_paths *paths;
 		void *app_elf_handle;
-		char *icu_data_path;
 
 		FlutterLocale **locales;
 		size_t n_locales;
