@@ -126,3 +126,11 @@ void frame_scheduler_present_frame(struct frame_scheduler *scheduler, void_callb
     /// TODO: Implement
     present_cb(userdata);
 }
+
+void frame_scheduler_on_scanout(struct frame_scheduler *scheduler, bool has_timestamp, uint64_t timestamp_ns) {
+    DEBUG_ASSERT_NOT_NULL(scheduler);
+    DEBUG_ASSERT(!has_timestamp || timestamp_ns != 0);
+    
+    /// TODO: Implement
+    UNIMPLEMENTED();
+}
