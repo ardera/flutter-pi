@@ -1836,6 +1836,7 @@ static int init_application(void) {
 
     runtime_mode = flutterpi.flutter.runtime_mode;
 
+    engine_handle = NULL;
     if (flutterpi.flutter.paths->flutter_engine_path != NULL) {
         engine_handle = dlopen(flutterpi.flutter.paths->flutter_engine_path, RTLD_LOCAL | RTLD_NOW);
         if (engine_handle == NULL) {

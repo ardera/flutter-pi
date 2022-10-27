@@ -98,8 +98,10 @@ static struct flutter_paths *resolve(
     }
 
     if (icudtl_system_path != NULL && (icudtl_path == NULL || path_exists(icudtl_path) == false)) {
-        LOG_DEBUG("icudtl file not found at %s.\n", icudtl_path);
-        free(icudtl_path);
+        if (icudtl_path != NULL) {
+            LOG_DEBUG("icudtl file not found at %s.\n", icudtl_path);
+            free(icudtl_path);
+        }
 
         icudtl_path = strdup(icudtl_system_path);
         if (icudtl_path == NULL) {
@@ -109,7 +111,7 @@ static struct flutter_paths *resolve(
 
     DEBUG_ASSERT_NOT_NULL(icudtl_path);
 
-    if (icudtl_system_path_fallback != NULL || path_exists(icudtl_path) == false) {
+    if (icudtl_system_path_fallback != NULL && path_exists(icudtl_path) == false) {
         LOG_DEBUG("icudtl file not found at %s.\n", icudtl_path);
         free(icudtl_path);
 
