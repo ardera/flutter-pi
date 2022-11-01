@@ -283,7 +283,7 @@ static void *proc_resolver(
 }
 
 
-static void* on_get_vulkan_proc_address(
+MAYBE_UNUSED static void *on_get_vulkan_proc_address(
     void* userdata,
     FlutterVulkanInstanceHandle instance,
     const char* name
@@ -291,10 +291,17 @@ static void* on_get_vulkan_proc_address(
     DEBUG_ASSERT_NOT_NULL(userdata);
     DEBUG_ASSERT_NOT_NULL(name);
 
+#ifdef HAS_VULKAN
     return (void*) vkGetInstanceProcAddr((VkInstance) instance, name);
+#else
+    (void) userdata;
+    (void) instance;
+    (void) name;
+    UNREACHABLE();
+#endif
 }
 
-static FlutterVulkanImage on_get_next_vulkan_image(
+MAYBE_UNUSED static FlutterVulkanImage on_get_next_vulkan_image(
     void *userdata,
     const FlutterFrameInfo *frameinfo
 ) {
@@ -310,7 +317,7 @@ static FlutterVulkanImage on_get_next_vulkan_image(
     UNIMPLEMENTED();
 }
 
-static bool on_present_vulkan_image(
+MAYBE_UNUSED static bool on_present_vulkan_image(
     void *userdata,
     const FlutterVulkanImage *image
 ) {
@@ -1240,7 +1247,9 @@ static int init_display(
         goto fail_unref_tracer;
     }
 
+
     if (renderer_type == kVulkan_RendererType) {
+#ifdef HAS_VULKAN
         gl_renderer = NULL;
         vk_renderer = vk_renderer_new();
         if (vk_renderer == NULL) {
@@ -1248,7 +1257,10 @@ static int init_display(
             ok = EIO;
             goto fail_unref_waiter;
         }
-    } else if (renderer_type == kOpenGL_RendererType) {
+#else
+        UNREACHABLE();
+#endif
+    } if (renderer_type == kOpenGL_RendererType) {
         vk_renderer = NULL;
         gl_renderer = gl_renderer_new_from_gbm_device(tracer, gbm_device, has_pixel_format, pixel_format);
         if (gl_renderer == NULL) {
@@ -1332,9 +1344,11 @@ static int init_display(
     if (gl_renderer) {
         gl_renderer_unref(gl_renderer);
     }
+#ifdef HAS_VULKAN
     if (vk_renderer) {
         vk_renderer_unref(vk_renderer);
     }
+#endif
 
     fail_unref_waiter:
     frame_scheduler_unref(scheduler);
@@ -1450,6 +1464,7 @@ static int init_application(void) {
 
     // configure flutter rendering
     if (flutterpi.vk_renderer) {
+#ifdef HAS_VULKAN
         renderer_config = (FlutterRendererConfig) {
             .type = kVulkan,
             .vulkan = {
@@ -1469,6 +1484,9 @@ static int init_application(void) {
                 .present_image_callback = on_present_vulkan_image,
             },
         };
+#else
+        UNREACHABLE();
+#endif
     } else {
         renderer_config = (FlutterRendererConfig) {
             .type = kOpenGL,

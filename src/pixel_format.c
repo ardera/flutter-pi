@@ -27,6 +27,13 @@
 #   define DRM_FORMAT_FIELD_INITIALIZER(_drm_format)
 #endif
 
+#ifdef HAS_VULKAN
+#   include <vulkan.h>
+#   define VK_FORMAT_FIELD_INITIALIZER(_vk_format) .vk_format = _vk_format,
+#else
+#   define VK_FORMAT_FIELD_INITIALIZER(_vk_format)
+#endif
+
 #define PIXFMT_MAPPING(_name, _arg_name, _format, _bpp, _bit_depth, _is_opaque, _vk_format, r_length, r_offset, g_length, g_offset, b_length, b_offset, a_length, a_offset, _gbm_format, _drm_format) \
     { \
         .name = _name, \
@@ -35,7 +42,7 @@
         .bits_per_pixel = _bpp, \
         .bit_depth = _bit_depth, \
         .is_opaque = _is_opaque, \
-        .vk_format = _vk_format, \
+        VK_FORMAT_FIELD_INITIALIZER(_vk_format) \
         FBDEV_FORMAT_FIELD_INITIALIZER(r_length, r_offset, g_length, g_offset, b_length, b_offset, a_length, a_offset) \
         GBM_FORMAT_FIELD_INITIALIZER(_gbm_format) \
         DRM_FORMAT_FIELD_INITIALIZER(_drm_format) \
