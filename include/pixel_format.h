@@ -24,7 +24,9 @@ struct fbdev_pixfmt {
 #include <drm_fourcc.h>
 #endif
 
+#ifdef HAS_VULKAN
 #include <vulkan.h>
+#endif
 
 /**
  * @brief A specific pixel format. Use @ref get_pixfmt_info to get information

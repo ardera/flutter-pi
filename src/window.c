@@ -679,7 +679,15 @@ ATTR_MALLOC struct window *kms_window_new(
     window->kms.mode = selected_mode;
     window->renderer_type = renderer_type;
     window->gl_renderer = gl_renderer != NULL ? gl_renderer_ref(gl_renderer) : NULL;
-    window->vk_renderer = vk_renderer != NULL ? vk_renderer_ref(vk_renderer) : NULL;
+    if (vk_renderer != NULL) {
+#ifdef HAS_VULKAN
+        window->vk_renderer = vk_renderer_ref(vk_renderer);
+#else
+        UNREACHABLE();
+#endif
+    } else {
+        window->vk_renderer = NULL;
+    }
     window->push_composition = kms_window_push_composition;
     window->get_render_surface = kms_window_get_render_surface;
     window->get_egl_surface = kms_window_get_egl_surface;
@@ -942,7 +950,7 @@ static struct render_surface *kms_window_get_render_surface_internal(struct wind
         render_surface = CAST_RENDER_SURFACE(egl_surface);
     } else {
         // vulkan
-
+#ifdef HAS_VULKAN
         struct vk_gbm_render_surface *vk_surface = vk_gbm_render_surface_new(
             window->tracer,
             size,
@@ -956,6 +964,9 @@ static struct render_surface *kms_window_get_render_surface_internal(struct wind
         }
 
         render_surface = CAST_RENDER_SURFACE(vk_surface);
+#else
+        UNREACHABLE();
+#endif
     }
 
     // One ref for our struct member, one ref for the caller of this functoin.

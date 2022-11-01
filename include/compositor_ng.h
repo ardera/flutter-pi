@@ -86,12 +86,6 @@ struct clip_rect {
     struct vec2f lower_left_corner_radius;
 };
 
-/// TODO: Remove
-enum fl_layer_type {
-    kBackingStore_FlLayerType,
-    kPlatformView_FlLayerType
-};
-
 struct fl_layer_props {
     /**
      * @brief True if the presentation quadrangle (the quadrangle on the target window into which the

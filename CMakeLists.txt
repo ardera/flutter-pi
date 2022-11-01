@@ -126,7 +126,6 @@ add_executable(flutter-pi
   src/texture_registry.c
   # src/compositor.c
   src/gl_renderer.c
-  src/vk_renderer.c
   src/modesetting.c
   src/collection.c
   src/cursor.c
@@ -140,7 +139,6 @@ add_executable(flutter-pi
   src/surface.c
   src/render_surface.c
   src/egl_gbm_render_surface.c
-  src/vk_gbm_render_surface.c
   src/tracer.c
   src/dmabuf_surface.c
   src/frame_scheduler.c
@@ -274,6 +272,10 @@ if (ENABLE_VULKAN)
   endif()
 
   if (VULKAN_FOUND)
+    target_sources(flutter-pi PRIVATE
+      src/vk_gbm_render_surface.c
+      src/vk_renderer.c
+    )
     target_compile_definitions(flutter-pi PRIVATE HAS_VULKAN)
     target_include_directories(flutter-pi PRIVATE ${VULKAN_INCLUDE_DIRS})
     target_compile_options(flutter-pi PRIVATE ${VULKAN_CFLAGS})
