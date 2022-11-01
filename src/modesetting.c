@@ -1994,10 +1994,7 @@ static int kms_req_commit_common(
     drmdev_lock(builder->drmdev);
 
     // only change the mode if the new mode differs from the old one
-    
-    /// TODO: Maybe let the user of this API track whether the mode changes
-    /// and set mode unconditionally here?
-    
+       
     /// TOOD: If this is not a standard mode reported by connector/CRTC,
     /// is there a way to verify if it is valid? (maybe use DRM_MODE_ATOMIC_TEST)
 
@@ -2083,10 +2080,7 @@ static int kms_req_commit_common(
     } else {
         /// TODO: If we can do explicit fencing, don't use the page flip event.
         /// TODO: Can we set OUT_FENCE_PTR even though we didn't set any IN_FENCE_FDs?
-        flags = DRM_MODE_PAGE_FLIP_EVENT | (blocking ? 0 : DRM_MODE_ATOMIC_NONBLOCK);
-        if (update_mode) {
-            flags |= DRM_MODE_ATOMIC_ALLOW_MODESET;
-        }
+        flags = DRM_MODE_PAGE_FLIP_EVENT | (blocking ? 0 : DRM_MODE_ATOMIC_NONBLOCK) | (update_mode ? DRM_MODE_ATOMIC_ALLOW_MODESET : 0);
 
         /// TODO: If we're on raspberry pi and only have one layer, we can do an async pageflip
         /// on the primary plane to replace the next queued frame. (To do _real_ triple buffering
