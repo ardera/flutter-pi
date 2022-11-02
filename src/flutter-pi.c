@@ -1171,6 +1171,7 @@ static int init_display(
 ) {
     // clang-format on
     struct frame_scheduler *scheduler;
+    struct drm_connector *connector;
     struct gl_renderer *gl_renderer;
     struct vk_renderer *vk_renderer;
     struct compositor *compositor;
@@ -1212,8 +1213,8 @@ static int init_display(
             continue;
         }
 
-        for_each_connector_in_drmdev(flutterpi.drm.drmdev, connector) {
-            if (connector->connector->connection == DRM_MODE_CONNECTED) {
+        for_each_connector_in_drmdev(drmdev, connector) {
+            if (connector->variable_state.connection_state == kConnected_DrmConnectionState) {
                 goto found_connected_connector;
             }
         }
@@ -1384,8 +1385,7 @@ static int init_application(void) {
     void *engine_handle;
     int ok;
 
-    asprintf(&libflutter_engine_path, "%s/libflutter_engine.so", flutterpi.flutter.asset_bundle_path);
-
+    runtime_mode = flutterpi.flutter.runtime_mode;
     engine_handle = NULL;
     if (flutterpi.flutter.paths->flutter_engine_path != NULL) {
         engine_handle = dlopen(flutterpi.flutter.paths->flutter_engine_path, RTLD_LOCAL | RTLD_NOW);
@@ -1876,10 +1876,6 @@ static int init_user_input(struct flutterpi *flutterpi, struct compositor *compo
     flutterpi->user_input = input;
     flutterpi->user_input_event_source = event_source;
     return 0;
-}
-
-static bool path_exists(const char *path) {
-    return access(path, R_OK) == 0;
 }
 
 struct cmd_args {

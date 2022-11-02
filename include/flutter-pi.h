@@ -158,7 +158,7 @@ struct flutterpi {
 	 * 
 	 */
 	struct {
-		char *bundle_path;
+		const char *bundle_path;
 		struct flutter_paths *paths;
 		void *app_elf_handle;
 
