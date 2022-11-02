@@ -102,8 +102,13 @@ OPTIONS:\n\
                              This also requires a libflutter_engine.so that was\n\
                              built with --runtime-mode=profile.\n\
 \n\
-  --vulkan                   Use vulkan for rendering.\n\
-\n\
+  --vulkan                   Use vulkan for rendering.\n"
+#ifndef HAS_VULKAN 
+"\
+                             NOTE: This flutter-pi executable was built without\n\
+                             vulkan support.\n"
+#endif
+"\n\
   -o, --orientation <orientation>  Start the app in this orientation. Valid\n\
                              for <orientation> are: portrait_up, landscape_left,\n\
                              portrait_down, landscape_right.\n\
@@ -2060,6 +2065,13 @@ static bool parse_cmd_args(int argc, char **argv, struct cmd_args *result_out) {
     result_out->engine_argc = argc - optind;
     result_out->engine_argv = argv + optind;
 
+#ifndef HAS_VULKAN
+    if (vulkan_int == true) {
+        LOG_ERROR("ERROR: --vulkan was specified, but flutter-pi was built without vulkan support.\n");
+        printf("%s", usage);
+        return false;
+    }
+#endif
     result_out->use_vulkan = vulkan_int;
 
     return true;
