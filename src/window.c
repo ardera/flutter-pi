@@ -760,8 +760,6 @@ static int kms_window_push_composition(struct window *window, struct fl_layer_co
     DEBUG_ASSERT_NOT_NULL(window);
     DEBUG_ASSERT_NOT_NULL(composition);
 
-    LOG_DEBUG("kms_window_push_composition\n");
-
     // If flutter won't request frames (because the vsync callback is broken),
     // we'll wait here for the previous frame to be presented / rendered.
     // Otherwise the surface_swap_buffers at the bottom might allocate an
