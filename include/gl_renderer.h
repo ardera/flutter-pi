@@ -19,6 +19,8 @@
 #include <pixel_format.h>
 #include <egl.h>
 
+struct tracer;
+
 struct gl_renderer *gl_renderer_new_from_gbm_device(
     struct tracer *tracer,
     struct gbm_device *gbm_device,

@@ -193,7 +193,7 @@ static int on_receive_platform(char *channel, struct platch_obj *object, Flutter
          */
     } else if (strcmp(object->method, "SystemNavigator.pop") == 0) {
         LOG_FLUTTERPI_ERROR("received SystemNavigator.pop. Exiting...\n");
-        flutterpi_schedule_exit();
+        flutterpi_schedule_exit(flutterpi);
     }
 
     return platch_respond_not_implemented(responsehandle);
