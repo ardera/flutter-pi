@@ -93,99 +93,10 @@ struct texture_registry;
 struct drmdev;
 struct locales;
 struct vk_renderer;
+struct flutterpi;
 
-struct flutter_paths {
-	char *app_bundle_path;
-	char *asset_bundle_path;
-	char *app_elf_path;
-	char *icudtl_path;
-	char *kernel_blob_path;
-	char *flutter_engine_path;
-	char *flutter_engine_dlopen_name;
-	char *flutter_engine_dlopen_name_fallback;
-};
-
-/// TODO: Make this an opaque struct
-struct flutterpi {
-	/**
-	 * @brief The KMS device.
-	 * 
-	 */
-	struct {
-		struct drmdev *drmdev;
-	} drm;
-
-	/**
-	 * @brief The flutter event tracing interface.
-	 * 
-	 */
-	struct tracer *tracer;
-
-	/**
-	 * @brief The compositor. Manages all the window stuff.
-	 * 
-	 */
-	struct compositor *compositor;
-
-	/**
-	 * @brief Event source which represents the compositor event fd as registered to the
-	 * event loop.
-	 * 
-	 */
-	sd_event_source *compositor_event_source;
-
-	/**
-	 * @brief The user input instance.
-	 * 
-	 * Handles touch, mouse and keyboard input and calls the callbacks.
-	 */
-	struct user_input *user_input;
-
-	/**
-	 * @brief The user input instance event fd registered to the event loop.
-	 * 
-	 */
-	sd_event_source *user_input_event_source;
-
-	/**
-	 * @brief The locales instance. Provides the system locales to flutter.
-	 * 
-	 */
-	struct locales *locales;
-	
-	/**
-	 * @brief flutter stuff.
-	 * 
-	 */
-	struct {
-		const char *bundle_path;
-		struct flutter_paths *paths;
-		void *app_elf_handle;
-
-		FlutterLocale **locales;
-		size_t n_locales;
-
-		int engine_argc;
-		char **engine_argv;
-		enum flutter_runtime_mode runtime_mode;
-		FlutterEngineProcTable procs;
-		FlutterEngine engine;
-
-		bool next_frame_request_is_secondary;
-	} flutter;
-	
-	/// main event loop
-	pthread_t event_loop_thread;
-	pthread_mutex_t event_loop_mutex;
-	sd_event *event_loop;
-	int wakeup_event_loop_fd;
-
-	/// flutter-pi internal stuff
-	struct plugin_registry *plugin_registry;
-	struct texture_registry *texture_registry;
-	struct gl_renderer *gl_renderer;
-	struct vk_renderer *vk_renderer;
-};
+/// TODO: Remove this
+extern struct flutterpi *flutterpi;
 
 struct platform_task {
 	int (*callback)(void *userdata);
@@ -204,8 +115,6 @@ struct platform_message {
 	uint8_t *message;
 	size_t message_size;
 };
-
-extern struct flutterpi flutterpi;
 
 int flutterpi_fill_view_properties(
 	bool has_orientation,
@@ -247,8 +156,19 @@ int flutterpi_respond_to_platform_message(
 	size_t message_size
 );
 
-struct texture_registry *flutterpi_get_texture_registry(
-	struct flutterpi *flutterpi
+struct texture_registry *flutterpi_get_texture_registry(struct flutterpi *flutterpi);
+
+struct plugin_registry *flutterpi_get_plugin_registry(struct flutterpi *flutterpi);
+
+FlutterPlatformMessageResponseHandle *flutterpi_create_platform_message_response_handle(
+	struct flutterpi *flutterpi,
+	FlutterDataCallback data_callback,
+	void *userdata
+);
+
+void flutterpi_release_platform_message_response_handle(
+	struct flutterpi *flutterpi,
+	FlutterPlatformMessageResponseHandle *handle
 );
 
 struct texture *flutterpi_create_texture(struct flutterpi *flutterpi);
@@ -257,7 +177,7 @@ const char *flutterpi_get_asset_bundle_path(
 	struct flutterpi *flutterpi
 );
 
-int flutterpi_schedule_exit(void);
+void flutterpi_schedule_exit(struct flutterpi *flutterpi);
 
 struct gbm_device *flutterpi_get_gbm_device(struct flutterpi *flutterpi);
 
