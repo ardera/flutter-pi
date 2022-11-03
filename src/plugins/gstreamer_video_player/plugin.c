@@ -657,9 +657,9 @@ static int on_create(
 
     // create our actual player (this doesn't initialize it)
     if (asset != NULL) {
-        player = gstplayer_new_from_asset(&flutterpi, asset, package_name, NULL);
+        player = gstplayer_new_from_asset(flutterpi, asset, package_name, NULL);
     } else {
-        player = gstplayer_new_from_network(&flutterpi, uri, format_hint, NULL);
+        player = gstplayer_new_from_network(flutterpi, uri, format_hint, NULL);
     }
     if (player == NULL) {
         LOG_ERROR("Couldn't create gstreamer video player.\n");

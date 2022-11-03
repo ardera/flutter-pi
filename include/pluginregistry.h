@@ -73,7 +73,7 @@ void plugin_registry_ensure_plugins_deinitialized(struct plugin_registry *regist
 /**
  * @brief Called by flutter-pi when a platform message arrives.
  */
-int plugin_registry_on_platform_message(FlutterPlatformMessage *message);
+int plugin_registry_on_platform_message(struct plugin_registry *registry, FlutterPlatformMessage *message);
 
 /// Sets the callback that should be called when a platform message arrives on channel "channel",
 /// and the codec used to automatically decode the platform message.

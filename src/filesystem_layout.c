@@ -14,6 +14,7 @@
 #include <fcntl.h>
 
 #include <collection.h>
+#include <filesystem_layout.h>
 #include <flutter-pi.h>
 
 FILE_DESCR("fs layout")

@@ -152,21 +152,21 @@ void plugin_registry_destroy(struct plugin_registry *registry) {
 	free(registry);
 }
 
-int plugin_registry_on_platform_message(FlutterPlatformMessage *message) {
+int plugin_registry_on_platform_message(struct plugin_registry *registry, FlutterPlatformMessage *message) {
 	struct platch_obj_cb_data *data, data_copy;
 	struct platch_obj object;
 	int ok;
 
-	cpset_lock(&flutterpi.plugin_registry->callbacks);
+	cpset_lock(&registry->callbacks);
 
-	data = get_cb_data_by_channel_locked(flutterpi.plugin_registry, message->channel);
+	data = get_cb_data_by_channel_locked(registry, message->channel);
 	if (data == NULL || data->callback == NULL) {
-		cpset_unlock(&flutterpi.plugin_registry->callbacks);
+		cpset_unlock(&registry->callbacks);
 		return platch_respond_not_implemented((FlutterPlatformMessageResponseHandle*) message->response_handle);
 	}
 
 	data_copy = *data;
-	cpset_unlock(&flutterpi.plugin_registry->callbacks);
+	cpset_unlock(&registry->callbacks);
 
 	ok = platch_decode((uint8_t*) message->message, message->message_size, data_copy.codec, &object);
 	if (ok != 0) {
@@ -292,11 +292,14 @@ int plugin_registry_set_receiver(
 	enum platch_codec codec,
 	platch_obj_recv_callback callback
 ) {
+	struct plugin_registry *registry;
 	struct platch_obj_cb_data *data;
 	char *channel_dup;
 	int ok;
 
-	cpset_lock(&flutterpi.plugin_registry->callbacks);
+	registry = flutterpi_get_plugin_registry(flutterpi);
+
+	cpset_lock(&registry->callbacks);
 	
 	channel_dup = strdup(channel);
 	if (channel_dup == NULL) {
@@ -304,7 +307,7 @@ int plugin_registry_set_receiver(
 		goto fail_unlock_cbs;
 	}
 
-	data = get_cb_data_by_channel_locked(flutterpi.plugin_registry, channel);
+	data = get_cb_data_by_channel_locked(registry, channel);
 	if (data == NULL) {
 		data = calloc(1, sizeof *data);
 		if (data == NULL) {
@@ -312,7 +315,7 @@ int plugin_registry_set_receiver(
 			goto fail_free_channel_dup;
 		}
 
-		ok = cpset_put_locked(&flutterpi.plugin_registry->callbacks, data);
+		ok = cpset_put_locked(&registry->callbacks, data);
 		if (ok != 0) {
 			if (ok == ENOSPC) {
 				LOG_ERROR("Couldn't register platform channel listener. Callback list is filled\n");
@@ -325,7 +328,7 @@ int plugin_registry_set_receiver(
 	data->codec = codec;
 	data->callback = callback;
 	data->userdata = NULL;
-	cpset_unlock(&flutterpi.plugin_registry->callbacks);
+	cpset_unlock(&registry->callbacks);
 	
 	return 0;
 	
@@ -337,28 +340,31 @@ int plugin_registry_set_receiver(
 	free(channel_dup);
 
 	fail_unlock_cbs:
-	cpset_unlock(&flutterpi.plugin_registry->callbacks);
+	cpset_unlock(&registry->callbacks);
 
 	return ok;
 }
 
 int plugin_registry_remove_receiver(const char *channel) {
+	struct plugin_registry *registry;
 	struct platch_obj_cb_data *data;
 
-	cpset_lock(&flutterpi.plugin_registry->callbacks);
+	registry = flutterpi_get_plugin_registry(flutterpi);
 
-	data = get_cb_data_by_channel_locked(flutterpi.plugin_registry, channel);
+	cpset_lock(&registry->callbacks);
+
+	data = get_cb_data_by_channel_locked(registry, channel);
 	if (data == NULL) {
-		cpset_unlock(&flutterpi.plugin_registry->callbacks);
+		cpset_unlock(&registry->callbacks);
 		return EINVAL;
 	}
 
-	cpset_remove_locked(&flutterpi.plugin_registry->callbacks, data);
+	cpset_remove_locked(&registry->callbacks, data);
 
 	free(data->channel);
 	free(data);
 
-	cpset_unlock(&flutterpi.plugin_registry->callbacks);
+	cpset_unlock(&registry->callbacks);
 
 	return 0;
 }

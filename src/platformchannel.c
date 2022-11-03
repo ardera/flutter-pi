@@ -1161,7 +1161,6 @@ void platch_on_response_internal(const uint8_t *buffer, size_t size, void *userd
 int platch_send(char *channel, struct platch_obj *object, enum platch_codec response_codec, platch_msg_resp_callback on_response, void *userdata) {
 	FlutterPlatformMessageResponseHandle *response_handle = NULL;
 	struct platch_msg_resp_handler_data *handlerdata = NULL;
-	FlutterEngineResult result;
 	uint8_t *buffer;
 	size_t   size;
 	int ok;
@@ -1179,15 +1178,14 @@ int platch_send(char *channel, struct platch_obj *object, enum platch_codec resp
 		handlerdata->on_response = on_response;
 		handlerdata->userdata = userdata;
 
-		result = flutterpi.flutter.procs.PlatformMessageCreateResponseHandle(flutterpi.flutter.engine, platch_on_response_internal, handlerdata, &response_handle);
-		if (result != kSuccess) {
-			fprintf(stderr, "[flutter-pi] Error create platform message response handle. FlutterPlatformMessageCreateResponseHandle: %s\n", FLUTTER_RESULT_TO_STRING(result));
+		response_handle = flutterpi_create_platform_message_response_handle(flutterpi, platch_on_response_internal, handlerdata);
+		if (response_handle == NULL) {
 			goto fail_free_handlerdata;
 		}
 	}
 
 	ok = flutterpi_send_platform_message(
-		&flutterpi,
+		flutterpi,
 		channel,
 		buffer,
 		size,
@@ -1197,14 +1195,9 @@ int platch_send(char *channel, struct platch_obj *object, enum platch_codec resp
 		goto fail_release_handle;
 	}
 
-	// TODO: This won't work if we're not on the main thread
+	/// TODO: This won't work if we're not on the main thread
 	if (on_response) {
-		result = flutterpi.flutter.procs.PlatformMessageReleaseResponseHandle(flutterpi.flutter.engine, response_handle);
-		if (result != kSuccess) {
-			fprintf(stderr, "[flutter-pi] Error releasing platform message response handle. FlutterPlatformMessageReleaseResponseHandle: %s\n", FLUTTER_RESULT_TO_STRING(result));
-			ok = EIO;
-			goto fail_free_buffer;
-		}
+		flutterpi_release_platform_message_response_handle(flutterpi, response_handle);
 	}
 
 	if (object->codec != kBinaryCodec) {
@@ -1216,12 +1209,7 @@ int platch_send(char *channel, struct platch_obj *object, enum platch_codec resp
 
 	fail_release_handle:
 	if (on_response) {
-		flutterpi.flutter.procs.PlatformMessageReleaseResponseHandle(flutterpi.flutter.engine, response_handle);
-	}
-
-	fail_free_buffer:
-	if (object->codec != kBinaryCodec) {
-		free(buffer);
+		flutterpi_release_platform_message_response_handle(flutterpi, response_handle);
 	}
 
 	fail_free_handlerdata:

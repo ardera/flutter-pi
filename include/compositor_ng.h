@@ -143,6 +143,7 @@ struct compositor;
 struct frame_scheduler;
 struct view_geometry;
 struct window;
+struct tracer;
 
 typedef void (*compositor_frame_begin_cb_t)(void *userdata, uint64_t vblank_ns, uint64_t next_vblank_ns);
 
