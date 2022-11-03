@@ -364,6 +364,7 @@ static int window_init(
     window->egl_surface = NULL;
     window->render_surface = NULL;
     window->renderer_type = kOpenGL_RendererType;
+    window->composition = NULL;
     window->gl_renderer = NULL;
     window->vk_renderer = NULL;
     window->get_render_surface = NULL;
