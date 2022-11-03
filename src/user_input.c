@@ -963,9 +963,9 @@ static int on_touch_frame(struct user_input *input, struct libinput_event *event
 static int on_tablet_tool_axis(struct user_input *input, struct libinput_event *event) {
     struct libinput_event_tablet_tool *tablet_event;
     struct input_device_data *data;
+    struct vec2f pos;
     uint64_t timestamp;
     int64_t device_id;
-    double x, y;
 
     DEBUG_ASSERT_NOT_NULL(input);
     DEBUG_ASSERT_NOT_NULL(event);
@@ -982,12 +982,12 @@ static int on_tablet_tool_axis(struct user_input *input, struct libinput_event *
     /// TODO: Maybe report hover events when it's not in contact?
     /// FIXME: Use kFlutterPointerDeviceKindStylus here
     if (data->tip) {
-        x = libinput_event_tablet_tool_get_x_transformed(tablet_event, input->display_width - 1);
-        y = libinput_event_tablet_tool_get_y_transformed(tablet_event, input->display_height - 1);
+        pos.x = libinput_event_tablet_tool_get_x_transformed(tablet_event, input->display_width - 1);
+        pos.y = libinput_event_tablet_tool_get_y_transformed(tablet_event, input->display_height - 1);
 
-        apply_flutter_transformation(input->display_to_view_transform, &x, &y);
+        pos = transform_point(input->display_to_view_transform, pos);
         
-        emit_pointer_events(input, &FLUTTER_POINTER_TOUCH_MOVE_EVENT(timestamp, x, y, device_id), 1);
+        emit_pointer_events(input, &FLUTTER_POINTER_TOUCH_MOVE_EVENT(timestamp, pos.x, pos.y, device_id), 1);
     }
 
     return 0;
@@ -1008,7 +1008,7 @@ static int on_tablet_tool_tip(struct user_input *input, struct libinput_event *e
     struct input_device_data *data;
     uint64_t timestamp;
     int64_t device_id;
-    double x, y;
+    struct vec2f pos;
 
     DEBUG_ASSERT_NOT_NULL(input);
     DEBUG_ASSERT_NOT_NULL(event);
@@ -1021,18 +1021,18 @@ static int on_tablet_tool_tip(struct user_input *input, struct libinput_event *e
 
     device_id = data->flutter_device_id_offset;
 
-    x = libinput_event_tablet_tool_get_x_transformed(tablet_event, input->display_width - 1);
-    y = libinput_event_tablet_tool_get_y_transformed(tablet_event, input->display_height - 1);
+    pos.x = libinput_event_tablet_tool_get_x_transformed(tablet_event, input->display_width - 1);
+    pos.y = libinput_event_tablet_tool_get_y_transformed(tablet_event, input->display_height - 1);
 
-    apply_flutter_transformation(input->display_to_view_transform, &x, &y);
+    pos = transform_point(input->display_to_view_transform, pos);
 
     /// FIXME: Use kFlutterPointerDeviceKindStylus here
     if (libinput_event_tablet_tool_get_tip_state(tablet_event) == LIBINPUT_TABLET_TOOL_TIP_DOWN) {
         data->tip = true;
-        emit_pointer_events(input, &FLUTTER_POINTER_TOUCH_DOWN_EVENT(timestamp, x, y, device_id), 1);
+        emit_pointer_events(input, &FLUTTER_POINTER_TOUCH_DOWN_EVENT(timestamp, pos.x, pos.y, device_id), 1);
     } else {
         data->tip = false;
-        emit_pointer_events(input, &FLUTTER_POINTER_TOUCH_UP_EVENT(timestamp, x, y, device_id), 1);
+        emit_pointer_events(input, &FLUTTER_POINTER_TOUCH_UP_EVENT(timestamp, pos.x, pos.y, device_id), 1);
     }
 
     return 0;
