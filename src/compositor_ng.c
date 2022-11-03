@@ -394,8 +394,6 @@ static bool on_flutter_present_layers(const FlutterLayer **layers, size_t layers
     DEBUG_ASSERT_NOT_NULL(userdata);
     compositor = userdata;
 
-    LOG_DEBUG("on_flutter_present_layers\n");
-
     TRACER_BEGIN(compositor->tracer, "compositor_push_fl_layers");
     ok = compositor_push_fl_layers(compositor, layers_count, layers);
     TRACER_END(compositor->tracer, "compositor_push_fl_layers");
@@ -486,8 +484,6 @@ static bool on_flutter_create_backing_store(
     DEBUG_ASSERT_NOT_NULL(userdata);
     compositor = userdata;
 
-    LOG_DEBUG("on_flutter_create_backing_store\n");
-
     // we have a reference on this surface.
     // i.e. when we don't use it, we need to unref it.
     s = window_get_render_surface(compositor->main_window, VEC2F(config->size.width, config->size.height));
@@ -529,7 +525,6 @@ static bool on_flutter_collect_backing_store(const FlutterBackingStore *fl_store
     compositor = userdata;
 
     (void) compositor;
-    LOG_DEBUG("on_flutter_collect_backing_store\n");
 
     surface_unref(s);
     return true;
