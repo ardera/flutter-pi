@@ -25,7 +25,7 @@ struct locales {
 
     struct concurrent_pointer_set locales;
     struct locale *default_locale;
-
+    
     size_t n_locales;
 };
 
@@ -258,7 +258,7 @@ static int add_locale_variants(struct concurrent_pointer_set *locales, const cha
     if (modifier) free(modifier);
 
     fail_return_ok:
-    return ok;
+    return ok;   
 }
 
 struct locales *locales_new(void) {
@@ -279,7 +279,7 @@ struct locales *locales_new(void) {
     if (ok != 0) {
         goto fail_free_locales;
     }
-
+    
     // Add our system locales.
     system_locales = get_system_locale_string();
 
@@ -382,7 +382,7 @@ const char *locale_get_modifier(struct locale *locale) {
 
 int locales_add_to_fl_engine(struct locales *locales, FlutterEngine engine, FlutterEngineUpdateLocalesFnPtr update_locales) {
     FlutterEngineResult engine_result;
-
+    
     engine_result = update_locales(engine, locales->flutter_locales, locales->n_locales);
     if (engine_result != kSuccess) {
         LOG_LOCALES_ERROR("Couldn't update flutter engine locales. FlutterEngineUpdateLocales: %s\n", FLUTTER_RESULT_TO_STRING(engine_result));
@@ -399,7 +399,7 @@ const FlutterLocale *locales_on_compute_platform_resolved_locale(struct locales 
 
     (void) locales;
     (void) n_fl_locales;
-
+    
     return fl_locales[0];
 }
 
