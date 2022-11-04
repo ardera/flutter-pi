@@ -681,7 +681,7 @@ static int fetch_plane(int drm_fd, uint32_t plane_id, struct drm_plane *plane_ou
                     LOG_DEBUG(
                         "Unknown KMS pixel blend mode: %s (value: %" PRIu64 ")\n",
                         info->enums[i].name,
-                        info->enums[i].value
+                        (uint64_t) info->enums[i].value
                     );
                 }
             }
@@ -875,7 +875,7 @@ int drmdev_new_from_fd(struct drmdev **drmdev_out, int fd) {
 
     assert_rotations_work();
 
-    drmdev = calloc(1, sizeof *drmdev);
+    drmdev = malloc(sizeof *drmdev);
     if (drmdev == NULL) {
         return ENOMEM;
     }
@@ -953,6 +953,8 @@ int drmdev_new_from_fd(struct drmdev **drmdev_out, int fd) {
         goto fail_close_event_fd;
     }
 
+    pthread_mutex_init(&drmdev->mutex, NULL);
+    drmdev->n_refs = REFCOUNT_INIT_1;
     drmdev->fd = fd;
     drmdev->supports_atomic_modesetting = supports_atomic_modesetting;
     drmdev->gbm_device = gbm_device;
@@ -1014,8 +1016,16 @@ int drmdev_new_from_path(struct drmdev **drmdev_out, const char *path) {
 
 void drmdev_destroy(struct drmdev *drmdev) {
     DEBUG_ASSERT(refcount_is_zero(&drmdev->n_refs));
-    /// TODO: Implement
-    UNIMPLEMENTED();
+    
+    close(drmdev->event_fd);
+    gbm_device_destroy(drmdev->gbm_device);
+    free_planes(drmdev->planes, drmdev->n_planes);
+    free_crtcs(drmdev->crtcs, drmdev->n_crtcs);
+    free_encoders(drmdev->encoders, drmdev->n_encoders);
+    free_connectors(drmdev->connectors, drmdev->n_connectors);
+    drmModeFreePlaneResources(drmdev->plane_res);
+    drmModeFreeResources(drmdev->res);
+    free(drmdev);
 }
 
 DEFINE_REF_OPS(drmdev, n_refs)

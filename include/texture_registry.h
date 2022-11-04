@@ -11,6 +11,12 @@ struct flutter_external_texture_interface {
     FlutterEngine engine;
 };
 
+struct texture_registry_interface {
+    int (*register_texture)(void *userdata, int64_t texture_identifier);
+    int (*unregister_texture)(void *userdata, int64_t texture_identifier);
+    int (*mark_frame_available)(void *userdata, int64_t texture_identifier);
+};
+
 struct texture_registry;
 struct texture;
 
@@ -31,7 +37,7 @@ struct texture_frame {
     void *userdata;
 };
 
-struct texture_registry *texture_registry_new(const struct flutter_external_texture_interface *texture_interface);
+struct texture_registry *texture_registry_new(const struct texture_registry_interface *interface, void *userdata);
 
 void texture_registry_destroy(struct texture_registry *reg);
 
