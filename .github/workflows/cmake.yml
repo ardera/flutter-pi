@@ -48,6 +48,43 @@ jobs:
       # See https://cmake.org/cmake/help/latest/manual/ctest.1.html for more detail
       run: ctest -C ${{env.BUILD_TYPE}}
 
+  build-bullseye-vulkan:
+    name: build (debian bullseye, x64, with vulkan)
+    runs-on: ubuntu-latest
+    container:
+      image: debian:bullseye
+      env:
+        DEBIAN_FRONTEND: noninteractive
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Install dependencies
+        run: |
+          apt-get update && apt-get install -y \
+            cmake libgl1-mesa-dev libgles2-mesa-dev libegl1-mesa-dev libdrm-dev libgbm-dev \
+            fonts-liberation fontconfig libsystemd-dev libinput-dev libudev-dev \
+            libxkbcommon-dev ninja-build libgstreamer-plugins-base1.0-dev \
+            libvulkan-dev
+
+      - name: Configure CMake
+        run: |
+          cmake \
+            -B ${{ github.workspace }}/build \
+            -DBUILD_OMXPLAYER_VIDEO_PLAYER_PLUGIN=On \
+            -DBUILD_GSTREAMER_AUDIO_PLAYER_PLUGIN=On \
+            -DBUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN=On \
+            -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} \
+            -DENABLE_VULKAN=On \
+            -GNinja
+
+      - name: Build
+        run: cmake --build ${{ github.workspace }}/build --config ${{ env.BUILD_TYPE }}
+
+      - name: Test
+        if: false
+        working-directory: ${{github.workspace}}/build
+        run: ctest -C ${{env.BUILD_TYPE}}
+
   build-buster:
     name: build (debian buster, x64)
     runs-on: ubuntu-latest
