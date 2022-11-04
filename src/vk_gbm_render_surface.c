@@ -823,7 +823,7 @@ static int vk_gbm_render_surface_fill(struct render_surface *s, FlutterBackingSt
     render_surface->locked_fbs[i].surface = CAST_VK_GBM_RENDER_SURFACE(surface_ref(CAST_SURFACE_UNCHECKED(s)));
     render_surface->locked_fbs[i].n_refs = REFCOUNT_INIT_1;
 
-    COMPILE_ASSERT(sizeof(FlutterVulkanBackingStore) == 16);
+    COMPILE_ASSERT(sizeof(FlutterVulkanBackingStore) == 16 || sizeof(FlutterVulkanBackingStore) == 32);
     fl_store->type = kFlutterBackingStoreTypeVulkan;
     fl_store->vulkan = (FlutterVulkanBackingStore) {
         .struct_size = sizeof(FlutterVulkanBackingStore),
