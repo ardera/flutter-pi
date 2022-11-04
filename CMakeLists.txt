@@ -124,8 +124,6 @@ add_executable(flutter-pi
   src/platformchannel.c
   src/pluginregistry.c
   src/texture_registry.c
-  # src/compositor.c
-  src/gl_renderer.c
   src/modesetting.c
   src/collection.c
   src/cursor.c
@@ -138,7 +136,6 @@ add_executable(flutter-pi
   src/compositor_ng.c
   src/surface.c
   src/render_surface.c
-  src/egl_gbm_render_surface.c
   src/tracer.c
   src/dmabuf_surface.c
   src/frame_scheduler.c
@@ -146,7 +143,7 @@ add_executable(flutter-pi
   src/plugins/services.c
 )
 
-target_link_libraries(flutter-pi
+target_link_libraries(flutter-pi PRIVATE
   ${DRM_LDFLAGS}
   ${GBM_LDFLAGS}
   ${EGL_LDFLAGS}
@@ -206,50 +203,51 @@ else()
   target_compile_options(flutter-pi PRIVATE -Wno-missing-field-initializers)
 endif()
 
+pkg_check_modules(EGL egl)
+pkg_check_modules(GLESV2 glesv2)
+
 if (ENABLE_OPENGL)
-  if (TRY_ENABLE_OPENGL)
-    pkg_check_modules(EGL egl)
-    pkg_check_modules(GLESV2 glesv2)
-  else()
-    pkg_check_modules(EGL REQUIRED egl)
-    pkg_check_modules(GLESV2 REQUIRED glesv2)
-  endif()
-
-  if (EGL_FOUND)
-    target_compile_definitions(flutter-pi PRIVATE HAS_EGL)
-    target_include_directories(flutter-pi PRIVATE ${EGL_INCLUDE_DIRS})
-    target_compile_options(flutter-pi PRIVATE ${EGL_CFLAGS})
-  else()
-    FetchContent_Declare(
-      EGL_REGISTRY
-      GIT_REPOSITORY "https://github.com/KhronosGroup/EGL-Registry"
-      GIT_TAG "main"
+  if (EGL_FOUND AND GLESV2_FOUND)
+    target_sources(flutter-pi PRIVATE
+      src/egl_gbm_render_surface.c
+      src/gl_renderer.c
     )
-    FetchContent_MakeAvailable(EGL_REGISTRY)
-    target_include_directories(flutter-pi PRIVATE ${EGL_REGISTRY_SOURCE_DIR}/api/)
-  endif()
-
-  if (GLESV2_FOUND)
-    target_compile_definitions(flutter-pi PRIVATE HAS_GL)
-    target_include_directories(flutter-pi PRIVATE ${EGL_INCLUDE_DIRS})
-    target_compile_options(flutter-pi PRIVATE ${EGL_CFLAGS})
-  else()
-    FetchContent_Declare(
-      OGL_REGISTRY
-      GIT_REPOSITORY "https://github.com/KhronosGroup/OpenGL-Registry"
-      GIT_TAG "main"
+    target_link_libraries(flutter-pi PRIVATE
+      ${EGL_LDFLAGS}
+      ${GLESV2_LDFLAGS}
     )
-    FetchContent_MakeAvailable(OGL_REGISTRY)
-    target_include_directories(flutter-pi PRIVATE ${OGL_REGISTRY_SOURCE_DIR}/api/)
+    target_compile_definitions(flutter-pi PRIVATE HAS_EGL HAS_GL)
+  elseif (TRY_ENABLE_OPENGL)
+    message("EGL and/or OpenGL was not found. Flutter-pi will build without EGL/OpenGL rendering support.")
+  else()
+    message(SEND_ERROR "EGL and/or OpenGL was not found. Try building with `-DTRY_ENABLE_OPENGL=On` if you want to just disable EGL/OpenGL support in that case.")
   endif()
+endif()
 
-  if ( NOT (GLESV2_FOUND AND EGL_FOUND))
-    if (TRY_ENABLE_OPENGL)
-      message("EGL and/or OpenGL was not found. Flutter-pi will build without EGL/OpenGL rendering support.")
-    else()
-      message(SEND_ERROR "EGL and/or OpenGL was not found. Try building with `-DTRY_ENABLE_OPENGL=On` if you want to just disable EGL/OpenGL support in that case.")
-    endif()
-  endif()
+if (EGL_FOUND)
+  target_include_directories(flutter-pi PRIVATE ${EGL_INCLUDE_DIRS})
+  target_compile_options(flutter-pi PRIVATE ${EGL_CFLAGS})
+else()
+  FetchContent_Declare(
+    EGL_REGISTRY
+    GIT_REPOSITORY "https://github.com/KhronosGroup/EGL-Registry"
+    GIT_TAG "main"
+  )
+  FetchContent_MakeAvailable(EGL_REGISTRY)
+  target_include_directories(flutter-pi PRIVATE ${EGL_REGISTRY_SOURCE_DIR}/api/)
+endif()
+
+if (GLESV2_FOUND)
+  target_include_directories(flutter-pi PRIVATE ${GLESV2_INCLUDE_DIRS})
+  target_compile_options(flutter-pi PRIVATE ${GLESV2_CFLAGS})
+else()
+  FetchContent_Declare(
+    OGL_REGISTRY
+    GIT_REPOSITORY "https://github.com/KhronosGroup/OpenGL-Registry"
+    GIT_TAG "main"
+  )
+  FetchContent_MakeAvailable(OGL_REGISTRY)
+  target_include_directories(flutter-pi PRIVATE ${OGL_REGISTRY_SOURCE_DIR}/api/)
 endif()
 
 if(NOT FILESYSTEM_LAYOUT IN_LIST FILESYSTEM_LAYOUTS)
@@ -332,7 +330,7 @@ if (BUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN)
       src/plugins/gstreamer_video_player/frame.c
     )
     target_compile_definitions(flutter-pi PRIVATE "BUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN")
-    target_link_libraries(flutter-pi
+    target_link_libraries(flutter-pi PRIVATE
       ${LIBGSTREAMER_LDFLAGS}
       ${LIBGSTREAMER_PLUGINS_BASE_LDFLAGS}
       ${LIBGSTREAMER_APP_LDFLAGS}
@@ -378,7 +376,7 @@ if (BUILD_GSTREAMER_AUDIO_PLAYER_PLUGIN)
       src/plugins/audioplayers/player.c
     )
     target_compile_definitions(flutter-pi PRIVATE "BUILD_GSTREAMER_AUDIO_PLAYER_PLUGIN")
-    target_link_libraries(flutter-pi
+    target_link_libraries(flutter-pi PRIVATE
       ${LIBGSTREAMER_LDFLAGS}
       ${LIBGSTREAMER_APP_LDFLAGS}
       ${LIBGSTREAMER_AUDIO_LIBRARY_DIRS}
@@ -418,7 +416,7 @@ if (ENABLE_ASAN)
   # and something in the dynamically loaded library triggers asan, it'll throw an error because it hasn't
   # intercepted stdc++ yet.
   # Also disable --as-needed so we _actually_ link against c++, even though we don't use any symbols from it.
-  target_link_libraries(flutter-pi stdc++)
+  target_link_libraries(flutter-pi PRIVATE stdc++)
   target_link_options(flutter-pi PRIVATE -fsanitize=address -fno-omit-frame-pointer -Wl,--no-as-needed)
   target_compile_options(flutter-pi PRIVATE -fsanitize=address)
 
