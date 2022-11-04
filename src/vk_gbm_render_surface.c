@@ -414,7 +414,7 @@ static int fb_init(struct fb *fb, struct gbm_device *gbm_device, struct vk_rende
     COMPILE_ASSERT(sizeof(FlutterVulkanImage) == 24);
     fb->fl_image = (FlutterVulkanImage) {
         .struct_size = sizeof(FlutterVulkanImage),
-        .image = fb->image,
+        .image = (FlutterVulkanImageHandle) fb->image,
         .format = vk_format,
     };
 
