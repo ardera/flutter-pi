@@ -18,6 +18,9 @@
 
 FILE_DESCR("user input")
 
+#define LIBINPUT_VER(major, minor, patch) ((((major) & 0xFF) << 16) | (((minor) & 0xFF) << 8) | ((patch) & 0xFF))
+#define THIS_LIBINPUT_VER LIBINPUT_VER(LIBINPUT_VERSION_MAJOR, LIBINPUT_VERSION_MINOR, LIBINPUT_VERSION_PATCH)
+
 struct input_device_data {
 	int64_t flutter_device_id_offset;
 	struct keyboard_state *keyboard_state;
@@ -1074,6 +1077,7 @@ static int on_tablet_pad_strip(struct user_input *input, struct libinput_event *
     return 0;
 }
 
+#if THIS_LIBINPUT_VER >= LIBINPUT_VER(1, 15, 0)
 static int on_tablet_pad_key(struct user_input *input, struct libinput_event *event) {
     DEBUG_ASSERT_NOT_NULL(input);
     DEBUG_ASSERT_NOT_NULL(event);
@@ -1083,7 +1087,7 @@ static int on_tablet_pad_key(struct user_input *input, struct libinput_event *ev
 
     return 0;
 }
-
+#endif
 
 static int process_libinput_events(struct user_input *input, uint64_t timestamp) {
     enum libinput_event_type event_type;
@@ -1211,12 +1215,14 @@ static int process_libinput_events(struct user_input *input, uint64_t timestamp)
                     goto fail_destroy_event;
                 }
                 break;
+#if THIS_LIBINPUT_VER >= LIBINPUT_VER(1, 15, 0)
             case LIBINPUT_EVENT_TABLET_PAD_KEY:
                 ok = on_tablet_pad_key(input, event);
                 if (ok != 0) {
                     goto fail_destroy_event;
                 }
                 break;
+#endif
             default:
                 break;
         }

@@ -13,6 +13,8 @@ env:
 
 jobs:
   build:
+    name: build (raspbian bullseye, pi4)
+
     # The CMake configure and build commands are platform agnostic and should work equally
     # well on Windows or Mac.  You can convert this to a matrix build if you need
     # cross-platform coverage.
@@ -23,7 +25,11 @@ jobs:
     - uses: actions/checkout@v2
 
     - name: Install dependencies
-      run: sudo apt-get install -y cmake libgl1-mesa-dev libgles2-mesa-dev libegl1-mesa-dev libdrm-dev libgbm-dev ttf-mscorefonts-installer fontconfig libsystemd-dev libinput-dev libudev-dev  libxkbcommon-dev ninja-build libgstreamer-plugins-base1.0-dev
+      run: |
+        sudo apt-get install -y \
+          cmake libgl1-mesa-dev libgles2-mesa-dev libegl1-mesa-dev libdrm-dev libgbm-dev \
+          ttf-mscorefonts-installer fontconfig libsystemd-dev libinput-dev libudev-dev \
+          libxkbcommon-dev ninja-build libgstreamer-plugins-base1.0-dev
 
     - name: Configure CMake
       # Configure CMake in a 'build' subdirectory. `CMAKE_BUILD_TYPE` is only required if you are using a single-configuration generator such as make.
@@ -41,3 +47,84 @@ jobs:
       # See https://cmake.org/cmake/help/latest/manual/ctest.1.html for more detail
       run: ctest -C ${{env.BUILD_TYPE}}
 
+  build-buster:
+    name: build (debian buster, x64)
+    runs-on: ubuntu-latest
+    container:
+      image: debian:buster
+      env:
+        DEBIAN_FRONTEND: noninteractive
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Install dependencies
+        run: |
+          apt-get update && apt-get install -y \
+            cmake libgl1-mesa-dev libgles2-mesa-dev libegl1-mesa-dev libdrm-dev libgbm-dev \
+            fonts-liberation fontconfig libsystemd-dev libinput-dev libudev-dev \
+            libxkbcommon-dev ninja-build libgstreamer-plugins-base1.0-dev
+
+      - name: Configure CMake
+        # Configure CMake in a 'build' subdirectory. `CMAKE_BUILD_TYPE` is only required if you are using a single-configuration generator such as make.
+        # See https://cmake.org/cmake/help/latest/variable/CMAKE_BUILD_TYPE.html?highlight=cmake_build_type
+        run: |
+          cmake \
+            -B ${{ github.workspace }}/build \
+            -DBUILD_OMXPLAYER_VIDEO_PLAYER_PLUGIN=On \
+            -DBUILD_GSTREAMER_AUDIO_PLAYER_PLUGIN=On \
+            -DBUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN=On \
+            -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} \
+            -GNinja
+
+      - name: Build
+        # Build your program with the given configuration
+        run: cmake --build ${{ github.workspace }}/build --config ${{ env.BUILD_TYPE }}
+
+      - name: Test
+        if: false
+        working-directory: ${{github.workspace}}/build
+        # Execute tests defined by the CMake configuration.
+        # See https://cmake.org/cmake/help/latest/manual/ctest.1.html for more detail
+        run: ctest -C ${{env.BUILD_TYPE}}
+
+  build-stretch:
+    name: build (debian stretch, x64)
+    runs-on: ubuntu-latest
+    if: false
+    container:
+      image: debian:stretch
+      env:
+        DEBIAN_FRONTEND: noninteractive
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Install dependencies
+        run: |
+          apt-get update && apt-get install -y \
+            git cmake ninja-build gcc g++ libgl1-mesa-dev libgles2-mesa-dev libegl1-mesa-dev libdrm-dev libgbm-dev \
+            fonts-liberation fontconfig libsystemd-dev libinput-dev libudev-dev libxkbcommon-dev libgstreamer1.0-dev \
+            libgstreamer-plugins-base1.0-dev libgstreamer-plugins-bad1.0-dev gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
+            gstreamer1.0-plugins-ugly gstreamer1.0-plugins-bad gstreamer1.0-libav
+
+      - name: Configure CMake
+        # Configure CMake in a 'build' subdirectory. `CMAKE_BUILD_TYPE` is only required if you are using a single-configuration generator such as make.
+        # See https://cmake.org/cmake/help/latest/variable/CMAKE_BUILD_TYPE.html?highlight=cmake_build_type
+        run: |
+          mkdir build && cd build
+          cmake .. \
+            -DBUILD_OMXPLAYER_VIDEO_PLAYER_PLUGIN=On \
+            -DBUILD_GSTREAMER_AUDIO_PLAYER_PLUGIN=On \
+            -DBUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN=On \
+            -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} \
+            -GNinja
+
+      - name: Build
+        # Build your program with the given configuration
+        run: ninja -Cbuild
+
+      - name: Test
+        if: false
+        working-directory: ${{github.workspace}}/build
+        # Execute tests defined by the CMake configuration.
+        # See https://cmake.org/cmake/help/latest/manual/ctest.1.html for more detail
+        run: ctest -C ${{env.BUILD_TYPE}}

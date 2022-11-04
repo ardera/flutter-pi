@@ -174,6 +174,19 @@ target_compile_options(flutter-pi PRIVATE
   $<$<CONFIG:Release>:-O2 -Wall -Wextra -Wno-unused-function -Wno-sign-compare -Wno-missing-field-initializers -ggdb>
 )
 
+# There's no other way to query the libinput version (in code) somehow.
+# So we need to roll our own libinput version macro
+string(REPLACE "." ";" LIBINPUT_VERSION_AS_LIST ${LIBINPUT_VERSION})
+list(GET LIBINPUT_VERSION_AS_LIST 0 LIBINPUT_VERSION_MAJOR)
+list(GET LIBINPUT_VERSION_AS_LIST 1 LIBINPUT_VERSION_MINOR)
+list(GET LIBINPUT_VERSION_AS_LIST 2 LIBINPUT_VERSION_PATCH)
+
+target_compile_definitions(flutter-pi PRIVATE
+  LIBINPUT_VERSION_MAJOR=${LIBINPUT_VERSION_MAJOR}
+  LIBINPUT_VERSION_MINOR=${LIBINPUT_VERSION_MINOR}
+  LIBINPUT_VERSION_PATCH=${LIBINPUT_VERSION_PATCH}
+)
+
 # TODO: Just unconditionally define those, make them optional later
 target_compile_definitions(flutter-pi PRIVATE HAS_KMS HAS_EGL HAS_GBM HAS_FBDEV)
 
