@@ -233,8 +233,14 @@ else()
     GIT_REPOSITORY "https://github.com/KhronosGroup/EGL-Registry"
     GIT_TAG "main"
   )
-  FetchContent_MakeAvailable(EGL_REGISTRY)
-  target_include_directories(flutter-pi PRIVATE ${EGL_REGISTRY_SOURCE_DIR}/api/)
+
+  # Don't use FetchContent_MakeAvailable here to be compatible with cmake < 3.14 (debian buster)
+  FetchContent_GetProperties(egl_registry)
+  if(NOT egl_registry_POPULATED)
+    FetchContent_Populate(egl_registry)
+  endif()
+
+  target_include_directories(flutter-pi PRIVATE ${egl_registry_SOURCE_DIR}/api/)
 endif()
 
 if (GLESV2_FOUND)
@@ -246,8 +252,14 @@ else()
     GIT_REPOSITORY "https://github.com/KhronosGroup/OpenGL-Registry"
     GIT_TAG "main"
   )
-  FetchContent_MakeAvailable(OGL_REGISTRY)
-  target_include_directories(flutter-pi PRIVATE ${OGL_REGISTRY_SOURCE_DIR}/api/)
+
+  # Don't use FetchContent_MakeAvailable here to be compatible with cmake < 3.14 (debian buster)
+  FetchContent_GetProperties(ogl_registry)
+  if(NOT ogl_registry_POPULATED)
+    FetchContent_Populate(ogl_registry)
+  endif()
+  
+  target_include_directories(flutter-pi PRIVATE ${ogl_registry_SOURCE_DIR}/api/)
 endif()
 
 if(NOT FILESYSTEM_LAYOUT IN_LIST FILESYSTEM_LAYOUTS)
@@ -288,7 +300,13 @@ if (NOT VULKAN_FOUND)
     GIT_REPOSITORY "https://github.com/KhronosGroup/Vulkan-Headers"
     GIT_TAG "main"
   )
-  FetchContent_MakeAvailable(vulkan_headers)
+
+  # Don't use FetchContent_MakeAvailable here to be compatible with cmake < 3.14 (debian buster)
+  FetchContent_GetProperties(vulkan_headers)
+  if(NOT vulkan_headers_POPULATED)
+    FetchContent_Populate(vulkan_headers)
+  endif()
+
   target_include_directories(flutter-pi PRIVATE ${vulkan_headers_SOURCE_DIR}/include/)
 endif()
 
