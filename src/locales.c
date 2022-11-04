@@ -242,6 +242,10 @@ static int add_locale_variants(struct concurrent_pointer_set *locales, const cha
         }
     }
 
+    free(language);
+    if (territory) free(territory);
+    if (codeset) free(codeset);
+    if (modifier) free(modifier);
     return 0;
 
 
@@ -344,6 +348,7 @@ void locales_destroy(struct locales *locales) {
     for_each_pointer_in_cpset(&locales->locales, locale) {
         locale_destroy(locale);
     }
+    free(locales->flutter_locales);
     cpset_deinit(&locales->locales);
     free(locales);
 }

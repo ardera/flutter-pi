@@ -264,13 +264,8 @@ elseif(FILESYSTEM_LAYOUT STREQUAL meta-flutter)
   target_compile_definitions(flutter-pi PRIVATE "FILESYSTEM_LAYOUT_METAFLUTTER")
 endif()
 
+pkg_check_modules(VULKAN vulkan)
 if (ENABLE_VULKAN)
-  if (TRY_ENABLE_VULKAN)
-    pkg_check_modules(VULKAN vulkan)
-  else()
-    pkg_check_modules(VULKAN REQUIRED vulkan)
-  endif()
-
   if (VULKAN_FOUND)
     target_sources(flutter-pi PRIVATE
       src/vk_gbm_render_surface.c
@@ -280,24 +275,25 @@ if (ENABLE_VULKAN)
     target_include_directories(flutter-pi PRIVATE ${VULKAN_INCLUDE_DIRS})
     target_compile_options(flutter-pi PRIVATE ${VULKAN_CFLAGS})
     target_link_libraries(flutter-pi ${VULKAN_LDFLAGS})
+  elseif (TRY_ENABLE_VULKAN)
+    message("Vulkan was not found. Flutter-pi will build without vulkan rendering support.")
   else()
-    FetchContent_Declare(
-      VULKAN_HEADERS
-      GIT_REPOSITORY "https://github.com/KhronosGroup/Vulkan-Headers"
-      GIT_TAG "main"
-    )
-    FetchContent_MakeAvailable(VULKAN_HEADERS)
-    target_include_directories(flutter-pi PRIVATE ${VULKAN_HEADERS_SOURCE_DIR}/include/)
-  endif()
-
-  if ( NOT VULKAN_FOUND )
-    if (TRY_ENABLE_VULKAN)
-      message("Vulkan was not found. Flutter-pi will build without vulkan rendering support.")
-    else()
-      message(SEND_ERROR "Vulkan was not found. Try building with `-DTRY_ENABLE_VULKAN=On` if you want to just disable vulkan support in that case.")
-    endif()
+    message(SEND_ERROR "Vulkan was not found. Try building with `-DTRY_ENABLE_VULKAN=On` if you want to just disable vulkan support in that case.")
   endif()
 endif()
+
+# We still need the headers for the types, so fetch the headers and use them.
+if (NOT VULKAN_FOUND)
+  message("Fetching vulkan headers.")
+  FetchContent_Declare(
+    vulkan_headers
+    GIT_REPOSITORY "https://github.com/KhronosGroup/Vulkan-Headers"
+    GIT_TAG "main"
+  )
+  FetchContent_MakeAvailable(vulkan_headers)
+  target_include_directories(flutter-pi PRIVATE ${vulkan_headers_SOURCE_DIR}/include/)
+endif()
+
 
 # TODO: We actually don't need the compile definitions anymore, except for
 # text input and raw keyboard plugin (because those have special treatment

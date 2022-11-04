@@ -39,7 +39,7 @@ static int find_var_offset_in_string(const char *varname, const char *buffer, re
     if (ok != 0) {
         //pregexerr("regcomp", ok, &regex);
         ok = EINVAL;
-        goto fail_set_match;
+        goto fail_free_pattern;
     }
 
     ok = regexec(&regex, buffer, 2, matches, 0);
@@ -52,10 +52,16 @@ static int find_var_offset_in_string(const char *varname, const char *buffer, re
         *match = matches[1];
     }
 
+    free(pattern);
+    regfree(&regex);
+
     return 0;
 
     fail_free_regex:
     regfree(&regex);
+
+    fail_free_pattern:
+    free(pattern);
 
     fail_set_match:
     if (match != NULL) {
