@@ -251,7 +251,9 @@ enum drm_connector_type {
     kDSI_DrmConnectorType = DRM_MODE_CONNECTOR_DSI,
     kDPI_DrmConnectorType = DRM_MODE_CONNECTOR_DPI,
     kWRITEBACK_DrmConnectorType = DRM_MODE_CONNECTOR_WRITEBACK,
+#ifdef DRM_MODE_CONNECTOR_SPI
     kSPI_DrmConnectorType = DRM_MODE_CONNECTOR_SPI
+#endif
 };
 
 enum drm_connection_state {
