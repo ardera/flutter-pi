@@ -347,6 +347,7 @@ static int window_init(
     );
 
     pthread_mutex_init(&window->lock, NULL);
+    window->n_refs = REFCOUNT_INIT_1;
     window->tracer = tracer_ref(tracer);
     window->frame_scheduler = frame_scheduler_ref(scheduler);
     window->refresh_rate = refresh_rate;
@@ -375,28 +376,7 @@ static int window_init(
 }
 
 static void window_deinit(struct window *window) {
-    struct kms_req_builder *builder;
-    struct kms_req *req;
-    int ok;
-
-    /// TODO: Do we really need to do this?
-    builder = drmdev_create_request_builder(window->kms.drmdev, window->kms.crtc->id);
-    DEBUG_ASSERT_NOT_NULL(builder);
-
-    ok = kms_req_builder_unset_mode(builder);
-    DEBUG_ASSERT_EQUALS(ok, 0);
-
-    req = kms_req_builder_build(builder);
-    DEBUG_ASSERT_NOT_NULL(req);
-
-    kms_req_builder_unref(builder);
-
-    ok = kms_req_commit_blocking(req, NULL);
-    DEBUG_ASSERT_EQUALS(ok, 0);
-    (void) ok;
-
-    kms_req_unref(req);
-    drmdev_unref(window->kms.drmdev);
+    frame_scheduler_unref(window->frame_scheduler);
     tracer_unref(window->tracer);
     pthread_mutex_destroy(&window->lock);
 }
@@ -702,6 +682,42 @@ ATTR_MALLOC struct window *kms_window_new(
 }
 
 void kms_window_deinit(struct window *window) {
+    /// TODO: Do we really need to do this?
+    /*
+    struct kms_req_builder *builder;
+    struct kms_req *req;
+    int ok;
+
+    builder = drmdev_create_request_builder(window->kms.drmdev, window->kms.crtc->id);
+    DEBUG_ASSERT_NOT_NULL(builder);
+
+    ok = kms_req_builder_unset_mode(builder);
+    DEBUG_ASSERT_EQUALS(ok, 0);
+
+    req = kms_req_builder_build(builder);
+    DEBUG_ASSERT_NOT_NULL(req);
+
+    kms_req_builder_unref(builder);
+
+    ok = kms_req_commit_blocking(req, NULL);
+    DEBUG_ASSERT_EQUALS(ok, 0);
+    (void) ok;
+
+    kms_req_unref(req);
+    */
+    if (window->render_surface != NULL) {
+        surface_unref(CAST_SURFACE(window->render_surface));
+    }
+    if (window->gl_renderer != NULL) {
+        gl_renderer_unref(window->gl_renderer);
+    }
+    if (window->vk_renderer != NULL) {
+#ifdef HAS_VULKAN
+        vk_renderer_unref(window->vk_renderer);
+#else
+        UNREACHABLE();
+#endif
+    }
     drmdev_unref(window->kms.drmdev);
     window_deinit(window);
 }
@@ -920,7 +936,6 @@ static struct render_surface *kms_window_get_render_surface_internal(struct wind
     DEBUG_ASSERT_NOT_NULL(window);
 
     if (window->render_surface != NULL) {
-        surface_ref(CAST_SURFACE_UNCHECKED(window->render_surface));;
         return window->render_surface;
     }
 
@@ -968,8 +983,6 @@ static struct render_surface *kms_window_get_render_surface_internal(struct wind
 #endif
     }
 
-    // One ref for our struct member, one ref for the caller of this functoin.
-    surface_ref(CAST_SURFACE_UNCHECKED(render_surface));
     window->render_surface = render_surface;
     return render_surface;
 }
@@ -982,7 +995,6 @@ static struct render_surface *kms_window_get_render_surface(struct window *windo
 static EGLSurface kms_window_get_egl_surface(struct window *window) {
     if (window->renderer_type == kOpenGL_RendererType) {
         struct render_surface *render_surface = kms_window_get_render_surface_internal(window, false, VEC2F(0, 0));
-        surface_unref(CAST_SURFACE(render_surface));
         return egl_gbm_render_surface_get_egl_surface(CAST_EGL_GBM_RENDER_SURFACE(render_surface));
     } else {
         return EGL_NO_SURFACE;

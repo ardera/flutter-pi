@@ -307,6 +307,7 @@ struct gl_renderer *gl_renderer_new_from_gbm_device(
 
 void gl_renderer_destroy(struct gl_renderer *renderer) {
     DEBUG_ASSERT_NOT_NULL(renderer);
+    tracer_unref(renderer->tracer);
     pthread_mutex_destroy(&renderer->root_context_lock);
     eglDestroyContext(renderer->egl_display, renderer->flutter_resource_uploading_context);
     eglDestroyContext(renderer->egl_display, renderer->flutter_rendering_context);

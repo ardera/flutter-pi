@@ -13,7 +13,9 @@
 FILE_DESCR("texture registry")
 
 struct texture_registry {
-    struct flutter_external_texture_interface texture_interface;
+    struct texture_registry_interface interface;
+    void *userdata;
+
     pthread_mutex_t next_unused_id_mutex;
     int64_t next_unused_id;
     struct concurrent_pointer_set textures;
@@ -55,7 +57,8 @@ struct texture {
 };
 
 struct texture_registry *texture_registry_new(
-    const struct flutter_external_texture_interface *texture_interface
+    const struct texture_registry_interface *interface,
+    void *userdata
 ) {
     struct texture_registry *reg;
     int ok;
@@ -67,7 +70,8 @@ struct texture_registry *texture_registry_new(
 
     pthread_mutex_init(&reg->next_unused_id_mutex, NULL);
 
-    memcpy(&reg->texture_interface, texture_interface, sizeof(*texture_interface));
+    memcpy(&reg->interface, interface, sizeof(*interface));
+    reg->userdata = userdata;
     reg->next_unused_id = 1;
     
     ok = cpset_init(&reg->textures, CPSET_DEFAULT_MAX_SIZE);
@@ -102,39 +106,6 @@ int64_t texture_registry_allocate_id(struct texture_registry *reg) {
     return id;
 }
 
-static int texture_registry_engine_register_id(struct texture_registry *reg, int64_t id) {
-    FlutterEngineResult engine_result;
-    
-    engine_result = reg->texture_interface.register_external_texture(reg->texture_interface.engine, id);
-    if (engine_result != kSuccess) {
-        LOG_ERROR("Error registering external texture to flutter engine. FlutterEngineRegisterExternalTexture: %s\n", FLUTTER_RESULT_TO_STRING(engine_result));
-        return EINVAL;
-    }
-
-    return 0;
-}
-
-static void texture_registry_engine_unregister_id(struct texture_registry *reg, int64_t id) {
-    FlutterEngineResult engine_result;
-    
-    engine_result = reg->texture_interface.unregister_external_texture(reg->texture_interface.engine, id);
-    if (engine_result != kSuccess) {
-        LOG_ERROR("Error unregistering external texture from flutter engine. FlutterEngineUnregisterExternalTexture: %s\n", FLUTTER_RESULT_TO_STRING(engine_result));
-    }
-}
-
-static int texture_registry_engine_notify_frame_available(struct texture_registry *reg, int64_t id) {
-    FlutterEngineResult engine_result;
-    
-    engine_result = reg->texture_interface.mark_external_texture_frame_available(reg->texture_interface.engine, id);
-    if (engine_result != kSuccess) {
-        LOG_ERROR("Error notifying flutter engine about new external texture frame. FlutterEngineMarkExternalTextureFrameAvailable: %s\n", FLUTTER_RESULT_TO_STRING(engine_result));
-        return EINVAL;
-    }
-
-    return 0;
-}
-
 static int texture_registry_register_texture(struct texture_registry *reg, struct texture *texture) {
     int ok;
 
@@ -143,7 +114,7 @@ static int texture_registry_register_texture(struct texture_registry *reg, struc
         return ok;
     }
 
-    ok = texture_registry_engine_register_id(reg, texture->id);
+    ok = reg->interface.register_texture(reg->userdata, texture->id);
     if (ok != 0) {
         cpset_remove(&reg->textures, texture);
         return ok;
@@ -153,7 +124,7 @@ static int texture_registry_register_texture(struct texture_registry *reg, struc
 }
 
 static void texture_registry_unregister_texture(struct texture_registry *reg, struct texture *texture) {
-    texture_registry_engine_unregister_id(reg, texture->id);
+    reg->interface.unregister_texture(reg->userdata, texture->id);
     cpset_remove(&reg->textures, texture);
 }
 
@@ -254,7 +225,7 @@ int texture_push_frame(struct texture *texture, const struct texture_frame *fram
     texture->next_frame = counted_frame;
     
     if (texture->dirty == false) {
-        ok = texture_registry_engine_notify_frame_available(texture->registry, texture->id);
+        ok = texture->registry->interface.mark_frame_available(texture->registry->userdata, texture->id);
         if (ok != 0) {
             /// TODO: Don't really know what do to here.
         }

@@ -26,6 +26,8 @@ struct flutter_paths {
 
 typedef struct flutter_paths *(*resolve_paths_t)(const char *app_bundle_path, enum flutter_runtime_mode runtime_mode);
 
+void flutter_paths_free(struct flutter_paths *paths);
+
 struct flutter_paths *fs_layout_flutterpi_resolve(const char *app_bundle_path, enum flutter_runtime_mode runtime_mode);
 struct flutter_paths *fs_layout_metaflutter_resolve(const char *app_bundle_path, enum flutter_runtime_mode runtime_mode);
 

@@ -155,7 +155,7 @@ ATTR_MALLOC struct compositor *compositor_new(
     
     compositor->n_refs = REFCOUNT_INIT_1;
     // just so we get an error if the FlutterCompositor struct was updated
-    COMPILE_ASSERT(sizeof(FlutterCompositor) == 24);
+    COMPILE_ASSERT(sizeof(FlutterCompositor) == 24 || sizeof(FlutterCompositor) == 48);
     compositor->main_window = window_ref(main_window);
     compositor->flutter_compositor = (FlutterCompositor){ 
         .struct_size = sizeof(FlutterCompositor),
@@ -186,6 +186,7 @@ void compositor_destroy(struct compositor *compositor) {
         free(view);
     }
     pset_deinit(&compositor->platform_views);
+    tracer_unref(compositor->tracer);
     window_unref(compositor->main_window);
     pthread_mutex_destroy(&compositor->mutex);
     free(compositor);
@@ -492,7 +493,7 @@ static bool on_flutter_create_backing_store(
         return false;
     }
 
-    COMPILE_ASSERT(sizeof(FlutterBackingStore) == 56);
+    COMPILE_ASSERT(sizeof(FlutterBackingStore) == 56 || sizeof(FlutterBackingStore) == 80);
     memset(backing_store_out, 0, sizeof *backing_store_out);
     backing_store_out->struct_size = sizeof(FlutterBackingStore);
 
