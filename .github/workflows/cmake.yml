@@ -2,9 +2,9 @@ name: CMake
 
 on:
   push:
-    branches: [ master, feature/gh-actions ]
+    branches: [ master, feature/gh-actions, feature/compositor-ng ]
   pull_request:
-    branches: [ master, feature/gh-actions ]
+    branches: [ master, feature/gh-actions, feature/compositor-ng ]
   workflow_dispatch:
 
 env:
