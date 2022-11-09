@@ -485,8 +485,7 @@ static bool on_flutter_create_backing_store(
     DEBUG_ASSERT_NOT_NULL(userdata);
     compositor = userdata;
 
-    // we have a reference on this surface.
-    // i.e. when we don't use it, we need to unref it.
+    // this will not increase the refcount on the surface.
     s = window_get_render_surface(compositor->main_window, VEC2F(config->size.width, config->size.height));
     if (s == NULL) {
         LOG_ERROR("Couldn't create render surface for flutter to render into.\n");
@@ -506,7 +505,6 @@ static bool on_flutter_create_backing_store(
     ok = render_surface_fill(s, backing_store_out);
     if (ok != 0) {
         LOG_ERROR("Couldn't fill flutter backing store with concrete OpenGL framebuffer/texture or Vulkan image.\n");
-        surface_unref(CAST_SURFACE_UNCHECKED(s));
         return false;
     }
 
@@ -518,16 +516,14 @@ static bool on_flutter_create_backing_store(
 
 static bool on_flutter_collect_backing_store(const FlutterBackingStore *fl_store, void *userdata) {
     struct compositor *compositor;
-    struct surface *s;
 
     DEBUG_ASSERT_NOT_NULL(fl_store);
     DEBUG_ASSERT_NOT_NULL(userdata);
-    s = CAST_SURFACE(fl_store->user_data);
     compositor = userdata;
 
+    /// TODO: What should we do here?
     (void) compositor;
 
-    surface_unref(s);
     return true;
 }
 
