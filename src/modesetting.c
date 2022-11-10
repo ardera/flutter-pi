@@ -193,12 +193,16 @@ static int fetch_connector(int drm_fd, uint32_t connector_id, struct drm_connect
         prop_info = NULL;
     }
 
-    modes = calloc(connector->count_modes, sizeof *modes);
-    if (modes == NULL) {
-        goto fail_free_props;
-    }
+    DEBUG_ASSERT((connector->modes == NULL) == (connector->count_modes == 0));
 
-    memcpy(modes, connector->modes, connector->count_modes * sizeof *modes);
+    if (connector->modes != NULL) {
+        modes = memdup(connector->modes, connector->count_modes * sizeof(*connector->modes));
+        if (modes == NULL) {
+            goto fail_free_props;
+        }
+    } else {
+        modes = NULL;
+    }
 
     connector_out->id = connector->connector_id;
     connector_out->type = connector->connector_type;
