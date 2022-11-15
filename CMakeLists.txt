@@ -118,6 +118,7 @@ pkg_check_modules(LIBSYSTEMD REQUIRED libsystemd)
 pkg_check_modules(LIBINPUT REQUIRED libinput)
 pkg_check_modules(LIBXKBCOMMON REQUIRED xkbcommon)
 pkg_check_modules(LIBUDEV REQUIRED libudev)
+pkg_check_modules(LIBSEAT libseat)
 
 add_executable(flutter-pi
   src/flutter-pi.c
@@ -153,6 +154,7 @@ target_link_libraries(flutter-pi PRIVATE
   input #${LIBINPUT_LDFLAGS}
   xkbcommon #${LIBUDEV_LDFLAGS}
   udev #${LIBXKBCOMMON_LDFLAGS}
+  ${LIBSEAT_LDFLAGS}
   pthread dl rt m atomic
 )
 
@@ -166,6 +168,7 @@ target_include_directories(flutter-pi PRIVATE
   ${LIBINPUT_INCLUDE_DIRS}
   ${LIBUDEV_INCLUDE_DIRS}
   ${LIBXKBCOMMON_INCLUDE_DIRS}
+  ${LIBSEAT_INCLUDE_DIRS}
 )
 
 target_compile_options(flutter-pi PRIVATE
@@ -175,6 +178,7 @@ target_compile_options(flutter-pi PRIVATE
   ${LIBINPUT_CFLAGS}
   ${LIBUDEV_CFLAGS}
   ${LIBXKBCOMMON_CFLAGS}
+  ${LIBSEAT_CFLAGS}
   $<$<CONFIG:Debug>:-O0 -Wall -Wextra -Werror -Wno-sign-compare -ggdb -U_FORTIFY_SOURCE -DDEBUG> # -Wno-unused-function
   $<$<CONFIG:RelWithDebInfo>:-O2 -Wall -Wextra -Wno-unused-function -Wno-sign-compare -ggdb>
   $<$<CONFIG:Release>:-O2 -Wall -Wextra -Wno-unused-function -Wno-sign-compare -ggdb>
