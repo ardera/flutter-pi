@@ -38,6 +38,7 @@
 #include <libinput.h>
 #include <libudev.h>
 #include <systemd/sd-event.h>
+#include <libseat.h>
 #include <flutter_embedder.h>
 
 #include <flutter-pi.h>
@@ -64,24 +65,6 @@
 #endif
 
 FILE_DESCR("flutter-pi")
-
-#define LOAD_EGL_PROC(flutterpi_struct, name, full_name) \
-    do { \
-        (flutterpi_struct).egl.name = (void*) eglGetProcAddress(#full_name); \
-        if ((flutterpi_struct).egl.name == NULL) { \
-            LOG_ERROR("FATAL: Could not resolve EGL procedure " #full_name "\n"); \
-            return EINVAL; \
-        } \
-    } while (false)
-
-#define LOAD_GL_PROC(flutterpi_struct, name, full_name) \
-	do { \
-		(flutterpi_struct).gl.name = (void*) eglGetProcAddress(#full_name); \
-		if ((flutterpi_struct).gl.name == NULL) { \
-			LOG_ERROR("FATAL: Could not resolve GL procedure " #full_name "\n"); \
-			return EINVAL; \
-		} \
-	} while (false)
 
 #define PIXFMT_ARG_NAME(_name, _arg_name, ...) _arg_name ", "
 
@@ -258,6 +241,7 @@ struct flutterpi {
 	struct texture_registry *texture_registry;
 	struct gl_renderer *gl_renderer;
 	struct vk_renderer *vk_renderer;
+    struct libseat *libseat;
 };
 
 /// TODO: Remove this
@@ -2011,6 +1995,49 @@ static struct drmdev *find_drmdev() {
     return NULL;
 }
 
+static void on_session_enable(struct libseat *seat, void *userdata) {
+    struct flutterpi *fpi;
+
+    DEBUG_ASSERT_NOT_NULL(seat);
+    DEBUG_ASSERT_NOT_NULL(userdata);
+    fpi = userdata;
+    (void) fpi;
+
+    /// TODO: Implement
+    LOG_DEBUG("on_session_enable\n");
+}
+
+static void on_session_disable(struct libseat *seat, void *userdata) {
+    struct flutterpi *fpi;
+
+    DEBUG_ASSERT_NOT_NULL(seat);
+    DEBUG_ASSERT_NOT_NULL(userdata);
+    fpi = userdata;
+    (void) fpi;
+
+    /// TODO: Implement
+    LOG_DEBUG("on_session_disable\n");
+}
+
+static int on_libseat_fd_ready(sd_event_source *s, int fd, uint32_t revents, void *userdata) {
+    struct flutterpi *fpi;
+    int ok;
+
+    DEBUG_ASSERT_NOT_NULL(s);
+    DEBUG_ASSERT_NOT_NULL(userdata);
+    fpi = userdata;
+    (void) s;
+    (void) fd;
+    (void) revents;
+
+    ok = libseat_dispatch(fpi->libseat, 0);
+    if (ok < 0) {
+        LOG_ERROR("Couldn't dispatch libseat events. libseat_dispatch: %s\n", strerror(errno));
+    }
+
+    return 0;
+}
+
 struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
     enum flutter_runtime_mode runtime_mode;
     enum renderer_type renderer_type;
@@ -2029,6 +2056,7 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
     struct flutterpi *fpi;
     struct sd_event *event_loop;
     struct cmd_args cmd_args;
+    struct libseat *libseat;
     struct locales *locales;
     struct drmdev *drmdev;
     struct tracer *tracer;
@@ -2086,10 +2114,38 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
         goto fail_unref_event_loop;
     }
 
+    static const struct libseat_seat_listener libseat_interface = {
+        .enable_seat = on_session_enable,
+        .disable_seat = on_session_disable
+    };
+
+    libseat = libseat_open_seat(&libseat_interface, fpi);
+    if (libseat == NULL) {
+        LOG_ERROR("Couldn't open libseat. Flutter-pi will run without session switching support. libseat_open_seat: %s\n", strerror(errno));
+    }
+
+    if (libseat != NULL) {
+        ok = libseat_get_fd(libseat);
+        if (ok < 0) {
+            LOG_ERROR("Couldn't get an event fd from libseat. Flutter-pi will run without session switching support. libseat_get_fd: %s\n", strerror(errno));
+            libseat_close_seat(libseat);
+            libseat = NULL;
+        }
+    }
+
+    if (libseat != NULL) {
+        ok = sd_event_add_io(event_loop, NULL, ok, EPOLLIN, on_libseat_fd_ready, fpi);
+        if (ok < 0) {
+            LOG_ERROR("Couldn't listen for libseat events. Flutter-pi will run without session switching support. sd_event_add_io: %s\n", strerror(-ok));
+            libseat_close_seat(libseat);
+            libseat = NULL;
+        }
+    }
+    
     locales = locales_new();
     if (locales == NULL) {
         LOG_ERROR("Couldn't setup locales.\n");
-        goto fail_unref_event_loop;
+        goto fail_destroy_libseat;
     }
 
     locales_print(locales);
@@ -2334,6 +2390,7 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
     fpi->drm.drmdev = drmdev;
     fpi->plugin_registry = plugin_registry;
     fpi->texture_registry = texture_registry;
+    fpi->libseat = libseat;
     return fpi;
 
 
@@ -2377,6 +2434,11 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
     fail_destroy_locales:
     locales_destroy(locales);
 
+    fail_destroy_libseat:
+    if (libseat != NULL) {
+        libseat_close_seat(libseat);
+    }
+
     fail_unref_event_loop:
     sd_event_unrefp(&event_loop);
 
@@ -2418,6 +2480,9 @@ void flutterpi_destroy(struct flutterpi *flutterpi) {
     tracer_unref(flutterpi->tracer);
     drmdev_unref(flutterpi->drm.drmdev);
     locales_destroy(flutterpi->locales);
+    if (flutterpi->libseat != NULL) {
+        libseat_close_seat(flutterpi->libseat);
+    }
     sd_event_unrefp(&flutterpi->event_loop);
     close(flutterpi->wakeup_event_loop_fd);
     flutter_paths_free(flutterpi->flutter.paths);
