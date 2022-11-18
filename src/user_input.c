@@ -88,19 +88,28 @@ struct user_input {
 };
 
 // libinput interface
-static int open_restricted(const char *path, int flags, void *userdata) {
-	(void) userdata;
-	return open(path, flags | O_CLOEXEC);
+static int on_open(const char *path, int flags, void *userdata) {
+    struct user_input *input;
+
+    DEBUG_ASSERT_NOT_NULL(path);
+    DEBUG_ASSERT_NOT_NULL(userdata);
+	input = userdata;
+
+    return input->interface.open(path, flags | O_CLOEXEC, input->userdata);
 }
 
-static void close_restricted(int fd, void *userdata) {
-	(void) userdata;
-	close(fd);
+static void on_close(int fd, void *userdata) {
+	struct user_input *input;
+
+    DEBUG_ASSERT_NOT_NULL(userdata);
+	input = userdata;
+
+    return input->interface.close(fd, input->userdata);
 }
 
 static const struct libinput_interface libinput_interface = {
-	.open_restricted = open_restricted,
-	.close_restricted = close_restricted
+	.open_restricted = on_open,
+	.close_restricted = on_close
 };
 
 struct user_input *user_input_new(
@@ -128,6 +137,9 @@ struct user_input *user_input_new(
 		goto fail_free_input;
 	}
 
+    input->interface = *interface;
+    input->userdata = userdata;
+
 	libinput = libinput_udev_create_context(
 		&libinput_interface,
 		input,
@@ -154,9 +166,6 @@ struct user_input *user_input_new(
 #else
     kbdcfg = NULL;
 #endif
-
-	input->interface = *interface;
-    input->userdata = userdata;
 
 	input->libinput = libinput;
 	input->kbdcfg = kbdcfg;
@@ -230,6 +239,24 @@ void user_input_set_transform(
 int user_input_get_fd(struct user_input *input) {
     DEBUG_ASSERT(input != NULL);
     return libinput_get_fd(input->libinput);
+}
+
+void user_input_suspend(struct user_input *input) {
+    DEBUG_ASSERT_NOT_NULL(input);
+    libinput_suspend(input->libinput);
+}
+
+int user_input_resume(struct user_input *input) {
+    int ok;
+    
+    DEBUG_ASSERT_NOT_NULL(input);
+    ok = libinput_resume(input->libinput);
+    if (ok < 0) {
+        LOG_ERROR("Couldn't resume libinput event processing. libinput_resume: %s\n", strerror(errno));
+        return errno;
+    }
+
+    return 0;
 }
 
 
@@ -355,7 +382,11 @@ static int on_device_added(struct user_input *input, struct libinput_event *even
         // mouse pointer will be added as soon as the device actually sends a
         // mouse event, as some devices will erroneously have a LIBINPUT_DEVICE_CAP_POINTER
         // even though they aren't mice. (My keyboard for example is a mouse smh)
-    } else if (libinput_device_has_capability(device, LIBINPUT_DEVICE_CAP_TOUCH)) {
+
+        // reserve one id for the mouse pointer
+        input->next_unused_flutter_device_id++;
+    }
+    if (libinput_device_has_capability(device, LIBINPUT_DEVICE_CAP_TOUCH)) {
         // add all touch slots as individual touch devices to flutter
         for (int i = 0; i < libinput_device_touch_get_touch_count(device); i++) {
             device_id = input->next_unused_flutter_device_id++;
@@ -370,7 +401,8 @@ static int on_device_added(struct user_input *input, struct libinput_event *even
                 1
             );
         }
-    } else if (libinput_device_has_capability(device, LIBINPUT_DEVICE_CAP_KEYBOARD)) {
+    }
+    if (libinput_device_has_capability(device, LIBINPUT_DEVICE_CAP_KEYBOARD)) {
         // create a new keyboard state for this keyboard
         if (input->kbdcfg) {
             data->keyboard_state = keyboard_state_new(input->kbdcfg, NULL, NULL);
@@ -378,7 +410,8 @@ static int on_device_added(struct user_input *input, struct libinput_event *even
             // If we don't have a keyboard config
             data->keyboard_state = NULL;
         }
-    } else if (libinput_device_has_capability(device, LIBINPUT_DEVICE_CAP_TABLET_TOOL)) {
+    }
+    if (libinput_device_has_capability(device, LIBINPUT_DEVICE_CAP_TABLET_TOOL)) {
         device_id = input->next_unused_flutter_device_id++;
 
         /// TODO: Use kFlutterPointerDeviceKindStylus here
@@ -391,10 +424,6 @@ static int on_device_added(struct user_input *input, struct libinput_event *even
             ),
             1
         );
-    } else {
-        // We don't handle this device, so we don't need the data.
-        libinput_device_set_user_data(device, NULL);
-        free(data);
     }
     
     return 0;
@@ -465,6 +494,8 @@ static int on_key_event(struct user_input *input, struct libinput_event *event) 
     evdev_keycode = (uint16_t) libinput_event_keyboard_get_key(key_event);
     key_state = libinput_event_keyboard_get_key_state(key_event);
 
+    LOG_DEBUG("on_key_event\n");
+
     // If we don't have a keyboard state (for example if we couldn't load /etc/default/keyboard)
     // we just return here.
     if (data->keyboard_state == NULL) {
@@ -473,6 +504,8 @@ static int on_key_event(struct user_input *input, struct libinput_event *event) 
 
     // Let the keyboard advance its statemachine.
     // keysym/codepoint are 0 when none were emitted.
+    keysym = 0;
+    codepoint = 0;
     ok = keyboard_state_process_key_event(
         data->keyboard_state,
         evdev_keycode,
@@ -487,6 +520,20 @@ static int on_key_event(struct user_input *input, struct libinput_event *event) 
     // GTK keyevent needs the plain codepoint for some reason.
     /// TODO: Maybe remove the evdev_value parameter?
     plain_codepoint = keyboard_state_get_plain_codepoint(data->keyboard_state, evdev_keycode, 1);
+
+    LOG_DEBUG("keyboard state ctrl active: %s, alt active: %s, keysym: 0x%04"PRIx32"\n", 
+        keyboard_state_is_ctrl_active(data->keyboard_state) ? "yes" : "no",
+        keyboard_state_is_alt_active(data->keyboard_state) ? "yes" : "no",
+        keysym
+    );
+
+    if (input->interface.on_switch_vt != NULL &&
+        keysym >= XKB_KEY_XF86Switch_VT_1
+        && keysym <= XKB_KEY_XF86Switch_VT_12) {
+        
+        // "switch VT" keybind
+        input->interface.on_switch_vt(input->userdata, keysym - XKB_KEY_XF86Switch_VT_1 + 1);
+    }
 
     // call the GTK keyevent callback.
     /// TODO: Simplify the meta state construction.

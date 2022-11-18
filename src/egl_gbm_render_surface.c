@@ -304,10 +304,6 @@ void egl_gbm_render_surface_deinit(struct surface *s) {
 struct gbm_bo_meta {
     struct drmdev *drmdev;
     uint32_t fb_id;
-
-    bool has_opaque_fb;
-    enum pixfmt opaque_pixel_format;
-    uint32_t opaque_fb_id;
 };
 
 static void on_destroy_gbm_bo_meta(struct gbm_bo *bo, void *meta_void) {
@@ -321,13 +317,6 @@ static void on_destroy_gbm_bo_meta(struct gbm_bo *bo, void *meta_void) {
     ok = drmdev_rm_fb(meta->drmdev, meta->fb_id);
     if (ok != 0) {
         LOG_ERROR("Couldn't remove DRM framebuffer.\n");
-    }
-
-    if (meta->has_opaque_fb && meta->opaque_fb_id != meta->fb_id) {
-        ok = drmdev_rm_fb(meta->drmdev, meta->opaque_fb_id);
-        if (ok != 0) {
-            LOG_ERROR("Couldn't remove DRM framebuffer.\n");
-        }
     }
 
     drmdev_unref(meta->drmdev);
@@ -348,8 +337,8 @@ static int egl_gbm_render_surface_present_kms(struct surface *s, const struct fl
     struct gbm_bo_meta *meta;
     struct drmdev *drmdev;
     struct gbm_bo *bo;
-    enum pixfmt pixel_format, opaque_pixel_format;
-    uint32_t fb_id, opaque_fb_id;
+    enum pixfmt pixel_format;
+    uint32_t fb_id;
     int ok;
 
     egl_surface = CAST_THIS(s);
@@ -364,8 +353,6 @@ static int egl_gbm_render_surface_present_kms(struct surface *s, const struct fl
     bo = egl_surface->locked_front_fb->bo;
     meta = gbm_bo_get_user_data(bo);
     if (meta == NULL) {
-        bool has_opaque_fb;
-
         meta = malloc(sizeof *meta);
         if (meta == NULL) {
             ok = ENOMEM;
@@ -384,8 +371,7 @@ static int egl_gbm_render_surface_present_kms(struct surface *s, const struct fl
             gbm_bo_get_handle(bo).u32,
             gbm_bo_get_stride(bo),
             gbm_bo_get_offset(bo, 0),
-            true, gbm_bo_get_modifier(bo),
-            0
+            true, gbm_bo_get_modifier(bo)
         );
         TRACER_END(egl_surface->surface.tracer, "drmdev_add_fb (non-opaque)");
 
@@ -395,43 +381,8 @@ static int egl_gbm_render_surface_present_kms(struct surface *s, const struct fl
             goto fail_free_meta;
         }
 
-        if (get_pixfmt_info(egl_surface->pixel_format)->is_opaque == false) {
-            has_opaque_fb = false;
-            opaque_pixel_format = pixfmt_opaque(egl_surface->pixel_format);
-
-            // If there's bit-compatible opaque equivalent for the pixel format,
-            // pixfmt_opaque will just return the original pixel format.
-            if (get_pixfmt_info(opaque_pixel_format)->is_opaque) {
-                
-                TRACER_BEGIN(egl_surface->surface.tracer, "drmdev_add_fb (opaque)");
-                opaque_fb_id = drmdev_add_fb(
-                    drmdev,
-                    gbm_bo_get_width(bo),
-                    gbm_bo_get_height(bo),
-                    opaque_pixel_format,
-                    gbm_bo_get_handle(bo).u32,
-                    gbm_bo_get_stride(bo),
-                    gbm_bo_get_offset(bo, 0),
-                    true, gbm_bo_get_modifier(bo),
-                    0
-                );
-                TRACER_END(egl_surface->surface.tracer, "drmdev_add_fb (opaque)");
-
-                if (opaque_fb_id != 0) {
-                    has_opaque_fb = true;
-                }
-            }
-        } else {
-            has_opaque_fb = true;
-            opaque_fb_id = fb_id;
-            opaque_pixel_format = egl_surface->pixel_format;
-        }
-
         meta->drmdev = drmdev_ref(drmdev);
         meta->fb_id = fb_id;
-        meta->has_opaque_fb = has_opaque_fb;
-        meta->opaque_pixel_format = opaque_pixel_format;
-        meta->opaque_fb_id = opaque_fb_id;
         gbm_bo_set_user_data(bo, meta, on_destroy_gbm_bo_meta);
     } else {
         // We can only add this GBM BO to a single KMS device as an fb right now.
@@ -457,20 +408,8 @@ static int egl_gbm_render_surface_present_kms(struct surface *s, const struct fl
     // For example, on Pi 4, even though ARGB8888 is listed as supported for the primary plane,
     // rendering is completely off.
     // So we just cast our fb to an XRGB8888 framebuffer and scanout that instead.
-    if (kms_req_builder_prefer_next_layer_opaque(builder)) {
-        if (meta->has_opaque_fb) {
-            fb_id = meta->opaque_fb_id;
-            pixel_format = meta->opaque_pixel_format;
-        } else {
-            LOG_DEBUG("Bottom-most framebuffer layer should be opaque, but an opaque framebuffer couldn't be created.\n");
-            LOG_DEBUG("Using non-opaque framebuffer instead, which can result in visual glitches.\n");
-            fb_id = meta->fb_id;
-            pixel_format = egl_surface->pixel_format;
-        }
-    } else {
-        fb_id = meta->fb_id;
-        pixel_format = egl_surface->pixel_format;
-    }
+    fb_id = meta->fb_id;
+    pixel_format = egl_surface->pixel_format;
 
     TRACER_BEGIN(egl_surface->surface.tracer, "kms_req_builder_push_fb_layer");
     ok = kms_req_builder_push_fb_layer(
@@ -478,8 +417,8 @@ static int egl_gbm_render_surface_present_kms(struct surface *s, const struct fl
         &(const struct kms_fb_layer) {
             .drm_fb_id = fb_id,
             .format = pixel_format,
-            .has_modifier = false,
-            .modifier = 0,
+            .has_modifier = gbm_bo_get_modifier(bo) != DRM_FORMAT_MOD_INVALID,
+            .modifier = gbm_bo_get_modifier(bo),
             
             .dst_x = (int32_t) props->aa_rect.offset.x,
             .dst_y = (int32_t) props->aa_rect.offset.y,

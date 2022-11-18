@@ -233,8 +233,7 @@ static int dmabuf_surface_present_kms(struct surface *_s, const struct fl_layer_
             s->next_buf->buf.strides[0],
             s->next_buf->buf.offsets[0],
             s->next_buf->buf.has_modifiers,
-            s->next_buf->buf.modifiers[0],
-            0
+            s->next_buf->buf.modifiers[0]
         );
         if (!DRM_ID_IS_VALID(fb_id)) {
             LOG_ERROR("Couldn't add dmabuf as framebuffer.\n");
