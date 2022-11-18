@@ -88,6 +88,9 @@ struct user_input_interface {
     gtk_keyevent_callback_t on_gtk_keyevent;
     set_cursor_enabled_callback_t on_set_cursor_enabled;
     move_cursor_callback_t on_move_cursor;
+    int (*open)(const char *path, int flags, void *userdata);
+    void (*close)(int fd, void *userdata);
+    void (*on_switch_vt)(void *userdata, int vt);
 };
 
 struct user_input;
@@ -139,5 +142,9 @@ int user_input_get_fd(struct user_input *input);
  * The user_input_interface callbacks will be called inside this function.
  */
 int user_input_on_fd_ready(struct user_input *input);
+
+void user_input_suspend(struct user_input *input);
+
+int user_input_resume(struct user_input *input);
 
 #endif
