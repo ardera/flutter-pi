@@ -88,6 +88,12 @@ struct drmdev {
 
         struct kms_req *last_flipped;
     } per_crtc_state[32];
+
+    int master_fd;
+    void *master_fd_metadata;
+
+    struct drmdev_interface interface;
+    void *userdata;
 };
 
 struct drmdev_atomic_req {
@@ -871,35 +877,89 @@ static void assert_rotations_work() {
     (void) r;
 }
 
-int drmdev_new_from_fd(struct drmdev **drmdev_out, int fd) {
-    struct gbm_device *gbm_device;
-    struct drmdev *drmdev;
-    bool supports_atomic_modesetting;
-    int ok, event_fd;
-
-    assert_rotations_work();
-
-    drmdev = malloc(sizeof *drmdev);
-    if (drmdev == NULL) {
-        return ENOMEM;
-    }
+static int set_drm_client_caps(int fd, bool *supports_atomic_modesetting) {
+    int ok;
 
     ok = drmSetClientCap(fd, DRM_CLIENT_CAP_UNIVERSAL_PLANES, 1);
     if (ok < 0) {
         ok = errno;
         LOG_ERROR("Could not set DRM client universal planes capable. drmSetClientCap: %s\n", strerror(ok));
-        goto fail_free_drmdev;
+        return ok;
     }
 
     ok = drmSetClientCap(fd, DRM_CLIENT_CAP_ATOMIC, 1);
     if ((ok < 0) && (errno == EOPNOTSUPP)) {
-        supports_atomic_modesetting = false;
+        if (supports_atomic_modesetting != NULL) {
+            *supports_atomic_modesetting = false;
+        }
     } else if (ok < 0) {
         ok = errno;
         LOG_ERROR("Could not set DRM client atomic capable. drmSetClientCap: %s\n", strerror(ok));
-        goto fail_free_drmdev;
+        return ok;
     } else {
-        supports_atomic_modesetting = true;
+        if (supports_atomic_modesetting != NULL) {
+            *supports_atomic_modesetting = true;
+        }
+    }
+
+    return 0;
+}
+
+struct drmdev *drmdev_new_from_fd(int fd, const struct drmdev_interface *interface, void *userdata) {
+    struct gbm_device *gbm_device;
+    struct drmdev *drmdev;
+    drmDevicePtr device;
+    bool supports_atomic_modesetting;
+    void *master_fd_metadata;
+    int ok, master_fd, event_fd;
+
+    assert_rotations_work();
+
+    drmdev = malloc(sizeof *drmdev);
+    if (drmdev == NULL) {
+        return NULL;
+    }
+
+    if (drmIsMaster(fd)) {
+        ok = drmDropMaster(fd);
+        if (ok < 0) {
+            LOG_ERROR("Couldn't drop DRM master. drmDropMaster: %s\n", strerror(errno));
+        }
+    }
+
+    ok = drmGetDevice(fd, &device);
+    if (ok < 0) {
+        ok = errno;
+        LOG_ERROR("Couldn't query DRM device info. drmGetDevice: %s\n", strerror(ok));
+        goto fail_free_drmdev;
+    }
+
+    ok = interface->open(device->nodes[DRM_NODE_PRIMARY], O_CLOEXEC | O_NONBLOCK, &master_fd_metadata, userdata);
+    if (ok < 0) {
+        ok = -ok;
+        LOG_ERROR("Couldn't open DRM device.\n");
+        master_fd = -1;
+        master_fd_metadata = NULL;
+    }
+
+    master_fd = ok;
+
+    drmFreeDevice(&device);
+
+    ok = set_drm_client_caps(fd, &supports_atomic_modesetting);
+    if (ok != 0) {
+        goto fail_close_master_fd;
+    }
+
+    if (master_fd > 0) {
+        bool master_fd_supports_atomic_modesetting;
+
+        ok = set_drm_client_caps(master_fd, &master_fd_supports_atomic_modesetting);
+        if (ok != 0) {
+            goto fail_close_master_fd;
+        }
+
+        DEBUG_ASSERT_EQUALS(supports_atomic_modesetting, master_fd_supports_atomic_modesetting);
     }
 
     drmdev->res = drmModeGetResources(fd);
@@ -964,10 +1024,11 @@ int drmdev_new_from_fd(struct drmdev **drmdev_out, int fd) {
     drmdev->gbm_device = gbm_device;
     drmdev->event_fd = event_fd;
     memset(drmdev->per_crtc_state, 0, sizeof(drmdev->per_crtc_state));
-
-    *drmdev_out = drmdev;
-
-    return 0;
+    drmdev->master_fd = master_fd;
+    drmdev->master_fd_metadata = master_fd_metadata;
+    drmdev->interface = *interface;
+    drmdev->userdata = userdata;
+    return drmdev;
 
 fail_close_event_fd:
     close(event_fd);
@@ -993,29 +1054,35 @@ fail_free_plane_resources:
 fail_free_resources:
     drmModeFreeResources(drmdev->res);
 
+fail_close_master_fd:
+    interface->close(master_fd, master_fd_metadata, userdata);
+
 fail_free_drmdev:
     free(drmdev);
 
-    return ok;
+    return NULL;
 }
 
-int drmdev_new_from_path(struct drmdev **drmdev_out, const char *path) {
-    int ok, fd;
+struct drmdev *drmdev_new_from_path(const char *path, const struct drmdev_interface *interface, void *userdata) {
+    struct drmdev *drmdev;
+    int fd;
+
+    DEBUG_ASSERT_NOT_NULL(path);
+    DEBUG_ASSERT_NOT_NULL(interface);
 
     fd = open(path, O_RDWR);
     if (fd < 0) {
-        ok = errno;
-        LOG_ERROR("Could not open DRM device. open: %s\n", strerror(ok));
-        return ok;
+        LOG_ERROR("Could not open DRM device. open: %s\n", strerror(errno));
+        return NULL;
     }
 
-    ok = drmdev_new_from_fd(drmdev_out, fd);
-    if (ok != 0) {
+    drmdev = drmdev_new_from_fd(fd, interface, userdata);
+    if (drmdev == NULL) {
         close(fd);
-        return ok;
+        return NULL;
     }
 
-    return 0;
+    return drmdev;
 }
 
 void drmdev_destroy(struct drmdev *drmdev) {
@@ -1034,14 +1101,9 @@ void drmdev_destroy(struct drmdev *drmdev) {
 
 DEFINE_REF_OPS(drmdev, n_refs)
 
-int drmdev_get_fd(struct drmdev *drmdev) {
-    DEBUG_ASSERT_NOT_NULL(drmdev);
-    return drmdev->fd;
-}
-
 int drmdev_get_event_fd(struct drmdev *drmdev) {
     DEBUG_ASSERT_NOT_NULL(drmdev);
-    return drmdev->event_fd;
+    return drmdev->master_fd;
 }
 
 static void drmdev_on_page_flip_locked(
@@ -1107,7 +1169,7 @@ static int drmdev_on_modesetting_fd_ready_locked(struct drmdev *drmdev) {
         .sequence_handler = NULL,
     };
 
-    ok = drmHandleEvent(drmdev->fd, &ctx);
+    ok = drmHandleEvent(drmdev->master_fd, &ctx);
     if (ok != 0) {
         return EIO;
     }
@@ -1186,8 +1248,7 @@ uint32_t drmdev_add_fb(
     uint32_t pitch,
     uint32_t offset,
     bool has_modifier,
-    uint64_t modifier,
-    uint32_t flags
+    uint64_t modifier
 ) {
     uint32_t fb_id;
     int ok;
@@ -1199,6 +1260,7 @@ uint32_t drmdev_add_fb(
 
     fb_id = 0;
     if (has_modifier) {
+        LOG_DEBUG("adding fb with pixel format %"PRIu32" and modifier %"PRIu64"\n", get_pixfmt_info(pixel_format)->drm_format, modifier);
         ok = drmModeAddFB2WithModifiers(
             drmdev->fd,
             width,
@@ -1209,7 +1271,7 @@ uint32_t drmdev_add_fb(
             (uint32_t[4]){ offset, 0 },
             (const uint64_t[4]){ modifier, 0 },
             &fb_id,
-            flags
+            DRM_MODE_FB_MODIFIERS
         );
         if (ok < 0) {
             LOG_ERROR("Couldn't add buffer as DRM fb. drmModeAddFB2WithModifiers: %s\n", strerror(-ok));
@@ -1225,7 +1287,7 @@ uint32_t drmdev_add_fb(
             (uint32_t[4]){ pitch, 0 },
             (uint32_t[4]){ offset, 0 },
             &fb_id,
-            flags
+            0
         );
         if (ok < 0) {
             LOG_ERROR("Couldn't add buffer as DRM fb. drmModeAddFB2: %s\n", strerror(-ok));
@@ -1246,8 +1308,7 @@ uint32_t drmdev_add_fb_multiplanar(
     uint32_t pitches[4],
     uint32_t offsets[4],
     bool has_modifiers,
-    uint64_t modifiers[4],
-    uint32_t flags
+    uint64_t modifiers[4]
 ) {
     uint32_t fb_id;
     int ok;
@@ -1269,7 +1330,7 @@ uint32_t drmdev_add_fb_multiplanar(
             offsets,
             modifiers,
             &fb_id,
-            flags
+            DRM_MODE_FB_MODIFIERS
         );
         if (ok < 0) {
             LOG_ERROR("Couldn't add buffer as DRM fb. drmModeAddFB2WithModifiers: %s\n", strerror(-ok));
@@ -1285,7 +1346,7 @@ uint32_t drmdev_add_fb_multiplanar(
             pitches,
             offsets,
             &fb_id,
-            flags
+            0
         );
         if (ok < 0) {
             LOG_ERROR("Couldn't add buffer as DRM fb. drmModeAddFB2: %s\n", strerror(-ok));
@@ -1306,8 +1367,7 @@ uint32_t drmdev_add_fb_from_dmabuf(
     uint32_t pitch,
     uint32_t offset,
     bool has_modifier,
-    uint64_t modifier,
-    uint32_t flags
+    uint64_t modifier
 ) {
     uint32_t bo_handle;
     int ok;
@@ -1318,7 +1378,7 @@ uint32_t drmdev_add_fb_from_dmabuf(
         return 0;
     }
 
-    return drmdev_add_fb(drmdev, width, height, pixel_format, prime_fd, pitch, offset, has_modifier, modifier, flags);
+    return drmdev_add_fb(drmdev, width, height, pixel_format, prime_fd, pitch, offset, has_modifier, modifier);
 }
 
 uint32_t drmdev_add_fb_from_dmabuf_multiplanar(
@@ -1330,8 +1390,7 @@ uint32_t drmdev_add_fb_from_dmabuf_multiplanar(
     uint32_t pitches[4],
     uint32_t offsets[4],
     bool has_modifiers,
-    uint64_t modifiers[4],
-    uint32_t flags
+    uint64_t modifiers[4]
 ) {
     uint32_t bo_handles[4] = { 0 };
     int ok;
@@ -1353,8 +1412,7 @@ uint32_t drmdev_add_fb_from_dmabuf_multiplanar(
         pitches,
         offsets,
         has_modifiers,
-        modifiers,
-        flags
+        modifiers
     );
 }
 
@@ -1368,6 +1426,91 @@ int drmdev_rm_fb(struct drmdev *drmdev, uint32_t fb_id) {
     }
 
     return 0;
+}
+
+bool drmdev_can_modeset(struct drmdev *drmdev) {
+    bool can_modeset;
+
+    DEBUG_ASSERT_NOT_NULL(drmdev);
+
+    drmdev_lock(drmdev);
+    can_modeset = drmdev->master_fd > 0;
+    drmdev_unlock(drmdev);
+
+    return can_modeset;
+}
+
+void drmdev_suspend(struct drmdev *drmdev) {
+    DEBUG_ASSERT_NOT_NULL(drmdev);
+
+    drmdev_lock(drmdev);
+
+    if (drmdev->master_fd <= 0) {
+        LOG_ERROR("drmdev_suspend was called, but drmdev is already suspended\n");
+        drmdev_unlock(drmdev);
+        return;
+    }
+
+    drmdev->interface.close(drmdev->master_fd, drmdev->master_fd_metadata, drmdev->userdata);
+    drmdev->master_fd = -1;
+    drmdev->master_fd_metadata = NULL;
+
+    drmdev_unlock(drmdev);
+}
+
+int drmdev_resume(struct drmdev *drmdev) {
+    drmDevicePtr device;
+    void *fd_metadata;
+    int ok, master_fd;
+
+    DEBUG_ASSERT_NOT_NULL(drmdev);
+
+    drmdev_lock(drmdev);
+    
+    if (drmdev->master_fd > 0) {
+        ok = EINVAL;
+        LOG_ERROR("drmdev_resume was called, but drmdev is already resumed\n");
+        goto fail_unlock;
+    }
+
+    ok = drmGetDevice(drmdev->fd, &device);
+    if (ok < 0) {
+        ok = errno;
+        LOG_ERROR("Couldn't query DRM device info. drmGetDevice: %s\n", strerror(ok));
+        goto fail_unlock;
+    }
+
+    ok = drmdev->interface.open(device->nodes[DRM_NODE_PRIMARY], O_CLOEXEC | O_NONBLOCK, &fd_metadata, drmdev->userdata);
+    if (ok < 0) {
+        ok = -ok;
+        LOG_ERROR("Couldn't open DRM device.\n");
+        goto fail_free_device;   
+    }
+
+    master_fd = ok;
+
+    drmFreeDevice(&device);
+
+    ok = set_drm_client_caps(master_fd, NULL);
+    if (ok != 0) {
+        goto fail_close_device;
+    }
+
+    drmdev->master_fd = master_fd;
+    drmdev->master_fd_metadata = fd_metadata;
+    drmdev_unlock(drmdev);
+    return 0;
+
+    fail_close_device:
+    drmdev->interface.close(master_fd, fd_metadata, drmdev->userdata);
+    goto fail_unlock;
+
+    fail_free_device:
+    drmFreeDevice(&device);
+
+    fail_unlock:
+    drmdev_unlock(drmdev);
+    return ok;
 }
 
 static void drmdev_set_scanout_callback_locked(
@@ -2007,6 +2150,18 @@ static int kms_req_commit_common(
 
     drmdev_lock(builder->drmdev);
 
+    if (builder->drmdev->master_fd < 0) {
+        LOG_ERROR("Commit requested, but drmdev doesn't have a DRM master fd right now.\n");
+        drmdev_unlock(builder->drmdev);
+        return EBUSY;
+    }
+
+    if (!drmIsMaster(builder->drmdev->master_fd)) {
+        LOG_ERROR("Commit requested, but drmdev is paused right now.\n");
+        drmdev_unlock(builder->drmdev);
+        return EBUSY;
+    }
+
     // only change the mode if the new mode differs from the old one
        
     /// TOOD: If this is not a standard mode reported by connector/CRTC,
@@ -2052,7 +2207,7 @@ static int kms_req_commit_common(
             UNIMPLEMENTED();
 
             ok = drmModeSetCrtc(
-                builder->drmdev->fd,
+                builder->drmdev->master_fd,
                 builder->crtc->id,
                 builder->layers[0].layer.drm_fb_id,
                 0,
@@ -2068,7 +2223,7 @@ static int kms_req_commit_common(
             }
         } else {
             ok = drmModePageFlip(
-                builder->drmdev->fd,
+                builder->drmdev->master_fd,
                 builder->crtc->id,
                 builder->layers[0].layer.drm_fb_id,
                 DRM_MODE_PAGE_FLIP_EVENT,
@@ -2099,7 +2254,7 @@ static int kms_req_commit_common(
         /// TODO: If we're on raspberry pi and only have one layer, we can do an async pageflip
         /// on the primary plane to replace the next queued frame. (To do _real_ triple buffering
         /// with fully decoupled framerate, potentially)
-        ok = drmModeAtomicCommit(builder->drmdev->fd, builder->req, flags, kms_req_builder_ref(builder));
+        ok = drmModeAtomicCommit(builder->drmdev->master_fd, builder->req, flags, kms_req_builder_ref(builder));
         if (ok != 0) {
             ok = errno;
             LOG_ERROR("Could not commit display update. drmModeAtomicCommit: %s\n", strerror(ok));

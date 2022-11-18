@@ -414,9 +414,14 @@ struct drm_plane {
 struct drmdev;
 struct _drmModeModeInfo;
 
-int drmdev_new_from_fd(struct drmdev **drmdev_out, int fd);
+struct drmdev_interface {
+    int (*open)(const char *path, int flags, void **fd_metadata_out, void *userdata);
+    void (*close)(int fd, void *fd_metadata, void *userdata);
+};
 
-int drmdev_new_from_path(struct drmdev **drmdev_out, const char *path);
+struct drmdev *drmdev_new_from_fd(int fd, const struct drmdev_interface *interface, void *userdata);
+
+struct drmdev *drmdev_new_from_path(const char *path, const struct drmdev_interface *interface, void *userdata);
 
 void drmdev_destroy(struct drmdev *drmdev);
 
@@ -449,8 +454,7 @@ uint32_t drmdev_add_fb(
     uint32_t pitch,
     uint32_t offset,
     bool has_modifier,
-    uint64_t modifier,
-    uint32_t flags
+    uint64_t modifier
 );
 
 uint32_t drmdev_add_fb_multiplanar(
@@ -462,8 +466,7 @@ uint32_t drmdev_add_fb_multiplanar(
     uint32_t pitches[4],
     uint32_t offsets[4],
     bool has_modifiers,
-    uint64_t modifiers[4],
-    uint32_t flags
+    uint64_t modifiers[4]
 );
 
 uint32_t drmdev_add_fb_from_dmabuf(
@@ -475,8 +478,7 @@ uint32_t drmdev_add_fb_from_dmabuf(
     uint32_t pitch,
     uint32_t offset,
     bool has_modifier,
-    uint64_t modifier,
-    uint32_t flags
+    uint64_t modifier
 );
 
 uint32_t drmdev_add_fb_from_dmabuf_multiplanar(
@@ -488,13 +490,18 @@ uint32_t drmdev_add_fb_from_dmabuf_multiplanar(
     uint32_t pitches[4],
     uint32_t offsets[4],
     bool has_modifiers,
-    uint64_t modifiers[4],
-    uint32_t flags
+    uint64_t modifiers[4]
 );
 
 int drmdev_rm_fb(struct drmdev *drmdev, uint32_t fb_id);
 
 int drmdev_get_last_vblank(struct drmdev *drmdev, uint32_t crtc_id, uint64_t *last_vblank_ns_out);
+
+bool drmdev_can_modeset(struct drmdev *drmdev);
+
+void drmdev_suspend(struct drmdev *drmdev);
+
+int drmdev_resume(struct drmdev *drmdev);
 
 static inline double mode_get_vrefresh(const drmModeModeInfo *mode) {
     return mode->clock * 1000.0 / (mode->htotal * mode->vtotal);
