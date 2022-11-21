@@ -472,7 +472,7 @@ static int get_supported_modified_formats(
     int index = 0;
     for (int i = 0; i < blob->count_modifiers; i++) {
         for (int j = modifiers[i].offset; (j < blob->count_formats) && (j < modifiers[i].offset + 64); j++) {
-            bool is_format_bit_set = (modifiers[i].formats & (1 << (j % 64))) != 0;
+            bool is_format_bit_set = (modifiers[i].formats & (1ull << (j % 64))) != 0;
             if (!is_format_bit_set) {
                 continue;
             }
