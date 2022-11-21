@@ -2056,7 +2056,6 @@ static int on_drmdev_open(const char *path, int flags, void **fd_metadata_out, v
 
     DEBUG_ASSERT_NOT_NULL(path);
     DEBUG_ASSERT_NOT_NULL(fd_metadata_out);
-    DEBUG_ASSERT_NOT_NULL(userdata);
     libseat = userdata;
 
     if (libseat != NULL) {
@@ -2087,7 +2086,6 @@ static void on_drmdev_close(int fd, void *fd_metadata, void *userdata) {
     int ok, device_id;
 
     DEBUG_ASSERT_NOT_NULL(fd_metadata);
-    DEBUG_ASSERT_NOT_NULL(userdata);
     libseat = userdata;
 
     if (libseat != NULL) {
@@ -2330,7 +2328,7 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
 
     libseat = libseat_open_seat(&libseat_interface, fpi);
     if (libseat == NULL) {
-        LOG_ERROR("Couldn't open libseat. Flutter-pi will run without session switching support. libseat_open_seat: %s\n", strerror(errno));
+        LOG_DEBUG("Couldn't open libseat. Flutter-pi will run without session switching support. libseat_open_seat: %s\n", strerror(errno));
     }
 
     if (libseat != NULL) {

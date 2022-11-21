@@ -409,41 +409,41 @@ const FlutterLocale *locales_on_compute_platform_resolved_locale(struct locales 
 }
 
 void locales_print(const struct locales *locales) {
-    DEBUG_ASSERT(locales != NULL);
+    DEBUG_ASSERT_NOT_NULL(locales);
 
-    printf("==============Locale==============\n");
-    printf("Flutter locale:\n");
+    LOG_DEBUG_UNPREFIXED("==============Locale==============\n");
+    LOG_DEBUG_UNPREFIXED("Flutter locale:\n");
     if (locales->default_flutter_locale != NULL) {
-        printf("  default: %s", locales->default_flutter_locale->language_code);
+        LOG_DEBUG_UNPREFIXED("  default: %s", locales->default_flutter_locale->language_code);
         if (locales->default_flutter_locale->country_code != NULL) {
-            printf("_%s", locales->default_flutter_locale->country_code);
+            LOG_DEBUG_UNPREFIXED("_%s", locales->default_flutter_locale->country_code);
         }
         if (locales->default_flutter_locale->script_code != NULL) {
-            printf(".%s", locales->default_flutter_locale->script_code);
+            LOG_DEBUG_UNPREFIXED(".%s", locales->default_flutter_locale->script_code);
         }
         if (locales->default_flutter_locale->variant_code != NULL) {
-            printf("@%s", locales->default_flutter_locale->variant_code);
+            LOG_DEBUG_UNPREFIXED("@%s", locales->default_flutter_locale->variant_code);
         }
 
-        printf("\n");
+        LOG_DEBUG_UNPREFIXED("\n");
     } else {
-        printf("  default: NULL\n");
+        LOG_DEBUG_UNPREFIXED("  default: NULL\n");
     }
 
-    printf("  locales:");
+    LOG_DEBUG_UNPREFIXED("  locales:");
     for (size_t idx = 0; idx < locales->n_locales; idx++) {
         const FlutterLocale *locale = locales->flutter_locales[idx];
-        printf(" %s", locale->language_code);
+        LOG_DEBUG_UNPREFIXED(" %s", locale->language_code);
         if (locale->country_code != NULL) {
-            printf("_%s", locale->country_code);
+            LOG_DEBUG_UNPREFIXED("_%s", locale->country_code);
         }
         if (locale->script_code != NULL) {
-            printf(".%s", locale->script_code);
+            LOG_DEBUG_UNPREFIXED(".%s", locale->script_code);
         }
         if (locale->variant_code != NULL) {
-            printf("@%s", locale->variant_code);
+            LOG_DEBUG_UNPREFIXED("@%s", locale->variant_code);
         }
     }
 
-    printf("\n===================================\n");
+    LOG_DEBUG_UNPREFIXED("\n===================================\n");
 }
