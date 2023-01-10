@@ -1033,7 +1033,7 @@ static struct render_surface *kms_window_get_render_surface_internal(struct wind
             size,
             gl_renderer_get_gbm_device(window->gl_renderer),
             window->gl_renderer,
-            window->has_forced_pixel_format ? window->forced_pixel_format : kARGB8888
+            window->has_forced_pixel_format ? window->forced_pixel_format : kARGB8888_FpiPixelFormat
         );
         if (egl_surface == NULL) {
             LOG_ERROR("Couldn't create EGL GBM rendering surface.\n");
@@ -1049,7 +1049,7 @@ static struct render_surface *kms_window_get_render_surface_internal(struct wind
             size,
             drmdev_get_gbm_device(window->kms.drmdev),
             window->vk_renderer,
-            window->has_forced_pixel_format ? window->forced_pixel_format : kARGB8888
+            window->has_forced_pixel_format ? window->forced_pixel_format : kARGB8888_FpiPixelFormat
         );
         if (vk_surface == NULL) {
             LOG_ERROR("Couldn't create Vulkan GBM rendering surface.\n");
