@@ -160,7 +160,7 @@ struct gl_renderer *gl_renderer_new_from_gbm_device(
 
         if (has_forced_pixel_format == false) {
             has_forced_pixel_format = true;
-            pixel_format = kARGB8888;
+            pixel_format = kARGB8888_FpiPixelFormat;
         }
         
         forced_egl_config = choose_config_with_pixel_format(egl_display, config_attribs, pixel_format);
@@ -554,7 +554,7 @@ ATTR_PURE EGLConfig gl_renderer_choose_config(struct gl_renderer *renderer, bool
         config_attribs,
         renderer->has_forced_pixel_format ? renderer->pixel_format :
             has_desired_pixel_format ? desired_pixel_format :
-            kARGB8888
+            kARGB8888_FpiPixelFormat
     );
 }
 
