@@ -30,7 +30,7 @@ if(NOT CMAKE_BUILD_TYPE)
     message(STATUS "CMAKE_BUILD_TYPE not set, defaulting to Release.")
 endif()
 
-project(flutter-pi LANGUAGES C CXX VERSION "1.0.0")
+project(flutter-pi LANGUAGES C VERSION "1.0.0")
 
 message(STATUS "Generator .............. ${CMAKE_GENERATOR}")
 message(STATUS "Build Type ............. ${CMAKE_BUILD_TYPE}")

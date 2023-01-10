@@ -143,7 +143,9 @@ void plugin_registry_destroy(struct plugin_registry *registry) {
 
 	plugin_registry_ensure_plugins_deinitialized(registry);
 	for_each_pointer_in_cpset(&registry->plugins, instance) {
+		cpset_remove_locked(&registry->plugins, instance);
 		free(instance);
+		instance = NULL;
 	}
 	cpset_deinit(&registry->callbacks);
 	cpset_deinit(&registry->plugins);

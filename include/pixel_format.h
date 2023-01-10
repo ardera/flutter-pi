@@ -30,24 +30,24 @@ struct fbdev_pixfmt {
  * 
  */
 enum pixfmt {
-    kRGB565,
-    kARGB8888,
-    kXRGB8888,
-    kBGRA8888,
-    kRGBA8888,
-    kMax_PixFmt = kRGBA8888,
+    kRGB565_FpiPixelFormat,
+    kARGB8888_FpiPixelFormat,
+    kXRGB8888_FpiPixelFormat,
+    kBGRA8888_FpiPixelFormat,
+    kRGBA8888_FpiPixelFormat,
+    kMax_PixFmt = kRGBA8888_FpiPixelFormat,
     kCount_PixFmt = kMax_PixFmt + 1
 };
 
 // Just a pedantic check so we don't update the pixfmt enum without changing kMax_PixFmt
-COMPILE_ASSERT(kMax_PixFmt == kRGBA8888);
+COMPILE_ASSERT(kMax_PixFmt == kRGBA8888_FpiPixelFormat);
 
 #define PIXFMT_LIST(V) \
-    V( "RGB 5:6:5",    "RGB565",  kRGB565,   /*bpp*/ 16, /*opaque*/ true,  /*R*/ 5, 11, /*G*/ 6, 5,  /*B*/ 5, 0,  /*A*/ 0, 0,  /*GBM fourcc*/ GBM_FORMAT_RGB565,   /*DRM fourcc*/ DRM_FORMAT_RGB565) \
-    V("ARGB 8:8:8:8", "ARGB8888", kARGB8888, /*bpp*/ 32, /*opaque*/ false, /*R*/ 8, 16, /*G*/ 8, 8,  /*B*/ 8, 0,  /*A*/ 8, 24, /*GBM fourcc*/ GBM_FORMAT_ARGB8888, /*DRM fourcc*/ DRM_FORMAT_RGB565) \
-    V("XRGB 8:8:8:8", "XRGB8888", kXRGB8888, /*bpp*/ 32, /*opaque*/ true,  /*R*/ 8, 16, /*G*/ 8, 8,  /*B*/ 8, 0,  /*A*/ 0, 24, /*GBM fourcc*/ GBM_FORMAT_XRGB8888, /*DRM fourcc*/ DRM_FORMAT_XRGB8888) \
-    V("BGRA 8:8:8:8", "BGRA8888", kBGRA8888, /*bpp*/ 32, /*opaque*/ false, /*R*/ 8,  8, /*G*/ 8, 16, /*B*/ 8, 24, /*A*/ 8, 0,  /*GBM fourcc*/ GBM_FORMAT_BGRA8888, /*DRM fourcc*/ DRM_FORMAT_BGRA8888) \
-    V("RGBA 8:8:8:8", "RGBA8888", kRGBA8888, /*bpp*/ 32, /*opaque*/ false, /*R*/ 8, 24, /*G*/ 8, 16, /*B*/ 8, 8,  /*A*/ 8, 0,  /*GBM fourcc*/ GBM_FORMAT_RGBA8888, /*DRM fourcc*/ DRM_FORMAT_RGBA8888)
+    V( "RGB 5:6:5",    "RGB565",  kRGB565_FpiPixelFormat,   /*bpp*/ 16, /*opaque*/ true,  /*R*/ 5, 11, /*G*/ 6, 5,  /*B*/ 5, 0,  /*A*/ 0, 0,  /*GBM fourcc*/ GBM_FORMAT_RGB565,   /*DRM fourcc*/ DRM_FORMAT_RGB565) \
+    V("ARGB 8:8:8:8", "ARGB8888", kARGB8888_FpiPixelFormat, /*bpp*/ 32, /*opaque*/ false, /*R*/ 8, 16, /*G*/ 8, 8,  /*B*/ 8, 0,  /*A*/ 8, 24, /*GBM fourcc*/ GBM_FORMAT_ARGB8888, /*DRM fourcc*/ DRM_FORMAT_RGB565) \
+    V("XRGB 8:8:8:8", "XRGB8888", kXRGB8888_FpiPixelFormat, /*bpp*/ 32, /*opaque*/ true,  /*R*/ 8, 16, /*G*/ 8, 8,  /*B*/ 8, 0,  /*A*/ 0, 24, /*GBM fourcc*/ GBM_FORMAT_XRGB8888, /*DRM fourcc*/ DRM_FORMAT_XRGB8888) \
+    V("BGRA 8:8:8:8", "BGRA8888", kBGRA8888_FpiPixelFormat, /*bpp*/ 32, /*opaque*/ false, /*R*/ 8,  8, /*G*/ 8, 16, /*B*/ 8, 24, /*A*/ 8, 0,  /*GBM fourcc*/ GBM_FORMAT_BGRA8888, /*DRM fourcc*/ DRM_FORMAT_BGRA8888) \
+    V("RGBA 8:8:8:8", "RGBA8888", kRGBA8888_FpiPixelFormat, /*bpp*/ 32, /*opaque*/ false, /*R*/ 8, 24, /*G*/ 8, 16, /*B*/ 8, 8,  /*A*/ 8, 0,  /*GBM fourcc*/ GBM_FORMAT_RGBA8888, /*DRM fourcc*/ DRM_FORMAT_RGBA8888)
 
 // make sure the macro list we defined has as many elements as the pixfmt enum.
 #define __COUNT(...) +1
