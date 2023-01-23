@@ -3,10 +3,14 @@
 
 #include <xkbcommon/xkbcommon.h>
 #include <flutter_embedder.h>
+#include <collection.h>
+#include <plugins/raw_keyboard.h>
 
 #define MAX_COLLECTED_FLUTTER_POINTER_EVENTS 64
 
-#define FLUTTER_POINTER_EVENT(_phase, _timestamp, _x, _y, _device, _signal_kind, _scroll_delta_x, _scroll_delta_y, _device_kind, _buttons) \
+COMPILE_ASSERT(sizeof(FlutterPointerEvent) == 104);
+
+#define FLUTTER_POINTER_EVENT(_phase, _timestamp, _x, _y, _device, _signal_kind, _scroll_delta_x, _scroll_delta_y, _device_kind, _buttons, _pan_x, _pan_y, _scale, _rotation) \
     (FlutterPointerEvent) { \
         .struct_size = sizeof(FlutterPointerEvent), \
         .phase = (_phase), \
@@ -17,38 +21,42 @@
         .scroll_delta_x = (_scroll_delta_x), \
         .scroll_delta_y = (_scroll_delta_y), \
         .device_kind = (_device_kind), \
-        .buttons = (_buttons) \
+        .buttons = (_buttons), \
+        .pan_x = (_pan_x), \
+        .pan_y = (_pan_y), \
+        .scale = (_scale), \
+        .rotation = (_rotation) \
     }
 
 #define FLUTTER_POINTER_TOUCH_ADD_EVENT(_timestamp, _x, _y, _device_id) \
-    FLUTTER_POINTER_EVENT(kAdd, _timestamp, _x, _y, _device_id, kFlutterPointerSignalKindNone, 0.0, 0.0, kFlutterPointerDeviceKindTouch, 0)
+    FLUTTER_POINTER_EVENT(kAdd, _timestamp, _x, _y, _device_id, kFlutterPointerSignalKindNone, 0.0, 0.0, kFlutterPointerDeviceKindTouch, 0, 0.0, 0.0, 0.0, 0.0)
 
 #define FLUTTER_POINTER_TOUCH_REMOVE_EVENT(_timestamp, _x, _y, _device_id) \
-    FLUTTER_POINTER_EVENT(kRemove, _timestamp, _x, _y, _device_id, kFlutterPointerSignalKindNone, 0.0, 0.0, kFlutterPointerDeviceKindTouch, 0)
+    FLUTTER_POINTER_EVENT(kRemove, _timestamp, _x, _y, _device_id, kFlutterPointerSignalKindNone, 0.0, 0.0, kFlutterPointerDeviceKindTouch, 0, 0.0, 0.0, 0.0, 0.0)
 
 #define FLUTTER_POINTER_TOUCH_MOVE_EVENT(_timestamp, _x, _y, _device_id) \
-    FLUTTER_POINTER_EVENT(kMove, _timestamp, _x, _y, _device_id, kFlutterPointerSignalKindNone, 0.0, 0.0, kFlutterPointerDeviceKindTouch, 0)
+    FLUTTER_POINTER_EVENT(kMove, _timestamp, _x, _y, _device_id, kFlutterPointerSignalKindNone, 0.0, 0.0, kFlutterPointerDeviceKindTouch, 0, 0.0, 0.0, 0.0, 0.0)
 
 #define FLUTTER_POINTER_TOUCH_DOWN_EVENT(_timestamp, _x, _y, _device_id) \
-    FLUTTER_POINTER_EVENT(kDown, _timestamp, _x, _y, _device_id, kFlutterPointerSignalKindNone, 0.0, 0.0, kFlutterPointerDeviceKindTouch, 0)
+    FLUTTER_POINTER_EVENT(kDown, _timestamp, _x, _y, _device_id, kFlutterPointerSignalKindNone, 0.0, 0.0, kFlutterPointerDeviceKindTouch, 0, 0.0, 0.0, 0.0, 0.0)
 
 #define FLUTTER_POINTER_TOUCH_UP_EVENT(_timestamp, _x, _y, _device_id) \
-    FLUTTER_POINTER_EVENT(kUp, _timestamp, _x, _y, _device_id, kFlutterPointerSignalKindNone, 0.0, 0.0, kFlutterPointerDeviceKindTouch, 0)
+    FLUTTER_POINTER_EVENT(kUp, _timestamp, _x, _y, _device_id, kFlutterPointerSignalKindNone, 0.0, 0.0, kFlutterPointerDeviceKindTouch, 0, 0.0, 0.0, 0.0, 0.0)
 
 #define FLUTTER_POINTER_MOUSE_BUTTON_EVENT(_phase, _timestamp, _x, _y, _device_id, _buttons) \
-    FLUTTER_POINTER_EVENT(_phase, _timestamp, _x, _y, _device_id, kFlutterPointerSignalKindNone, 0.0, 0.0, kFlutterPointerDeviceKindMouse, _buttons)
+    FLUTTER_POINTER_EVENT(_phase, _timestamp, _x, _y, _device_id, kFlutterPointerSignalKindNone, 0.0, 0.0, kFlutterPointerDeviceKindMouse, _buttons, 0.0, 0.0, 0.0, 0.0)
 
 #define FLUTTER_POINTER_MOUSE_ADD_EVENT(_timestamp, _x, _y, _device_id, _buttons) \
-    FLUTTER_POINTER_EVENT(kAdd, _timestamp, _x, _y, _device_id, kFlutterPointerSignalKindNone, 0.0, 0.0, kFlutterPointerDeviceKindMouse, _buttons)
+    FLUTTER_POINTER_EVENT(kAdd, _timestamp, _x, _y, _device_id, kFlutterPointerSignalKindNone, 0.0, 0.0, kFlutterPointerDeviceKindMouse, _buttons, 0.0, 0.0, 0.0, 0.0)
 
 #define FLUTTER_POINTER_MOUSE_SCROLL_EVENT(_timestamp, _x, _y, _device_id, _scroll_x, _scroll_y, _buttons) \
-    FLUTTER_POINTER_EVENT(((_buttons) != 0) ? kMove : kHover, _timestamp, _x, _y, _device_id, kFlutterPointerSignalKindScroll, _scroll_x, _scroll_y, kFlutterPointerDeviceKindMouse, _buttons)
+    FLUTTER_POINTER_EVENT(((_buttons) != 0) ? kMove : kHover, _timestamp, _x, _y, _device_id, kFlutterPointerSignalKindScroll, _scroll_x, _scroll_y, kFlutterPointerDeviceKindMouse, _buttons, 0.0, 0.0, 0.0, 0.0)
 
 #define FLUTTER_POINTER_MOUSE_REMOVE_EVENT(_timestamp, _x, _y, _device_id, _buttons) \
-    FLUTTER_POINTER_EVENT(kRemove, _timestamp, _x, _y, _device_id, kFlutterPointerSignalKindNone, 0.0, 0.0, kFlutterPointerDeviceKindMouse, _buttons)
+    FLUTTER_POINTER_EVENT(kRemove, _timestamp, _x, _y, _device_id, kFlutterPointerSignalKindNone, 0.0, 0.0, kFlutterPointerDeviceKindMouse, _buttons, 0.0, 0.0, 0.0, 0.0)
 
 #define FLUTTER_POINTER_REMOVE_EVENT(_timestamp, _x, _y, _device, _buttons) \
-    FLUTTER_POINTER_EVENT(kRemove, _timestamp, _x, _y, _device_id, kFlutterPointerSignalKindNone, 0.0, 0.0, kFlutterPointerDeviceKindMouse, _buttons)
+    FLUTTER_POINTER_EVENT(kRemove, _timestamp, _x, _y, _device_id, kFlutterPointerSignalKindNone, 0.0, 0.0, kFlutterPointerDeviceKindMouse, _buttons, 0.0, 0.0, 0.0, 0.0)
 
 #define FLUTTER_POINTER_MOUSE_MOVE_EVENT(_timestamp, _x, _y, _device_id, _buttons) \
     FLUTTER_POINTER_EVENT( \
@@ -59,7 +67,8 @@
         kFlutterPointerSignalKindNone, \
         0.0, 0.0, \
         kFlutterPointerDeviceKindMouse, \
-        _buttons\
+        _buttons, \
+        0.0, 0.0, 0.0, 0.0 \
     )
 
 typedef void (*flutter_pointer_event_callback_t)(void *userdata, const FlutterPointerEvent *events, size_t n_events);
@@ -81,6 +90,18 @@ typedef void (*set_cursor_enabled_callback_t)(void *userdata, bool enabled);
 
 typedef void (*move_cursor_callback_t)(void *userdata, unsigned int x, unsigned int y);
 
+typedef void (*keyevent_callback_t)(
+    void *userdata,
+    uint64_t timestamp_us,
+    xkb_keycode_t xkb_keycode,
+    xkb_keysym_t xkb_keysym,
+    uint32_t plain_codepoint,
+    key_modifiers_t modifiers,
+    const char *text,
+    bool is_down,
+    bool is_repeat
+);
+
 struct user_input_interface {
     flutter_pointer_event_callback_t on_flutter_pointer_event;
     utf8_character_callback_t on_utf8_character;
@@ -91,6 +112,7 @@ struct user_input_interface {
     int (*open)(const char *path, int flags, void *userdata);
     void (*close)(int fd, void *userdata);
     void (*on_switch_vt)(void *userdata, int vt);
+    keyevent_callback_t on_key_event;
 };
 
 struct user_input;

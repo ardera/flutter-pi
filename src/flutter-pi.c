@@ -334,6 +334,7 @@ static uint32_t fbo_callback(void* userdata) {
 
     DEBUG_ASSERT_NOT_NULL(userdata);
     flutterpi = userdata;
+    (void) flutterpi;
 
     TRACER_INSTANT(flutterpi->tracer, "fbo_callback");
     return 0;
@@ -379,6 +380,7 @@ MAYBE_UNUSED static void *on_get_vulkan_proc_address(
 ) {
     DEBUG_ASSERT_NOT_NULL(userdata);
     DEBUG_ASSERT_NOT_NULL(name);
+    (void) userdata;
 
 #ifdef HAS_VULKAN
     return (void*) vkGetInstanceProcAddr((VkInstance) instance, name);
@@ -404,6 +406,7 @@ MAYBE_UNUSED static FlutterVulkanImage on_get_next_vulkan_image(
     (void) frameinfo;
 
     UNIMPLEMENTED();
+    UNREACHABLE();
 }
 
 MAYBE_UNUSED static bool on_present_vulkan_image(
@@ -419,6 +422,7 @@ MAYBE_UNUSED static bool on_present_vulkan_image(
     (void) flutterpi;
     (void) image;
 
+    UNIMPLEMENTED();
     UNREACHABLE();
 }
 
@@ -2181,6 +2185,7 @@ static void on_session_enable(struct libseat *seat, void *userdata) {
     DEBUG_ASSERT_NOT_NULL(userdata);
     fpi = userdata;
     (void) fpi;
+    (void) seat;
 
     /// TODO: Implement
     LOG_DEBUG("on_session_enable\n");
@@ -2481,6 +2486,7 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
         .open = on_user_input_open,
         .close = on_user_input_close,
         .on_switch_vt = on_switch_vt,
+        .on_key_event = NULL
     };
 
     fpi->libseat = libseat;
