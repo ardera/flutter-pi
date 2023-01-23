@@ -95,6 +95,15 @@ struct gstplayer *gstplayer_new_from_file(
     void *userdata
 );
 
+/// Create a gstreamer video player with a custom gstreamer pipeline.
+///     @arg pipeline  The description of the custom pipeline that should be used. Should contain an appsink called "sink".
+///     @arg userdata  The userdata associated with this player.
+struct gstplayer *gstplayer_new_from_pipeline(
+    struct flutterpi *flutterpi,
+    const char *pipeline,
+    void *userdata
+);
+
 /// Destroy this gstreamer player instance and the resources
 /// associated with it. (texture, gstreamer pipeline, etc)
 ///
