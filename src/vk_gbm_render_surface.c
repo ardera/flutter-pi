@@ -557,6 +557,7 @@ static void on_destroy_gbm_bo_meta(struct gbm_bo *bo, void *meta_void) {
     DEBUG_ASSERT_NOT_NULL(bo);
     DEBUG_ASSERT_NOT_NULL(meta_void);
     meta = meta_void;
+    (void) bo;
 
     ok = drmdev_rm_fb(meta->drmdev, meta->fb_id);
     if (ok != 0) {

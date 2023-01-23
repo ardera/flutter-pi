@@ -96,6 +96,7 @@ void frame_scheduler_on_fl_vsync_request(struct frame_scheduler *scheduler, intp
 
 void frame_scheduler_on_rendering_complete(struct frame_scheduler *scheduler) {
     DEBUG_ASSERT_NOT_NULL(scheduler);
+    (void) scheduler;
 
     /// TODO: Implement
     UNIMPLEMENTED();
@@ -103,6 +104,7 @@ void frame_scheduler_on_rendering_complete(struct frame_scheduler *scheduler) {
 
 void frame_scheduler_on_fb_released(struct frame_scheduler *scheduler, bool has_timestamp, uint64_t timestamp_ns) {
     DEBUG_ASSERT_NOT_NULL(scheduler);
+    (void) scheduler;
     (void) has_timestamp;
     (void) timestamp_ns;
 
@@ -112,6 +114,7 @@ void frame_scheduler_on_fb_released(struct frame_scheduler *scheduler, bool has_
 
 void frame_scheduler_request_fb(struct frame_scheduler *scheduler, uint64_t scanout_time_ns) {
     DEBUG_ASSERT_NOT_NULL(scheduler);
+    (void) scheduler;
     (void) scanout_time_ns;
 
     /// TODO: Implement
@@ -121,6 +124,7 @@ void frame_scheduler_request_fb(struct frame_scheduler *scheduler, uint64_t scan
 void frame_scheduler_present_frame(struct frame_scheduler *scheduler, void_callback_t present_cb, void *userdata, void_callback_t cancel_cb) {
     DEBUG_ASSERT_NOT_NULL(scheduler);
     DEBUG_ASSERT_NOT_NULL(present_cb);
+    (void) scheduler;
     (void) cancel_cb;
 
     /// TODO: Implement
@@ -130,6 +134,9 @@ void frame_scheduler_present_frame(struct frame_scheduler *scheduler, void_callb
 void frame_scheduler_on_scanout(struct frame_scheduler *scheduler, bool has_timestamp, uint64_t timestamp_ns) {
     DEBUG_ASSERT_NOT_NULL(scheduler);
     DEBUG_ASSERT(!has_timestamp || timestamp_ns != 0);
+    (void) scheduler;
+    (void) has_timestamp;
+    (void) timestamp_ns;
     
     /// TODO: Implement
     UNIMPLEMENTED();

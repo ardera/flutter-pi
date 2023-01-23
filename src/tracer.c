@@ -83,6 +83,7 @@ void tracer_set_cbs(
 
     bool already_set_before = atomic_exchange(&tracer->has_cbs, true);
     DEBUG_ASSERT_MSG(!already_set_before, "tracing callbacks can only be set once.");
+    (void) already_set_before;
 }
 
 void tracer_destroy(struct tracer *tracer) {
@@ -92,6 +93,7 @@ void tracer_destroy(struct tracer *tracer) {
 DEFINE_REF_OPS(tracer, n_refs)
 
 static void log_discarded_event(struct tracer *tracer, const char *name) {
+    (void) name;
     if (atomic_exchange(&tracer->logged_discarded_events, true) == false) {
         LOG_DEBUG("Tracing event was discarded because tracer not initialized yet: %s. This message will only be logged once.\n", name);
     }
