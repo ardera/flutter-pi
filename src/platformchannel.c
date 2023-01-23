@@ -12,6 +12,7 @@
 #include <flutter-pi.h>
 #include <jsmn.h>
 
+FILE_DESCR("platform messages")
 
 struct platch_msg_resp_handler_data {
 	enum platch_codec codec;
@@ -1303,6 +1304,16 @@ int platch_respond_illegal_arg_std(FlutterPlatformMessageResponseHandle *handle,
 	return platch_respond_error_std(handle, "illegalargument", error_msg, NULL);
 }
 
+/// Sends a platform message to `handle` with error code "illegalargument"
+/// and error message `errmsg`.
+int platch_respond_illegal_arg_ext_std(
+	FlutterPlatformMessageResponseHandle *handle,
+	char *error_msg,
+	struct std_value *error_details
+) {
+	return platch_respond_error_std(handle, "illegalargument", error_msg, error_details);
+}
+
 /// Sends a platform message to `handle` with error code "nativeerror"
 /// and error messsage `strerror(_errno)`
 int platch_respond_native_error_std(FlutterPlatformMessageResponseHandle *handle,
@@ -1710,8 +1721,700 @@ struct std_value *stdmap_get(struct std_value *map, struct std_value *key) {
 
 	return NULL;
 }
+
 struct std_value *stdmap_get_str(struct std_value *map, char *key) {
 	DEBUG_ASSERT_NOT_NULL(map);
 	DEBUG_ASSERT_NOT_NULL(key);
 	return stdmap_get(map, &STDSTRING(key));
+}
+
+/**
+ * BEGIN Raw Standard Message Codec Value API.
+ * 
+ * New API, for using standard-message-codec encoded buffers directly, without parsing them first.
+ * 
+ */
+
+ATTR_PURE enum std_value_type raw_std_value_get_type(const struct raw_std_value *value) {
+	return (enum std_value_type) *((const uint8_t*) value);
+}
+
+ATTR_CONST static const void *get_value_ptr(const struct raw_std_value *value, int alignment) {
+	uintptr_t addr = (uintptr_t) value;
+
+	// skip type byte
+	addr++;
+
+	// make sure we're aligned
+	if (alignment == 4) {
+		if (addr & 3) {
+			addr = (addr | 3) + 1;
+		}
+	} else if (alignment == 8) {
+		if (addr & 7) {
+			addr = (addr | 7) + 1;
+		}
+	}
+
+	return (const void*) addr;
+}
+
+ATTR_CONST MAYBE_UNUSED static const void *get_after_ptr(const struct raw_std_value *value, int alignment, int value_size) {
+	return ((const uint8_t*) get_value_ptr(value, alignment)) + value_size;
+}
+
+ATTR_CONST static const void *get_array_value_ptr(const struct raw_std_value *value, int alignment, size_t size) {
+	uintptr_t addr = (uintptr_t) value;
+
+	// skip type byte
+	addr++;
+
+	// skip initial size byte
+	addr++;
+	if (size == 254) {
+		// skip two additional size bytes
+		addr += 2;
+	} else if (size == 255) {
+		// skip four additional size bytes
+		addr += 4;
+	}
+
+	// make sure we're aligned
+	if (alignment == 4) {
+		if (addr & 3) {
+			addr = (addr | 3) + 1;
+		}
+	} else if (alignment == 8) {
+		if (addr & 7) {
+			addr = (addr | 7) + 1;
+		}
+	}
+
+	return (const void*) addr;
+}
+
+ATTR_CONST static const void *get_array_after_ptr(const struct raw_std_value *value, int alignment, size_t size, int element_size) {
+	uintptr_t addr = (uintptr_t) get_array_value_ptr(value, alignment, size);
+
+	// skip all the array elements
+	addr += size * element_size;
+
+	return (const void*) addr;
+}
+
+
+ATTR_PURE bool raw_std_value_is_null(const struct raw_std_value *value) {
+	return raw_std_value_get_type(value) == kStdNull;
+}
+
+ATTR_PURE bool raw_std_value_is_true(const struct raw_std_value *value) {
+	return raw_std_value_get_type(value) == kStdTrue;
+}
+
+ATTR_PURE bool raw_std_value_is_false(const struct raw_std_value *value) {
+	return raw_std_value_get_type(value) == kStdFalse;
+}
+
+ATTR_PURE bool raw_std_value_is_int32(const struct raw_std_value *value) {
+	return raw_std_value_get_type(value) == kStdInt32;
+}
+
+ATTR_PURE int32_t raw_std_value_as_int32(const struct raw_std_value *value) {
+	DEBUG_ASSERT(raw_std_value_is_int32(value));
+	int32_t result;
+	memcpy(&result, get_value_ptr(value, 0), sizeof(result));
+	
+	return result;
+}
+
+ATTR_PURE bool raw_std_value_is_int64(const struct raw_std_value *value) {
+	return raw_std_value_get_type(value) == kStdInt64;
+}
+
+ATTR_PURE int64_t raw_std_value_as_int64(const struct raw_std_value *value) {
+	DEBUG_ASSERT(raw_std_value_is_int64(value));
+
+	int64_t result;
+	memcpy(&result, get_value_ptr(value, 0), sizeof(result));
+
+	return result;
+}
+
+ATTR_PURE bool raw_std_value_is_float64(const struct raw_std_value *value) {
+	return raw_std_value_get_type(value) == kStdFloat64;
+}
+
+ATTR_PURE double raw_std_value_as_float64(const struct raw_std_value *value) {
+	DEBUG_ASSERT(raw_std_value_is_float64(value));
+	return *(double*) get_value_ptr(value, 8);
+}
+
+ATTR_PURE bool raw_std_value_is_string(const struct raw_std_value *value) {
+	return raw_std_value_get_type(value) == kStdString;
+}
+
+ATTR_PURE char *raw_std_string_dup(const struct raw_std_value *value) {
+	DEBUG_ASSERT(raw_std_value_is_string(value));
+
+	size_t size = raw_std_value_get_size(value);
+
+	char *str = malloc(size + 1);
+	if (str == NULL) {
+		return NULL;
+	}
+
+	memcpy(str, get_array_value_ptr(value, 0, size), size);
+	str[size] = '\0';
+
+	return str;
+}
+
+ATTR_PURE bool raw_std_string_equals(const struct raw_std_value *value, const char *str) {
+	size_t length = raw_std_value_get_size(value);
+	const char *as_unterminated_string = get_array_value_ptr(value, 0, length);
+	return strncmp(as_unterminated_string, str, length) == 0 && str[length] == '\0';
+}
+
+ATTR_PURE bool raw_std_value_is_uint8array(const struct raw_std_value *value) {
+	return raw_std_value_get_type(value) == kStdUInt8Array;
+}
+
+ATTR_PURE const uint8_t *raw_std_value_as_uint8array(const struct raw_std_value *value) {
+	DEBUG_ASSERT(raw_std_value_is_uint8array(value));
+	return get_array_value_ptr(value, 0, raw_std_value_get_size(value));
+}
+
+ATTR_PURE bool raw_std_value_is_int32array(const struct raw_std_value *value) {
+	return raw_std_value_get_type(value) == kStdInt32Array;
+}
+
+ATTR_PURE const int32_t *raw_std_value_as_int32array(const struct raw_std_value *value) {
+	DEBUG_ASSERT(raw_std_value_is_int32array(value));
+	return get_array_value_ptr(value, 4, raw_std_value_get_size(value));
+}
+
+ATTR_PURE bool raw_std_value_is_int64array(const struct raw_std_value *value) {
+	return raw_std_value_get_type(value) == kStdInt64Array;
+}
+
+ATTR_PURE const int64_t *raw_std_value_as_int64array(const struct raw_std_value *value) {
+	DEBUG_ASSERT(raw_std_value_is_int64array(value));
+	return get_array_value_ptr(value, 8, raw_std_value_get_size(value));
+}
+
+ATTR_PURE bool raw_std_value_is_float64array(const struct raw_std_value *value) {
+	return raw_std_value_get_type(value) == kStdFloat64Array;
+}
+
+ATTR_PURE const double *raw_std_value_as_float64array(const struct raw_std_value *value) {
+	DEBUG_ASSERT(raw_std_value_is_float64array(value));
+	return get_array_value_ptr(value, 8, raw_std_value_get_size(value));
+}
+
+ATTR_PURE bool raw_std_value_is_list(const struct raw_std_value *value) {
+	return raw_std_value_get_type(value) == kStdList;
+}
+
+ATTR_PURE size_t raw_std_list_get_size(const struct raw_std_value *list) {
+	DEBUG_ASSERT(raw_std_value_is_list(list));
+	return raw_std_value_get_size(list);
+}
+
+ATTR_PURE bool raw_std_value_is_map(const struct raw_std_value *value) {
+	return raw_std_value_get_type(value) == kStdMap;
+}
+
+ATTR_PURE size_t raw_std_map_get_size(const struct raw_std_value *map) {
+	DEBUG_ASSERT(raw_std_value_is_map(map));
+	return raw_std_value_get_size(map);
+}
+
+ATTR_PURE bool raw_std_value_is_float32array(const struct raw_std_value *value) {
+	return raw_std_value_get_type(value) == kStdFloat32Array;
+}
+
+ATTR_PURE const float *raw_std_value_as_float32array(const struct raw_std_value *value) {
+	DEBUG_ASSERT(raw_std_value_is_float32array(value));
+	return get_array_value_ptr(value, 4, raw_std_value_get_size(value));
+}
+
+
+ATTR_PURE bool raw_std_value_equals(const struct raw_std_value *a, const struct raw_std_value *b) {
+	size_t length;
+	int alignment, element_size;
+
+	DEBUG_ASSERT_NOT_NULL(a);
+	DEBUG_ASSERT_NOT_NULL(b);
+
+	if (a == b) {
+		return true;
+	}
+
+	if (raw_std_value_get_type(a) != raw_std_value_get_type(b)) {
+		return false;
+	}
+
+	switch (raw_std_value_get_type(a)) {
+		case kStdNull:
+		case kStdTrue:
+		case kStdFalse:
+			return true;
+		case kStdInt32:
+			return raw_std_value_as_int32(a) == raw_std_value_as_int32(b);
+		case kStdInt64:
+			return raw_std_value_as_int64(a) == raw_std_value_as_int64(b);
+		case kStdFloat64:
+			return raw_std_value_as_float64(a) == raw_std_value_as_float64(b);
+		case kStdString:
+			alignment = 0;
+			element_size = 1;
+			goto memcmp_arrays;
+		case kStdUInt8Array:
+			alignment = 0;
+			element_size = 1;
+			goto memcmp_arrays;
+		case kStdInt32Array:
+			alignment = 4;
+			element_size = 4;
+			goto memcmp_arrays;
+		case kStdInt64Array:
+			alignment = 8;
+			element_size = 8;
+			
+			memcmp_arrays:
+			if (raw_std_value_get_size(a) != raw_std_value_get_size(b)) {
+				return false;
+			}
+
+			length = raw_std_value_get_size(a);
+			const void *values_a = get_array_value_ptr(a, alignment, length);
+			const void *values_b = get_array_value_ptr(b, alignment, length);
+			return memcmp(values_a, values_b, length * element_size) == 0;
+		case kStdFloat64Array:
+			if (raw_std_value_get_size(a) != raw_std_value_get_size(b)) {
+				return false;
+			}
+
+			length = raw_std_value_get_size(a);
+			const double *a_doubles = raw_std_value_as_float64array(a);
+			const double *b_doubles = raw_std_value_as_float64array(b);
+			for (int i = 0; i < length; i++) {
+				if (a_doubles[i] != b_doubles[i]) {
+					return false;
+				}
+			}
+
+			return true;
+		case kStdList:
+			if (raw_std_value_get_size(a) != raw_std_value_get_size(b)) {
+				return false;
+			}
+
+			const struct raw_std_value *cursor_a = raw_std_list_get_first_element(a);
+			const struct raw_std_value *cursor_b = raw_std_list_get_first_element(b);
+			for (int i = 0; i < raw_std_value_get_size(a); i++, cursor_a = raw_std_value_after(cursor_a), cursor_b = raw_std_value_after(cursor_b)) {
+				if (!raw_std_value_equals(cursor_a, cursor_b)) {
+					return false;
+				}
+			}
+
+			return true;
+		case kStdMap: 
+			if (raw_std_value_get_size(a) != raw_std_value_get_size(b)) {
+				return false;
+			}
+
+			size_t size = raw_std_value_get_size(a);
+
+			// key_from_b_also_in_a[i] == true means that there's a key in a that matches 
+			// the i-th key in b. So if we're searching for a key from a in b, we can safely ignore / don't need to compare
+			// keys in b that have they're key_from_b_also_in_a set to true.
+			bool *key_from_b_found_in_a = calloc(size, sizeof(bool));
+			
+			// for each key in a, look for a matching key in b.
+			// once it's found, mark it as used, so we don't try matching it again.
+			// then, check if the values associated with both keys are equal.
+			for_each_entry_in_raw_std_map(key_a, value_a, a) {
+				for_each_entry_in_raw_std_map_indexed(index_b, key_b, value_b, b) {
+					// we've already linked this entry from b to an entry from a.
+					// skip to the next entry.
+					if (key_from_b_found_in_a[index_b]) {
+						continue;
+					}
+
+					// Keys don't match. Skip to the next entry.
+					if (!raw_std_value_equals(key_a, key_b)) {
+						continue;
+					}
+					
+					key_from_b_found_in_a[index_b] = true;
+
+					// the values associated with both keys must be equal.
+					if (raw_std_value_equals(value_a, value_b) == false) {
+						free(key_from_b_found_in_a);
+						return false;
+					}
+
+					goto found;
+				}
+
+				// we didn't find key_a in b.
+				free(key_from_b_found_in_a);
+				return false;
+
+				found:
+				continue;
+			}
+
+			// each key, value pair in a was found in b.
+			// because a and b have the same number of entries,
+			// this must mean that every key, value pair in b must also be present in a.
+			// (a subset of b) and (b subset of a) ==> a equals b.
+
+			free(key_from_b_found_in_a);
+			return true;
+		case kStdFloat32Array:
+			if (raw_std_value_get_size(a) != raw_std_value_get_size(b)) {
+				return false;
+			}
+
+			length = raw_std_value_get_size(a);
+			const float *a_floats = raw_std_value_as_float32array(a);
+			const float *b_floats = raw_std_value_as_float32array(b);
+			for (int i = 0; i < length; i++) {
+				if (a_floats[i] != b_floats[i]) {
+					return false;
+				}
+			}
+
+			return true;
+		default:
+			return false;
+	}
+}
+
+
+ATTR_PURE bool raw_std_value_is_bool(const struct raw_std_value *value) {
+	return raw_std_value_is_true(value) || raw_std_value_is_false(value);
+}
+
+ATTR_PURE bool raw_std_value_as_bool(const struct raw_std_value *value) {
+	DEBUG_ASSERT(raw_std_value_is_bool(value));
+	return raw_std_value_is_true(value);
+}
+
+ATTR_PURE bool raw_std_value_is_int(const struct raw_std_value *value) {
+	return raw_std_value_is_int32(value) || raw_std_value_is_int64(value);
+}
+
+ATTR_PURE int64_t raw_std_value_as_int(const struct raw_std_value *value) {
+	DEBUG_ASSERT(raw_std_value_is_int(value));
+	if (raw_std_value_is_int32(value)) {
+		return raw_std_value_as_int32(value);
+	} else {
+		return raw_std_value_as_int64(value);
+	}
+}
+
+ATTR_PURE size_t raw_std_value_get_size(const struct raw_std_value *value) {
+	const uint8_t *byteptr;
+    size_t size;
+
+	DEBUG_ASSERT(
+		raw_std_value_is_uint8array(value) ||
+		raw_std_value_is_int32array(value) ||
+		raw_std_value_is_int64array(value) ||
+		raw_std_value_is_float64array(value) ||
+		raw_std_value_is_string(value) ||
+		raw_std_value_is_list(value) ||
+		raw_std_value_is_map(value)
+	);
+
+	byteptr = (const uint8_t*) value;
+	
+	// skip type byte
+	byteptr++;
+
+	size = *byteptr;
+    if (size <= 253) {
+        return size;
+    } else if (size == 254) {
+		size = 0;
+		memcpy(&size, byteptr + 1, 2);
+		return size;
+	} else if (size == 255) {
+		size = 0;
+		memcpy(&size, byteptr + 1, 4);
+		return size;
+	}
+
+	UNREACHABLE();
+}
+
+
+
+ATTR_PURE const struct raw_std_value *raw_std_value_after(const struct raw_std_value *value) {
+	size_t size;
+
+	switch (raw_std_value_get_type(value)) {
+		case kStdNull:
+			return get_after_ptr(value, 0, 0);
+		case kStdTrue:
+			return get_after_ptr(value, 0, 0);
+		case kStdFalse:
+			return get_after_ptr(value, 0, 0);
+		case kStdInt32:
+			return get_after_ptr(value, 0, 4);
+		case kStdInt64:
+			return get_after_ptr(value, 8, 8);
+		case kStdLargeInt:
+		case kStdString:
+			return get_array_after_ptr(value, 0, raw_std_value_get_size(value), 1);
+		case kStdFloat64:
+			return get_array_after_ptr(value, 8, raw_std_value_get_size(value), 8);
+		case kStdUInt8Array:
+			return get_array_after_ptr(value, 0, raw_std_value_get_size(value), 1);
+		case kStdInt32Array:
+			return get_array_after_ptr(value, 4, raw_std_value_get_size(value), 4);
+		case kStdInt64Array:
+			return get_array_after_ptr(value, 8, raw_std_value_get_size(value), 8);
+		case kStdFloat64Array:
+			return get_array_after_ptr(value, 8, raw_std_value_get_size(value), 8);
+		case kStdList: ;
+			size = raw_std_value_get_size(value);
+
+			value = get_array_value_ptr(value, 0, size);
+			for (; size > 0; size--) {
+				value = raw_std_value_after(value);
+			}
+
+			return value;
+		case kStdMap:
+			size = raw_std_value_get_size(value);
+
+			value = get_array_value_ptr(value, 0, size);
+			for (; size > 0; size--) {
+				value = raw_std_value_after(value);
+				value = raw_std_value_after(value);
+			}
+			
+			return value;
+		default:
+			return value;
+	}
+}
+
+ATTR_PURE const struct raw_std_value *raw_std_list_get_first_element(const struct raw_std_value *list) {
+	DEBUG_ASSERT(raw_std_value_is_list(list));
+	DEBUG_ASSERT(raw_std_value_get_size(list) > 0);
+	return get_array_value_ptr(list, 0, raw_std_value_get_size(list));
+}
+
+ATTR_PURE const struct raw_std_value *raw_std_list_get_nth_element(const struct raw_std_value *list, size_t index) {
+	const struct raw_std_value *element;
+
+	DEBUG_ASSERT(raw_std_value_is_list(list));
+	DEBUG_ASSERT(raw_std_value_get_size(list) > index);
+
+	element = raw_std_list_get_first_element(list);
+	while (index != 0) {
+		element = raw_std_value_after(element);
+		index--;
+	}
+
+	return element;
+}
+
+ATTR_PURE const struct raw_std_value *raw_std_map_get_first_key(const struct raw_std_value *map) {
+	DEBUG_ASSERT(raw_std_value_is_map(map));
+
+	return get_array_value_ptr(map, 0, raw_std_value_get_size(map));
+}
+
+ATTR_PURE const struct raw_std_value *raw_std_map_find(const struct raw_std_value *map, const struct raw_std_value *key) {
+	DEBUG_ASSERT(raw_std_value_is_map(map));
+
+	for_each_entry_in_raw_std_map(key_iter, value_iter, map) {
+		if (raw_std_value_equals(key_iter, key)) {
+			return value_iter;
+		}
+	}
+
+	return NULL;
+}
+
+ATTR_PURE const struct raw_std_value *raw_std_map_find_str(const struct raw_std_value *map, const char *str) {
+	DEBUG_ASSERT(raw_std_value_is_map(map));
+
+	for_each_entry_in_raw_std_map(key_iter, value_iter, map) {
+		if (raw_std_value_is_string(key_iter) && raw_std_string_equals(key_iter, str)) {
+			return value_iter;
+		}
+	}
+
+	return NULL;
+}
+
+
+ATTR_PURE static bool check_size(const struct raw_std_value *value, size_t buffer_size) {
+	size_t size;
+
+	if (buffer_size < 1) {
+		return false;
+	}
+
+	const uint8_t *byteptr = (const uint8_t*) value;
+
+	// skip type byte
+	byteptr++;
+
+	size = *byteptr;
+	buffer_size--;
+
+	if (size == 254) {
+		if (buffer_size < 2) {
+			return false;
+		}
+	} else if (size == 255) {
+		if (buffer_size < 4) {
+			return false;
+		}
+	}
+
+	return true;
+}
+
+ATTR_PURE bool raw_std_value_check(const struct raw_std_value *value, size_t buffer_size) {
+	size_t size;
+	int alignment, element_size;
+	
+	if (buffer_size < 1) {
+		return false;
+	}
+
+	switch (raw_std_value_get_type(value)) {
+		case kStdNull:
+		case kStdTrue:
+		case kStdFalse:
+			return true;
+		case kStdInt32:
+			return buffer_size >= 5;
+		case kStdInt64:
+			return buffer_size >= 9;
+		case kStdFloat64:
+			return buffer_size >= 9;
+		case kStdString:
+			alignment = 0;
+			element_size = 1;
+			goto check_arrays;
+		case kStdUInt8Array:
+			alignment = 0;
+			element_size = 1;
+			goto check_arrays;
+		case kStdInt32Array:
+			alignment = 4;
+			element_size = 4;
+			goto check_arrays;
+		case kStdInt64Array:
+			alignment = 8;
+			element_size = 8;
+			goto check_arrays;
+		case kStdFloat64Array:
+			alignment = 8;
+			element_size = 8;
+			goto check_arrays;
+		case kStdFloat32Array:
+			alignment = 4;
+			element_size = 4;
+			
+			// common code for checking if the buffer is large enough to contain
+			// a fixed size array.
+			check_arrays:
+
+			// check if buffer is large enough to contain the value size.
+			if (!check_size(value, buffer_size)) {
+				return false;
+			}
+			
+			// get the value size.
+			size = raw_std_value_get_size(value);
+			
+			// get the offset of the actual array values.
+			int diff = (intptr_t) get_array_value_ptr(value, alignment, size) - (intptr_t) value;
+			DEBUG_ASSERT(diff >= 0);
+			
+			if (buffer_size < diff) {
+				return false;
+			}
+			buffer_size -= diff;
+
+			// check if the buffer is large enough to contain all the the array values.
+			if (buffer_size < size * element_size) {
+				return false;
+			}
+
+			return true;
+		case kStdList:
+			// check if buffer is large enough to contain the value size.
+			if (!check_size(value, buffer_size)) {
+				return false;
+			}
+			
+			// get the value size.
+			size = raw_std_value_get_size(value);
+
+			for_each_element_in_raw_std_list(element, value) {
+				int diff = (intptr_t) element - (intptr_t) value;
+				if (buffer_size < diff) {
+					return false;
+				}
+
+				if (!raw_std_value_check(value, buffer_size - diff)) {
+					return false;
+				}
+			}
+
+			return true;
+		case kStdMap: 
+			// check if buffer is large enough to contain the value size.
+			if (!check_size(value, buffer_size)) {
+				return false;
+			}
+			
+			// get the value size.
+			size = raw_std_value_get_size(value);
+			
+			const struct raw_std_value *key = NULL, *map_value;
+			for (int diff, i = 0; i < size; i++) {
+				if (key == NULL) {
+					key = raw_std_map_get_first_key(value);
+				} else {
+					value = raw_std_value_after(map_value);
+				}
+
+				diff = (intptr_t) key - (intptr_t) value;
+				if (buffer_size < diff) {
+					return false;
+				}
+
+				if (!raw_std_value_check(key, buffer_size - diff)) {
+					return false;
+				}
+
+				map_value = raw_std_value_after(key);
+
+				diff = (intptr_t) map_value - (intptr_t) value;
+				if (buffer_size < diff) {
+					return false;
+				}
+
+				if (!raw_std_value_check(map_value, buffer_size - diff)) {
+					return false;
+				}
+			}
+
+			return true;
+		default:
+			return false;
+	}
 }
