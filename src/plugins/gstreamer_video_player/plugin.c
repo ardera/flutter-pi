@@ -245,6 +245,14 @@ static int respond_init_failed(FlutterPlatformMessageResponseHandle *handle) {
     );
 }
 
+static int respond_init_failed_v2(FlutterPlatformMessageResponseHandle *handle) {
+    return platch_respond_error_std(
+        handle,
+        "couldnotinit",
+        "gstreamer video player plugin failed to initialize gstreamer. See flutter-pi log for details.",
+        NULL
+    );
+}
 
 static int send_initialized_event(struct gstplayer_meta *meta, bool is_stream, int width, int height, int64_t duration_ms) {
     return platch_send_success_event_std(
@@ -386,8 +394,6 @@ static int on_receive_evch(
 
     method = object->method;
 
-    LOG_DEBUG("on_receive_evch\n");
-
     player = get_player_by_evch(channel);
     if (player == NULL) {
         return platch_respond_not_implemented(responsehandle);
@@ -439,10 +445,8 @@ static int on_initialize(
 
     ok = ensure_initialized();
     if (ok != 0) {
-        return respond_init_failed(responsehandle);
+        return respond_init_failed_v2(responsehandle);
     }
-
-    LOG_DEBUG("on_initialize\n");
 
     // what do we even do here?
 
@@ -701,8 +705,6 @@ static int on_create(
     if (ok != 0) {
         goto fail_remove_receiver;
     }
-
-    LOG_DEBUG("respond success on_create\n");
 
     return platch_respond_success_pigeon(
         responsehandle,
@@ -982,7 +984,6 @@ static int on_set_mix_with_others(
     (void) arg;
 
     /// TODO: Should we do anything other here than just returning?
-    LOG_DEBUG("on_set_mix_with_others\n");
     return platch_respond_success_std(responsehandle, &STDNULL);
 }
 
@@ -1089,6 +1090,674 @@ static int on_receive_method_channel(
     }
 }
 
+
+static struct gstplayer *get_player_from_texture_id_with_custom_errmsg(int64_t texture_id, FlutterPlatformMessageResponseHandle *responsehandle, char *error_message) {
+    struct gstplayer *player;
+
+    player = get_player_by_texture_id(texture_id);
+    if (player == NULL) {
+        cpset_lock(&plugin.players);
+
+        int n_texture_ids = cpset_get_count_pointers_locked(&plugin.players);
+        int64_t *texture_ids = alloca(sizeof(int64_t) * n_texture_ids);
+        int64_t *texture_ids_cursor = texture_ids;
+
+        for_each_pointer_in_cpset(&plugin.players, player) {
+            *texture_ids_cursor++ = gstplayer_get_texture_id(player);    
+        }
+        
+        cpset_unlock(&plugin.players);
+
+        platch_respond_illegal_arg_ext_std(
+            responsehandle,
+            error_message, 
+            &STDMAP2(
+                STDSTRING("receivedTextureId"), STDINT64(texture_id),
+                STDSTRING("registeredTextureIds"), ((struct std_value) {
+                    .type = kStdInt64Array,
+                    .size = n_texture_ids,
+                    .int64array = texture_ids
+                })
+            )
+        );
+
+        return NULL;
+    }
+
+    return player;
+}
+
+static struct gstplayer *get_player_from_v2_root_arg(const struct raw_std_value *arg, FlutterPlatformMessageResponseHandle *responsehandle) {
+    int64_t texture_id;
+
+    if (!raw_std_value_is_int(arg)) {
+        platch_respond_illegal_arg_std(responsehandle, "Expected `arg` to be an integer.");
+        return NULL;
+    }
+
+    texture_id = raw_std_value_as_int(arg);
+
+    return get_player_from_texture_id_with_custom_errmsg(
+        texture_id,
+        responsehandle,
+        "Expected `arg` to be a valid texture id."
+    );
+}
+
+static struct gstplayer *get_player_from_v2_list_arg(const struct raw_std_value *arg, FlutterPlatformMessageResponseHandle *responsehandle) {
+    int64_t texture_id;
+    
+    if (!(raw_std_value_is_list(arg) && raw_std_list_get_size(arg) >= 1)) {
+        platch_respond_illegal_arg_std(responsehandle, "Expected `arg` to be a list with at least one element.");
+        return NULL;
+    }
+
+    const struct raw_std_value *first_element = raw_std_list_get_first_element(arg);
+    if (!raw_std_value_is_int(first_element)) {
+        platch_respond_illegal_arg_std(responsehandle, "Expected `arg[0]` to be an integer.");
+        return NULL;
+    }
+
+    texture_id = raw_std_value_as_int(first_element);
+
+    return get_player_from_texture_id_with_custom_errmsg(
+        texture_id,
+        responsehandle,
+        "Expected `arg[0]` to be a valid texture id."
+    );
+}
+
+static int check_arg_is_minimum_sized_list(
+    const struct raw_std_value *arg,
+    size_t minimum_size,
+    FlutterPlatformMessageResponseHandle *responsehandle
+) {
+    if (!(raw_std_value_is_list(arg) && raw_std_list_get_size(arg) >= minimum_size)) {
+        char *error_message = NULL;
+
+        asprintf(&error_message, "Expected `arg` to be a list with at least %d element(s).", minimum_size);
+
+        platch_respond_illegal_arg_std(responsehandle, error_message);
+
+        free(error_message);
+
+        return EINVAL;
+    }
+
+    return 0;
+}
+
+static int on_initialize_v2(const struct raw_std_value *arg, FlutterPlatformMessageResponseHandle *responsehandle) {
+    int ok;
+
+    (void) arg;
+    
+    ok = ensure_initialized();
+    if (ok != 0) {
+        return respond_init_failed(responsehandle);
+    }
+
+    return platch_respond_success_std(responsehandle, &STDNULL);
+}
+
+static int on_create_v2(const struct raw_std_value *arg, FlutterPlatformMessageResponseHandle *responsehandle) {
+    const struct raw_std_value *headers;
+    struct gstplayer_meta *meta;
+    struct gstplayer *player;
+    enum format_hint format_hint;
+    char *asset, *uri, *package_name, *pipeline;
+    size_t size;
+    int ok;
+    
+    ok = ensure_initialized();
+    if (ok != 0) {
+        return respond_init_failed_v2(responsehandle);
+    }
+
+    if (!raw_std_value_is_list(arg)) {
+        return platch_respond_illegal_arg_std(responsehandle, "Expected `arg` to be a List.");
+    }
+
+    size = raw_std_list_get_size(arg);
+
+    // arg[0]: Asset Path
+    if (size >= 1) {
+        arg = raw_std_list_get_first_element(arg);
+
+        if (raw_std_value_is_null(arg)) {
+            asset = NULL;
+        } else if (raw_std_value_is_string(arg)) {
+            asset = raw_std_string_dup(arg);
+            if (asset == NULL) {
+                ok = ENOMEM;
+                goto fail_respond_error;
+            }
+        } else {
+            return platch_respond_illegal_arg_std(responsehandle, "Expected `arg[0]` to be a String or null.");
+        }
+    } else {
+        asset = NULL;
+    }
+
+    
+    // arg[1]: Package Name
+    if (size >= 2) {
+        arg = raw_std_value_after(arg);
+
+        if (raw_std_value_is_null(arg)) {
+            package_name = NULL;
+        } else if (raw_std_value_is_string(arg)) {
+            package_name = raw_std_string_dup(arg);
+            if (package_name == NULL) {
+                ok = ENOMEM;
+                goto fail_respond_error;
+            }
+        } else {
+            return platch_respond_illegal_arg_std(responsehandle, "Expected `arg[1]` to be a String or null.");
+        }
+    } else {
+        package_name = NULL;
+    }
+
+    // arg[1]: URI
+    if (size >= 3) {
+        arg = raw_std_value_after(arg);
+
+        if (raw_std_value_is_null(arg)) {
+            uri = NULL;
+        } else if (raw_std_value_is_string(arg)) {
+            uri = raw_std_string_dup(arg);
+            if (uri == NULL) {
+                ok = ENOMEM;
+                goto fail_respond_error;
+            }
+        } else {
+            return platch_respond_illegal_arg_std(responsehandle, "Expected `arg[2]` to be a String or null.");
+        }
+    } else {
+        uri = NULL;
+    }
+
+    // arg[3]: Format Hint
+    if (size >= 4) {
+        arg = raw_std_value_after(arg);
+
+        if (raw_std_value_is_null(arg)) {
+            format_hint = kNoFormatHint;
+        } else if (raw_std_value_is_string(arg)) {
+            if (raw_std_string_equals(arg, "ss")) {
+                format_hint = kSS_FormatHint;
+            } else if (raw_std_string_equals(arg, "hls")) {
+                format_hint = kHLS_FormatHint;
+            } else if (raw_std_string_equals(arg, "dash")) {
+                format_hint = kMpegDash_FormatHint;
+            } else if (raw_std_string_equals(arg, "other")) {
+                format_hint = kOther_FormatHint;
+            } else {
+                goto invalid_format_hint;
+            }
+        } else {
+            invalid_format_hint:
+            return platch_respond_illegal_arg_std(responsehandle, "Expected `arg[3]` to be one of 'ss', 'hls', 'dash', 'other' or null.");
+        }
+    } else {
+        format_hint = kNoFormatHint;
+    }
+
+    // arg[4]: HTTP Headers
+    if (size >= 5) {
+        arg = raw_std_value_after(arg);
+
+        if (raw_std_value_is_null(arg)) {
+            headers = NULL;
+        } else if (raw_std_value_is_map(arg)) {
+            for_each_entry_in_raw_std_map(key, value, arg) {
+                if (!raw_std_value_is_string(key) || !raw_std_value_is_string(value)) {
+                    goto invalid_headers;
+                }
+            }
+            headers = arg;
+        } else {
+            invalid_headers:
+            return platch_respond_illegal_arg_std(
+                responsehandle,
+                "Expected `arg[4]` to be a map of strings or null."
+            );
+        }
+    } else {
+        headers = NULL;
+    }
+
+    // arg[5]: Gstreamer Pipeline
+    if (size >= 6) {
+        arg = raw_std_value_after(arg);
+
+        if (raw_std_value_is_null(arg)) {
+            pipeline = NULL;
+        } else if (raw_std_value_is_string(arg)) {
+            pipeline = raw_std_string_dup(arg);
+        } else {
+            return platch_respond_illegal_arg_std(
+                responsehandle,
+                "Expected `arg[5]` to be a string or null."
+            );
+        }
+    } else {
+        pipeline = NULL;
+    }
+
+    if ((asset ? 1 : 0) + (uri ? 1 : 0) + (pipeline ? 1 : 0) != 1) {
+        return platch_respond_illegal_arg_std(
+            responsehandle,
+            "Expected exactly one of `arg[0]`, `arg[2]` or `arg[5]` to be non-null."
+        );
+    }
+
+    // Create our actual player (this doesn't initialize it)
+    if (asset != NULL) {
+        player = gstplayer_new_from_asset(flutterpi, asset, package_name, NULL);
+    } else if (uri != NULL) {
+        player = gstplayer_new_from_network(flutterpi, uri, format_hint, NULL);
+    } else if (pipeline != NULL) {
+        player = gstplayer_new_from_pipeline(flutterpi, pipeline, NULL);
+    } else {
+        UNREACHABLE();
+    }
+
+    if (player == NULL) {
+        LOG_ERROR("Couldn't create gstreamer video player.\n");
+        ok = EIO;
+        goto fail_respond_error;
+    }
+
+    // create a meta object so we can store the event channel name
+    // of a player with it
+    meta = create_meta(gstplayer_get_texture_id(player));
+    if (meta == NULL) {
+        ok = ENOMEM;
+        goto fail_destroy_player;
+    }
+    
+    gstplayer_set_userdata_locked(player, meta);
+
+    // Add all the HTTP headers to gstplayer using gstplayer_put_http_header
+    if (headers != NULL) {
+        for_each_entry_in_raw_std_map(header_name, header_value, headers) {
+            char *header_name_duped = raw_std_string_dup(header_name);
+            char *header_value_duped = raw_std_string_dup(header_value);
+
+            gstplayer_put_http_header(player, header_name_duped, header_value_duped);
+
+            free(header_value_duped);
+            free(header_name_duped);
+        }
+    }
+
+    // Add it to our player collection
+    ok = add_player(player);
+    if (ok != 0) {
+        goto fail_destroy_meta;
+    }
+
+    // Set a receiver on the videoEvents event channel
+    ok = plugin_registry_set_receiver(
+        meta->event_channel_name,
+        kStandardMethodCall,
+        on_receive_evch
+    );
+    if (ok != 0) {
+        goto fail_remove_player;
+    }
+
+    // Finally, start initializing
+    ok = gstplayer_initialize(player);
+    if (ok != 0) {
+        goto fail_remove_receiver;
+    }
+
+    return platch_respond_success_std(
+        responsehandle,
+        &STDINT64(gstplayer_get_texture_id(player))
+    );
+
+
+    fail_remove_receiver:
+    plugin_registry_remove_receiver(meta->event_channel_name);
+
+    fail_remove_player:
+    remove_player(player);
+
+    fail_destroy_meta:
+    destroy_meta(meta);
+
+    fail_destroy_player:
+    gstplayer_destroy(player);
+
+    fail_respond_error:
+    return platch_respond_native_error_std(responsehandle, ok);
+}
+
+static int on_dispose_v2(const struct raw_std_value *arg, FlutterPlatformMessageResponseHandle *responsehandle) {
+    struct gstplayer *player;
+
+    player = get_player_from_v2_root_arg(arg, responsehandle);
+    if (player == NULL) {
+        return EINVAL;
+    }
+
+    return 0;
+}
+
+static int on_set_looping_v2(const struct raw_std_value *arg, FlutterPlatformMessageResponseHandle *responsehandle) {
+    const struct raw_std_value *second;
+    struct gstplayer *player;
+    bool looping;
+    int ok;
+
+    ok = check_arg_is_minimum_sized_list(arg, 2, responsehandle);
+    if (ok != 0) {
+        return 0;
+    }
+
+    player = get_player_from_v2_list_arg(arg, responsehandle);
+    if (player == NULL) {
+        return 0;
+    }
+
+    second = raw_std_list_get_nth_element(arg, 1);
+    if (raw_std_value_is_bool(second)) {
+        looping = raw_std_value_as_bool(second);
+    } else {
+        return platch_respond_illegal_arg_std(responsehandle, "Expected `arg[1]` to be a bool.");
+    }
+
+    ok = gstplayer_set_looping(player, looping);
+    if (ok != 0) {
+        return platch_respond_native_error_std(responsehandle, ok);
+    }
+
+    return 0;
+}
+
+static int on_set_volume_v2(const struct raw_std_value *arg, FlutterPlatformMessageResponseHandle *responsehandle) {
+    const struct raw_std_value *second;
+    struct gstplayer *player;
+    double volume;
+    int ok;
+
+    ok = check_arg_is_minimum_sized_list(arg, 2, responsehandle);
+    if (ok != 0) {
+        return 0;
+    }
+
+    player = get_player_from_v2_list_arg(arg, responsehandle);
+    if (player == NULL) {
+        return 0;
+    }
+
+    second = raw_std_list_get_nth_element(arg, 1);
+    if (raw_std_value_is_float64(second)) {
+        volume = raw_std_value_as_float64(second);
+    } else {
+        return platch_respond_illegal_arg_std(responsehandle, "Expected `arg[1]` to be a double.");
+    }
+
+    ok = gstplayer_set_volume(player, volume);
+    if (ok != 0) {
+        return platch_respond_native_error_std(responsehandle, ok);
+    }
+
+    return 0;
+}
+
+static int on_set_playback_speed_v2(const struct raw_std_value *arg, FlutterPlatformMessageResponseHandle *responsehandle) {
+    const struct raw_std_value *second;
+    struct gstplayer *player;
+    double speed;
+    int ok;
+
+    ok = check_arg_is_minimum_sized_list(arg, 2, responsehandle);
+    if (ok != 0) {
+        return 0;
+    }
+
+    player = get_player_from_v2_list_arg(arg, responsehandle);
+    if (player == NULL) {
+        return 0;
+    }
+
+    second = raw_std_list_get_nth_element(arg, 1);
+    if (raw_std_value_is_float64(second)) {
+        speed = raw_std_value_as_float64(second);
+    } else {
+        return platch_respond_illegal_arg_std(responsehandle, "Expected `arg[1]` to be a double.");
+    }
+
+    ok = gstplayer_set_playback_speed(player, speed);
+    if (ok != 0) {
+        return platch_respond_native_error_std(responsehandle, ok);
+    }
+
+    return 0;
+}
+
+static int on_play_v2(const struct raw_std_value *arg, FlutterPlatformMessageResponseHandle *responsehandle) {
+    struct gstplayer *player;
+    int ok;
+
+    player = get_player_from_v2_root_arg(arg, responsehandle);
+    if (player == NULL) {
+        return EINVAL;
+    }
+
+    ok = gstplayer_play(player);
+    if (ok != 0) {
+        return platch_respond_native_error_std(responsehandle, ok);
+    }
+
+    return 0;
+}
+
+static int on_get_position_v2(const struct raw_std_value *arg, FlutterPlatformMessageResponseHandle *responsehandle) {
+    struct gstplayer *player;
+    int64_t position;
+
+    player = get_player_from_v2_root_arg(arg, responsehandle);
+    if (player == NULL) {
+        return EINVAL;
+    }
+
+    position = gstplayer_get_position(player);
+    if (position < 0) {
+        return platch_respond_native_error_std(responsehandle, EIO);
+    }
+
+    return platch_respond_success_std(
+        responsehandle,
+        &STDINT64(position)
+    );
+}
+
+static int on_seek_to_v2(const struct raw_std_value *arg, FlutterPlatformMessageResponseHandle *responsehandle) {
+    const struct raw_std_value *second;
+    struct gstplayer *player;
+    int64_t position;
+    int ok;
+
+    ok = check_arg_is_minimum_sized_list(arg, 2, responsehandle);
+    if (ok != 0) {
+        return 0;
+    }
+
+    player = get_player_from_v2_list_arg(arg, responsehandle);
+    if (player == NULL) {
+        return 0;
+    }
+
+    second = raw_std_list_get_nth_element(arg, 1);
+    if (raw_std_value_is_int(second)) {
+        position = raw_std_value_as_int(second);
+    } else {
+        return platch_respond_illegal_arg_std(responsehandle, "Expected `arg[1]` to be an integer.");
+    }
+
+    ok = gstplayer_seek_to(player, position, false);
+    if (ok != 0) {
+        return platch_respond_native_error_std(responsehandle, ok);
+    }
+
+    return 0;
+}
+
+static int on_pause_v2(const struct raw_std_value *arg, FlutterPlatformMessageResponseHandle *responsehandle) {
+    struct gstplayer *player;
+    int ok;
+
+    player = get_player_from_v2_root_arg(arg, responsehandle);
+    if (player == NULL) {
+        return EINVAL;
+    }
+
+    ok = gstplayer_pause(player);
+    if (ok != 0) {
+        return platch_respond_native_error_std(responsehandle, ok);
+    }
+
+    return 0;
+}
+
+static int on_set_mix_with_others_v2(const struct raw_std_value *arg, FlutterPlatformMessageResponseHandle *responsehandle) {
+    (void) arg;
+    (void) responsehandle;
+    
+    return platch_respond_success_std(responsehandle, &STDNULL);
+}
+
+static int on_fast_seek_v2(const struct raw_std_value *arg, FlutterPlatformMessageResponseHandle *responsehandle) {
+    const struct raw_std_value *second;
+    struct gstplayer *player;
+    int64_t position;
+    int ok;
+
+    ok = check_arg_is_minimum_sized_list(arg, 2, responsehandle);
+    if (ok != 0) {
+        return 0;
+    }
+
+    player = get_player_from_v2_list_arg(arg, responsehandle);
+    if (player == NULL) {
+        return 0;
+    }
+
+    second = raw_std_list_get_nth_element(arg, 1);
+    if (raw_std_value_is_int(second)) {
+        position = raw_std_value_as_int(second);
+    } else {
+        return platch_respond_illegal_arg_std(responsehandle, "Expected `arg[1]` to be an integer.");
+    }
+
+    ok = gstplayer_seek_to(player, position, true);
+    if (ok != 0) {
+        return platch_respond_native_error_std(responsehandle, ok);
+    }
+
+    return 0;
+}
+
+static int on_step_forward_v2(const struct raw_std_value *arg, FlutterPlatformMessageResponseHandle *responsehandle) {
+    struct gstplayer *player;
+    int ok;
+
+    player = get_player_from_v2_root_arg(arg, responsehandle);
+    if (player == NULL) {
+        return EINVAL;
+    }
+
+    ok = gstplayer_step_forward(player);
+    if (ok != 0) {
+        return platch_respond_native_error_std(responsehandle, ok);
+    }
+
+    return 0;
+}
+
+static int on_step_backward_v2(const struct raw_std_value *arg, FlutterPlatformMessageResponseHandle *responsehandle) {
+    struct gstplayer *player;
+    int ok;
+
+    player = get_player_from_v2_root_arg(arg, responsehandle);
+    if (player == NULL) {
+        return EINVAL;
+    }
+
+    ok = gstplayer_step_backward(player);
+    if (ok != 0) {
+        return platch_respond_native_error_std(responsehandle, ok);
+    }
+
+    return 0;
+}
+
+static int on_receive_method_channel_v2(
+    char *channel,
+    struct platch_obj *object,
+    FlutterPlatformMessageResponseHandle *responsehandle
+) {
+    const struct raw_std_value *method, *arg;
+
+    DEBUG_ASSERT_NOT_NULL(channel);
+    DEBUG_ASSERT_NOT_NULL(object);
+    DEBUG_ASSERT_NOT_NULL(responsehandle);
+    DEBUG_ASSERT_EQUALS(object->codec, kBinaryCodec);
+    DEBUG_ASSERT(object->binarydata_size != 0);
+    (void) channel;
+
+    if (!raw_std_value_check((const struct raw_std_value*) (object->binarydata), object->binarydata_size)) {
+        return platch_respond_error_std(responsehandle, "malformed-message", "", &STDNULL);
+    }
+
+    method = (const struct raw_std_value*) (object->binarydata);
+    if (!raw_std_value_is_string(method)) {
+        return platch_respond_error_std(responsehandle, "malformed-message", "", &STDNULL);
+    }
+
+    arg = raw_std_value_after(method);
+    DEBUG_ASSERT_NOT_NULL(arg);
+
+    if (raw_std_string_equals(method, "initialize")) {
+        return on_initialize_v2(arg, responsehandle);
+    } else if (raw_std_string_equals(method, "create")) {
+        return on_create_v2(arg, responsehandle);
+    } else if (raw_std_string_equals(method, "dispose")) {
+        return on_dispose_v2(arg, responsehandle);
+    } else if (raw_std_string_equals(method, "setLooping")) {
+        return on_set_looping_v2(arg, responsehandle);
+    } else if (raw_std_string_equals(method, "setVolume")) {
+        return on_set_volume_v2(arg, responsehandle);
+    } else if (raw_std_string_equals(method, "setPlaybackSpeed")) {
+        return on_set_playback_speed_v2(arg, responsehandle);
+    } else if (raw_std_string_equals(method, "play")) {
+        return on_play_v2(arg, responsehandle);
+    } else if (raw_std_string_equals(method, "getPosition")) {
+        return on_get_position_v2(arg, responsehandle);
+    } else if (raw_std_string_equals(method, "seekTo")) {
+        return on_seek_to_v2(arg, responsehandle);
+    } else if (raw_std_string_equals(method, "pause")) {
+        return on_pause_v2(arg, responsehandle);
+    } else if (raw_std_string_equals(method, "setMixWithOthers")) {
+        return on_set_mix_with_others_v2(arg, responsehandle);
+    } else if (raw_std_string_equals(method, "stepForward")) {
+        return on_step_forward_v2(arg, responsehandle);
+    } else if (raw_std_string_equals(method, "stepBackward")) {
+        return on_step_backward_v2(arg, responsehandle);
+    } else if (raw_std_string_equals(method, "fastSeek")) {
+        return on_fast_seek_v2(arg, responsehandle);   
+    } else {
+        return platch_respond_not_implemented(responsehandle);
+    }
+}
+
+
 enum plugin_init_result gstplayer_plugin_init(struct flutterpi *flutterpi, void **userdata_out) {
     int ok;
 
@@ -1162,8 +1831,16 @@ enum plugin_init_result gstplayer_plugin_init(struct flutterpi *flutterpi, void 
         goto fail_remove_setMixWithOthers_receiver;
     }
 
+    ok = plugin_registry_set_receiver("flutter-pi/gstreamerVideoPlayer", kBinaryCodec, on_receive_method_channel_v2);
+    if (ok != 0) {
+        goto fail_remove_advancedControls_receiver;
+    }
+
     return kInitialized_PluginInitResult;
 
+
+    fail_remove_advancedControls_receiver:
+    plugin_registry_remove_receiver("flutter.io/videoPlayer/gstreamerVideoPlayer/advancedControls");
 
     fail_remove_setMixWithOthers_receiver:
     plugin_registry_remove_receiver("dev.flutter.pigeon.VideoPlayerApi.setMixWithOthers");
@@ -1207,6 +1884,7 @@ void gstplayer_plugin_deinit(struct flutterpi *flutterpi, void *userdata) {
     (void) flutterpi;
     (void) userdata;
 
+    plugin_registry_remove_receiver("flutter-pi/gstreamerVideoPlayer");
     plugin_registry_remove_receiver("flutter.io/videoPlayer/gstreamerVideoPlayer/advancedControls");
     plugin_registry_remove_receiver("dev.flutter.pigeon.VideoPlayerApi.setMixWithOthers");
     plugin_registry_remove_receiver("dev.flutter.pigeon.VideoPlayerApi.pause");

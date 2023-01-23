@@ -66,7 +66,10 @@ struct gstplayer {
     
     struct flutterpi *flutterpi;
     void *userdata;
+    
     char *video_uri;
+    char *pipeline_description;
+
     GstStructure *headers;
 
     /**
@@ -594,14 +597,18 @@ static GstPadProbeReturn on_query_appsink(GstPad *pad, GstPadProbeInfo *info, vo
     (void) pad;
     (void) userdata;
 
-    query = info->data;
+    query = gst_pad_probe_info_get_query(info);
+    if (query == NULL) {
+        LOG_DEBUG("Couldn't get query from pad probe info.\n");
+        return GST_PAD_PROBE_OK;
+    }
 
     if (GST_QUERY_TYPE(query) != GST_QUERY_ALLOCATION) {
         return GST_PAD_PROBE_OK;
     }
 
     gst_query_add_allocation_meta(query, GST_VIDEO_META_API_TYPE, NULL);
-
+    
     return GST_PAD_PROBE_HANDLED;
 }
 
@@ -827,6 +834,16 @@ static void on_appsink_cbs_destroy(void *userdata) {
     (void) player;
 }
 
+void on_source_setup(GstElement *bin, GstElement *source, gpointer userdata) {
+    (void) bin;
+    
+    if (g_object_class_find_property(G_OBJECT_GET_CLASS(source), "extra-headers") != NULL) {
+        g_object_set(source, "extra-headers", (GstStructure*) userdata, NULL);
+    } else {
+        LOG_ERROR("Failed to set custom HTTP headers because gstreamer source element has no 'extra-headers' property.\n");
+    }
+}
+
 static int init(struct gstplayer *player, bool force_sw_decoders) {
     sd_event_source *busfd_event_source;
     GstElement *pipeline, *sink, *src;
@@ -836,9 +853,16 @@ static int init(struct gstplayer *player, bool force_sw_decoders) {
     GError *error = NULL;
     int ok;
     
-    static const char *pipeline_descr = "uridecodebin name=\"src\" ! video/x-raw ! appsink sync=true name=\"sink\"";
+    static const char *default_pipeline_descr = "uridecodebin name=\"src\" ! video/x-raw ! appsink sync=true name=\"sink\"";
+    
+    const char *pipeline_descr;
+    if (player->pipeline_description != NULL) {
+        pipeline_descr = player->pipeline_description;
+    } else {
+        pipeline_descr = default_pipeline_descr;
+    }
 
-    pipeline = gst_parse_launch(pipeline_descr, &error);
+    pipeline = gst_parse_launch(default_pipeline_descr, &error);
     if (pipeline == NULL) {
         LOG_ERROR("Could create GStreamer pipeline from description: %s (pipeline: `%s`)\n", error->message, pipeline_descr);
         return error->code;
@@ -867,16 +891,34 @@ static int init(struct gstplayer *player, bool force_sw_decoders) {
     );
 
     src = gst_bin_get_by_name(GST_BIN(pipeline), "src");
-    if (src == NULL) {
-        LOG_ERROR("Couldn't find uridecodebin in pipeline bin.\n");
-        ok = EINVAL;
-        goto fail_unref_sink;
+
+    if (player->video_uri != NULL) {
+        if (src != NULL) {
+            g_object_set(G_OBJECT(src), "uri", player->video_uri, NULL);
+        } else {
+            LOG_ERROR("Couldn't find \"src\" element to configure Video URI.\n");
+        }
+    }
+    
+    if (force_sw_decoders) {
+        if (src != NULL) {
+            g_object_set(G_OBJECT(src), "force-sw-decoders", force_sw_decoders, NULL);
+        } else {
+            LOG_ERROR("Couldn't find \"src\" element to force sw decoding.\n");
+        }
     }
 
-    g_object_set(G_OBJECT(src), "uri", player->video_uri, "force-sw-decoders", force_sw_decoders, NULL);
+    if (player->headers != NULL) {
+        if (src != NULL) {
+            g_signal_connect(G_OBJECT(src), "source-setup", G_CALLBACK(on_source_setup), player->headers);
+        } else {
+            LOG_ERROR("Couldn't find \"src\" element to configure additional HTTP headers.\n");
+        }
+    }
 
     gst_base_sink_set_max_lateness(GST_BASE_SINK(sink), 20 * GST_MSECOND);
     gst_base_sink_set_qos_enabled(GST_BASE_SINK(sink), TRUE);
+    gst_base_sink_set_sync(GST_BASE_SINK(sink), TRUE);
     gst_app_sink_set_max_buffers(GST_APP_SINK(sink), 2);
     gst_app_sink_set_emit_signals(GST_APP_SINK(sink), TRUE);
     gst_app_sink_set_drop(GST_APP_SINK(sink), FALSE);
@@ -900,8 +942,18 @@ static int init(struct gstplayer *player, bool force_sw_decoders) {
         player,
         NULL
     );
+    
+    /// FIXME: Make this work for custom pipelines as well.
+    if (src != NULL) {
+        g_signal_connect(src, "element-added", G_CALLBACK(on_element_added), player);
+    } else {
+        LOG_DEBUG("Couldn't find \"src\" element to setup v4l2 'capture-io-mode' to 'dmabuf'.\n");
+    }
 
-    g_signal_connect(src, "element-added", G_CALLBACK(on_element_added), player);
+    if (src != NULL) {
+        gst_object_unref(src);
+        src = NULL;
+    }
 
     bus = gst_pipeline_get_bus(GST_PIPELINE(pipeline));
 
@@ -926,7 +978,6 @@ static int init(struct gstplayer *player, bool force_sw_decoders) {
     player->busfd_events = busfd_event_source;
     player->is_forcing_sw_decoding = force_sw_decoders;
 
-    gst_object_unref(src);
     gst_object_unref(pad);
     return 0;
 
@@ -982,14 +1033,17 @@ static void maybe_deinit(struct gstplayer *player) {
 
 DEFINE_LOCK_OPS(gstplayer, lock)
 
-static struct gstplayer *gstplayer_new(struct flutterpi *flutterpi, const char *uri, void *userdata) {
+static struct gstplayer *gstplayer_new(struct flutterpi *flutterpi, const char *uri, const char *pipeline_descr, void *userdata) {
     struct frame_interface *frame_interface;
     struct gstplayer *player;
     struct texture *texture;
     GstStructure *gst_headers;
     int64_t texture_id;
-    char *uri_owned;
+    char *uri_owned, *pipeline_descr_owned;
     int ok;
+
+    DEBUG_ASSERT_NOT_NULL(flutterpi);
+    DEBUG_ASSERT((uri != NULL) != (pipeline_descr != NULL));
 
     player = malloc(sizeof *player);
     if (player == NULL) return NULL;
@@ -1002,8 +1056,19 @@ static struct gstplayer *gstplayer_new(struct flutterpi *flutterpi, const char *
 
     texture_id = texture_get_id(texture);
 
-    uri_owned = strdup(uri);
-    if (uri_owned == NULL) goto fail_destroy_frame_interface;
+    if (uri != NULL) {
+        uri_owned = strdup(uri);
+        if (uri_owned == NULL) goto fail_destroy_frame_interface;
+    } else {
+        uri_owned = NULL;
+    }
+
+    if (pipeline_descr != NULL) {
+        pipeline_descr_owned = strdup(pipeline_descr);
+        if (pipeline_descr_owned == NULL) goto fail_destroy_frame_interface;
+    } else {
+        pipeline_descr_owned = NULL;
+    }
 
     gst_headers = gst_structure_new_empty("http-headers");
 
@@ -1022,6 +1087,7 @@ static struct gstplayer *gstplayer_new(struct flutterpi *flutterpi, const char *
     player->flutterpi = flutterpi;
     player->userdata = userdata;
     player->video_uri = uri_owned;
+    player->pipeline_description = pipeline_descr_owned;
     player->headers = gst_headers;
     player->playback_rate_forward  = 1.0;
     player->playback_rate_backward = 1.0;
@@ -1095,7 +1161,7 @@ struct gstplayer *gstplayer_new_from_asset(
         return NULL;
     }
 
-    player = gstplayer_new(flutterpi, uri, userdata);
+    player = gstplayer_new(flutterpi, uri, NULL, userdata);
 
     free(uri);
 
@@ -1109,7 +1175,7 @@ struct gstplayer *gstplayer_new_from_network(
     void *userdata
 ) {
     (void) format_hint;
-    return gstplayer_new(flutterpi, uri, userdata);
+    return gstplayer_new(flutterpi, uri, NULL, userdata);
 }
 
 struct gstplayer *gstplayer_new_from_file(
@@ -1117,7 +1183,7 @@ struct gstplayer *gstplayer_new_from_file(
     const char *uri,
     void *userdata
 ) {
-    return gstplayer_new(flutterpi, uri, userdata);
+    return gstplayer_new(flutterpi, uri, NULL, userdata);
 }
 
 struct gstplayer *gstplayer_new_from_content_uri(
@@ -1125,8 +1191,16 @@ struct gstplayer *gstplayer_new_from_content_uri(
     const char *uri,
     void *userdata
 ) {
-    return gstplayer_new(flutterpi, uri, userdata);
+    return gstplayer_new(flutterpi, uri, NULL, userdata);
 }   
+
+struct gstplayer *gstplayer_new_from_pipeline(
+    struct flutterpi *flutterpi,
+    const char *pipeline,
+    void *userdata
+) {
+    return gstplayer_new(flutterpi, NULL, pipeline, userdata);
+}
 
 void gstplayer_destroy(struct gstplayer *player) {
     LOG_DEBUG("gstplayer_destroy(%p)\n", player);
@@ -1136,7 +1210,8 @@ void gstplayer_destroy(struct gstplayer *player) {
     maybe_deinit(player);
     pthread_mutex_destroy(&player->lock);
     if (player->headers != NULL) gst_structure_free(player->headers);
-    free(player->video_uri);
+    if (player->video_uri != NULL) free(player->video_uri);
+    if (player->pipeline_description != NULL) free(player->pipeline_description);
     frame_interface_unref(player->frame_interface);
     texture_destroy(player->texture);
     free(player);

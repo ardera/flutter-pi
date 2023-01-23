@@ -64,8 +64,10 @@ enum std_value_type {
     kStdInt64Array,
     kStdFloat64Array,
     kStdList,
-    kStdMap
+    kStdMap,
+	kStdFloat32Array
 };
+
 struct std_value {
     enum std_value_type type;
     union {
@@ -789,6 +791,12 @@ int platch_respond_error_std(FlutterPlatformMessageResponseHandle *handle,
 int platch_respond_illegal_arg_std(FlutterPlatformMessageResponseHandle *handle,
 								   char *error_msg);
 
+int platch_respond_illegal_arg_ext_std(
+	FlutterPlatformMessageResponseHandle *handle,
+	char *error_msg,
+	struct std_value *error_details
+);
+
 int platch_respond_native_error_std(FlutterPlatformMessageResponseHandle *handle,
 									int _errno);
 
@@ -883,5 +891,89 @@ bool stdvalue_equals(struct std_value *a, struct std_value *b);
 struct std_value *stdmap_get(struct std_value *map, struct std_value *key);
 
 struct std_value *stdmap_get_str(struct std_value *map, char *key);
+
+struct raw_std_value;
+
+ATTR_PURE bool raw_std_value_is_null(const struct raw_std_value *value);
+ATTR_PURE bool raw_std_value_is_true(const struct raw_std_value *value);
+ATTR_PURE bool raw_std_value_is_false(const struct raw_std_value *value);
+ATTR_PURE bool raw_std_value_is_int32(const struct raw_std_value *value);
+ATTR_PURE int32_t raw_std_value_as_int32(const struct raw_std_value *value);
+ATTR_PURE bool raw_std_value_is_int64(const struct raw_std_value *value);
+ATTR_PURE int64_t raw_std_value_as_int64(const struct raw_std_value *value);
+ATTR_PURE bool raw_std_value_is_float64(const struct raw_std_value *value);
+ATTR_PURE double raw_std_value_as_float64(const struct raw_std_value *value);
+ATTR_PURE bool raw_std_value_is_string(const struct raw_std_value *value);
+ATTR_PURE char *raw_std_string_dup(const struct raw_std_value *value);
+ATTR_PURE bool raw_std_string_equals(const struct raw_std_value *value, const char *str);
+ATTR_PURE bool raw_std_value_is_uint8array(const struct raw_std_value *value);
+ATTR_PURE const uint8_t *raw_std_value_as_uint8array(const struct raw_std_value *value);
+ATTR_PURE bool raw_std_value_is_int32array(const struct raw_std_value *value);
+ATTR_PURE const int32_t *raw_std_value_as_int32array(const struct raw_std_value *value);
+ATTR_PURE bool raw_std_value_is_int64array(const struct raw_std_value *value);
+ATTR_PURE const int64_t *raw_std_value_as_int64array(const struct raw_std_value *value);
+ATTR_PURE bool raw_std_value_is_float64array(const struct raw_std_value *value);
+ATTR_PURE const double *raw_std_value_as_float64array(const struct raw_std_value *value);
+ATTR_PURE bool raw_std_value_is_list(const struct raw_std_value *value);
+ATTR_PURE size_t raw_std_list_get_size(const struct raw_std_value *list);
+ATTR_PURE bool raw_std_value_is_map(const struct raw_std_value *value);
+ATTR_PURE size_t raw_std_map_get_size(const struct raw_std_value *map);
+ATTR_PURE bool raw_std_value_is_float32array(const struct raw_std_value *value);
+ATTR_PURE const float *raw_std_value_as_float32array(const struct raw_std_value *value);
+
+ATTR_PURE bool raw_std_value_equals(const struct raw_std_value *a, const struct raw_std_value *b);
+ATTR_PURE bool raw_std_value_is_bool(const struct raw_std_value *value);
+ATTR_PURE bool raw_std_value_as_bool(const struct raw_std_value *value);
+ATTR_PURE bool raw_std_value_is_int(const struct raw_std_value *value);
+ATTR_PURE int64_t raw_std_value_as_int(const struct raw_std_value *value);
+ATTR_PURE size_t raw_std_value_get_size(const struct raw_std_value *value);
+ATTR_PURE const struct raw_std_value *raw_std_value_after(const struct raw_std_value *value);
+ATTR_PURE const struct raw_std_value *raw_std_list_get_first_element(const struct raw_std_value *list);
+ATTR_PURE const struct raw_std_value *raw_std_list_get_nth_element(const struct raw_std_value *list, size_t index);
+ATTR_PURE const struct raw_std_value *raw_std_map_get_first_key(const struct raw_std_value *map);
+ATTR_PURE const struct raw_std_value *raw_std_map_find(const struct raw_std_value *map, const struct raw_std_value *key);
+ATTR_PURE const struct raw_std_value *raw_std_map_find_str(const struct raw_std_value *map, const char *str);
+
+ATTR_PURE bool raw_std_value_check(const struct raw_std_value *value, size_t buffer_size);
+
+
+#define CONCAT(a, b) CONCAT_INNER(a, b)
+#define CONCAT_INNER(a, b) a ## b
+
+#define UNIQUE_NAME(base) CONCAT(base, __COUNTER__)
+
+#define for_each_entry_in_raw_std_map_indexed(index, key, value, map) \
+	for ( \
+		const struct raw_std_value *key = raw_std_map_get_first_key(map), *value = raw_std_value_after(key), *guard = NULL; \
+		guard == NULL; \
+		guard = (void*) 1 \
+	) \
+		for ( \
+			size_t index = 0; \
+			index < raw_std_map_get_size(map); \
+			index++, \
+				key = raw_std_value_after(value), \
+				value = raw_std_value_after(key) \
+		)
+
+#define for_each_entry_in_raw_std_map(key, value, map) \
+	for_each_entry_in_raw_std_map_indexed(UNIQUE_NAME(__raw_std_map_entry_index), key, value, map)
+
+#define for_each_element_in_raw_std_list_indexed(index, element, list) \
+	for ( \
+		const struct raw_std_value *element = raw_std_list_get_first_element(list), *guard = NULL; \
+		guard == NULL; \
+		guard = (void*) 1 \
+	) \
+		for ( \
+			size_t index = 0; \
+			index < raw_std_list_get_size(list); \
+			index++, \
+				element = raw_std_value_after(element) \
+		)
+
+#define for_each_element_in_raw_std_list(value, list) \
+	for_each_element_in_raw_std_list_indexed(UNIQUE_NAME(__raw_std_list_element_index), value, list)
+
 
 #endif
