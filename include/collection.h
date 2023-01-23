@@ -455,6 +455,30 @@ static const char *__file_logging_name = _logging_name;
 
 #define UNIMPLEMENTED() assert(0 && "Unimplemented")
 
+#ifndef __has_builtin
+#define __has_builtin(x) 0
+#endif
+
+#if defined(__GNUC__) || __has_builtin(__builtin_unreachable)
+#define UNREACHABLE() __builtin_unreachable()
+#else
+#define UNREACHABLE() assert(0 && "Unreachable")
+#endif
+
+#if defined(__GNUC__) || defined(__clang__)
+#define MAYBE_UNUSED __attribute__((unused))
+#define ATTR_MALLOC __attribute__((malloc))
+#define NONNULL(...) __attribute__((nonnull(__VA_ARGS__)))
+#define ATTR_PURE __attribute__((pure))
+#define ATTR_CONST __attribute__((const))
+#else
+#define MAYBE_UNUSED
+#define ATTR_MALLOC
+#define NONNULL(...)
+#define ATTR_PURE
+#define ATTR_CONST
+#endif
+
 static inline int refcount_inc_n(refcount_t *refcount, int n) {
 	return atomic_fetch_add_explicit(refcount, n, memory_order_relaxed);
 }

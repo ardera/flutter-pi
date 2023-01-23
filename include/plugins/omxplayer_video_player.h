@@ -24,7 +24,7 @@ struct omxplayer_mgr;
 struct omxplayer_video_player {
 	int64_t player_id;
 	char 	event_channel_name[256];
-	char    video_uri[256];
+	char   *video_uri;
 
 	bool    has_view;
 	int64_t view_id;
