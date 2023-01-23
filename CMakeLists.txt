@@ -422,6 +422,16 @@ endif()
 # executable.
 target_link_options(flutter-pi PRIVATE -rdynamic)
 
+# Enable lto if supported.
+cmake_policy(SET CMP0069 NEW)
+include(CheckIPOSupported)
+check_ipo_supported(RESULT ipo_support_result OUTPUT ipo_support_output)
+if (ipo_support_result)
+    set_property(TARGET ${PROJECT_NAME} PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
+else()
+    message(WARNING "IPO/LTO is not supported: ${ipo_support_output}")
+endif()
+
 if (VULKAN_DEBUG STREQUAL "AUTO")
   target_compile_definitions(flutter-pi PRIVATE $<$<CONFIG:Debug>:VULKAN_DEBUG>)
 elseif (VULKAN_DEBUG)

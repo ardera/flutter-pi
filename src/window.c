@@ -7,7 +7,7 @@
  * Copyright (c) 2022, Hannes Winkler <hanneswinkler2000@web.de>
  */
 
-
+#define _GNU_SOURCE
 #include <stdlib.h>
 #include <pthread.h>
 
@@ -193,9 +193,24 @@ struct window {
      */
     EGLSurface egl_surface;
 
+    /**
+     * @brief Whether this window currently shows a mouse cursor.
+     * 
+     */
+    bool cursor_enabled;
+
+    /**
+     * @brief The position of the mouse cursor.
+     * 
+     */
+    struct vec2i cursor_pos;
+
     int (*push_composition)(struct window *window, struct fl_layer_composition *composition);
     struct render_surface *(*get_render_surface)(struct window *window, struct vec2f size);
     EGLSurface (*get_egl_surface)(struct window *window);
+    int (*enable_cursor)(struct window *window, struct vec2i pos);
+    int (*disable_cursor)(struct window *window);
+    int (*move_cursor)(struct window *window, struct vec2i pos);
     void (*deinit)(struct window *window);
 };
 
@@ -362,15 +377,20 @@ static int window_init(
     window->original_orientation = original_orientation;
     window->has_forced_pixel_format = has_forced_pixel_format;
     window->forced_pixel_format = forced_pixel_format;
-    window->egl_surface = NULL;
-    window->render_surface = NULL;
-    window->renderer_type = kOpenGL_RendererType;
     window->composition = NULL;
+    window->renderer_type = kOpenGL_RendererType;
     window->gl_renderer = NULL;
     window->vk_renderer = NULL;
+    window->render_surface = NULL;
+    window->egl_surface = NULL;
+    window->cursor_enabled = false;
+    window->cursor_pos = VEC2I(0, 0);
+    window->push_composition = NULL;
     window->get_render_surface = NULL;
     window->get_egl_surface = NULL;
-    window->push_composition = NULL;
+    window->enable_cursor = NULL;
+    window->disable_cursor = NULL;
+    window->move_cursor = NULL;
     window->deinit = window_deinit;
     return 0;
 }
@@ -421,6 +441,8 @@ double window_get_refresh_rate(struct window *window) {
 int window_get_next_vblank(struct window *window, uint64_t *next_vblank_ns_out) {
     DEBUG_ASSERT_NOT_NULL(window);
     DEBUG_ASSERT_NOT_NULL(next_vblank_ns_out);
+    (void) window;
+    (void) next_vblank_ns_out;
 
     /// TODO: Implement
     UNIMPLEMENTED();
@@ -440,6 +462,61 @@ struct render_surface *window_get_render_surface(struct window *window, struct v
     return window->get_render_surface(window, size);
 }
 
+bool window_is_cursor_enabled(struct window *window) {
+    bool enabled;
+    
+    DEBUG_ASSERT_NOT_NULL(window);
+
+    window_lock(window);
+    enabled = window->cursor_enabled;
+    window_unlock(window);
+
+    return enabled;
+}
+
+int window_set_cursor(
+    struct window *window,
+    bool has_enabled, bool enabled,
+    bool has_pos, struct vec2i pos
+) {
+    int ok;
+    
+    DEBUG_ASSERT_NOT_NULL(window);
+
+    if (!has_enabled && !has_pos) {
+        return 0;
+    }
+
+    window_lock(window);
+    
+    if (has_enabled) {
+        if (enabled && !window->cursor_enabled) {
+            // enable cursor
+            DEBUG_ASSERT_NOT_NULL(window->enable_cursor);
+            ok = window->enable_cursor(window, pos);
+        } else if (!enabled && window->cursor_enabled) {
+            // disable cursor
+            DEBUG_ASSERT_NOT_NULL(window->disable_cursor);
+            ok = window->disable_cursor(window);
+        }
+    }
+
+    if (has_pos) {
+        if (window->cursor_enabled) {
+            // move cursor
+            DEBUG_ASSERT_NOT_NULL(window->move_cursor);
+            ok = window->move_cursor(window, pos);
+        } else {
+            // !enabled && !window->cursor_enabled
+            // move cursor while cursor is disabled
+            LOG_ERROR("Attempted to move cursor while cursor is disabled.\n");
+            ok = EINVAL;
+        }
+    }
+    
+    window_unlock(window);
+    return ok;
+}
 
 static int select_mode(
     struct drmdev *drmdev,
@@ -578,7 +655,7 @@ ATTR_MALLOC struct window *kms_window_new(
 
     DEBUG_ASSERT_NOT_NULL(drmdev);
 
-#ifndef HAS_VULKAN
+#if !defined(HAS_VULKAN)
     DEBUG_ASSERT(renderer_type != kVulkan_RendererType);
 #endif
 
@@ -658,6 +735,7 @@ ATTR_MALLOC struct window *kms_window_new(
     window->kms.encoder = selected_encoder;
     window->kms.crtc = selected_crtc;
     window->kms.mode = selected_mode;
+    window->kms.should_apply_mode = true;
     window->renderer_type = renderer_type;
     window->gl_renderer = gl_renderer != NULL ? gl_renderer_ref(gl_renderer) : NULL;
     if (vk_renderer != NULL) {
@@ -730,6 +808,7 @@ struct frame {
 
 MAYBE_UNUSED static void on_scanout(struct drmdev *drmdev, uint64_t vblank_ns, void *userdata) {
     DEBUG_ASSERT_NOT_NULL(drmdev);
+    (void) drmdev;
     (void) vblank_ns;
     (void) userdata;
 
