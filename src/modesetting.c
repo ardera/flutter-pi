@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #include <errno.h>
 #include <inttypes.h>
 #include <stdint.h>
@@ -553,6 +554,7 @@ static int fetch_plane(int drm_fd, uint32_t plane_id, struct drm_plane *plane_ou
         if (strcmp(info->name, "type") == 0) {
             DEBUG_ASSERT(has_type == false);
             has_type = true;
+
             type = props->prop_values[j];
         } else if (strcmp(info->name, "rotation") == 0) {
             DEBUG_ASSERT(has_rotation == false);
@@ -714,6 +716,8 @@ static int fetch_plane(int drm_fd, uint32_t plane_id, struct drm_plane *plane_ou
     }
 
     DEBUG_ASSERT(has_type);
+    (void) has_type;
+
     for (int i = 0; i < plane->count_formats; i++) {
         for (int j = 0; j < kCount_PixFmt; j++) {
             if (get_pixfmt_info(j)->drm_format == plane->formats[i]) {

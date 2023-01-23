@@ -8,6 +8,7 @@
  * Copyright (c) 2022, Hannes Winkler <hanneswinkler2000@web.de>
  */
 
+#define _GNU_SOURCE
 #include <inttypes.h>
 #include <math.h>
 #include <stdlib.h>
@@ -522,6 +523,7 @@ static bool on_flutter_collect_backing_store(const FlutterBackingStore *fl_store
     compositor = userdata;
 
     /// TODO: What should we do here?
+    (void) fl_store;
     (void) compositor;
 
     return true;

@@ -720,7 +720,13 @@ struct vec2f {
     double x, y;
 };
 
-#define VEC2F(_x, _y) ((struct vec2f) {.x = _x, .y = _y})
+#define VEC2F(_x, _y) ((struct vec2f) {.x = (_x), .y = (_y)})
+
+struct vec2i {
+	int x, y;	
+};
+
+#define VEC2I(_x, _y) ((struct vec2i) {.x = (_x), .y = (_y)})
 
 /**
  * @brief A quadrilateral with 4 2-dimensional float coordinates.
@@ -772,8 +778,8 @@ struct mat3f {
 	double pers2;
 };
 
-#define FLUTTER_TRANSFORM_AS_MAT3F(_transform) (*(struct mat3f*) &(_transform))
-#define MAT3F_AS_FLUTTER_TRANSFORM(_transform) (*(FlutterTransformation*) &(_transform))
+#define FLUTTER_TRANSFORM_AS_MAT3F(_t) ((struct mat3f) {(_t).scaleX, (_t).skewX, (_t).transX, (_t).skewY, (_t).scaleY, (_t).transY, (_t).pers0, (_t).pers1, (_t).pers2})
+#define MAT3F_AS_FLUTTER_TRANSFORM(_t) ((FlutterTransformation) {(_t).scaleX, (_t).skewX, (_t).transX, (_t).skewY, (_t).scaleY, (_t).transY, (_t).pers0, (_t).pers1, (_t).pers2})
 
 
 #define MAT3F_TRANSLATION(translate_x, translate_y) ((struct mat3f) \
@@ -877,6 +883,10 @@ ATTR_CONST static inline struct quad transform_aa_rect(const struct mat3f transf
 
 ATTR_CONST static inline struct vec2f vec2f_swap_xy(const struct vec2f point) {
     return VEC2F(point.y, point.x);
+}
+
+ATTR_PURE static inline bool streq(const char *a, const char *b) {
+	return strcmp(a, b) == 0;
 }
 
 #endif
