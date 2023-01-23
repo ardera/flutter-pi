@@ -535,21 +535,7 @@ static int on_key_event(struct user_input *input, struct libinput_event *event) 
         input->interface.on_switch_vt(input->userdata, keysym - XKB_KEY_XF86Switch_VT_1 + 1);
     }
 
-    // call the GTK keyevent callback.
-    /// TODO: Simplify the meta state construction.
-    input->interface.on_gtk_keyevent(
-        input->userdata,
-        plain_codepoint,
-        (uint32_t) keysym,
-        evdev_keycode + (uint32_t) 8,
-        keyboard_state_is_shift_active(data->keyboard_state)
-        | (keyboard_state_is_capslock_active(data->keyboard_state) << 1)
-        | (keyboard_state_is_ctrl_active(data->keyboard_state) << 2)
-        | (keyboard_state_is_alt_active(data->keyboard_state) << 3)
-        | (keyboard_state_is_numlock_active(data->keyboard_state) << 4)
-        | (keyboard_state_is_meta_active(data->keyboard_state) << 28),
-        key_state
-    );
+    uint8_t utf8_character[5] = {0};
 
     // Call the UTF8 character callback if we've got a codepoint.
     // Code very similiar to that of the linux kernel in drivers/tty/vt/keyboard.c, to_utf8
@@ -558,48 +544,72 @@ static int on_key_event(struct user_input *input, struct libinput_event *event) 
             // we emit UTF8 unconditionally here,
             // maybe we should check if codepoint is a control character?
             if (isprint(codepoint)) {
-                input->interface.on_utf8_character(
-                    input->userdata,
-                    (uint8_t[1]) {codepoint}
-                );
+                utf8_character[0] = codepoint;
             }
         } else if (codepoint < 0x800) {
-            input->interface.on_utf8_character(
-                input->userdata,
-                (uint8_t[2]) {
-                    0xc0 | (codepoint >> 6),
-                    0x80 | (codepoint & 0x3f)
-                }
-            );
+            utf8_character[0] = 0xc0 | (codepoint >> 6);
+            utf8_character[1] = 0x80 | (codepoint & 0x3f);
         } else if (codepoint < 0x10000) {
             // the console keyboard driver of the linux kernel checks
             // at this point whether `codepoint` is a UTF16 high surrogate (U+D800 to U+DFFF)
             // or U+FFFF and returns without emitting UTF8 in that case.
             // don't know whether we should do this here too
-            input->interface.on_utf8_character(
-                input->userdata,
-                (uint8_t[3]) {
-                    0xe0 | (codepoint >> 12),
-                    0x80 | ((codepoint >> 6) & 0x3f),
-                    0x80 | (codepoint & 0x3f)
-                }
-            );
+            utf8_character[0] = 0xe0 | (codepoint >> 12);
+            utf8_character[1] = 0x80 | ((codepoint >> 6) & 0x3f);
+            utf8_character[2] = 0x80 | (codepoint & 0x3f);
         } else if (codepoint < 0x110000) {
-            input->interface.on_utf8_character(
-                input->userdata,
-                (uint8_t[4]) {
-                    0xf0 | (codepoint >> 18),
-                    0x80 | ((codepoint >> 12) & 0x3f),
-                    0x80 | ((codepoint >> 6) & 0x3f),
-                    0x80 | (codepoint & 0x3f)
-                }
-            );
+            utf8_character[0] = 0xf0 | (codepoint >> 18);
+            utf8_character[1] = 0x80 | ((codepoint >> 12) & 0x3f);
+            utf8_character[2] = 0x80 | ((codepoint >> 6) & 0x3f);
+            utf8_character[3] = 0x80 | (codepoint & 0x3f);
         }
     }
-    
-    // Call the XKB keysym callback if we've got a keysym.
-    if (keysym) {
-        input->interface.on_xkb_keysym(input->userdata, keysym);
+
+    if (input->interface.on_key_event) {
+        input->interface.on_key_event(
+            input->userdata,
+            libinput_event_keyboard_get_time_usec(key_event),
+            evdev_keycode + 8u,
+            keysym,
+            plain_codepoint,
+            (key_modifiers_t) {
+                .shift = keyboard_state_is_shift_active(data->keyboard_state),
+                .capslock = keyboard_state_is_capslock_active(data->keyboard_state),
+                .ctrl = keyboard_state_is_ctrl_active(data->keyboard_state),
+                .alt = keyboard_state_is_alt_active(data->keyboard_state),
+                .numlock = keyboard_state_is_numlock_active(data->keyboard_state),
+                .__pad = 0,
+                .meta = keyboard_state_is_meta_active(data->keyboard_state)
+            },
+            (char*) utf8_character,
+            key_state == LIBINPUT_KEY_STATE_PRESSED,
+            false
+        );
+    } else {
+        // call the GTK keyevent callback.
+        /// TODO: Simplify the meta state construction.
+        input->interface.on_gtk_keyevent(
+            input->userdata,
+            plain_codepoint,
+            (uint32_t) keysym,
+            evdev_keycode + (uint32_t) 8,
+            keyboard_state_is_shift_active(data->keyboard_state)
+            | (keyboard_state_is_capslock_active(data->keyboard_state) << 1)
+            | (keyboard_state_is_ctrl_active(data->keyboard_state) << 2)
+            | (keyboard_state_is_alt_active(data->keyboard_state) << 3)
+            | (keyboard_state_is_numlock_active(data->keyboard_state) << 4)
+            | (keyboard_state_is_meta_active(data->keyboard_state) << 28),
+            key_state
+        );
+
+        if (utf8_character[0]) {
+            input->interface.on_utf8_character(input->userdata, utf8_character);
+        }
+        
+        // Call the XKB keysym callback if we've got a keysym.
+        if (keysym) {
+            input->interface.on_xkb_keysym(input->userdata, keysym);
+        }
     }
 
     return 0;
