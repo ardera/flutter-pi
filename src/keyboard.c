@@ -375,7 +375,7 @@ int keyboard_state_process_key_event(
             xkb_compose_state_reset(state->compose_state);
         }
 
-        codepoint = xkb_keysym_to_utf32(keysym);
+        codepoint = xkb_state_key_get_utf32(state->state, xkb_keycode);
     }
 
     xkb_state_update_key(state->state, xkb_keycode, (enum xkb_key_direction) evdev_value);
