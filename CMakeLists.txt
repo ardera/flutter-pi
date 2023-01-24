@@ -55,6 +55,7 @@ option(ENABLE_TSAN "True to build & link with -fsanitize=thread" OFF)
 option(ENABLE_ASAN "True to build & link with -fsanitize=address" OFF)
 option(ENABLE_UBSAN "True to build & link with -fsanitize=undefined" OFF)
 option(ENABLE_MTRACE "True if flutter-pi should call GNU mtrace() on startup." OFF)
+option(ENABLE_TESTS "True if tests should be built. Requires Unity to be checked out at third_party/Unity." OFF)
 
 set(FILESYSTEM_LAYOUTS default meta-flutter)
 set(FILESYSTEM_LAYOUT "default" CACHE STRING "Where to look for the icudtl.dat, app.so/libapp.so, flutter asset bundle.")
@@ -120,7 +121,8 @@ pkg_check_modules(LIBXKBCOMMON REQUIRED xkbcommon)
 pkg_check_modules(LIBUDEV REQUIRED libudev)
 pkg_check_modules(LIBSEAT libseat)
 
-add_executable(flutter-pi
+add_library(
+  flutterpi_module STATIC
   src/flutter-pi.c
   src/platformchannel.c
   src/pluginregistry.c
@@ -144,7 +146,7 @@ add_executable(flutter-pi
   src/plugins/services.c
 )
 
-target_link_libraries(flutter-pi PRIVATE
+target_link_libraries(flutterpi_module PUBLIC
   ${DRM_LDFLAGS}
   ${GBM_LDFLAGS}
   ${EGL_LDFLAGS}
@@ -158,7 +160,7 @@ target_link_libraries(flutter-pi PRIVATE
   pthread dl rt m atomic
 )
 
-target_include_directories(flutter-pi PRIVATE
+target_include_directories(flutterpi_module PUBLIC
   ${CMAKE_BINARY_DIR}
   ${CMAKE_SOURCE_DIR}/include
   ${CMAKE_SOURCE_DIR}/include/plugins
@@ -171,7 +173,7 @@ target_include_directories(flutter-pi PRIVATE
   ${LIBSEAT_INCLUDE_DIRS}
 )
 
-target_compile_options(flutter-pi PRIVATE
+target_compile_options(flutterpi_module PRIVATE
   ${DRM_CFLAGS}
   ${GBM_CFLAGS}
   ${LIBSYSTEMD_CFLAGS}
@@ -191,36 +193,29 @@ list(GET LIBINPUT_VERSION_AS_LIST 0 LIBINPUT_VERSION_MAJOR)
 list(GET LIBINPUT_VERSION_AS_LIST 1 LIBINPUT_VERSION_MINOR)
 list(GET LIBINPUT_VERSION_AS_LIST 2 LIBINPUT_VERSION_PATCH)
 
-target_compile_definitions(flutter-pi PRIVATE
+target_compile_definitions(flutterpi_module PRIVATE
   LIBINPUT_VERSION_MAJOR=${LIBINPUT_VERSION_MAJOR}
   LIBINPUT_VERSION_MINOR=${LIBINPUT_VERSION_MINOR}
   LIBINPUT_VERSION_PATCH=${LIBINPUT_VERSION_PATCH}
 )
 
 # TODO: Just unconditionally define those, make them optional later 
-target_compile_definitions(flutter-pi PRIVATE HAS_KMS HAS_EGL HAS_GBM HAS_FBDEV)
-
-if (WARN_MISSING_FIELD_INITIALIZERS)
-  target_compile_options(flutter-pi PRIVATE -Wmissing-field-initializers -Wno-error=missing-field-initializers)
-  target_compile_definitions(flutter-pi PRIVATE WARN_MISSING_FIELD_INITIALIZERS)
-else()
-  target_compile_options(flutter-pi PRIVATE -Wno-missing-field-initializers)
-endif()
+target_compile_definitions(flutterpi_module PRIVATE HAS_KMS HAS_EGL HAS_GBM HAS_FBDEV)
 
 pkg_check_modules(EGL egl)
 pkg_check_modules(GLESV2 glesv2)
 
 if (ENABLE_OPENGL)
   if (EGL_FOUND AND GLESV2_FOUND)
-    target_sources(flutter-pi PRIVATE
+    target_sources(flutterpi_module PRIVATE
       src/egl_gbm_render_surface.c
       src/gl_renderer.c
     )
-    target_link_libraries(flutter-pi PRIVATE
+    target_link_libraries(flutterpi_module PUBLIC
       ${EGL_LDFLAGS}
       ${GLESV2_LDFLAGS}
     )
-    target_compile_definitions(flutter-pi PRIVATE HAS_EGL HAS_GL)
+    target_compile_definitions(flutterpi_module PRIVATE HAS_EGL HAS_GL)
   elseif (TRY_ENABLE_OPENGL)
     message("EGL and/or OpenGL was not found. Flutter-pi will build without EGL/OpenGL rendering support.")
   else()
@@ -229,8 +224,8 @@ if (ENABLE_OPENGL)
 endif()
 
 if (EGL_FOUND)
-  target_include_directories(flutter-pi PRIVATE ${EGL_INCLUDE_DIRS})
-  target_compile_options(flutter-pi PRIVATE ${EGL_CFLAGS})
+  target_include_directories(flutterpi_module PRIVATE ${EGL_INCLUDE_DIRS})
+  target_compile_options(flutterpi_module PRIVATE ${EGL_CFLAGS})
 else()
   FetchContent_Declare(
     EGL_REGISTRY
@@ -244,12 +239,12 @@ else()
     FetchContent_Populate(egl_registry)
   endif()
 
-  target_include_directories(flutter-pi PRIVATE ${egl_registry_SOURCE_DIR}/api/)
+  target_include_directories(flutterpi_module PRIVATE ${egl_registry_SOURCE_DIR}/api/)
 endif()
 
 if (GLESV2_FOUND)
-  target_include_directories(flutter-pi PRIVATE ${GLESV2_INCLUDE_DIRS})
-  target_compile_options(flutter-pi PRIVATE ${GLESV2_CFLAGS})
+  target_include_directories(flutterpi_module PRIVATE ${GLESV2_INCLUDE_DIRS})
+  target_compile_options(flutterpi_module PRIVATE ${GLESV2_CFLAGS})
 else()
   FetchContent_Declare(
     OGL_REGISTRY
@@ -263,7 +258,7 @@ else()
     FetchContent_Populate(ogl_registry)
   endif()
   
-  target_include_directories(flutter-pi PRIVATE ${ogl_registry_SOURCE_DIR}/api/)
+  target_include_directories(flutterpi_module PRIVATE ${ogl_registry_SOURCE_DIR}/api/)
 endif()
 
 if(NOT FILESYSTEM_LAYOUT IN_LIST FILESYSTEM_LAYOUTS)
@@ -273,22 +268,22 @@ endif()
 message(STATUS "Filesystem Layout ...... ${FILESYSTEM_LAYOUT}")
 
 if(FILESYSTEM_LAYOUT STREQUAL default)
-  target_compile_definitions(flutter-pi PRIVATE "FILESYSTEM_LAYOUT_DEFAULT")
+  target_compile_definitions(flutterpi_module PRIVATE "FILESYSTEM_LAYOUT_DEFAULT")
 elseif(FILESYSTEM_LAYOUT STREQUAL meta-flutter)
-  target_compile_definitions(flutter-pi PRIVATE "FILESYSTEM_LAYOUT_METAFLUTTER")
+  target_compile_definitions(flutterpi_module PRIVATE "FILESYSTEM_LAYOUT_METAFLUTTER")
 endif()
 
 pkg_check_modules(VULKAN vulkan)
 if (ENABLE_VULKAN)
   if (VULKAN_FOUND)
-    target_sources(flutter-pi PRIVATE
+    target_sources(flutterpi_module PRIVATE
       src/vk_gbm_render_surface.c
       src/vk_renderer.c
     )
-    target_compile_definitions(flutter-pi PRIVATE HAS_VULKAN)
-    target_include_directories(flutter-pi PRIVATE ${VULKAN_INCLUDE_DIRS})
-    target_compile_options(flutter-pi PRIVATE ${VULKAN_CFLAGS})
-    target_link_libraries(flutter-pi PRIVATE ${VULKAN_LDFLAGS})
+    target_compile_definitions(flutterpi_module PRIVATE HAS_VULKAN)
+    target_include_directories(flutterpi_module PRIVATE ${VULKAN_INCLUDE_DIRS})
+    target_compile_options(flutterpi_module PRIVATE ${VULKAN_CFLAGS})
+    target_link_libraries(flutterpi_module PUBLIC ${VULKAN_LDFLAGS})
   elseif (TRY_ENABLE_VULKAN)
     message("Vulkan was not found. Flutter-pi will build without vulkan rendering support.")
   else()
@@ -311,7 +306,7 @@ if (NOT VULKAN_FOUND)
     FetchContent_Populate(vulkan_headers)
   endif()
 
-  target_include_directories(flutter-pi PRIVATE ${vulkan_headers_SOURCE_DIR}/include/)
+  target_include_directories(flutterpi_module PRIVATE ${vulkan_headers_SOURCE_DIR}/include/)
 endif()
 
 
@@ -319,16 +314,16 @@ endif()
 # text input and raw keyboard plugin (because those have special treatment
 # in flutter-pi.c)
 if (BUILD_TEXT_INPUT_PLUGIN)
-  target_sources(flutter-pi PRIVATE src/plugins/text_input.c)
-  target_compile_definitions(flutter-pi PRIVATE "BUILD_TEXT_INPUT_PLUGIN")
+  target_sources(flutterpi_module PRIVATE src/plugins/text_input.c)
+  target_compile_definitions(flutterpi_module PRIVATE "BUILD_TEXT_INPUT_PLUGIN")
 endif()
 if (BUILD_RAW_KEYBOARD_PLUGIN)
-  target_sources(flutter-pi PRIVATE src/plugins/raw_keyboard.c)
-  target_compile_definitions(flutter-pi PRIVATE "BUILD_RAW_KEYBOARD_PLUGIN")
+  target_sources(flutterpi_module PRIVATE src/plugins/raw_keyboard.c)
+  target_compile_definitions(flutterpi_module PRIVATE "BUILD_RAW_KEYBOARD_PLUGIN")
 endif()
 if (BUILD_TEST_PLUGIN)
-  target_sources(flutter-pi PRIVATE src/plugins/testplugin.c)
-  target_compile_definitions(flutter-pi PRIVATE "BUILD_TEST_PLUGIN")
+  target_sources(flutterpi_module PRIVATE src/plugins/testplugin.c)
+  target_compile_definitions(flutterpi_module PRIVATE "BUILD_TEST_PLUGIN")
 endif()
 if (BUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN)
   if (TRY_BUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN)
@@ -346,13 +341,13 @@ if (BUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN)
   endif()
 
   if (LIBGSTREAMER_FOUND AND LIBGSTREAMER_PLUGINS_BASE_FOUND AND LIBGSTREAMER_APP_FOUND AND LIBGSTREAMER_ALLOCATORS_FOUND AND LIBGSTREAMER_VIDEO_FOUND)
-    target_sources(flutter-pi PRIVATE
+    target_sources(flutterpi_module PRIVATE
       src/plugins/gstreamer_video_player/plugin.c
       src/plugins/gstreamer_video_player/player.c
       src/plugins/gstreamer_video_player/frame.c
     )
-    target_compile_definitions(flutter-pi PRIVATE "BUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN")
-    target_link_libraries(flutter-pi PRIVATE
+    target_compile_definitions(flutterpi_module PRIVATE "BUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN")
+    target_link_libraries(flutterpi_module PRIVATE
       ${LIBGSTREAMER_LDFLAGS}
       ${LIBGSTREAMER_PLUGINS_BASE_LDFLAGS}
       ${LIBGSTREAMER_APP_LDFLAGS}
@@ -360,7 +355,7 @@ if (BUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN)
       ${LIBGSTREAMER_VIDEO_LDFLAGS}
       ${LIBGSTREAMER_AUDIO_LIBRARY_DIRS}
     )
-    target_include_directories(flutter-pi PRIVATE
+    target_include_directories(flutterpi_module PRIVATE
       ${LIBGSTREAMER_INCLUDE_DIRS}
       ${LIBGSTREAMER_PLUGINS_BASE_INCLUDE_DIRS}
       ${LIBGSTREAMER_APP_INCLUDE_DIRS}
@@ -368,7 +363,7 @@ if (BUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN)
       ${LIBGSTREAMER_VIDEO_INCLUDE_DIRS}
       ${LIBGSTREAMER_AUDIO_INCLUDE_DIRS}
     )
-    target_compile_options(flutter-pi PRIVATE
+    target_compile_options(flutterpi_module PRIVATE
       ${LIBGSTREAMER_CFLAGS}
       ${LIBGSTREAMER_PLUGINS_BASE_CFLAGS}
       ${LIBGSTREAMER_APP_CFLAGS}
@@ -393,22 +388,22 @@ if (BUILD_GSTREAMER_AUDIO_PLAYER_PLUGIN)
   endif()
 
   if (LIBGSTREAMER_FOUND AND LIBGSTREAMER_APP_FOUND AND LIBGSTREAMER_AUDIO_FOUND)
-    target_sources(flutter-pi PRIVATE
+    target_sources(flutterpi_module PRIVATE
       src/plugins/audioplayers/plugin.c
       src/plugins/audioplayers/player.c
     )
-    target_compile_definitions(flutter-pi PRIVATE "BUILD_GSTREAMER_AUDIO_PLAYER_PLUGIN")
-    target_link_libraries(flutter-pi PRIVATE
+    target_compile_definitions(flutterpi_module PRIVATE "BUILD_GSTREAMER_AUDIO_PLAYER_PLUGIN")
+    target_link_libraries(flutterpi_module PUBLIC
       ${LIBGSTREAMER_LDFLAGS}
       ${LIBGSTREAMER_APP_LDFLAGS}
       ${LIBGSTREAMER_AUDIO_LIBRARY_DIRS}
     )
-    target_include_directories(flutter-pi PRIVATE
+    target_include_directories(flutterpi_module PRIVATE
       ${LIBGSTREAMER_INCLUDE_DIRS}
       ${LIBGSTREAMER_APP_INCLUDE_DIRS}
       ${LIBGSTREAMER_AUDIO_INCLUDE_DIRS}
     )
-    target_compile_options(flutter-pi PRIVATE
+    target_compile_options(flutterpi_module PRIVATE
       ${LIBGSTREAMER_CFLAGS}
       ${LIBGSTREAMER_APP_CFLAGS}
       ${LIBGSTREAMER_AUDIO_CFLAGS}
@@ -420,27 +415,27 @@ endif()
 
 # Needed so dart VM can actually resolve symbols in the same
 # executable.
-target_link_options(flutter-pi PRIVATE -rdynamic)
+target_link_options(flutterpi_module PRIVATE -rdynamic)
 
 # Enable lto if supported.
 cmake_policy(SET CMP0069 NEW)
 include(CheckIPOSupported)
 check_ipo_supported(RESULT ipo_support_result OUTPUT ipo_support_output)
 if (ipo_support_result)
-    set_property(TARGET ${PROJECT_NAME} PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
+  set_property(TARGET flutterpi_module PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
 else()
-    message(WARNING "IPO/LTO is not supported: ${ipo_support_output}")
+  message(WARNING "IPO/LTO is not supported: ${ipo_support_output}")
 endif()
 
 if (VULKAN_DEBUG STREQUAL "AUTO")
-  target_compile_definitions(flutter-pi PRIVATE $<$<CONFIG:Debug>:VULKAN_DEBUG>)
+  target_compile_definitions(flutterpi_module PRIVATE $<$<CONFIG:Debug>:VULKAN_DEBUG>)
 elseif (VULKAN_DEBUG)
-  target_compile_definitions(flutter-pi PRIVATE VULKAN_DEBUG)
+  target_compile_definitions(flutterpi_module PRIVATE VULKAN_DEBUG)
 endif()
 
 if (ENABLE_TSAN)
-  target_link_options(flutter-pi PRIVATE -fsanitize=thread)
-  target_compile_options(flutter-pi PRIVATE -fsanitize=thread)
+  target_link_options(flutterpi_module PRIVATE -fsanitize=thread)
+  target_compile_options(flutterpi_module PRIVATE -fsanitize=thread)
 endif()
 if (ENABLE_ASAN)
   # when we use asan, we need to force linking against the C++ stdlib.
@@ -448,21 +443,36 @@ if (ENABLE_ASAN)
   # and something in the dynamically loaded library triggers asan, it'll throw an error because it hasn't
   # intercepted stdc++ yet.
   # Also disable --as-needed so we _actually_ link against c++, even though we don't use any symbols from it.
-  target_link_libraries(flutter-pi PRIVATE stdc++)
-  target_link_options(flutter-pi PRIVATE -fsanitize=address -fno-omit-frame-pointer -Wl,--no-as-needed)
-  target_compile_options(flutter-pi PRIVATE -fsanitize=address)
+  target_link_libraries(flutterpi_module stdc++)
+  target_link_options(flutterpi_module PRIVATE -fsanitize=address -fno-omit-frame-pointer -Wl,--no-as-needed)
+  target_compile_options(flutterpi_module PRIVATE -fsanitize=address)
 
   check_c_compiler_flag(-static-libasan HAS_STATIC_LIBASAN)
   if (HAS_STATIC_LIBASAN)
-    target_link_options(flutter-pi PRIVATE -static-libasan)
+    target_link_options(flutterpi_module PRIVATE -static-libasan)
   endif()
 endif()
 if (ENABLE_UBSAN)
-  target_link_options(flutter-pi PRIVATE -fsanitize=undefined)
-  target_compile_options(flutter-pi PRIVATE -fsanitize=undefined)
+  target_link_options(flutterpi_module PRIVATE -fsanitize=undefined)
+  target_compile_options(flutterpi_module PRIVATE -fsanitize=undefined)
 endif()
 if (ENABLE_MTRACE)
-  target_compile_definitions(flutter-pi PRIVATE "ENABLE_MTRACE")
+  target_compile_definitions(flutterpi_module PRIVATE "ENABLE_MTRACE")
 endif()
 
+add_executable(
+  flutter-pi
+  src/main.c
+)
+target_link_libraries(
+  flutter-pi
+  flutterpi_module
+)
 install(TARGETS flutter-pi RUNTIME DESTINATION bin)
+
+if(ENABLE_TESTS)
+  include(CTest)
+
+  add_subdirectory(third_party)
+  add_subdirectory(test)
+endif()
