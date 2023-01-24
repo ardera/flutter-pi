@@ -2510,8 +2510,7 @@ void deinit() {
     return;
 }
 
-
-int main(int argc, char **argv) {
+int flutterpi_app_main(int argc, char **argv) {
     int ok;
 
 #ifdef ENABLE_MTRACE

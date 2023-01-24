@@ -22,7 +22,9 @@ jobs:
     runs-on: [linux, bullseye]
 
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
+      with:
+        submodules: 'recursive'
 
     - name: Install dependencies
       run: |
@@ -34,14 +36,21 @@ jobs:
     - name: Configure CMake
       # Configure CMake in a 'build' subdirectory. `CMAKE_BUILD_TYPE` is only required if you are using a single-configuration generator such as make.
       # See https://cmake.org/cmake/help/latest/variable/CMAKE_BUILD_TYPE.html?highlight=cmake_build_type
-      run: cmake -B ${{github.workspace}}/build -DBUILD_OMXPLAYER_VIDEO_PLAYER_PLUGIN=On -DBUILD_GSTREAMER_AUDIO_PLAYER_PLUGIN=On -DBUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN=On -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} -GNinja
+      run: |
+        cmake \
+          -B ${{github.workspace}}/build \
+          -DBUILD_OMXPLAYER_VIDEO_PLAYER_PLUGIN=On \
+          -DBUILD_GSTREAMER_AUDIO_PLAYER_PLUGIN=On \
+          -DBUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN=On \
+          -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} \
+          -DENABLE_TESTS=On \
+          -GNinja
 
     - name: Build
       # Build your program with the given configuration
       run: cmake --build ${{github.workspace}}/build --config ${{env.BUILD_TYPE}}
 
     - name: Test
-      if: false
       working-directory: ${{github.workspace}}/build
       # Execute tests defined by the CMake configuration.
       # See https://cmake.org/cmake/help/latest/manual/ctest.1.html for more detail
@@ -55,7 +64,9 @@ jobs:
       env:
         DEBIAN_FRONTEND: noninteractive
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
+        with:
+          submodules: 'recursive'
 
       - name: Install dependencies
         run: |
@@ -74,6 +85,7 @@ jobs:
             -DBUILD_GSTREAMER_AUDIO_PLAYER_PLUGIN=On \
             -DBUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN=On \
             -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} \
+            -DENABLE_TESTS=On \
             -GNinja
 
       - name: Build
@@ -81,7 +93,6 @@ jobs:
         run: cmake --build ${{ github.workspace }}/build --config ${{ env.BUILD_TYPE }}
 
       - name: Test
-        if: false
         working-directory: ${{github.workspace}}/build
         # Execute tests defined by the CMake configuration.
         # See https://cmake.org/cmake/help/latest/manual/ctest.1.html for more detail
