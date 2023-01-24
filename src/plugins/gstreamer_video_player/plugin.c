@@ -1703,7 +1703,7 @@ static int on_receive_method_channel_v2(
     struct platch_obj *object,
     FlutterPlatformMessageResponseHandle *responsehandle
 ) {
-    const struct raw_std_value *method, *arg;
+    const struct raw_std_value *envelope, *method, *arg;
 
     DEBUG_ASSERT_NOT_NULL(channel);
     DEBUG_ASSERT_NOT_NULL(object);
@@ -1712,17 +1712,14 @@ static int on_receive_method_channel_v2(
     DEBUG_ASSERT(object->binarydata_size != 0);
     (void) channel;
 
-    if (!raw_std_value_check((const struct raw_std_value*) (object->binarydata), object->binarydata_size)) {
+    envelope = (const struct raw_std_value*) (object->binarydata);
+
+    if (!raw_std_method_call_check(envelope, object->binarydata_size)) {
         return platch_respond_error_std(responsehandle, "malformed-message", "", &STDNULL);
     }
 
-    method = (const struct raw_std_value*) (object->binarydata);
-    if (!raw_std_value_is_string(method)) {
-        return platch_respond_error_std(responsehandle, "malformed-message", "", &STDNULL);
-    }
-
-    arg = raw_std_value_after(method);
-    DEBUG_ASSERT_NOT_NULL(arg);
+    method = raw_std_method_call_get_method(envelope);
+    arg = raw_std_method_call_get_arg(envelope);
 
     if (raw_std_string_equals(method, "initialize")) {
         return on_initialize_v2(arg, responsehandle);
@@ -1756,7 +1753,6 @@ static int on_receive_method_channel_v2(
         return platch_respond_not_implemented(responsehandle);
     }
 }
-
 
 enum plugin_init_result gstplayer_plugin_init(struct flutterpi *flutterpi, void **userdata_out) {
     int ok;

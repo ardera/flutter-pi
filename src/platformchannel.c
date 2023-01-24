@@ -1860,7 +1860,7 @@ ATTR_PURE bool raw_std_value_is_string(const struct raw_std_value *value) {
 	return raw_std_value_get_type(value) == kStdString;
 }
 
-ATTR_PURE char *raw_std_string_dup(const struct raw_std_value *value) {
+ATTR_PURE ATTR_MALLOC char *raw_std_string_dup(const struct raw_std_value *value) {
 	DEBUG_ASSERT(raw_std_value_is_string(value));
 
 	size_t size = raw_std_value_get_size(value);
@@ -2424,4 +2424,92 @@ ATTR_PURE bool raw_std_value_check(const struct raw_std_value *value, size_t buf
 		default:
 			return false;
 	}
+}
+
+ATTR_PURE bool raw_std_method_call_check(const struct raw_std_value *value, size_t buffer_size) {
+	if (!raw_std_value_check(value, buffer_size)) {
+		return false;
+	}
+
+	// first value must be a string. (method name)
+	if (!raw_std_value_is_string(value)) {
+		return false;
+	}
+
+	const struct raw_std_value *after = raw_std_value_after(value);
+	int diff = (intptr_t) after - (intptr_t) value;
+	DEBUG_ASSERT(diff <= buffer_size);
+
+	if (!raw_std_value_check(after, buffer_size - diff)) {
+		return false;
+	}
+
+	return true;
+}
+
+ATTR_PURE bool raw_std_method_call_response_check(const struct raw_std_value *value, size_t buffer_size) {
+	// method call responses have non-standard encoding for the first byte.
+	// first byte is zero for failure, non-zero for success.
+	if (buffer_size < 1) {
+		return false;
+	}
+
+	bool successful = (*(const uint8_t*) (value)) != 0;
+
+	value = (intptr_t) value + 1;
+	buffer_size -= 1;
+
+	if (successful) {
+		if (!raw_std_value_check(value, buffer_size)) {
+			return false;
+		}
+	} else {
+		// first value should be the error code (string).
+		if (!raw_std_value_check(value, buffer_size) || !raw_std_value_is_string(value)) {
+			return false;
+		}
+
+		const struct raw_std_value *second = raw_std_value_after(value);
+		int diff = (intptr_t) second - (intptr_t) value;
+		DEBUG_ASSERT(diff <= buffer_size);
+
+		// second value should be the error message. (string or null)
+		if (!raw_std_value_check(second, buffer_size - diff)) {
+			return false;
+		}
+
+		if (!raw_std_value_is_string(second) && !raw_std_value_is_null(second)) {
+			return false;
+		}
+
+		const struct raw_std_value *third = raw_std_value_after(value);
+		diff = (intptr_t) third - (intptr_t) value;
+		DEBUG_ASSERT(diff <= buffer_size);
+
+		// third value is the error detail. Can be anything.
+		if (!raw_std_value_check(third, buffer_size - diff)) {
+			return false;
+		}
+	}
+
+	return true;
+}
+
+ATTR_PURE bool raw_std_event_check(const struct raw_std_value *value, size_t buffer_size) {
+	return raw_std_method_call_response_check(value, buffer_size);
+}
+
+
+ATTR_PURE const struct raw_std_value *raw_std_method_call_get_method(const struct raw_std_value *value) {
+	DEBUG_ASSERT(raw_std_value_is_string(value));
+	return value;
+}
+
+ATTR_MALLOC ATTR_PURE char *raw_std_method_call_get_method_dup(const struct raw_std_value *value) {
+	DEBUG_ASSERT(raw_std_value_is_string(value));
+	return raw_std_string_dup(value);
+}
+
+ATTR_PURE const struct raw_std_value *raw_std_method_call_get_arg(const struct raw_std_value *value) {
+	return raw_std_value_after(value);
 }
