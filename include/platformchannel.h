@@ -904,7 +904,7 @@ ATTR_PURE int64_t raw_std_value_as_int64(const struct raw_std_value *value);
 ATTR_PURE bool raw_std_value_is_float64(const struct raw_std_value *value);
 ATTR_PURE double raw_std_value_as_float64(const struct raw_std_value *value);
 ATTR_PURE bool raw_std_value_is_string(const struct raw_std_value *value);
-ATTR_PURE char *raw_std_string_dup(const struct raw_std_value *value);
+ATTR_PURE ATTR_MALLOC char *raw_std_string_dup(const struct raw_std_value *value);
 ATTR_PURE bool raw_std_string_equals(const struct raw_std_value *value, const char *str);
 ATTR_PURE bool raw_std_value_is_uint8array(const struct raw_std_value *value);
 ATTR_PURE const uint8_t *raw_std_value_as_uint8array(const struct raw_std_value *value);
@@ -935,7 +935,13 @@ ATTR_PURE const struct raw_std_value *raw_std_map_find(const struct raw_std_valu
 ATTR_PURE const struct raw_std_value *raw_std_map_find_str(const struct raw_std_value *map, const char *str);
 
 ATTR_PURE bool raw_std_value_check(const struct raw_std_value *value, size_t buffer_size);
+ATTR_PURE bool raw_std_method_call_check(const struct raw_std_value *value, size_t buffer_size);
+ATTR_PURE bool raw_std_method_call_response_check(const struct raw_std_value *value, size_t buffer_size);
+ATTR_PURE bool raw_std_event_check(const struct raw_std_value *value, size_t buffer_size);
 
+ATTR_PURE const struct raw_std_value *raw_std_method_call_get_method(const struct raw_std_value *value);
+ATTR_PURE ATTR_MALLOC char *raw_std_method_call_get_method_dup(const struct raw_std_value *value);
+ATTR_PURE const struct raw_std_value *raw_std_method_call_get_arg(const struct raw_std_value *value);
 
 #define CONCAT(a, b) CONCAT_INNER(a, b)
 #define CONCAT_INNER(a, b) a ## b
