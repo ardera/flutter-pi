@@ -1,10 +1,10 @@
-add_executable(testsuite_app
+add_executable(platformchannel_test
     platformchannel_test.c
 )
 
-target_link_libraries(testsuite_app
+target_link_libraries(platformchannel_test
     flutterpi_module
     Unity
 )
 
-add_test(testsuite_test testsuite_app)
+add_test(platformchannel_test platformchannel_test)
