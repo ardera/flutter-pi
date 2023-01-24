@@ -14,126 +14,7 @@ env:
 jobs:
   build-pi4-64:
     name: build (raspbian bullseye, pi4 64bit)
-
-    # The CMake configure and build commands are platform agnostic and should work equally
-    # well on Windows or Mac.  You can convert this to a matrix build if you need
-    # cross-platform coverage.
-    # See: https://docs.github.com/en/free-pro-team@latest/actions/learn-github-actions/managing-complex-workflows#using-a-build-matrix
     runs-on: [linux, bullseye, ARM64]
-
-    steps:
-    - uses: actions/checkout@v3
-      with:
-        submodules: 'recursive'
-
-    - name: Install dependencies
-      run: |
-        sudo apt-get install -y \
-          git cmake libgl1-mesa-dev libgles2-mesa-dev libegl1-mesa-dev libdrm-dev libgbm-dev \
-          ttf-mscorefonts-installer fontconfig libsystemd-dev libinput-dev libudev-dev \
-          libxkbcommon-dev ninja-build libgstreamer-plugins-base1.0-dev
-
-    - name: Configure CMake
-      run: |
-        cmake \
-          -B ${{github.workspace}}/build \
-          -DBUILD_GSTREAMER_AUDIO_PLAYER_PLUGIN=On \
-          -DBUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN=On \
-          -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} \
-          -DENABLE_TESTS=On \
-          -GNinja
-
-    - name: Build
-      run: cmake --build ${{github.workspace}}/build --config ${{env.BUILD_TYPE}}
-
-    - name: Test
-      working-directory: ${{github.workspace}}/build
-      run: ctest -C ${{env.BUILD_TYPE}}
-  
-  build-pi4-32:
-    name: build (raspbian bullseye, pi4 32bit)
-
-    # The CMake configure and build commands are platform agnostic and should work equally
-    # well on Windows or Mac.  You can convert this to a matrix build if you need
-    # cross-platform coverage.
-    # See: https://docs.github.com/en/free-pro-team@latest/actions/learn-github-actions/managing-complex-workflows#using-a-build-matrix
-    runs-on: [linux, bullseye, ARM]
-
-    steps:
-    - uses: actions/checkout@v3
-      with:
-        submodules: 'recursive'
-
-    # On the self-hosted runners, we assume those are already installed.
-    # - name: Install dependencies
-    #   run: |
-    #     sudo apt-get install -y \
-    #       git cmake libgl1-mesa-dev libgles2-mesa-dev libegl1-mesa-dev libdrm-dev libgbm-dev \
-    #       ttf-mscorefonts-installer fontconfig libsystemd-dev libinput-dev libudev-dev \
-    #       libxkbcommon-dev ninja-build libgstreamer-plugins-base1.0-dev
-
-    - name: Configure CMake
-      run: |
-        cmake \
-          -B ${{github.workspace}}/build \
-          -DBUILD_GSTREAMER_AUDIO_PLAYER_PLUGIN=On \
-          -DBUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN=On \
-          -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} \
-          -DENABLE_TESTS=ON \
-          -GNinja
-
-    - name: Build
-      run: cmake --build ${{github.workspace}}/build --config ${{env.BUILD_TYPE}}
-
-    - name: Test
-      if: false
-      working-directory: ${{github.workspace}}/build
-      build-pi4-32:
-    name: build (raspbian bullseye, pi4 32bit)
-
-    # The CMake configure and build commands are platform agnostic and should work equally
-    # well on Windows or Mac.  You can convert this to a matrix build if you need
-    # cross-platform coverage.
-    # See: https://docs.github.com/en/free-pro-team@latest/actions/learn-github-actions/managing-complex-workflows#using-a-build-matrix
-    runs-on: [linux, bullseye, ARM]
-
-    steps:
-    - uses: actions/checkout@v3
-      with:
-        submodules: 'recursive'
-
-    - name: Install dependencies
-      run: |
-        sudo apt-get install -y \
-          git cmake libgl1-mesa-dev libgles2-mesa-dev libegl1-mesa-dev libdrm-dev libgbm-dev \
-          ttf-mscorefonts-installer fontconfig libsystemd-dev libinput-dev libudev-dev \
-          libxkbcommon-dev ninja-build libgstreamer-plugins-base1.0-dev
-
-    - name: Configure CMake
-      run: |
-        cmake \
-          -B ${{github.workspace}}/build \
-          -DBUILD_GSTREAMER_AUDIO_PLAYER_PLUGIN=On \
-          -DBUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN=On \
-          -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} \
-          -DENABLE_TESTS=On \
-          -GNinja
-
-    - name: Build
-      run: cmake --build ${{github.workspace}}/build --config ${{env.BUILD_TYPE}}
-
-    - name: Test
-      if: false
-      working-directory: ${{github.workspace}}/build
-      run: ctest -C ${{env.BUILD_TYPE}}
-
-  build-bullseye-vulkan:
-    name: build (debian bullseye, x64, with vulkan)
-    runs-on: ubuntu-latest
-    container:
-      image: debian:bullseye
-      env:
-        DEBIAN_FRONTEND: noninteractive
     steps:
       - uses: actions/checkout@v3
         with:
@@ -141,30 +22,28 @@ jobs:
 
       - name: Install dependencies
         run: |
-          apt-get update && apt-get install -y \
+          sudo apt-get install -y \
             git cmake libgl1-mesa-dev libgles2-mesa-dev libegl1-mesa-dev libdrm-dev libgbm-dev \
-            fonts-liberation fontconfig libsystemd-dev libinput-dev libudev-dev \
-            libxkbcommon-dev ninja-build libgstreamer-plugins-base1.0-dev \
-            libvulkan-dev
-
+            ttf-mscorefonts-installer fontconfig libsystemd-dev libinput-dev libudev-dev \
+            libxkbcommon-dev ninja-build libgstreamer-plugins-base1.0-dev
+    
       - name: Configure CMake
         run: |
           cmake \
-            -B ${{ github.workspace }}/build \
+            -B ${{github.workspace}}/build \
+            -DBUILD_OMXPLAYER_VIDEO_PLAYER_PLUGIN=On \
             -DBUILD_GSTREAMER_AUDIO_PLAYER_PLUGIN=On \
             -DBUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN=On \
-            -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} \
-            -DENABLE_VULKAN=On \
+            -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} \
             -DENABLE_TESTS=On \
             -GNinja
 
-      - name: Build
-        run: cmake --build ${{ github.workspace }}/build --config ${{ env.BUILD_TYPE }}
+    - name: Build
+      run: cmake --build ${{github.workspace}}/build --config ${{env.BUILD_TYPE}}
 
-      - name: Test
-        if: false
-        working-directory: ${{github.workspace}}/build
-        run: ctest -C ${{env.BUILD_TYPE}}
+    - name: Test
+      working-directory: ${{github.workspace}}/build
+      run: ctest -C ${{env.BUILD_TYPE}}
 
   build-buster:
     name: build (debian buster, x64)
@@ -210,8 +89,6 @@ jobs:
       env:
         DEBIAN_FRONTEND: noninteractive
     steps:
-      - uses: actions/checkout@v2
-
       - name: Install dependencies
         run: |
           apt-get update && apt-get install -y \
@@ -219,6 +96,10 @@ jobs:
             fonts-liberation fontconfig libsystemd-dev libinput-dev libudev-dev \
             libxkbcommon-dev ninja-build libgstreamer-plugins-base1.0-dev \
             libvulkan-dev
+
+      - uses: actions/checkout@v3
+        with:
+          submodules: 'recursive'
 
       - name: Configure CMake
         run: |
