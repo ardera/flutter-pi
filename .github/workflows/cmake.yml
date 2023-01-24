@@ -22,39 +22,39 @@ jobs:
     runs-on: [linux, bullseye]
 
     steps:
-    - uses: actions/checkout@v3
-      with:
-        submodules: 'recursive'
+      - name: Install dependencies
+        run: |
+          sudo apt-get install -y \
+            git cmake libgl1-mesa-dev libgles2-mesa-dev libegl1-mesa-dev libdrm-dev libgbm-dev \
+            ttf-mscorefonts-installer fontconfig libsystemd-dev libinput-dev libudev-dev \
+            libxkbcommon-dev ninja-build libgstreamer-plugins-base1.0-dev
+            
+      - uses: actions/checkout@v3
+        with:
+          submodules: 'recursive'
 
-    - name: Install dependencies
-      run: |
-        sudo apt-get install -y \
-          git cmake libgl1-mesa-dev libgles2-mesa-dev libegl1-mesa-dev libdrm-dev libgbm-dev \
-          ttf-mscorefonts-installer fontconfig libsystemd-dev libinput-dev libudev-dev \
-          libxkbcommon-dev ninja-build libgstreamer-plugins-base1.0-dev
+      - name: Configure CMake
+        # Configure CMake in a 'build' subdirectory. `CMAKE_BUILD_TYPE` is only required if you are using a single-configuration generator such as make.
+        # See https://cmake.org/cmake/help/latest/variable/CMAKE_BUILD_TYPE.html?highlight=cmake_build_type
+        run: |
+          cmake \
+            -B ${{github.workspace}}/build \
+            -DBUILD_OMXPLAYER_VIDEO_PLAYER_PLUGIN=On \
+            -DBUILD_GSTREAMER_AUDIO_PLAYER_PLUGIN=On \
+            -DBUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN=On \
+            -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} \
+            -DENABLE_TESTS=On \
+            -GNinja
 
-    - name: Configure CMake
-      # Configure CMake in a 'build' subdirectory. `CMAKE_BUILD_TYPE` is only required if you are using a single-configuration generator such as make.
-      # See https://cmake.org/cmake/help/latest/variable/CMAKE_BUILD_TYPE.html?highlight=cmake_build_type
-      run: |
-        cmake \
-          -B ${{github.workspace}}/build \
-          -DBUILD_OMXPLAYER_VIDEO_PLAYER_PLUGIN=On \
-          -DBUILD_GSTREAMER_AUDIO_PLAYER_PLUGIN=On \
-          -DBUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN=On \
-          -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} \
-          -DENABLE_TESTS=On \
-          -GNinja
+      - name: Build
+        # Build your program with the given configuration
+        run: cmake --build ${{github.workspace}}/build --config ${{env.BUILD_TYPE}}
 
-    - name: Build
-      # Build your program with the given configuration
-      run: cmake --build ${{github.workspace}}/build --config ${{env.BUILD_TYPE}}
-
-    - name: Test
-      working-directory: ${{github.workspace}}/build
-      # Execute tests defined by the CMake configuration.
-      # See https://cmake.org/cmake/help/latest/manual/ctest.1.html for more detail
-      run: ctest -C ${{env.BUILD_TYPE}}
+      - name: Test
+        working-directory: ${{github.workspace}}/build
+        # Execute tests defined by the CMake configuration.
+        # See https://cmake.org/cmake/help/latest/manual/ctest.1.html for more detail
+        run: ctest -C ${{env.BUILD_TYPE}}
 
   build-buster:
     name: build (debian buster, x64)
@@ -64,16 +64,16 @@ jobs:
       env:
         DEBIAN_FRONTEND: noninteractive
     steps:
-      - uses: actions/checkout@v3
-        with:
-          submodules: 'recursive'
-
       - name: Install dependencies
         run: |
           apt-get update && apt-get install -y \
             git cmake libgl1-mesa-dev libgles2-mesa-dev libegl1-mesa-dev libdrm-dev libgbm-dev \
             fonts-liberation fontconfig libsystemd-dev libinput-dev libudev-dev \
             libxkbcommon-dev ninja-build libgstreamer-plugins-base1.0-dev
+
+      - uses: actions/checkout@v3
+        with:
+          submodules: 'recursive'
 
       - name: Configure CMake
         # Configure CMake in a 'build' subdirectory. `CMAKE_BUILD_TYPE` is only required if you are using a single-configuration generator such as make.
