@@ -29,7 +29,7 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get install -y \
-          cmake libgl1-mesa-dev libgles2-mesa-dev libegl1-mesa-dev libdrm-dev libgbm-dev \
+          git cmake libgl1-mesa-dev libgles2-mesa-dev libegl1-mesa-dev libdrm-dev libgbm-dev \
           ttf-mscorefonts-installer fontconfig libsystemd-dev libinput-dev libudev-dev \
           libxkbcommon-dev ninja-build libgstreamer-plugins-base1.0-dev
 
@@ -71,7 +71,7 @@ jobs:
       - name: Install dependencies
         run: |
           apt-get update && apt-get install -y \
-            cmake libgl1-mesa-dev libgles2-mesa-dev libegl1-mesa-dev libdrm-dev libgbm-dev \
+            git cmake libgl1-mesa-dev libgles2-mesa-dev libegl1-mesa-dev libdrm-dev libgbm-dev \
             fonts-liberation fontconfig libsystemd-dev libinput-dev libudev-dev \
             libxkbcommon-dev ninja-build libgstreamer-plugins-base1.0-dev
 
