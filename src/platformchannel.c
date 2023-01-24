@@ -1853,7 +1853,7 @@ ATTR_PURE bool raw_std_value_is_string(const struct raw_std_value *value) {
 	return raw_std_value_get_type(value) == kStdString;
 }
 
-ATTR_PURE ATTR_MALLOC char *raw_std_string_dup(const struct raw_std_value *value) {
+ATTR_MALLOC char *raw_std_string_dup(const struct raw_std_value *value) {
 	DEBUG_ASSERT(raw_std_value_is_string(value));
 
 	size_t size = raw_std_value_get_size(value);
@@ -2449,7 +2449,7 @@ ATTR_PURE bool raw_std_method_call_response_check(const struct raw_std_value *va
 
 	bool successful = (*(const uint8_t*) (value)) != 0;
 
-	value = (intptr_t) value + 1;
+	value = (void*) ((intptr_t) value + (intptr_t) 1);
 	buffer_size -= 1;
 
 	if (successful) {
@@ -2498,7 +2498,7 @@ ATTR_PURE const struct raw_std_value *raw_std_method_call_get_method(const struc
 	return value;
 }
 
-ATTR_MALLOC ATTR_PURE char *raw_std_method_call_get_method_dup(const struct raw_std_value *value) {
+ATTR_MALLOC char *raw_std_method_call_get_method_dup(const struct raw_std_value *value) {
 	DEBUG_ASSERT(raw_std_value_is_string(value));
 	return raw_std_string_dup(value);
 }
