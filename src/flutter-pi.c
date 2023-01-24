@@ -2714,8 +2714,7 @@ void flutterpi_destroy(struct flutterpi *flutterpi) {
     return;
 }
 
-
-int main(int argc, char **argv) {
+int flutterpi_app_main(int argc, char **argv) {
     struct flutterpi *flutterpi;
     int ok;
 
