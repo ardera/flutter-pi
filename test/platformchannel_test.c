@@ -122,9 +122,14 @@ void test_raw_std_string_dup() {
 void test_raw_std_string_equals() {
     const char *str = "The quick brown fox jumps over the lazy dog.";
 
-    uint8_t buffer[1 + 1 + 45] = {
-        kStdString, 45, 0
-    };
+    uint8_t buffer[1 + 1 + strlen(str)];
+
+    buffer[0] = kStdString;
+    buffer[1] = strlen(str);
+
+    // only string lengths less or equal 253 are actually encoded as one byte in
+    // the standard message codec encoding.
+    TEST_ASSERT_LESS_OR_EQUAL_size_t(253, strlen(str));
 
     memcpy(buffer + 2, str, strlen(str));
 
