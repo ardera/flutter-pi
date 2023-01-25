@@ -16,25 +16,25 @@ jobs:
     name: build (raspbian bullseye, pi4 64bit)
     runs-on: [linux, bullseye, ARM64]
     steps:
-      - uses: actions/checkout@v3
-        with:
-          submodules: 'recursive'
-
       - name: Install dependencies
         run: |
           sudo apt-get install -y \
             git cmake libgl1-mesa-dev libgles2-mesa-dev libegl1-mesa-dev libdrm-dev libgbm-dev \
             ttf-mscorefonts-installer fontconfig libsystemd-dev libinput-dev libudev-dev \
             libxkbcommon-dev ninja-build libgstreamer-plugins-base1.0-dev
-    
+
+      - uses: actions/checkout@v3
+        with:
+          submodules: 'recursive'
+
       - name: Configure CMake
         run: |
           cmake \
             -B ./build \
+            -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} \
             -DBUILD_OMXPLAYER_VIDEO_PLAYER_PLUGIN=On \
             -DBUILD_GSTREAMER_AUDIO_PLAYER_PLUGIN=On \
             -DBUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN=On \
-            -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} \
             -DENABLE_TESTS=On \
             -GNinja
 
@@ -43,7 +43,83 @@ jobs:
 
     - name: Test
       working-directory: build
-      run: ctest -C ${{env.BUILD_TYPE}}
+      run: ctest -C ${{env.BUILD_TYPE}} --output-on-failure
+  
+  build-pi4-32:
+    name: build (raspbian bullseye, pi4 32bit)
+
+    # The CMake configure and build commands are platform agnostic and should work equally
+    # well on Windows or Mac.  You can convert this to a matrix build if you need
+    # cross-platform coverage.
+    # See: https://docs.github.com/en/free-pro-team@latest/actions/learn-github-actions/managing-complex-workflows#using-a-build-matrix
+    runs-on: [linux, bullseye, ARM]
+
+    steps:
+      - name: Install dependencies
+        run: |
+          sudo apt-get install -y \
+            git cmake libgl1-mesa-dev libgles2-mesa-dev libegl1-mesa-dev libdrm-dev libgbm-dev \
+            ttf-mscorefonts-installer fontconfig libsystemd-dev libinput-dev libudev-dev \
+            libxkbcommon-dev ninja-build libgstreamer-plugins-base1.0-dev
+
+      - uses: actions/checkout@v3
+        with:
+          submodules: 'recursive'
+
+      - name: Configure CMake
+        run: |
+          cmake \
+            -B ./build \
+            -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} \
+            -DBUILD_GSTREAMER_AUDIO_PLAYER_PLUGIN=On \
+            -DBUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN=On \
+            -DENABLE_TESTS=On \
+            -GNinja
+
+      - name: Build
+        run: cmake --build ./build --config ${{env.BUILD_TYPE}}
+
+      - name: Test
+        working-directory: build
+        run: ctest -C ${{env.BUILD_TYPE}} --output-on-failure
+
+  build-bullseye-vulkan:
+    name: build (debian bullseye, x64, with vulkan)
+    runs-on: ubuntu-latest
+    container:
+      image: debian:bullseye
+      env:
+        DEBIAN_FRONTEND: noninteractive
+    steps:
+      - name: Install dependencies
+        run: |
+          apt-get update && apt-get install -y \
+            git cmake libgl1-mesa-dev libgles2-mesa-dev libegl1-mesa-dev libdrm-dev libgbm-dev \
+            fonts-liberation fontconfig libsystemd-dev libinput-dev libudev-dev \
+            libxkbcommon-dev ninja-build libgstreamer-plugins-base1.0-dev \
+            libvulkan-dev
+
+      - uses: actions/checkout@v3
+        with:
+          submodules: 'recursive'
+
+      - name: Configure CMake
+        run: |
+          cmake \
+            -B ./build \
+            -DBUILD_GSTREAMER_AUDIO_PLAYER_PLUGIN=On \
+            -DBUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN=On \
+            -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} \
+            -DENABLE_VULKAN=On \
+            -DENABLE_TESTS=On \
+            -GNinja
+
+      - name: Build
+        run: cmake --build ./build --config ${{ env.BUILD_TYPE }}
+
+      - name: Test
+        working-directory: build
+        run: ctest -C ${{env.BUILD_TYPE}} --output-on-failure
 
   build-buster:
     name: build (debian buster, x64)
@@ -79,7 +155,7 @@ jobs:
 
       - name: Test
         working-directory: build
-        run: ctest -C ${{env.BUILD_TYPE}}
+        run: ctest -C ${{env.BUILD_TYPE}} --output-on-failure
   
   build-buster-vulkan:
     name: build (debian buster, x64, with vulkan)
@@ -88,9 +164,6 @@ jobs:
       image: debian:buster
       env:
         DEBIAN_FRONTEND: noninteractive
-    defaults:
-      run:
-        shell: bash
     steps:
       - name: Install dependencies
         run: |
@@ -120,4 +193,4 @@ jobs:
 
       - name: Test
         working-directory: build
-        run: ctest -C ${{ env.BUILD_TYPE }}
+        run: ctest -C ${{env.BUILD_TYPE}} --output-on-failure
