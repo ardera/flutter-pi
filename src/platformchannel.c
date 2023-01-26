@@ -2134,7 +2134,8 @@ ATTR_PURE size_t raw_std_value_get_size(const struct raw_std_value *value) {
 		raw_std_value_is_float64array(value) ||
 		raw_std_value_is_string(value) ||
 		raw_std_value_is_list(value) ||
-		raw_std_value_is_map(value)
+		raw_std_value_is_map(value) ||
+		raw_std_value_is_float32array(value)
 	);
 
 	byteptr = (const uint8_t*) value;

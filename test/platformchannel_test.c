@@ -324,7 +324,7 @@ void test_raw_std_map_get_size() {
     buffer[1] = 254;
     memcpy(buffer + 2, &size, 2);
 
-    TEST_ASSERT_EQUAL_size_t(0xDEAD, raw_std_list_get_size(AS_RAW_STD_VALUE(buffer)));
+    TEST_ASSERT_EQUAL_size_t(0xDEAD, raw_std_map_get_size(AS_RAW_STD_VALUE(buffer)));
 
     size = 0xDEADBEEF;
     buffer[1] = 255;
