@@ -1,0 +1,83 @@
+{
+    "version": 2,
+    "configurePresets": [
+        {
+            "name": "cross-pi4",
+            "displayName": "cross-pi4",
+            "description": "Sets Ninja generator, build and install directory",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/out/build/${presetName}",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "CMAKE_TOOLCHAIN_FILE": "${sourceDir}/cross-pi4-toolchain.cmake",
+                "CMAKE_INSTALL_PREFIX": "${sourceDir}/out/install/${presetName}",
+                "ENABLE_OPENGL": true,
+                "ENABLE_VULKAN": true,
+                "DEBUG_DRM_PLANE_ALLOCATIONS": false,
+                "USE_LEGACY_KMS": false,
+                "ENABLE_ASAN": false
+            }
+        },
+        {
+            "name": "cross-pi4-release",
+            "displayName": "cross-pi4-release",
+            "description": "Sets Ninja generator, build and install directory",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/out/build/${presetName}",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release",
+                "CMAKE_TOOLCHAIN_FILE": "${sourceDir}/cross-pi4-toolchain.cmake",
+                "CMAKE_INSTALL_PREFIX": "${sourceDir}/out/install/${presetName}",
+                "ENABLE_OPENGL": true,
+                "ENABLE_VULKAN": true,
+                "DEBUG_DRM_PLANE_ALLOCATIONS": false,
+                "USE_LEGACY_KMS": false,
+                "ENABLE_ASAN": false
+            }
+        },
+        {
+            "name": "cross-pi4-64",
+            "displayName": "cross-pi4-64",
+            "description": "Sets Ninja generator, build and install directory",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/out/build/${presetName}",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release",
+                "CMAKE_TOOLCHAIN_FILE": "${sourceDir}/cross-pi4-64-toolchain.cmake",
+                "CMAKE_INSTALL_PREFIX": "${sourceDir}/out/install/${presetName}"
+            }
+        },
+        {
+            "name": "cross-pi3",
+            "displayName": "cross-pi3",
+            "description": "Sets Ninja generator, build and install directory",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/out/build/${presetName}",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "CMAKE_TOOLCHAIN_FILE": "${sourceDir}/cross-pi3-toolchain.cmake",
+                "CMAKE_INSTALL_PREFIX": "${sourceDir}/out/install/${presetName}",
+                "ENABLE_OPENGL": true,
+                "ENABLE_VULKAN": false,
+                "DEBUG_DRM_PLANE_ALLOCATIONS": true,
+                "USE_LEGACY_KMS": false
+            }
+        },
+        {
+            "name": "cross-pi3-release",
+            "displayName": "cross-pi3-release",
+            "description": "Sets Ninja generator, build and install directory",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/out/build/${presetName}",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release",
+                "CMAKE_TOOLCHAIN_FILE": "${sourceDir}/cross-pi3-toolchain.cmake",
+                "CMAKE_INSTALL_PREFIX": "${sourceDir}/out/install/${presetName}",
+                "ENABLE_OPENGL": true,
+                "ENABLE_VULKAN": false,
+                "DEBUG_DRM_PLANE_ALLOCATIONS": true,
+                "USE_LEGACY_KMS": false
+            }
+        }
+    ]
+}
