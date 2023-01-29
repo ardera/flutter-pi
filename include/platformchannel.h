@@ -958,8 +958,8 @@ ATTR_PURE const struct raw_std_value *raw_std_method_call_get_arg(const struct r
 			size_t index = 0; \
 			index < raw_std_map_get_size(map); \
 			index++, \
-				key = raw_std_value_after(value), \
-				value = raw_std_value_after(key) \
+				key = (index) < raw_std_map_get_size(map) ? raw_std_value_after(value) : NULL, \
+				value = (index) < raw_std_map_get_size(map) ? raw_std_value_after(key) : NULL \
 		)
 
 #define for_each_entry_in_raw_std_map(key, value, map) \
@@ -975,7 +975,7 @@ ATTR_PURE const struct raw_std_value *raw_std_method_call_get_arg(const struct r
 			size_t index = 0; \
 			index < raw_std_list_get_size(list); \
 			index++, \
-				element = raw_std_value_after(element) \
+				element = (index) < raw_std_list_get_size(list) ? raw_std_value_after(element) : NULL \
 		)
 
 #define for_each_element_in_raw_std_list(value, list) \
