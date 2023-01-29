@@ -171,9 +171,9 @@ target_compile_options(flutterpi_module PRIVATE
   ${LIBINPUT_CFLAGS}
   ${LIBUDEV_CFLAGS}
   ${LIBXKBCOMMON_CFLAGS}
-  $<$<CONFIG:Debug>:-O0 -Wall -Wextra -Wno-unused-function -Wno-sign-compare -Wno-missing-field-initializers -Werror -ggdb -U_FORTIFY_SOURCE -DDEBUG>
-  $<$<CONFIG:RelWithDebInfo>:-O2 -Wall -Wextra -Wno-unused-function -Wno-sign-compare -Wno-missing-field-initializers -ggdb>
-  $<$<CONFIG:Release>:-O2 -Wall -Wextra -Wno-unused-function -Wno-sign-compare -Wno-missing-field-initializers -ggdb>
+  $<$<CONFIG:Debug>:-O0 -Wall -Wextra -Wno-unused-function -Wno-sign-compare -ggdb -U_FORTIFY_SOURCE -DDEBUG>
+  $<$<CONFIG:RelWithDebInfo>:-O2 -Wall -Wextra -Wno-sign-compare -Wno-missing-field-initializers -ggdb>
+  $<$<CONFIG:Release>:-O2 -Wall -Wextra -Wno-sign-compare -Wno-missing-field-initializers -ggdb>
 )
 
 # There's no other way to query the libinput version (in code) somehow.

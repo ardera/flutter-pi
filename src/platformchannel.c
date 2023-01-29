@@ -2096,6 +2096,7 @@ ATTR_PURE bool raw_std_value_equals(const struct raw_std_value *a, const struct 
 
 			return true;
 		default:
+			DEBUG_ASSERT(false);
 			return false;
 	}
 }
@@ -2174,7 +2175,7 @@ ATTR_PURE const struct raw_std_value *raw_std_value_after(const struct raw_std_v
 		case kStdInt32:
 			return get_after_ptr(value, 0, 4);
 		case kStdInt64:
-			return get_after_ptr(value, 8, 8);
+			return get_after_ptr(value, 0, 8);
 		case kStdLargeInt:
 		case kStdString:
 			return get_array_after_ptr(value, 0, raw_std_value_get_size(value), 1);
@@ -2207,7 +2208,10 @@ ATTR_PURE const struct raw_std_value *raw_std_value_after(const struct raw_std_v
 			}
 			
 			return value;
+		case kStdFloat32Array:
+			return get_array_after_ptr(value, 4, raw_std_value_get_size(value), 4);
 		default:
+			DEBUG_ASSERT(false);
 			return value;
 	}
 }
