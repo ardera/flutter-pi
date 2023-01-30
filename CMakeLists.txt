@@ -171,10 +171,17 @@ target_compile_options(flutterpi_module PRIVATE
   ${LIBINPUT_CFLAGS}
   ${LIBUDEV_CFLAGS}
   ${LIBXKBCOMMON_CFLAGS}
-  $<$<CONFIG:Debug>:-O0 -Wall -Wextra -Wno-unused-function -Wno-sign-compare -ggdb -U_FORTIFY_SOURCE -DDEBUG>
-  $<$<CONFIG:RelWithDebInfo>:-O2 -Wall -Wextra -Wno-sign-compare -Wno-missing-field-initializers -ggdb>
-  $<$<CONFIG:Release>:-O2 -Wall -Wextra -Wno-sign-compare -Wno-missing-field-initializers -ggdb>
+  $<$<CONFIG:Debug>:-O0 -Wall -Wextra -Wno-sign-compare -Wno-error=unused-function -ggdb -U_FORTIFY_SOURCE -DDEBUG>
+  $<$<CONFIG:RelWithDebInfo>:-O2 -Wall -Wextra -Wno-sign-compare -ggdb>
+  $<$<CONFIG:Release>:-O2 -Wall -Wextra -Wno-sign-compare -ggdb>
 )
+
+# GCC prior to 11.3 reports false positives for missing-field-initializers warning.
+if (CMAKE_C_COMPILER_ID STREQUAL "GNU")
+  if (CMAKE_C_COMPILER_VERSION VERSION_LESS "11.3")
+    target_compile_options(flutterpi_module PRIVATE -Wno-error=missing-field-initializers)
+  endif()
+endif()
 
 # There's no other way to query the libinput version (in code) somehow.
 # So we need to roll our own libinput version macro
