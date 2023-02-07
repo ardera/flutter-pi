@@ -2264,17 +2264,17 @@ ATTR_PURE const struct raw_std_value *raw_std_map_find_str(const struct raw_std_
 ATTR_PURE static bool check_size(const struct raw_std_value *value, size_t buffer_size) {
 	size_t size;
 
-	if (buffer_size < 1) {
+	const uint8_t *byteptr = (const uint8_t*) value;
+
+	if (buffer_size < 2) {
 		return false;
 	}
-
-	const uint8_t *byteptr = (const uint8_t*) value;
 
 	// skip type byte
 	byteptr++;
 
 	size = *byteptr;
-	buffer_size--;
+	buffer_size -= 2;
 
 	if (size == 254) {
 		if (buffer_size < 2) {
@@ -2374,7 +2374,7 @@ ATTR_PURE bool raw_std_value_check(const struct raw_std_value *value, size_t buf
 					return false;
 				}
 
-				if (!raw_std_value_check(value, buffer_size - diff)) {
+				if (!raw_std_value_check(element, buffer_size - diff)) {
 					return false;
 				}
 			}
