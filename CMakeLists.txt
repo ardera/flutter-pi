@@ -122,7 +122,7 @@ pkg_check_modules(LIBUDEV REQUIRED libudev)
 pkg_check_modules(LIBSEAT libseat)
 
 add_library(
-  flutterpi_module STATIC
+  flutterpi_module OBJECT
   src/flutter-pi.c
   src/platformchannel.c
   src/pluginregistry.c
@@ -354,7 +354,7 @@ if (BUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN)
       src/plugins/gstreamer_video_player/frame.c
     )
     target_compile_definitions(flutterpi_module PRIVATE "BUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN")
-    target_link_libraries(flutterpi_module PRIVATE
+    target_link_libraries(flutterpi_module PUBLIC
       ${LIBGSTREAMER_LDFLAGS}
       ${LIBGSTREAMER_PLUGINS_BASE_LDFLAGS}
       ${LIBGSTREAMER_APP_LDFLAGS}
@@ -471,10 +471,12 @@ add_executable(
   flutter-pi
   src/main.c
 )
+
 target_link_libraries(
   flutter-pi
   flutterpi_module
 )
+
 install(TARGETS flutter-pi RUNTIME DESTINATION bin)
 
 if(ENABLE_TESTS)
