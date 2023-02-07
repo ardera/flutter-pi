@@ -117,7 +117,7 @@ pkg_check_modules(LIBXKBCOMMON REQUIRED xkbcommon)
 pkg_check_modules(LIBUDEV REQUIRED libudev)
 
 add_library(
-  flutterpi_module STATIC
+  flutterpi_module OBJECT
   src/flutter-pi.c
   src/platformchannel.c
   src/pluginregistry.c
@@ -135,7 +135,7 @@ add_library(
   src/plugins/services.c
 )
 
-target_link_libraries(flutterpi_module
+target_link_libraries(flutterpi_module PUBLIC
   ${DRM_LDFLAGS}
   ${GBM_LDFLAGS}
   ${EGL_LDFLAGS}
@@ -255,7 +255,7 @@ if (BUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN)
       src/plugins/gstreamer_video_player/frame.c
     )
     target_compile_definitions(flutterpi_module PRIVATE "BUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN")
-    target_link_libraries(flutterpi_module
+    target_link_libraries(flutterpi_module PUBLIC
       ${LIBGSTREAMER_LDFLAGS}
       ${LIBGSTREAMER_PLUGINS_BASE_LDFLAGS}
       ${LIBGSTREAMER_APP_LDFLAGS}
@@ -301,7 +301,7 @@ if (BUILD_GSTREAMER_AUDIO_PLAYER_PLUGIN)
       src/plugins/audioplayers/player.c
     )
     target_compile_definitions(flutterpi_module PRIVATE "BUILD_GSTREAMER_AUDIO_PLAYER_PLUGIN")
-    target_link_libraries(flutterpi_module
+    target_link_libraries(flutterpi_module PUBLIC
       ${LIBGSTREAMER_LDFLAGS}
       ${LIBGSTREAMER_APP_LDFLAGS}
       ${LIBGSTREAMER_AUDIO_LIBRARY_DIRS}
@@ -358,10 +358,12 @@ add_executable(
   flutter-pi
   src/main.c
 )
+
 target_link_libraries(
   flutter-pi
   flutterpi_module
 )
+
 install(TARGETS flutter-pi RUNTIME DESTINATION bin)
 
 if(ENABLE_TESTS)
