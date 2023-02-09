@@ -523,12 +523,14 @@ static int select_mode(
     struct drm_connector **connector_out,
     struct drm_encoder **encoder_out,
     struct drm_crtc **crtc_out,
-    drmModeModeInfo **mode_out
+    drmModeModeInfo **mode_out,
+    const char *desired_videomode
 ) {
     struct drm_connector *connector;
     struct drm_encoder *encoder;
     struct drm_crtc *crtc;
     drmModeModeInfo *mode, *mode_iter;
+    int ok;
 
     // find any connected connector
     for_each_connector_in_drmdev(drmdev, connector) {
@@ -542,32 +544,70 @@ static int select_mode(
         return EINVAL;
     }
 
-    // Find the preferred mode (GPU drivers _should_ always supply a preferred mode, but of course, they don't)
-    // Alternatively, find the mode with the highest width*height. If there are multiple modes with the same w*h,
-    // prefer higher refresh rates. After that, prefer progressive scanout modes.
     mode = NULL;
-    for_each_mode_in_connector(connector, mode_iter) {
-        if (mode_iter->type & DRM_MODE_TYPE_PREFERRED) {
-            mode = mode_iter;
-            break;
-        } else if (mode == NULL) {
-            mode = mode_iter;
-        } else {
-            int area = mode_iter->hdisplay * mode_iter->vdisplay;
-            int old_area = mode->hdisplay * mode->vdisplay;
+    if (desired_videomode != NULL) {
+        for_each_mode_in_connector(connector, mode_iter) {
+            char *modeline = NULL, *modeline_nohz = NULL;
 
-            if ((area > old_area) || ((area == old_area) && (mode_iter->vrefresh > mode->vrefresh)) ||
-                ((area == old_area) && (mode_iter->vrefresh == mode->vrefresh) &&
-                 ((mode->flags & DRM_MODE_FLAG_INTERLACE) == 0))) {
-                mode = mode_iter;
+            ok = asprintf(&modeline, "%"PRIu16"x%"PRIu16"@%"PRIu32, mode_iter->hdisplay, mode_iter->vdisplay, mode_iter->vrefresh);
+            if (ok < 0) {
+                return ENOMEM;
             }
+
+            ok = asprintf(&modeline_nohz, "%"PRIu16"x%"PRIu16, mode_iter->hdisplay, mode_iter->vdisplay);
+            if (ok < 0) {
+                return ENOMEM;
+            }
+
+            if (strcmp(modeline, desired_videomode) == 0) {
+                // Probably a bit superfluos, but the refresh rate can still vary in the decimal places.
+                if (mode == NULL || (mode_get_vrefresh(mode_iter) > mode_get_vrefresh(mode))) {
+                    mode = mode_iter;
+                }
+            } else if (strcmp(modeline_nohz, desired_videomode) == 0) {
+                if (mode == NULL || (mode_get_vrefresh(mode_iter) > mode_get_vrefresh(mode))) {
+                    mode = mode_iter;
+                }
+            }
+
+            free(modeline);
+            free(modeline_nohz);
+        }
+
+        if (mode == NULL) {
+            LOG_ERROR("Didn't find a videomode matching \"%s\"! Falling back to display preferred mode.\n", desired_videomode);
         }
     }
 
+    // Find the preferred mode (GPU drivers _should_ always supply a preferred mode, but of course, they don't)
+    // Alternatively, find the mode with the highest width*height. If there are multiple modes with the same w*h,
+    // prefer higher refresh rates. After that, prefer progressive scanout modes.
     if (mode == NULL) {
-        LOG_ERROR("Could not find a preferred output mode!\n");
-        return EINVAL;
+        for_each_mode_in_connector(connector, mode_iter) {
+            if (mode_iter->type & DRM_MODE_TYPE_PREFERRED) {
+                mode = mode_iter;
+                break;
+            } else if (mode == NULL) {
+                mode = mode_iter;
+            } else {
+                int area = mode_iter->hdisplay * mode_iter->vdisplay;
+                int old_area = mode->hdisplay * mode->vdisplay;
+
+                if ((area > old_area) || ((area == old_area) && (mode_iter->vrefresh > mode->vrefresh)) ||
+                    ((area == old_area) && (mode_iter->vrefresh == mode->vrefresh) &&
+                    ((mode->flags & DRM_MODE_FLAG_INTERLACE) == 0))) {
+                    mode = mode_iter;
+                }
+            }
+        }
+
+        if (mode == NULL) {
+            LOG_ERROR("Could not find a preferred output mode!\n");
+            return EINVAL;
+        }
     }
+
+    DEBUG_ASSERT_NOT_NULL(mode);
 
     // Find the encoder that's linked to the connector right now
     for_each_encoder_in_drmdev(drmdev, encoder) {
@@ -642,7 +682,8 @@ ATTR_MALLOC struct window *kms_window_new(
     bool has_orientation, enum device_orientation orientation,
     bool has_explicit_dimensions, int width_mm, int height_mm,
     bool has_forced_pixel_format, enum pixfmt forced_pixel_format,
-    struct drmdev *drmdev
+    struct drmdev *drmdev,
+    const char *desired_videomode
     // clang-format on
 ) {
     struct window *window;
@@ -674,7 +715,7 @@ ATTR_MALLOC struct window *kms_window_new(
         return NULL;
     }
 
-    ok = select_mode(drmdev, &selected_connector, &selected_encoder, &selected_crtc, &selected_mode);
+    ok = select_mode(drmdev, &selected_connector, &selected_encoder, &selected_crtc, &selected_mode, desired_videomode);
     if (ok != 0) {
         goto fail_free_window;
     }

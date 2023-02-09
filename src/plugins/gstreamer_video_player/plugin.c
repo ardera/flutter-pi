@@ -193,31 +193,6 @@ static int get_player_from_map_arg(
     return 0;
 }
 
-MAYBE_UNUSED static int get_player_and_meta_from_map_arg(
-    struct std_value *arg,
-    struct gstplayer **player_out,
-    struct gstplayer_meta **meta_out,
-    FlutterPlatformMessageResponseHandle *responsehandle
-) {
-    struct gstplayer *player;
-    int ok;
-
-    ok = get_player_from_map_arg(arg, &player, responsehandle);
-    if (ok != 0) {
-        return ok;
-    }
-
-    if (player_out) {
-        *player_out = player;
-    }
-
-    if (meta_out) {
-        *meta_out = (struct gstplayer_meta*) gstplayer_get_userdata_locked(player);
-    }
-
-    return 0;
-}
-
 static int ensure_initialized() {
     GError *gst_error;
     gboolean success;
@@ -1355,11 +1330,11 @@ static int on_create_v2(const struct raw_std_value *arg, FlutterPlatformMessageR
 
     // Create our actual player (this doesn't initialize it)
     if (asset != NULL) {
-        player = gstplayer_new_from_asset(&flutterpi, asset, package_name, NULL);
+        player = gstplayer_new_from_asset(flutterpi, asset, package_name, NULL);
     } else if (uri != NULL) {
-        player = gstplayer_new_from_network(&flutterpi, uri, format_hint, NULL);
+        player = gstplayer_new_from_network(flutterpi, uri, format_hint, NULL);
     } else if (pipeline != NULL) {
-        player = gstplayer_new_from_pipeline(&flutterpi, pipeline, NULL);
+        player = gstplayer_new_from_pipeline(flutterpi, pipeline, NULL);
     } else {
         UNREACHABLE();
     }
