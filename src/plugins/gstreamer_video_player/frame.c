@@ -188,6 +188,7 @@ struct video_frame *frame_new(
     EGLImage egl_image;
     GstBuffer *buffer;
     GstMemory *memory;
+    gboolean gst_ok;
     GLenum gl_error;
     EGLint attributes[2*7 + MAX_N_PLANES*2*5 + 1], *attr_cursor;
     GLuint texture;
@@ -216,7 +217,8 @@ struct video_frame *frame_new(
 
     /// TODO: Do we really need to dup() here?
     if (is_dmabuf_memory) {
-        dmabuf_fd = dup(gst_dmabuf_memory_get_fd(memory));
+        //dmabuf_fd = dup(gst_dmabuf_memory_get_fd(memory));
+        dmabuf_fd = -1;
     } else {
         dmabuf_fd = dup_gst_buffer_as_dmabuf(interface->gbm_device, buffer);
         
@@ -224,32 +226,60 @@ struct video_frame *frame_new(
         //goto fail_free_frame;
     }
 
-    if (n_mems > 1) {
-        LOG_ERROR("Multiple dmabufs for a single frame buffer is not supported right now.\n");
-        goto fail_free_frame;
-    }
-
     width = GST_VIDEO_INFO_WIDTH(info->gst_info);
     height = GST_VIDEO_INFO_HEIGHT(info->gst_info);
     n_planes = GST_VIDEO_INFO_N_PLANES(info->gst_info);
 
+    size_t plane_sizes[4] = {0};
+
     meta = gst_buffer_get_video_meta(buffer);
     if (meta != NULL) {
-        for (int i = 0; i < n_planes; i++) {
-            planes[i].fd = dmabuf_fd;
-            planes[i].offset = meta->offset[i];
-            planes[i].pitch = meta->stride[i];
-            planes[i].has_modifier = false;
-            planes[i].modifier = DRM_FORMAT_MOD_LINEAR;
-        }
+        gst_ok = gst_video_meta_get_plane_size(meta, plane_sizes);
+        DEBUG_ASSERT(gst_ok);
     } else {
-        for (int i = 0; i < n_planes; i++) {
-            planes[i].fd = dmabuf_fd;
-            planes[i].offset = GST_VIDEO_INFO_PLANE_OFFSET(info->gst_info, i);
-            planes[i].pitch = GST_VIDEO_INFO_PLANE_STRIDE(info->gst_info, i);
-            planes[i].has_modifier = false;
-            planes[i].modifier = DRM_FORMAT_MOD_LINEAR;
+        // Taken from: https://github.com/GStreamer/gstreamer/blob/621604aa3e4caa8db27637f63fa55fac2f7721e5/subprojects/gst-plugins-base/gst-libs/gst/video/video-info.c#L1278-L1301
+        for (int i = 0; i < GST_VIDEO_MAX_PLANES; i++) {
+            if (i < GST_VIDEO_INFO_N_PLANES(info->gst_info)) {
+                gint comp[GST_VIDEO_MAX_COMPONENTS];
+                guint plane_height;
+
+                gst_video_format_info_component(info->gst_info->finfo, i, comp);
+                plane_height = GST_VIDEO_FORMAT_INFO_SCALE_HEIGHT(
+                    info->gst_info->finfo,
+                    comp[0],
+                    GST_VIDEO_INFO_FIELD_HEIGHT(info->gst_info)
+                );
+                plane_sizes[i] = plane_height * GST_VIDEO_INFO_PLANE_STRIDE(info->gst_info, i);
+            } else {
+                plane_sizes[i] = 0;
+            }
         }
+    }
+
+    for (int i = 0; i < n_planes; i++) {
+        unsigned memory_index = 0, n_memories = 0;
+        size_t offset_in_memory = 0;
+
+        gst_ok = gst_buffer_find_memory(
+            buffer,
+            meta ? meta->offset[i] : GST_VIDEO_INFO_PLANE_OFFSET(info->gst_info, i),
+            plane_sizes[i],
+            &memory_index,
+            &n_memories,
+            &offset_in_memory
+        );
+        DEBUG_ASSERT(gst_ok);
+
+        if (n_memories != 1) {
+            LOG_ERROR("Gstreamer Image planes can't span multiple dmabufs.\n");
+            goto fail_close_dmabuf_fd;
+        }
+
+        planes[i].fd = dup(gst_dmabuf_memory_get_fd(gst_buffer_peek_memory(buffer, memory_index)));
+        planes[i].offset = offset_in_memory;
+        planes[i].pitch = meta ? meta->stride[i] : GST_VIDEO_INFO_PLANE_STRIDE(info->gst_info, i);
+        planes[i].has_modifier = false;
+        planes[i].modifier = DRM_FORMAT_MOD_LINEAR;
     }
 
     attr_cursor = attributes;
