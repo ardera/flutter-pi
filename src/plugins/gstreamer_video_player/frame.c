@@ -129,7 +129,7 @@ DEFINE_REF_OPS(frame_interface, n_refs)
  * Calls gst_buffer_map on the buffer, so buffer could have changed after the call.
  * 
  */
-int dup_gst_buffer_as_dmabuf(struct gbm_device *gbm_device, GstBuffer *buffer) {
+MAYBE_UNUSED int dup_gst_buffer_as_dmabuf(struct gbm_device *gbm_device, GstBuffer *buffer) {
     struct gbm_bo *bo;
     GstMapInfo map_info;
     uint32_t stride;
@@ -185,7 +185,7 @@ int dup_gst_buffer_as_dmabuf(struct gbm_device *gbm_device, GstBuffer *buffer) {
  * Calls gst_memory_map on the memory.
  * 
  */
-int dup_gst_memory_as_dmabuf(struct gbm_device *gbm_device, GstMemory *memory) {
+MAYBE_UNUSED int dup_gst_memory_as_dmabuf(struct gbm_device *gbm_device, GstMemory *memory) {
     struct gbm_bo *bo;
     GstMapInfo map_info;
     uint32_t stride;
@@ -332,21 +332,59 @@ int get_plane_infos(
 
     return 0;
 }
-#elif THIS_GSTREAMER_VER >= GSTREAMER_VER(1, 16, 0)
-int get_plane_infos(
-    GstBuffer *buffer,
-    const struct frame_info *frame_info,
-    struct plane_info plane_infos[MAX_N_PLANES]
-) {
-    UNIMPLEMENTED();
-}
 #elif THIS_GSTREAMER_VER >= GSTREAMER_VER(1, 14, 0)
 int get_plane_infos(
     GstBuffer *buffer,
     const struct frame_info *frame_info,
+    struct gbm_device *gbm_device,
     struct plane_info plane_infos[MAX_N_PLANES]
 ) {
-    UNIMPLEMENTED();
+    GstVideoMeta *meta;
+    GstMemory *memory;
+    gboolean gst_ok;
+    unsigned int n_mems;
+    bool is_dmabuf_memory;
+    int n_planes, dmabuf_fd;
+
+    memory = gst_buffer_peek_memory(buffer, 0);
+    is_dmabuf_memory = gst_is_dmabuf_memory(memory);
+    n_mems = gst_buffer_n_memory(buffer);
+
+    /// TODO: Do we really need to dup() here?
+    if (is_dmabuf_memory) {
+        dmabuf_fd = dup(gst_dmabuf_memory_get_fd(memory));
+    } else {
+        dmabuf_fd = dup_gst_buffer_as_dmabuf(gbm_device, buffer);
+        
+        //LOG_ERROR("Only dmabuf memory is supported for video frame buffers right now, but gstreamer didn't provide a dmabuf memory buffer.\n");
+        //goto fail_free_frame;
+    }
+
+    if (n_mems > 1) {
+        LOG_ERROR("Multiple dmabufs for a single frame buffer is not supported right now.\n");
+        close(dmabuf_fd);
+    }
+
+    n_planes = GST_VIDEO_INFO_N_PLANES(frame_info->gst_info);
+
+    meta = gst_buffer_get_video_meta(buffer);
+    if (meta != NULL) {
+        for (int i = 0; i < n_planes; i++) {
+            plane_infos[i].fd = dmabuf_fd;
+            plane_infos[i].offset = meta->offset[i];
+            plane_infos[i].pitch = meta->stride[i];
+            plane_infos[i].has_modifier = false;
+            plane_infos[i].modifier = DRM_FORMAT_MOD_LINEAR;
+        }
+    } else {
+        for (int i = 0; i < n_planes; i++) {
+            plane_infos[i].fd = dmabuf_fd;
+            plane_infos[i].offset = GST_VIDEO_INFO_PLANE_OFFSET(frame_info->gst_info, i);
+            plane_infos[i].pitch = GST_VIDEO_INFO_PLANE_STRIDE(frame_info->gst_info, i);
+            plane_infos[i].has_modifier = false;
+            plane_infos[i].modifier = DRM_FORMAT_MOD_LINEAR;
+        }
+    }
 }
 #else
 #   error "Unsupported gstreamer version."
