@@ -472,6 +472,12 @@ static const char *__attribute__((unused)) __file_logging_name = _logging_name;
 #define UNREACHABLE() assert(0 && "Unreachable")
 #endif
 
+#if defined(__GNUC__) || __has_builtin(__builtin_popcount)
+#define HWEIGHT(x) __builtin_popcount(x)
+#else
+#define HWEIGHT(x) UNIMPLEMENTED()
+#endif
+
 #if defined(__GNUC__) || defined(__clang__)
 #define MAYBE_UNUSED __attribute__((unused))
 #define ATTR_MALLOC __attribute__((malloc))

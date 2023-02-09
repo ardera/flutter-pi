@@ -60,7 +60,7 @@ static struct view_cb_data *get_cbs_for_view_id_locked(int64_t view_id) {
 	return NULL;
 }
 
-static struct view_cb_data *get_cbs_for_view_id(int64_t view_id) {
+MAYBE_UNUSED static struct view_cb_data *get_cbs_for_view_id(int64_t view_id) {
 	struct view_cb_data *data;
 
 	cpset_lock(&compositor.cbs);
@@ -73,7 +73,7 @@ static struct view_cb_data *get_cbs_for_view_id(int64_t view_id) {
 /**
  * @brief Destroy all the rendertargets in the stale rendertarget cache.
  */
-static int destroy_stale_rendertargets(void) {
+MAYBE_UNUSED static int destroy_stale_rendertargets(void) {
 	struct rendertarget *target;
 
 	cpset_lock(&compositor.stale_rendertargets);

@@ -51,6 +51,7 @@ DECLARE_REF_OPS(window)
  * @param has_forced_pixel_format 
  * @param forced_pixel_format 
  * @param drmdev 
+ * @param desired_videomode 
  * @return struct window* The new KMS window.
  */
 ATTR_MALLOC struct window *kms_window_new(
@@ -64,7 +65,8 @@ ATTR_MALLOC struct window *kms_window_new(
     bool has_orientation, enum device_orientation orientation,
     bool has_explicit_dimensions, int width_mm, int height_mm,
     bool has_forced_pixel_format, enum pixfmt forced_pixel_format,
-    struct drmdev *drmdev
+    struct drmdev *drmdev,
+    const char *desired_videomode
     // clang-format on
 );
 

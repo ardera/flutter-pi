@@ -118,24 +118,10 @@ OPTIONS:\n\
                              If this is not specified, a good pixel format will\n\
                              be selected automatically.\n\
                              Available pixel formats: " PIXFMT_LIST(PIXFMT_ARG_NAME) "\n\
-\n\
-  -i, --input <glob pattern> Appends all files matching this glob pattern to the\n\
-                             list of input (touchscreen, mouse, touchpad, \n\
-                             keyboard) devices. Brace and tilde expansion is \n\
-                             enabled.\n\
-                             Every file that matches this pattern, but is not\n\
-                             a valid touchscreen / -pad, mouse or keyboard is \n\
-                             silently ignored.\n\
-                             If no -i options are given, flutter-pi will try to\n\
-                             use all input devices assigned to udev seat0.\n\
-                             If that fails flutter-pi will fallback to using\n\
-                             all devices matching \"/dev/input/event*\" as \n\
-                             inputs.\n\
-                             In most cases, there's no need to specify this\n\
-                             option.\n\
-                             Note that you need to properly escape each glob \n\
-                             pattern you use as a parameter so it isn't \n\
-                             implicitly expanded by your shell.\n\
+  --videomode widthxheight\n\
+  --videomode widthxheight@hz  Uses an output videomode that satisfies the argument.\n\
+                             If no hz value is given, the highest possible refreshrate\n\
+                             will be used.\n\
 \n\
   -h, --help                 Show this help and exit.\n\
 \n\
@@ -145,8 +131,8 @@ EXAMPLES:\n\
   flutter-pi -o portrait_up ./my_app\n\
   flutter-pi -r 90 ./my_app\n\
   flutter-pi -d \"155, 86\" ./my_app\n\
-  flutter-pi -i \"/dev/input/event{0,1}\" -i \"/dev/input/event{2,3}\" /home/pi/helloworld_flutterassets\n\
-  flutter-pi -i \"/dev/input/mouse*\" /home/pi/helloworld_flutterassets\n\
+  flutter-pi --videomode 1920x1080 ./my_app\n\
+  flutter-pi --videomode 1280x720@60 ./my_app\n\
 \n\
 SEE ALSO:\n\
   Author:  Hannes Winkler, a.k.a ardera\n\
@@ -252,6 +238,8 @@ struct flutterpi {
     struct libseat *libseat;
     struct pointer_set fd_for_device_id;
     bool session_active;
+
+    char *desired_videomode;
 };
 
 struct device_id_and_fd {
@@ -1879,6 +1867,8 @@ struct cmd_args {
     char **engine_argv;
 
     bool use_vulkan;
+
+    char *desired_videomode;
 };
 
 static struct flutter_paths *setup_paths(enum flutter_runtime_mode runtime_mode, const char *app_bundle_path) {
@@ -1902,13 +1892,13 @@ static bool parse_cmd_args(int argc, char **argv, struct cmd_args *result_out) {
     struct option long_options[] = {
         {"release", no_argument, &runtime_mode_int, kRelease},
         {"profile", no_argument, &runtime_mode_int, kProfile},
-        {"input", required_argument, NULL, 'i'},
         {"orientation", required_argument, NULL, 'o'},
         {"rotation", required_argument, NULL, 'r'},
         {"dimensions", required_argument, NULL, 'd'},
         {"help", no_argument, 0, 'h'},
         {"pixelformat", required_argument, NULL, 'p'},
         {"vulkan", no_argument, &vulkan_int, true},
+        {"videomode", required_argument, NULL, 'v'},
         {0, 0, 0, 0}
     };
 
@@ -2007,6 +1997,15 @@ static bool parse_cmd_args(int argc, char **argv, struct cmd_args *result_out) {
                 return false;
 
                 valid_format:
+                break;
+            
+            case 'v': ;
+                char *vmode_dup = strdup(optarg);
+                if (vmode_dup == NULL) {
+                    return false;
+                }
+
+                result_out->desired_videomode = vmode_dup;
                 break;
             
             case 'h':
@@ -2274,7 +2273,7 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
     struct tracer *tracer;
     struct window *window;
     void *engine_handle;
-    char *bundle_path, **engine_argv;
+    char *bundle_path, **engine_argv, *desired_videomode;
     int ok, engine_argc, wakeup_fd;
 
     fpi = malloc(sizeof *fpi);
@@ -2295,6 +2294,7 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
     engine_argc = cmd_args.engine_argc;
     engine_argv = cmd_args.engine_argv;
     renderer_type = cmd_args.use_vulkan ? kVulkan_RendererType : kOpenGL_RendererType;
+    desired_videomode = cmd_args.desired_videomode;
 
     paths = setup_paths(runtime_mode, bundle_path);
     if (paths == NULL) {
@@ -2445,7 +2445,8 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
         cmd_args.has_orientation, cmd_args.orientation,
         cmd_args.has_physical_dimensions, cmd_args.width_mm, cmd_args.height_mm,
         cmd_args.has_pixel_format, cmd_args.pixel_format,
-        drmdev
+        drmdev,
+        desired_videomode
         // clang-format on
     );
     if (window == NULL) {
