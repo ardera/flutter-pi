@@ -133,11 +133,9 @@ struct gstplayer {
      */
     int64_t desired_position_ms;
 
-    bool is_forcing_sw_decoding;
-    bool is_currently_falling_back_to_sw_decoding;
-
     struct notifier video_info_notifier, buffering_state_notifier, error_notifier;
     
+    bool is_initialized;
     bool has_sent_info;
     struct incomplete_video_info info;
     
@@ -156,6 +154,8 @@ struct gstplayer {
     bool has_drm_modifier;
     uint64_t drm_modifier;
     EGLint egl_color_space;
+
+    bool is_live;
 };
 
 #define MAX_N_PLANES 4
@@ -203,8 +203,14 @@ static void fetch_duration(struct gstplayer *player) {
 
     ok = gst_element_query_duration(player->pipeline, GST_FORMAT_TIME, &duration);
     if (ok == FALSE) {
-        LOG_ERROR("Could not fetch duration. (gst_element_query_duration)\n");
-        return;
+        if (player->is_live) {
+            player->info.info.duration_ms = INT64_MAX;
+            player->info.has_duration = true;
+            return;
+        } else {
+            LOG_ERROR("Could not fetch duration. (gst_element_query_duration)\n");
+            return;
+        }
     }
 
     player->info.info.duration_ms = GST_TIME_AS_MSECONDS(duration);
@@ -219,7 +225,16 @@ static void fetch_seeking(struct gstplayer *player) {
     seeking_query = gst_query_new_seeking(GST_FORMAT_TIME);
     ok = gst_element_query(player->pipeline, seeking_query);
     if (ok == FALSE) {
-        return;
+        if (player->is_live) {
+            player->info.info.can_seek = false;
+            player->info.info.seek_begin_ms = 0;
+            player->info.info.seek_end_ms = 0;
+            player->info.has_seeking_info = true;
+            return;
+        } else {
+            LOG_DEBUG("Could not query seeking info. (gst_element_query)\n");
+            return;
+        }
     }
 
     gst_query_parse_seeking(seeking_query, NULL, &seekable, &seek_begin, &seek_end);
@@ -287,22 +302,11 @@ static int init(struct gstplayer *player, bool force_sw_decoders);
 
 static void maybe_deinit(struct gstplayer *player);
 
-static void fallback_to_sw_decoding(struct gstplayer *player) {
-    maybe_deinit(player);
-    player->is_currently_falling_back_to_sw_decoding = true;
-    init(player, true);
-}
-
 static int apply_playback_state(struct gstplayer *player) {
     GstStateChangeReturn ok;
     GstState desired_state, current_state, pending_state;
     double desired_rate;
     int64_t position;
-
-    // if we're currently falling back to software decoding, don't do anything.
-    if (player->is_currently_falling_back_to_sw_decoding) {
-        return 0;
-    }
 
     desired_state = player->playpause_state == kPlaying ? GST_STATE_PLAYING : GST_STATE_PAUSED; /* use GST_STATE_PAUSED if we're stepping */
 
@@ -350,18 +354,8 @@ static int apply_playback_state(struct gstplayer *player) {
             );
 
             if (ok == FALSE) {
-                if (player->is_forcing_sw_decoding == false) {
-                    LOG_DEBUG("Could not set the new playback speed / playback position (speed: %f, pos: %" GST_TIME_FORMAT ").\n", desired_rate, GST_TIME_ARGS(position));
-                    LOG_DEBUG("Falling back to software decoding to set the new playback speed / position.\n");
-                    player->has_desired_position = true;
-                    player->desired_position_ms = GST_TIME_AS_MSECONDS(position);
-                    player->fallback_position_ms = GST_TIME_AS_MSECONDS(position);
-                    fallback_to_sw_decoding(player);
-                    return 0;
-                } else {
-                    LOG_ERROR("Could not set the new playback speed / playback position (speed: %f, pos: %" GST_TIME_FORMAT ") and player is already using software decoding.\n", desired_rate, GST_TIME_ARGS(position));
-                    return EIO;
-                }
+                LOG_ERROR("Could not set the new playback speed / playback position (speed: %f, pos: %" GST_TIME_FORMAT ").\n", desired_rate, GST_TIME_ARGS(position));
+                return EIO;
             }
         }
 
@@ -431,12 +425,7 @@ static void on_bus_message(struct gstplayer *player, GstMessage *msg) {
         case GST_MESSAGE_ERROR:
             gst_message_parse_error(msg, &error, &debug_info);
 
-            fprintf(stderr, "[gstreamer video player] gstreamer error: code: %d, domain: %s, msg: %s (debug info: %s)\n", error->code, g_quark_to_string(error->domain), error->message, debug_info);
-            if (error->domain == GST_STREAM_ERROR && error->code == GST_STREAM_ERROR_DECODE && strcmp(error->message, "No valid frames decoded before end of stream") == 0) {
-                LOG_ERROR("Hardware decoder failed. Falling back to software decoding...\n");
-                fallback_to_sw_decoding(player);
-            }
-
+            LOG_ERROR("gstreamer error: code: %d, domain: %s, msg: %s (debug info: %s)\n", error->code, g_quark_to_string(error->domain), error->message, debug_info);
             g_clear_error(&error);
             g_free(debug_info);
             break;
@@ -511,10 +500,6 @@ static void on_bus_message(struct gstplayer *player, GstMessage *msg) {
             break;
         
         case GST_MESSAGE_ASYNC_DONE:
-            if (GST_MESSAGE_SRC(msg) == GST_OBJECT(player->pipeline) && player->is_currently_falling_back_to_sw_decoding) {
-                player->is_currently_falling_back_to_sw_decoding = false;
-                apply_playback_state(player);
-            }
             break;
 
         case GST_MESSAGE_LATENCY:
@@ -845,6 +830,7 @@ void on_source_setup(GstElement *bin, GstElement *source, gpointer userdata) {
 }
 
 static int init(struct gstplayer *player, bool force_sw_decoders) {
+    GstStateChangeReturn state_change_return;
     sd_event_source *busfd_event_source;
     GstElement *pipeline, *sink, *src;
     GstBus *bus;
@@ -862,7 +848,7 @@ static int init(struct gstplayer *player, bool force_sw_decoders) {
         pipeline_descr = default_pipeline_descr;
     }
 
-    pipeline = gst_parse_launch(default_pipeline_descr, &error);
+    pipeline = gst_parse_launch(pipeline_descr, &error);
     if (pipeline == NULL) {
         LOG_ERROR("Could create GStreamer pipeline from description: %s (pipeline: `%s`)\n", error->message, pipeline_descr);
         return error->code;
@@ -968,7 +954,14 @@ static int init(struct gstplayer *player, bool force_sw_decoders) {
     );
 
     LOG_DEBUG("Setting state to paused...\n");
-    gst_element_set_state(GST_ELEMENT(pipeline), GST_STATE_PAUSED);
+    state_change_return = gst_element_set_state(GST_ELEMENT(pipeline), GST_STATE_PAUSED);
+    if (state_change_return == GST_STATE_CHANGE_NO_PREROLL) {
+        LOG_DEBUG("Is Live!\n");
+        player->is_live = true;
+    } else {
+        LOG_DEBUG("Not live!\n");
+        player->is_live = false;
+    }
 
     player->sink = sink;
     /// FIXME: Not sure we need this here. pipeline is floating after gst_parse_launch, which
@@ -976,7 +969,6 @@ static int init(struct gstplayer *player, bool force_sw_decoders) {
     player->pipeline = pipeline; //gst_object_ref(pipeline);
     player->bus = bus;
     player->busfd_events = busfd_event_source;
-    player->is_forcing_sw_decoding = force_sw_decoders;
 
     gst_object_unref(pad);
     return 0;
@@ -1098,8 +1090,6 @@ static struct gstplayer *gstplayer_new(struct flutterpi *flutterpi, const char *
     player->fallback_position_ms = 0;
     player->has_desired_position = false;
     player->desired_position_ms = 0;
-    player->is_forcing_sw_decoding = false;
-    player->is_currently_falling_back_to_sw_decoding = false;
     player->has_sent_info = false;
     player->info.has_resolution = false;
     player->info.has_fps = false;
@@ -1115,6 +1105,7 @@ static struct gstplayer *gstplayer_new(struct flutterpi *flutterpi, const char *
     player->bus = NULL;
     player->busfd_events = NULL;
     player->drm_format = 0;
+    player->is_live = false;
     return player;
 
     //fail_deinit_error_notifier:
@@ -1271,13 +1262,7 @@ int64_t gstplayer_get_position(struct gstplayer *player) {
     GstState current, pending;
     gboolean ok;
     int64_t position;
-
-    // If we're currently falling back to software decoding,
-    // report the position we'll make gstreamer seek to afterwards.
-    if (player->is_currently_falling_back_to_sw_decoding) {
-        return player->desired_position_ms;
-    }
-    
+  
     GstStateChangeReturn statechange = gst_element_get_state(GST_ELEMENT(player->pipeline), &current, &pending, 0); 
     if (statechange == GST_STATE_CHANGE_FAILURE) {
         LOG_GST_GET_STATE_ERROR(player->pipeline);
@@ -1332,21 +1317,19 @@ int gstplayer_step_forward(struct gstplayer *player) {
         return ok;
     }
 
-    if (player->is_currently_falling_back_to_sw_decoding == false) {
-        gst_ok = gst_element_send_event(
-            player->pipeline,
-            gst_event_new_step(
-                GST_FORMAT_BUFFERS,
-                1,
-                1,
-                TRUE,
-                FALSE
-            )
-        );
-        if (gst_ok == FALSE) {
-            LOG_ERROR("Could not send frame-step event to pipeline. (gst_element_send_event)\n");
-            return EIO;
-        }
+    gst_ok = gst_element_send_event(
+        player->pipeline,
+        gst_event_new_step(
+            GST_FORMAT_BUFFERS,
+            1,
+            1,
+            TRUE,
+            FALSE
+        )
+    );
+    if (gst_ok == FALSE) {
+        LOG_ERROR("Could not send frame-step event to pipeline. (gst_element_send_event)\n");
+        return EIO;
     }
     return 0;
 }
@@ -1364,21 +1347,19 @@ int gstplayer_step_backward(struct gstplayer *player) {
         return ok;
     }
 
-    if (player->is_currently_falling_back_to_sw_decoding == false) {
-        gst_ok = gst_element_send_event(
-            player->pipeline,
-            gst_event_new_step(
-                GST_FORMAT_BUFFERS,
-                1,
-                1,
-                TRUE,
-                FALSE
-            )
-        );
-        if (gst_ok == FALSE) {
-            LOG_ERROR("Could not send frame-step event to pipeline. (gst_element_send_event)\n");
-            return EIO;
-        }
+    gst_ok = gst_element_send_event(
+        player->pipeline,
+        gst_event_new_step(
+            GST_FORMAT_BUFFERS,
+            1,
+            1,
+            TRUE,
+            FALSE
+        )
+    );
+    if (gst_ok == FALSE) {
+        LOG_ERROR("Could not send frame-step event to pipeline. (gst_element_send_event)\n");
+        return EIO;
     }
 
     return 0;
