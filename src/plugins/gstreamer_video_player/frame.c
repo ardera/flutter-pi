@@ -194,7 +194,7 @@ struct video_frame *frame_new(
     GLuint texture;
     EGLint egl_error;
     bool is_dmabuf_memory;
-    int dmabuf_fd, n_mems, n_planes, width, height;
+    int dmabuf_fd, n_planes, width, height;
 
     struct {
         int fd;
@@ -213,7 +213,6 @@ struct video_frame *frame_new(
 
     memory = gst_buffer_peek_memory(buffer, 0);
     is_dmabuf_memory = gst_is_dmabuf_memory(memory);
-    n_mems = gst_buffer_n_memory(buffer);
 
     /// TODO: Do we really need to dup() here?
     if (is_dmabuf_memory) {
@@ -235,7 +234,10 @@ struct video_frame *frame_new(
     meta = gst_buffer_get_video_meta(buffer);
     if (meta != NULL) {
         gst_ok = gst_video_meta_get_plane_size(meta, plane_sizes);
-        DEBUG_ASSERT(gst_ok);
+        if (gst_ok != TRUE) {
+            LOG_ERROR("Could not query video frame plane size.\n");
+            goto fail_close_dmabuf_fd;
+        }
     } else {
         // Taken from: https://github.com/GStreamer/gstreamer/blob/621604aa3e4caa8db27637f63fa55fac2f7721e5/subprojects/gst-plugins-base/gst-libs/gst/video/video-info.c#L1278-L1301
         for (int i = 0; i < GST_VIDEO_MAX_PLANES; i++) {
@@ -268,7 +270,10 @@ struct video_frame *frame_new(
             &n_memories,
             &offset_in_memory
         );
-        DEBUG_ASSERT(gst_ok);
+        if (gst_ok != TRUE) {
+            LOG_ERROR("Could not find video frame memory for plane.\n");
+            goto fail_close_dmabuf_fd;
+        }
 
         if (n_memories != 1) {
             LOG_ERROR("Gstreamer Image planes can't span multiple dmabufs.\n");
@@ -445,8 +450,6 @@ struct video_frame *frame_new(
 
     fail_close_dmabuf_fd:
     close(dmabuf_fd);
-
-    fail_free_frame:
     free(frame);
 
     fail_unref_buffer:

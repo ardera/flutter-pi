@@ -93,19 +93,6 @@ static struct platch_obj_cb_data *get_cb_data_by_channel_locked(
 	return data;
 }
 
-MAYBE_UNUSED static struct platch_obj_cb_data *get_cb_data_by_channel(
-	struct plugin_registry *registry,
-	const char *channel
-) {
-	struct platch_obj_cb_data *data;
-
-	cpset_lock(&registry->callbacks);
-	data = get_cb_data_by_channel_locked(registry, channel);
-	cpset_unlock(&registry->callbacks);
-
-	return data;
-}
-
 struct plugin_registry *plugin_registry_new(struct flutterpi *flutterpi) {
 	struct plugin_registry *reg;
 	int ok;

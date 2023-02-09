@@ -558,7 +558,7 @@ static int on_receive(
     } else if STREQ("TextInput.requestAutofill", object->method) {
         return on_request_autofill(object, responsehandle);
     } else if STREQ("TextInput.setEditableSizeAndTransform", object->method) {
-        return on_set_style(object, responsehandle);
+        return on_set_editable_size_and_transform(object, responsehandle);
     } else if STREQ("TextInput.setStyle", object->method) {
         return on_set_style(object, responsehandle);
     } else if STREQ("TextInput.finishAutofillContext", object->method) {
