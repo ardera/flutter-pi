@@ -18,6 +18,9 @@ FILE_DESCR("gstreamer video_player")
 
 #define MAX_N_PLANES 4
 
+#define GSTREAMER_VER(major, minor, patch) ((((major) & 0xFF) << 16) | (((minor) & 0xFF) << 8) | ((patch) & 0xFF))
+#define THIS_GSTREAMER_VER GSTREAMER_VER(LIBGSTREAMER_VERSION_MAJOR, LIBGSTREAMER_VERSION_MINOR, LIBGSTREAMER_VERSION_PATCH)
+
 struct video_frame {
     GstSample *sample;
 
@@ -176,82 +179,106 @@ int dup_gst_buffer_as_dmabuf(struct gbm_device *gbm_device, GstBuffer *buffer) {
     return -1;
 }
 
-struct video_frame *frame_new(
-    struct frame_interface *interface,
-    const struct frame_info *info,
-    GstSample *sample
+/**
+ * @brief Create a dmabuf fd from the given GstMemory.
+ * 
+ * Calls gst_memory_map on the memory.
+ * 
+ */
+int dup_gst_memory_as_dmabuf(struct gbm_device *gbm_device, GstMemory *memory) {
+    struct gbm_bo *bo;
+    GstMapInfo map_info;
+    uint32_t stride;
+    gboolean gst_ok;
+    void *map, *map_data;
+    int fd;
+
+    gst_ok = gst_memory_map(memory, &map_info, GST_MAP_READ);
+    if (gst_ok == FALSE) {
+        LOG_ERROR("Couldn't map gstreamer video frame memory to copy it into a dma buffer.\n");
+        return -1;
+    }
+
+    bo = gbm_bo_create(gbm_device, map_info.size, 1, GBM_FORMAT_R8, GBM_BO_USE_LINEAR);
+    if (bo == NULL) {
+        LOG_ERROR("Couldn't create GBM BO to copy video frame into.\n");
+        goto fail_unmap_buffer;
+    }
+
+    map_data = NULL;
+    map = gbm_bo_map(bo, 0, 0, map_info.size, 1, GBM_BO_TRANSFER_WRITE, &stride, &map_data);
+    if (map == NULL) {
+        LOG_ERROR("Couldn't mmap GBM BO to copy video frame into it.\n");
+        goto fail_destroy_bo;
+    }
+
+    memcpy(map, map_info.data, map_info.size);
+
+    gbm_bo_unmap(bo, map_data);
+
+    fd = gbm_bo_get_fd(bo);
+    if (fd < 0) {
+        LOG_ERROR("Couldn't filedescriptor of video frame GBM BO.\n");
+        goto fail_destroy_bo;
+    }
+
+    /// TODO: Should we dup the fd before we destroy the bo? 
+    gbm_bo_destroy(bo);
+    gst_memory_unmap(memory, &map_info);
+    return fd;
+
+    fail_destroy_bo:
+    gbm_bo_destroy(bo);
+
+    fail_unmap_buffer:
+    gst_memory_unmap(memory, &map_info);
+    return -1;
+}
+
+struct plane_info {
+    int fd;
+    uint32_t offset;
+    uint32_t pitch;
+    bool has_modifier;
+    uint64_t modifier;
+};
+
+#if THIS_GSTREAMER_VER >= GSTREAMER_VER(1, 18, 0)
+int get_plane_infos(
+    GstBuffer *buffer,
+    const struct frame_info *frame_info,
+    struct gbm_device *gbm_device,
+    struct plane_info plane_infos[MAX_N_PLANES]
 ) {
-#   define PUT_ATTR(_key, _value) do { *attr_cursor++ = _key; *attr_cursor++ = _value; } while (false)
-    struct video_frame *frame;
     GstVideoMeta *meta;
-    EGLBoolean egl_ok;
-    EGLImage egl_image;
-    GstBuffer *buffer;
     GstMemory *memory;
     gboolean gst_ok;
-    GLenum gl_error;
-    EGLint attributes[2*7 + MAX_N_PLANES*2*5 + 1], *attr_cursor;
-    GLuint texture;
-    EGLint egl_error;
-    bool is_dmabuf_memory;
-    int dmabuf_fd, n_planes, width, height;
-
-    struct {
-        int fd;
-        int offset;
-        int pitch;
-        bool has_modifier;
-        uint64_t modifier;
-    } planes[MAX_N_PLANES];
-
-    buffer = gst_sample_get_buffer(sample);
-
-    frame = malloc(sizeof *frame);
-    if (frame == NULL) {
-        goto fail_unref_buffer;
-    }
-
-    memory = gst_buffer_peek_memory(buffer, 0);
-    is_dmabuf_memory = gst_is_dmabuf_memory(memory);
-
-    /// TODO: Do we really need to dup() here?
-    if (is_dmabuf_memory) {
-        //dmabuf_fd = dup(gst_dmabuf_memory_get_fd(memory));
-        dmabuf_fd = -1;
-    } else {
-        dmabuf_fd = dup_gst_buffer_as_dmabuf(interface->gbm_device, buffer);
-        
-        //LOG_ERROR("Only dmabuf memory is supported for video frame buffers right now, but gstreamer didn't provide a dmabuf memory buffer.\n");
-        //goto fail_free_frame;
-    }
-
-    width = GST_VIDEO_INFO_WIDTH(info->gst_info);
-    height = GST_VIDEO_INFO_HEIGHT(info->gst_info);
-    n_planes = GST_VIDEO_INFO_N_PLANES(info->gst_info);
-
     size_t plane_sizes[4] = {0};
+    int n_planes;
+
+    n_planes = GST_VIDEO_INFO_N_PLANES(frame_info->gst_info);
 
     meta = gst_buffer_get_video_meta(buffer);
     if (meta != NULL) {
         gst_ok = gst_video_meta_get_plane_size(meta, plane_sizes);
         if (gst_ok != TRUE) {
             LOG_ERROR("Could not query video frame plane size.\n");
-            goto fail_close_dmabuf_fd;
+            return EIO;
         }
     } else {
         // Taken from: https://github.com/GStreamer/gstreamer/blob/621604aa3e4caa8db27637f63fa55fac2f7721e5/subprojects/gst-plugins-base/gst-libs/gst/video/video-info.c#L1278-L1301
         for (int i = 0; i < GST_VIDEO_MAX_PLANES; i++) {
-            if (i < GST_VIDEO_INFO_N_PLANES(info->gst_info)) {
+            if (i < GST_VIDEO_INFO_N_PLANES(frame_info->gst_info)) {
                 gint comp[GST_VIDEO_MAX_COMPONENTS];
                 guint plane_height;
 
-                gst_video_format_info_component(info->gst_info->finfo, i, comp);
+                gst_video_format_info_component(frame_info->gst_info->finfo, i, comp);
                 plane_height = GST_VIDEO_FORMAT_INFO_SCALE_HEIGHT(
-                    info->gst_info->finfo,
+                    frame_info->gst_info->finfo,
                     comp[0],
-                    GST_VIDEO_INFO_FIELD_HEIGHT(info->gst_info)
+                    GST_VIDEO_INFO_FIELD_HEIGHT(frame_info->gst_info)
                 );
-                plane_sizes[i] = plane_height * GST_VIDEO_INFO_PLANE_STRIDE(info->gst_info, i);
+                plane_sizes[i] = plane_height * GST_VIDEO_INFO_PLANE_STRIDE(frame_info->gst_info, i);
             } else {
                 plane_sizes[i] = 0;
             }
@@ -264,7 +291,7 @@ struct video_frame *frame_new(
 
         gst_ok = gst_buffer_find_memory(
             buffer,
-            meta ? meta->offset[i] : GST_VIDEO_INFO_PLANE_OFFSET(info->gst_info, i),
+            meta ? meta->offset[i] : GST_VIDEO_INFO_PLANE_OFFSET(frame_info->gst_info, i),
             plane_sizes[i],
             &memory_index,
             &n_memories,
@@ -272,20 +299,92 @@ struct video_frame *frame_new(
         );
         if (gst_ok != TRUE) {
             LOG_ERROR("Could not find video frame memory for plane.\n");
-            goto fail_close_dmabuf_fd;
+            return EIO;
         }
 
         if (n_memories != 1) {
             LOG_ERROR("Gstreamer Image planes can't span multiple dmabufs.\n");
-            goto fail_close_dmabuf_fd;
+            return EINVAL;
         }
 
-        planes[i].fd = dup(gst_dmabuf_memory_get_fd(gst_buffer_peek_memory(buffer, memory_index)));
-        planes[i].offset = offset_in_memory;
-        planes[i].pitch = meta ? meta->stride[i] : GST_VIDEO_INFO_PLANE_STRIDE(info->gst_info, i);
-        planes[i].has_modifier = false;
-        planes[i].modifier = DRM_FORMAT_MOD_LINEAR;
+        memory = gst_buffer_peek_memory(buffer, memory_index);
+        if (gst_is_dmabuf_memory(memory)) {
+            plane_infos[i].fd = dup(gst_dmabuf_memory_get_fd(memory));
+            if (plane_infos[i].fd < 0) {
+                LOG_ERROR("Could not get gstreamer memory as dmabuf.\n");
+                return EIO;
+            }
+        } else {
+            plane_infos[i].fd = dup_gst_memory_as_dmabuf(gbm_device, memory);
+            if (plane_infos[i].fd < 0) {
+                LOG_ERROR("Could not duplicate gstreamer memory as dmabuf.\n");
+                return EIO;
+            }
+        }
+
+        plane_infos[i].offset = offset_in_memory;
+        plane_infos[i].pitch = meta ? meta->stride[i] : GST_VIDEO_INFO_PLANE_STRIDE(frame_info->gst_info, i);
+
+        /// TODO: Detect modifiers here
+        plane_infos[i].has_modifier = false;
+        plane_infos[i].modifier = DRM_FORMAT_MOD_LINEAR;
     }
+
+    return 0;
+}
+#elif THIS_GSTREAMER_VER >= GSTREAMER_VER(1, 16, 0)
+int get_plane_infos(
+    GstBuffer *buffer,
+    const struct frame_info *frame_info,
+    struct plane_info plane_infos[MAX_N_PLANES]
+) {
+    UNIMPLEMENTED();
+}
+#elif THIS_GSTREAMER_VER >= GSTREAMER_VER(1, 14, 0)
+int get_plane_infos(
+    GstBuffer *buffer,
+    const struct frame_info *frame_info,
+    struct plane_info plane_infos[MAX_N_PLANES]
+) {
+    UNIMPLEMENTED();
+}
+#else
+#   error "Unsupported gstreamer version."
+#endif
+
+struct video_frame *frame_new(
+    struct frame_interface *interface,
+    const struct frame_info *info,
+    GstSample *sample
+) {
+#   define PUT_ATTR(_key, _value) do { *attr_cursor++ = _key; *attr_cursor++ = _value; } while (false)
+    struct video_frame *frame;
+    EGLBoolean egl_ok;
+    EGLImage egl_image;
+    GstBuffer *buffer;
+    GLenum gl_error;
+    EGLint attributes[2*7 + MAX_N_PLANES*2*5 + 1], *attr_cursor;
+    GLuint texture;
+    EGLint egl_error;
+    int ok, n_planes, width, height;
+
+    struct plane_info planes[MAX_N_PLANES] = {0};
+
+    buffer = gst_sample_get_buffer(sample);
+
+    frame = malloc(sizeof *frame);
+    if (frame == NULL) {
+        goto fail_unref_buffer;
+    }
+
+    ok = get_plane_infos(buffer, info, interface->gbm_device, planes);
+    if (ok != 0) {
+        goto fail_free_frame;
+    }
+
+    width = GST_VIDEO_INFO_WIDTH(info->gst_info);
+    height = GST_VIDEO_INFO_HEIGHT(info->gst_info);
+    n_planes = GST_VIDEO_INFO_N_PLANES(info->gst_info);
 
     attr_cursor = attributes;
 
@@ -427,8 +526,11 @@ struct video_frame *frame_new(
     frame->sample = sample;
     frame->interface = frame_interface_ref(interface);
     frame->drm_format = info->drm_format;
-    frame->n_dmabuf_fds = 1;
-    frame->dmabuf_fds[0] = dmabuf_fd;
+    frame->n_dmabuf_fds = n_planes;
+    frame->dmabuf_fds[0] = planes[0].fd;
+    frame->dmabuf_fds[1] = planes[1].fd;
+    frame->dmabuf_fds[2] = planes[2].fd;
+    frame->dmabuf_fds[3] = planes[3].fd;
     frame->image = egl_image;
     frame->gl_frame.target = GL_TEXTURE_EXTERNAL_OES;
     frame->gl_frame.name = texture;
@@ -449,7 +551,10 @@ struct video_frame *frame_new(
     interface->eglDestroyImageKHR(interface->display, egl_image);
 
     fail_close_dmabuf_fd:
-    close(dmabuf_fd);
+    for (int i = 0; i < n_planes; i++)
+        close(planes[i].fd);
+
+    fail_free_frame:
     free(frame);
 
     fail_unref_buffer:
