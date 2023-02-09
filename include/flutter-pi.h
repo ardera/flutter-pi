@@ -302,6 +302,8 @@ struct flutterpi {
 		/// This is computed inside init_display using width_mm and height_mm.
 		/// flutter only accepts pixel ratios >= 1.0
 		double pixel_ratio;
+
+		char *desired_videomode;
 	} display;
 
 	struct {

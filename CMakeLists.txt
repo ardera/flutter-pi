@@ -107,14 +107,14 @@ include(ExternalProject)
 include(CheckCCompilerFlag)
 
 include(FindPkgConfig)
-pkg_check_modules(DRM REQUIRED libdrm)
-pkg_check_modules(GBM REQUIRED gbm)
-pkg_check_modules(EGL REQUIRED egl)
-pkg_check_modules(GLESV2 REQUIRED glesv2)
-pkg_check_modules(LIBSYSTEMD REQUIRED libsystemd)
-pkg_check_modules(LIBINPUT REQUIRED libinput)
-pkg_check_modules(LIBXKBCOMMON REQUIRED xkbcommon)
-pkg_check_modules(LIBUDEV REQUIRED libudev)
+pkg_check_modules(DRM REQUIRED IMPORTED_TARGET libdrm)
+pkg_check_modules(GBM REQUIRED IMPORTED_TARGET gbm)
+pkg_check_modules(EGL REQUIRED IMPORTED_TARGET egl)
+pkg_check_modules(GLESV2 REQUIRED IMPORTED_TARGET glesv2)
+pkg_check_modules(LIBSYSTEMD REQUIRED IMPORTED_TARGET libsystemd)
+pkg_check_modules(LIBINPUT REQUIRED IMPORTED_TARGET libinput)
+pkg_check_modules(LIBXKBCOMMON REQUIRED IMPORTED_TARGET xkbcommon)
+pkg_check_modules(LIBUDEV REQUIRED IMPORTED_TARGET libudev)
 
 add_library(
   flutterpi_module OBJECT
@@ -136,15 +136,14 @@ add_library(
 )
 
 target_link_libraries(flutterpi_module PUBLIC
-  ${DRM_LDFLAGS}
-  ${GBM_LDFLAGS}
-  ${EGL_LDFLAGS}
-  ${GLESV2_LDFLAGS}
-  EGL
-  systemd #${LIBSYSTEMD_LDFLAGS}
-  input #${LIBINPUT_LDFLAGS}
-  xkbcommon #${LIBUDEV_LDFLAGS}
-  udev #${LIBXKBCOMMON_LDFLAGS}
+  PkgConfig::DRM
+  PkgConfig::GBM
+  PkgConfig::EGL
+  PkgConfig::GLESV2
+  PkgConfig::LIBSYSTEMD
+  PkgConfig::LIBINPUT
+  PkgConfig::LIBXKBCOMMON
+  PkgConfig::LIBUDEV
   pthread dl rt m atomic
 )
 
@@ -152,26 +151,10 @@ target_include_directories(flutterpi_module PUBLIC
   ${CMAKE_BINARY_DIR}
   ${CMAKE_SOURCE_DIR}/include
   ${CMAKE_SOURCE_DIR}/include/plugins
-  ${DRM_INCLUDE_DIRS}
-  ${GBM_INCLUDE_DIRS}
-  ${EGL_INCLUDE_DIRS}
-  ${GLESV2_INCLUDE_DIRS}
-  ${LIBSYSTEMD_INCLUDE_DIRS}
-  ${LIBINPUT_INCLUDE_DIRS}
-  ${LIBUDEV_INCLUDE_DIRS}
-  ${LIBXKBCOMMON_INCLUDE_DIRS}
 )
 
 target_compile_options(flutterpi_module PRIVATE
-  ${DRM_CFLAGS}
-  ${GBM_CFLAGS}
-  ${EGL_CFLAGS}
-  ${GLESV2_CFLAGS}
-  ${LIBSYSTEMD_CFLAGS}
-  ${LIBINPUT_CFLAGS}
-  ${LIBUDEV_CFLAGS}
-  ${LIBXKBCOMMON_CFLAGS}
-  $<$<CONFIG:Debug>:-O0 -Wall -Wextra -Wno-sign-compare -Wno-error=unused-function -ggdb -U_FORTIFY_SOURCE -DDEBUG>
+  $<$<CONFIG:Debug>:-O0 -Wall -Wextra -Wno-sign-compare -Werror -ggdb -U_FORTIFY_SOURCE -DDEBUG>
   $<$<CONFIG:RelWithDebInfo>:-O2 -Wall -Wextra -Wno-sign-compare -ggdb>
   $<$<CONFIG:Release>:-O2 -Wall -Wextra -Wno-sign-compare -ggdb>
 )
@@ -224,28 +207,26 @@ if (BUILD_RAW_KEYBOARD_PLUGIN)
 endif()
 if (BUILD_TEST_PLUGIN)
   target_sources(flutterpi_module PRIVATE src/plugins/testplugin.c)
-  target_compile_definitions(flutterpi_module PRIVATE "BUILD_TEST_PLUGIN")
 endif()
 if (BUILD_OMXPLAYER_VIDEO_PLAYER_PLUGIN)
   target_sources(flutterpi_module PRIVATE src/plugins/omxplayer_video_player.c)
-  target_compile_definitions(flutterpi_module PRIVATE "BUILD_OMXPLAYER_VIDEO_PLAYER_PLUGIN")
 endif()
 if (OMXPLAYER_SUPPORTS_RUNTIME_ROTATION)
   target_compile_definitions(flutterpi_module PRIVATE "OMXPLAYER_SUPPORTS_RUNTIME_ROTATION")
 endif()
 if (BUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN)
   if (TRY_BUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN)
-    pkg_check_modules(LIBGSTREAMER gstreamer-1.0)
-    pkg_check_modules(LIBGSTREAMER_PLUGINS_BASE gstreamer-plugins-base-1.0)
-    pkg_check_modules(LIBGSTREAMER_APP gstreamer-app-1.0)
-    pkg_check_modules(LIBGSTREAMER_ALLOCATORS gstreamer-allocators-1.0)
-    pkg_check_modules(LIBGSTREAMER_VIDEO gstreamer-video-1.0)
+    pkg_check_modules(LIBGSTREAMER IMPORTED_TARGET gstreamer-1.0)
+    pkg_check_modules(LIBGSTREAMER_PLUGINS_BASE IMPORTED_TARGET gstreamer-plugins-base-1.0)
+    pkg_check_modules(LIBGSTREAMER_APP IMPORTED_TARGET gstreamer-app-1.0)
+    pkg_check_modules(LIBGSTREAMER_ALLOCATORS IMPORTED_TARGET gstreamer-allocators-1.0)
+    pkg_check_modules(LIBGSTREAMER_VIDEO IMPORTED_TARGET gstreamer-video-1.0)
   else()
-    pkg_check_modules(LIBGSTREAMER REQUIRED gstreamer-1.0)
-    pkg_check_modules(LIBGSTREAMER_PLUGINS_BASE REQUIRED gstreamer-plugins-base-1.0)
-    pkg_check_modules(LIBGSTREAMER_APP REQUIRED gstreamer-app-1.0)
-    pkg_check_modules(LIBGSTREAMER_ALLOCATORS REQUIRED gstreamer-allocators-1.0)
-    pkg_check_modules(LIBGSTREAMER_VIDEO REQUIRED gstreamer-video-1.0)
+    pkg_check_modules(LIBGSTREAMER REQUIRED IMPORTED_TARGET gstreamer-1.0)
+    pkg_check_modules(LIBGSTREAMER_PLUGINS_BASE REQUIRED IMPORTED_TARGET gstreamer-plugins-base-1.0)
+    pkg_check_modules(LIBGSTREAMER_APP REQUIRED IMPORTED_TARGET gstreamer-app-1.0)
+    pkg_check_modules(LIBGSTREAMER_ALLOCATORS REQUIRED IMPORTED_TARGET gstreamer-allocators-1.0)
+    pkg_check_modules(LIBGSTREAMER_VIDEO REQUIRED IMPORTED_TARGET gstreamer-video-1.0)
   endif()
 
   if (LIBGSTREAMER_FOUND AND LIBGSTREAMER_PLUGINS_BASE_FOUND AND LIBGSTREAMER_APP_FOUND AND LIBGSTREAMER_ALLOCATORS_FOUND AND LIBGSTREAMER_VIDEO_FOUND)
@@ -254,30 +235,12 @@ if (BUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN)
       src/plugins/gstreamer_video_player/player.c
       src/plugins/gstreamer_video_player/frame.c
     )
-    target_compile_definitions(flutterpi_module PRIVATE "BUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN")
     target_link_libraries(flutterpi_module PUBLIC
-      ${LIBGSTREAMER_LDFLAGS}
-      ${LIBGSTREAMER_PLUGINS_BASE_LDFLAGS}
-      ${LIBGSTREAMER_APP_LDFLAGS}
-      ${LIBGSTREAMER_ALLOCATORS_LDFLAGS}
-      ${LIBGSTREAMER_VIDEO_LDFLAGS}
-      ${LIBGSTREAMER_AUDIO_LIBRARY_DIRS}
-    )
-    target_include_directories(flutterpi_module PRIVATE
-      ${LIBGSTREAMER_INCLUDE_DIRS}
-      ${LIBGSTREAMER_PLUGINS_BASE_INCLUDE_DIRS}
-      ${LIBGSTREAMER_APP_INCLUDE_DIRS}
-      ${LIBGSTREAMER_ALLOCATORS_INCLUDE_DIRS}
-      ${LIBGSTREAMER_VIDEO_INCLUDE_DIRS}
-      ${LIBGSTREAMER_AUDIO_INCLUDE_DIRS}
-    )
-    target_compile_options(flutterpi_module PRIVATE
-      ${LIBGSTREAMER_CFLAGS}
-      ${LIBGSTREAMER_PLUGINS_BASE_CFLAGS}
-      ${LIBGSTREAMER_APP_CFLAGS}
-      ${LIBGSTREAMER_ALLOCATORS_CFLAGS}
-      ${LIBGSTREAMER_VIDEO_CFLAGS}
-      ${LIBGSTREAMER_AUDIO_CFLAGS}
+      PkgConfig::LIBGSTREAMER
+      PkgConfig::LIBGSTREAMER_PLUGINS_BASE
+      PkgConfig::LIBGSTREAMER_APP
+      PkgConfig::LIBGSTREAMER_ALLOCATORS
+      PkgConfig::LIBGSTREAMER_VIDEO
     )
   else()
     message(NOTICE "Couldn't find gstreamer libraries. Gstreamer video player plugin won't be build.")
@@ -286,13 +249,13 @@ endif()
 
 if (BUILD_GSTREAMER_AUDIO_PLAYER_PLUGIN)
   if (TRY_BUILD_GSTREAMER_AUDIO_PLAYER_PLUGIN)
-    pkg_check_modules(LIBGSTREAMER gstreamer-1.0)
-    pkg_check_modules(LIBGSTREAMER_APP gstreamer-app-1.0)
-    pkg_check_modules(LIBGSTREAMER_AUDIO gstreamer-audio-1.0)
+    pkg_check_modules(LIBGSTREAMER IMPORTED_TARGET gstreamer-1.0)
+    pkg_check_modules(LIBGSTREAMER_APP IMPORTED_TARGET gstreamer-app-1.0)
+    pkg_check_modules(LIBGSTREAMER_AUDIO IMPORTED_TARGET gstreamer-audio-1.0)
   else()
-    pkg_check_modules(LIBGSTREAMER REQUIRED gstreamer-1.0)
-    pkg_check_modules(LIBGSTREAMER_APP REQUIRED gstreamer-app-1.0)
-    pkg_check_modules(LIBGSTREAMER_AUDIO REQUIRED gstreamer-audio-1.0)
+    pkg_check_modules(LIBGSTREAMER REQUIRED IMPORTED_TARGET gstreamer-1.0)
+    pkg_check_modules(LIBGSTREAMER_APP REQUIRED IMPORTED_TARGET gstreamer-app-1.0)
+    pkg_check_modules(LIBGSTREAMER_AUDIO REQUIRED IMPORTED_TARGET gstreamer-audio-1.0)
   endif()
 
   if (LIBGSTREAMER_FOUND AND LIBGSTREAMER_APP_FOUND AND LIBGSTREAMER_AUDIO_FOUND)
@@ -300,21 +263,10 @@ if (BUILD_GSTREAMER_AUDIO_PLAYER_PLUGIN)
       src/plugins/audioplayers/plugin.c
       src/plugins/audioplayers/player.c
     )
-    target_compile_definitions(flutterpi_module PRIVATE "BUILD_GSTREAMER_AUDIO_PLAYER_PLUGIN")
     target_link_libraries(flutterpi_module PUBLIC
-      ${LIBGSTREAMER_LDFLAGS}
-      ${LIBGSTREAMER_APP_LDFLAGS}
-      ${LIBGSTREAMER_AUDIO_LIBRARY_DIRS}
-    )
-    target_include_directories(flutterpi_module PRIVATE
-      ${LIBGSTREAMER_INCLUDE_DIRS}
-      ${LIBGSTREAMER_APP_INCLUDE_DIRS}
-      ${LIBGSTREAMER_AUDIO_INCLUDE_DIRS}
-    )
-    target_compile_options(flutterpi_module PRIVATE
-      ${LIBGSTREAMER_CFLAGS}
-      ${LIBGSTREAMER_APP_CFLAGS}
-      ${LIBGSTREAMER_AUDIO_CFLAGS}
+      PkgConfig::LIBGSTREAMER
+      PkgConfig::LIBGSTREAMER_APP
+      PkgConfig::LIBGSTREAMER_AUDIO
     )
   else()
     message(NOTICE "Couldn't find gstreamer libraries. Gstreamer audio player plugin won't be build.")

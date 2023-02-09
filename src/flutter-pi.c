@@ -105,24 +105,10 @@ OPTIONS:\n\
   --pixelformat <format>     Selects the pixel format to use for the framebuffers.\n\
                              Available pixel formats:\n\
                                RGB565, ARGB8888, XRGB8888, BGRA8888, RGBA8888\n\
-\n\
-  -i, --input <glob pattern> Appends all files matching this glob pattern to the\n\
-                             list of input (touchscreen, mouse, touchpad, \n\
-                             keyboard) devices. Brace and tilde expansion is \n\
-                             enabled.\n\
-                             Every file that matches this pattern, but is not\n\
-                             a valid touchscreen / -pad, mouse or keyboard is \n\
-                             silently ignored.\n\
-                             If no -i options are given, flutter-pi will try to\n\
-                             use all input devices assigned to udev seat0.\n\
-                             If that fails, or udev is not installed, flutter-pi\n\
-                             will fallback to using all devices matching \n\
-                             \"/dev/input/event*\" as inputs.\n\
-                             In most cases, there's no need to specify this\n\
-                             option.\n\
-                             Note that you need to properly escape each glob \n\
-                             pattern you use as a parameter so it isn't \n\
-                             implicitly expanded by your shell.\n\
+  --videomode widthxheight\n\
+  --videomode widthxheight@hz  Uses an output videomode that satisfies the argument.\n\
+                             If no hz value is given, the highest possible refreshrate\n\
+                             will be used.\n\
 \n\
   -h, --help                 Show this help and exit.\n\
 \n\
@@ -132,8 +118,8 @@ EXAMPLES:\n\
   flutter-pi -o portrait_up ./my_app\n\
   flutter-pi -r 90 ./my_app\n\
   flutter-pi -d \"155, 86\" ./my_app\n\
-  flutter-pi -i \"/dev/input/event{0,1}\" -i \"/dev/input/event{2,3}\" /home/pi/helloworld_flutterassets\n\
-  flutter-pi -i \"/dev/input/mouse*\" /home/pi/helloworld_flutterassets\n\
+  flutter-pi --videomode 1920x1080 ./my_app\n\
+  flutter-pi --videomode 1280x720@60 ./my_app\n\
 \n\
 SEE ALSO:\n\
   Author:  Hannes Winkler, a.k.a ardera\n\
@@ -449,7 +435,7 @@ static int on_execute_frame_request(
 
 /// Called on some flutter internal thread to request a frame,
 /// and also get the vblank timestamp of the pageflip preceding that frame.
-static void on_frame_request(
+MAYBE_UNUSED static void on_frame_request(
     void* userdata,
     intptr_t baton
 ) {
@@ -1447,24 +1433,60 @@ static int init_display(void) {
         return EINVAL;
     }
 
+    mode = NULL;
+    if (flutterpi.display.desired_videomode != NULL) {
+        for_each_mode_in_connector(connector, mode_iter) {
+            char *modeline = NULL, *modeline_nohz = NULL;
+
+            ok = asprintf(&modeline, "%"PRIu16"x%"PRIu16"@%"PRIu32, mode_iter->hdisplay, mode_iter->vdisplay, mode_iter->vrefresh);
+            if (ok < 0) {
+                return ENOMEM;
+            }
+
+            ok = asprintf(&modeline_nohz, "%"PRIu16"x%"PRIu16, mode_iter->hdisplay, mode_iter->vdisplay);
+            if (ok < 0) {
+                return ENOMEM;
+            }
+
+            if (strcmp(modeline, flutterpi.display.desired_videomode) == 0) {
+                // Probably a bit superfluos, but the refresh rate can still vary in the decimal places.
+                if (mode == NULL || (mode_get_vrefresh(mode_iter) > mode_get_vrefresh(mode))) {
+                    mode = mode_iter;
+                }
+            } else if (strcmp(modeline_nohz, flutterpi.display.desired_videomode) == 0) {
+                if (mode == NULL || (mode_get_vrefresh(mode_iter) > mode_get_vrefresh(mode))) {
+                    mode = mode_iter;
+                }
+            }
+
+            free(modeline);
+            free(modeline_nohz);
+        }
+
+        if (mode == NULL) {
+            LOG_ERROR("Didn't find a videomode matching \"%s\"! Falling back to display preferred mode.\n", flutterpi.display.desired_videomode);
+        }
+    }
+
     // Find the preferred mode (GPU drivers _should_ always supply a preferred mode, but of course, they don't)
     // Alternatively, find the mode with the highest width*height. If there are multiple modes with the same w*h,
     // prefer higher refresh rates. After that, prefer progressive scanout modes.
-    mode = NULL;
-    for_each_mode_in_connector(connector, mode_iter) {
-        if (mode_iter->type & DRM_MODE_TYPE_PREFERRED) {
-            mode = mode_iter;
-            break;
-        } else if (mode == NULL) {
-            mode = mode_iter;
-        } else {
-            int area = mode_iter->hdisplay * mode_iter->vdisplay;
-            int old_area = mode->hdisplay * mode->vdisplay;
-
-            if ((area > old_area) ||
-                ((area == old_area) && (mode_iter->vrefresh > mode->vrefresh)) ||
-                ((area == old_area) && (mode_iter->vrefresh == mode->vrefresh) && ((mode->flags & DRM_MODE_FLAG_INTERLACE) == 0))) {
+    if (mode == NULL) {
+        for_each_mode_in_connector(connector, mode_iter) {
+            if (mode_iter->type & DRM_MODE_TYPE_PREFERRED) {
                 mode = mode_iter;
+                break;
+            } else if (mode == NULL) {
+                mode = mode_iter;
+            } else {
+                int area = mode_iter->hdisplay * mode_iter->vdisplay;
+                int old_area = mode->hdisplay * mode->vdisplay;
+
+                if ((area > old_area) ||
+                    ((area == old_area) && (mode_iter->vrefresh > mode->vrefresh)) ||
+                    ((area == old_area) && (mode_iter->vrefresh == mode->vrefresh) && ((mode->flags & DRM_MODE_FLAG_INTERLACE) == 0))) {
+                    mode = mode_iter;
+                }
             }
         }
     }
@@ -1996,7 +2018,7 @@ static int init_application(void) {
         .shutdown_dart_vm_when_done = true,
         .compositor = &flutter_compositor,
         .dart_old_gen_heap_size = -1,
-        .compute_platform_resolved_locale_callback = NULL,
+        .compute_platform_resolved_locale_callback = on_compute_platform_resolved_locales,
         .dart_entrypoint_argc = 0,
         .dart_entrypoint_argv = NULL,
         .log_message_callback = NULL,
@@ -2298,10 +2320,6 @@ static int init_user_input(void) {
     return 0;
 }
 
-static bool path_exists(const char *path) {
-    return access(path, R_OK) == 0;
-}
-
 static struct flutter_paths *setup_paths(enum flutter_runtime_mode runtime_mode, const char *app_bundle_path) {
 #if defined(FILESYSTEM_LAYOUT_DEFAULT)
     return fs_layout_flutterpi_resolve(app_bundle_path, runtime_mode);
@@ -2322,12 +2340,12 @@ static bool parse_cmd_args(int argc, char **argv) {
     struct option long_options[] = {
         {"release", no_argument, &runtime_mode_int, kRelease},
         {"profile", no_argument, &runtime_mode_int, kProfile},
-        {"input", required_argument, NULL, 'i'},
         {"orientation", required_argument, NULL, 'o'},
         {"rotation", required_argument, NULL, 'r'},
         {"dimensions", required_argument, NULL, 'd'},
         {"help", no_argument, 0, 'h'},
         {"pixelformat", required_argument, NULL, 'p'},
+        {"videomode", required_argument, NULL, 'v'},
         {0, 0, 0, 0}
     };
 
@@ -2416,6 +2434,15 @@ static bool parse_cmd_args(int argc, char **argv) {
                 COMPILE_ASSERT(kCount_PixFmt == 5);
 
                 valid_format:
+                break;
+            
+            case 'v': ;
+                char *vmode_dup = strdup(optarg);
+                if (vmode_dup == NULL) {
+                    return false;
+                }
+
+                flutterpi.display.desired_videomode = vmode_dup;
                 break;
             
             case 'h':

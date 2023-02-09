@@ -355,7 +355,7 @@ static int fetch_planes(struct drmdev *drmdev, struct drm_plane **planes_out, si
     return ok;
 }
 
-static int free_planes(struct drm_plane *planes, size_t n_planes) {
+MAYBE_UNUSED static int free_planes(struct drm_plane *planes, size_t n_planes) {
     for (int i = 0; i < n_planes; i++) {
         for (int j = 0; j < planes[i].props->count_props; j++)
             drmModeFreeProperty(planes[i].props_info[j]);

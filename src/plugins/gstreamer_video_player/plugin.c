@@ -193,31 +193,6 @@ static int get_player_from_map_arg(
     return 0;
 }
 
-static int get_player_and_meta_from_map_arg(
-    struct std_value *arg,
-    struct gstplayer **player_out,
-    struct gstplayer_meta **meta_out,
-    FlutterPlatformMessageResponseHandle *responsehandle
-) {
-    struct gstplayer *player;
-    int ok;
-
-    ok = get_player_from_map_arg(arg, &player, responsehandle);
-    if (ok != 0) {
-        return ok;
-    }
-
-    if (player_out) {
-        *player_out = player;
-    }
-
-    if (meta_out) {
-        *meta_out = (struct gstplayer_meta*) gstplayer_get_userdata_locked(player);
-    }
-
-    return 0;
-}
-
 static int ensure_initialized() {
     GError *gst_error;
     gboolean success;
@@ -266,7 +241,7 @@ static int send_initialized_event(struct gstplayer_meta *meta, bool is_stream, i
     );
 }
 
-static int send_completed_event(struct gstplayer_meta *meta) {
+MAYBE_UNUSED static int send_completed_event(struct gstplayer_meta *meta) {
     return platch_send_success_event_std(
         meta->event_channel_name,
         &STDMAP1(

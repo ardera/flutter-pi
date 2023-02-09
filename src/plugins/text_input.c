@@ -558,7 +558,7 @@ static int on_receive(
     } else if STREQ("TextInput.requestAutofill", object->method) {
         return on_request_autofill(object, responsehandle);
     } else if STREQ("TextInput.setEditableSizeAndTransform", object->method) {
-        return on_set_style(object, responsehandle);
+        return on_set_editable_size_and_transform(object, responsehandle);
     } else if STREQ("TextInput.setStyle", object->method) {
         return on_set_style(object, responsehandle);
     } else if STREQ("TextInput.finishAutofillContext", object->method) {
@@ -824,7 +824,7 @@ static bool model_move_cursor_to_end(void) {
     return false;
 }
 
-static bool model_move_cursor_forward(void) {
+MAYBE_UNUSED static bool model_move_cursor_forward(void) {
     if (text_input.selection_base != text_input.selection_extent) {
         text_input.selection_base = text_input.selection_extent;
         return true;
@@ -839,7 +839,7 @@ static bool model_move_cursor_forward(void) {
     return false;
 }
 
-static bool model_move_cursor_back(void) {
+MAYBE_UNUSED static bool model_move_cursor_back(void) {
     if (text_input.selection_base != text_input.selection_extent) {
         text_input.selection_extent = text_input.selection_base;
         return true; 
