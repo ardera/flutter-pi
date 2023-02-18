@@ -104,6 +104,10 @@ struct drmdev_atomic_req {
     struct pointer_set available_planes;
 };
 
+static bool is_drm_master(int fd) {
+    return drmAuthMagic(fd, 0) != -EACCES;
+}
+
 static struct drm_mode_blob *drm_mode_blob_new(int drm_fd, const drmModeModeInfo *mode) {
     struct drm_mode_blob *blob;
     uint32_t blob_id;
@@ -923,7 +927,7 @@ struct drmdev *drmdev_new_from_fd(int fd, const struct drmdev_interface *interfa
         return NULL;
     }
 
-    if (drmIsMaster(fd)) {
+    if (is_drm_master(fd)) {
         ok = drmDropMaster(fd);
         if (ok < 0) {
             LOG_ERROR("Couldn't drop DRM master. drmDropMaster: %s\n", strerror(errno));
@@ -2164,7 +2168,7 @@ static int kms_req_commit_common(
         return EBUSY;
     }
 
-    if (!drmIsMaster(builder->drmdev->master_fd)) {
+    if (!is_drm_master(builder->drmdev->master_fd)) {
         LOG_ERROR("Commit requested, but drmdev is paused right now.\n");
         drmdev_unlock(builder->drmdev);
         return EBUSY;
