@@ -492,6 +492,7 @@ static const char *__attribute__((unused)) __file_logging_name = _logging_name;
 #define ATTR_CONST
 #endif
 
+
 static inline int refcount_inc_n(refcount_t *refcount, int n) {
 	return atomic_fetch_add_explicit(refcount, n, memory_order_relaxed);
 }

@@ -52,6 +52,10 @@ enum pixfmt {
 // Just a pedantic check so we don't update the pixfmt enum without changing kMax_PixFmt
 COMPILE_ASSERT(kMax_PixFmt == kRGBX8888_FpiPixelFormat);
 
+
+// Vulkan doesn't support that many sRGB formats actually.
+// There's two more (one packed and one non-packed) that aren't listed here.
+/// TODO: We could support other formats as well though with manual colorspace conversions.
 #define PIXFMT_LIST(V) \
     V( "RGB 5:6:5",   "RGB565",   kRGB565_FpiPixelFormat,   /*bpp*/ 16, /*bit_depth*/ 16, /*opaque*/ true,  /*Vulkan format*/  VK_FORMAT_UNDEFINED,     /*R*/ 5, 11, /*G*/ 6,  5, /*B*/ 5,  0, /*A*/ 0,  0, /*GBM fourcc*/ GBM_FORMAT_RGB565,   /*DRM fourcc*/ DRM_FORMAT_RGB565  ) \
     V("ARGB 4:4:4:4", "ARGB4444", kARGB4444_FpiPixelFormat, /*bpp*/ 16, /*bit_depth*/ 12, /*opaque*/ false, /*Vulkan format*/  VK_FORMAT_UNDEFINED,     /*R*/ 4,  8, /*G*/ 4,  4, /*B*/ 4,  0, /*A*/ 4, 12, /*GBM fourcc*/ GBM_FORMAT_ARGB4444, /*DRM fourcc*/ DRM_FORMAT_ARGB4444) \

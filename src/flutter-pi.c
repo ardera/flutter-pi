@@ -145,7 +145,6 @@ SEE ALSO:\n\
     https://github.com/flutter/engine/blob/main/shell/common/switches.h\n\
 ";
 
-
 struct flutterpi {
 	/**
 	 * @brief The KMS device.
