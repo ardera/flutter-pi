@@ -375,7 +375,7 @@ struct drm_plane {
     drm_plane_transform_t hardcoded_rotation;
 
     /// The framebuffer formats this plane supports. (Assuming no modifier)
-    /// For example, kARGB8888 is supported if supported_formats[kARGB8888] is true.
+    /// For example, kARGB8888_FpiPixelFormat is supported if supported_formats[kARGB8888_FpiPixelFormat] is true.
     bool supported_formats[kCount_PixFmt];
 
     /// True if this plane has an IN_FORMATS property attached an
@@ -427,13 +427,8 @@ void drmdev_destroy(struct drmdev *drmdev);
 
 DECLARE_REF_OPS(drmdev)
 
-int drmdev_configure(
-    struct drmdev *drmdev,
-    uint32_t connector_id,
-    uint32_t encoder_id,
-    uint32_t crtc_id,
-    const drmModeModeInfo *mode
-);
+struct drmdev;
+struct _drmModeModeInfo;
 
 int drmdev_get_fd(struct drmdev *drmdev);
 int drmdev_get_event_fd(struct drmdev *drmdev);

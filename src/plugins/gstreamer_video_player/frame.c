@@ -269,11 +269,14 @@ int get_plane_infos(
         // Taken from: https://github.com/GStreamer/gstreamer/blob/621604aa3e4caa8db27637f63fa55fac2f7721e5/subprojects/gst-plugins-base/gst-libs/gst/video/video-info.c#L1278-L1301
         for (int i = 0; i < GST_VIDEO_MAX_PLANES; i++) {
             if (i < GST_VIDEO_INFO_N_PLANES(frame_info->gst_info)) {
+#if THIS_GSTREAMER_VER >= GSTREAMER_VER(1, 21, 3)
                 if (GST_VIDEO_FORMAT_INFO_IS_TILED (frame_info->gst_info->finfo)) {
                     guint x_tiles = GST_VIDEO_TILE_X_TILES (frame_info->gst_info->stride[i]);
                     guint y_tiles = GST_VIDEO_TILE_Y_TILES (frame_info->gst_info->stride[i]);
                     plane_sizes[i] = x_tiles * y_tiles * GST_VIDEO_FORMAT_INFO_TILE_SIZE(frame_info->gst_info->finfo, i);
                 } else {
+#endif
+
                     gint comp[GST_VIDEO_MAX_COMPONENTS];
                     guint plane_height;
 
@@ -283,7 +286,10 @@ int get_plane_infos(
                         GST_VIDEO_FORMAT_INFO_SCALE_HEIGHT(frame_info->gst_info->finfo, comp[0],
                         GST_VIDEO_INFO_FIELD_HEIGHT(frame_info->gst_info));
                     plane_sizes[i] = plane_height * GST_VIDEO_INFO_PLANE_STRIDE(frame_info->gst_info, i);
+
+#if THIS_GSTREAMER_VER >= GSTREAMER_VER(1, 21, 3)
                 }
+#endif
             } else {
                 plane_sizes[i] = 0;
             }

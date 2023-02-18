@@ -1,4 +1,3 @@
-#define _GNU_SOURCE
 #include <errno.h>
 #include <inttypes.h>
 #include <stdint.h>
@@ -1104,6 +1103,11 @@ void drmdev_destroy(struct drmdev *drmdev) {
 }
 
 DEFINE_REF_OPS(drmdev, n_refs)
+
+int drmdev_get_fd(struct drmdev *drmdev) {
+    DEBUG_ASSERT_NOT_NULL(drmdev);
+    return drmdev->master_fd;
+}
 
 int drmdev_get_event_fd(struct drmdev *drmdev) {
     DEBUG_ASSERT_NOT_NULL(drmdev);
