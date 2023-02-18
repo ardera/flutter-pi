@@ -11,91 +11,12 @@
 
 struct platform_view_params;
 
-typedef int (*platform_view_mount_cb)(
-    int64_t view_id,
-    struct drmdev_atomic_req *req,
-    const struct platform_view_params *params,
-    int zpos,
-    void *userdata  
-);
-
-typedef int (*platform_view_unmount_cb)(
-    int64_t view_id,
-    struct drmdev_atomic_req *req,
-    void *userdata
-);
-
-typedef int (*platform_view_update_view_cb)(
-    int64_t view_id,
-    struct drmdev_atomic_req *req,
-    const struct platform_view_params *params,
-    int zpos,
-    void *userdata
-);
-
 typedef int (*platform_view_present_cb)(
     int64_t view_id,
-    struct drmdev_atomic_req *req,
+    struct kms_req_builder *builder,
     const struct platform_view_params *params,
-    int zpos,
     void *userdata
 );
-
-struct point {
-    double x, y;
-};
-
-struct quad {
-    struct point top_left, top_right, bottom_left, bottom_right;
-};
-
-struct aa_rect {
-    struct point offset, size;
-};
-
-static inline struct aa_rect get_aa_bounding_rect(const struct quad _rect) {
-    double l = min(min(min(_rect.top_left.x, _rect.top_right.x), _rect.bottom_left.x), _rect.bottom_right.x);
-	double r = max(max(max(_rect.top_left.x, _rect.top_right.x), _rect.bottom_left.x), _rect.bottom_right.x);
-	double t = min(min(min(_rect.top_left.y, _rect.top_right.y), _rect.bottom_left.y), _rect.bottom_right.y);
-	double b = max(max(max(_rect.top_left.y, _rect.top_right.y), _rect.bottom_left.y), _rect.bottom_right.y);
-
-    return (struct aa_rect) {
-        .offset.x = l,
-        .offset.y = t,
-        .size.x = r - l,
-        .size.y = b - t
-    };
-}
-
-static inline struct quad get_quad(const struct aa_rect rect) {
-    return (struct quad) {
-        .top_left = rect.offset,
-        .top_right.x = rect.offset.x + rect.size.x,
-        .top_right.y = rect.offset.y,
-        .bottom_left.x = rect.offset.x,
-        .bottom_left.y = rect.offset.y + rect.size.y,
-        .bottom_right.x = rect.offset.x + rect.size.x,
-        .bottom_right.y = rect.offset.y + rect.size.y
-    };
-}
-
-static inline void apply_transform_to_point(const FlutterTransformation transform, struct point *point) {
-    apply_flutter_transformation(transform, &point->x, &point->y);
-}
-
-static inline void apply_transform_to_quad(const FlutterTransformation transform, struct quad *rect) {
-	apply_transform_to_point(transform, &rect->top_left);
-	apply_transform_to_point(transform, &rect->top_right);
-	apply_transform_to_point(transform, &rect->bottom_left);
-	apply_transform_to_point(transform, &rect->bottom_right);
-}
-
-static inline struct quad apply_transform_to_aa_rect(const FlutterTransformation transform, const struct aa_rect rect) {
-    struct quad _quad = get_quad(rect);
-    apply_transform_to_quad(transform, &_quad);
-    return _quad;
-}
-
 
 struct platform_view_params {
     struct quad rect;
@@ -179,14 +100,6 @@ struct compositor {
     bool do_blocking_atomic_commits;
 };
 
-/*
-struct window_surface_backing_store {
-    struct compositor *compositor;
-    struct gbm_surface *gbm_surface;
-    struct gbm_bo *current_front_bo;
-    uint32_t drm_plane_id;
-};
-*/
 
 struct drm_rbo {
     EGLImage egl_image;
@@ -201,52 +114,9 @@ struct drm_fb {
     uint32_t fb_id;
 };
 
-/*
-struct drm_fb_backing_store {   
-    struct compositor *compositor;
-
-    GLuint gl_fbo_id;
-    struct drm_rbo rbos[2];
-    
-    // The front FB is the one GL is rendering to right now, similiar
-    // to libgbm.
-    int current_front_rbo;
-    
-    uint32_t drm_plane_id;
-};
-
-enum backing_store_type {
-    kWindowSurface,
-    kDrmFb
-};
-
-struct backing_store_metadata {
-    enum backing_store_type type;
-    union {
-        struct window_surface_backing_store window_surface;
-        struct drm_fb_backing_store drm_fb;
-    };
-};
-*/
-
 struct rendertarget_gbm {
     struct gbm_surface *gbm_surface;
     struct gbm_bo *current_front_bo;
-};
-
-/**
- * @brief No-GBM Rendertarget.
- * A type of rendertarget that is not backed by a GBM-Surface, used for rendering into DRM overlay planes.
- */
-struct rendertarget_nogbm {
-    GLuint gl_fbo_id;
-    struct drm_rbo rbos[2];
-    
-    /**
-     * @brief The index of the @ref drm_rbo in the @ref rendertarget_nogbm::rbos array that
-     * OpenGL is currently rendering into.
-     */
-    int current_front_rbo;
 };
 
 struct rendertarget {
@@ -256,7 +126,6 @@ struct rendertarget {
 
     union {
         struct rendertarget_gbm gbm;
-        struct rendertarget_nogbm nogbm;
     };
 
     GLuint gl_fbo_id;
@@ -264,24 +133,7 @@ struct rendertarget {
     void (*destroy)(struct rendertarget *target);
     int (*present)(
         struct rendertarget *target,
-        struct drmdev_atomic_req *atomic_req,
-        uint32_t drm_plane_id,
-        int offset_x,
-        int offset_y,
-        int width,
-        int height,
-        int zpos
-    );
-    int (*present_legacy)(
-        struct rendertarget *target,
-        struct drmdev *drmdev,
-        uint32_t drm_plane_id,
-        int offset_x,
-        int offset_y,
-        int width,
-        int height,
-        int zpos,
-        bool set_mode
+        struct kms_req_builder *builder
     );
 };
 
@@ -300,9 +152,6 @@ int compositor_on_page_flip(
 
 int compositor_set_view_callbacks(
     int64_t view_id,
-    platform_view_mount_cb mount,
-    platform_view_unmount_cb unmount,
-    platform_view_update_view_cb update_view,
     platform_view_present_cb present,
     void *userdata
 );

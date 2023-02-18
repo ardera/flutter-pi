@@ -242,6 +242,10 @@ struct flutterpi {
 		drmEventContext evctx;
 		sd_event_source *drm_pageflip_event_source;
 		bool platform_supports_get_sequence_ioctl;
+
+		uint32_t selected_crtc_id;
+		uint32_t selected_connector_id;
+		const drmModeModeInfo *selected_mode;
 	} drm;
 
 	struct {

@@ -104,7 +104,8 @@ OPTIONS:\n\
 \n\
   --pixelformat <format>     Selects the pixel format to use for the framebuffers.\n\
                              Available pixel formats:\n\
-                               RGB565, ARGB8888, XRGB8888, BGRA8888, RGBA8888\n\
+                               RGB565, ARGB4444, XRGB4444, ARGB1555, XRGB1555, ARGB8888,\n\
+                               XRGB8888, BGRA8888, BGRX8888, RGBA8888, RGBX8888\n\
   --videomode widthxheight\n\
   --videomode widthxheight@hz  Uses an output videomode that satisfies the argument.\n\
                              If no hz value is given, the highest possible refreshrate\n\
@@ -133,7 +134,7 @@ SEE ALSO:\n\
 ";
 
 // If this fails, update the accepted value list for --pixelformat above too.
-COMPILE_ASSERT(kCount_PixFmt == 5);
+COMPILE_ASSERT(kCount_PixFmt == 11);
 
 struct flutterpi flutterpi;
 
@@ -396,7 +397,7 @@ static int on_execute_frame_request(
             uint64_t ns;
             if (flutterpi.drm.platform_supports_get_sequence_ioctl) {
                 ns = 0;
-                ok = drmCrtcGetSequence(flutterpi.drm.drmdev->fd, flutterpi.drm.drmdev->selected_crtc->crtc->crtc_id, NULL, &ns);
+                ok = drmCrtcGetSequence(drmdev_get_fd(flutterpi.drm.drmdev), flutterpi.drm.selected_crtc_id, NULL, &ns);
                 if (ok < 0) {
                     perror("[flutter-pi] Couldn't get last vblank timestamp. drmCrtcGetSequence");
                     cqueue_unlock(&flutterpi.frame_queue);
@@ -1375,14 +1376,14 @@ static int init_display(void) {
             continue;
         }
 
-        ok = drmdev_new_from_path(&flutterpi.drm.drmdev, device->nodes[DRM_NODE_PRIMARY]);
-        if (ok != 0) {
+        flutterpi.drm.drmdev = drmdev_new_from_path(device->nodes[DRM_NODE_PRIMARY], NULL, NULL);
+        if (flutterpi.drm.drmdev == NULL) {
             LOG_ERROR("Could not create drmdev from device at \"%s\". Continuing.\n", device->nodes[DRM_NODE_PRIMARY]);
             continue;
         }
 
         for_each_connector_in_drmdev(flutterpi.drm.drmdev, connector) {
-            if (connector->connector->connection == DRM_MODE_CONNECTED) {
+            if (connector->variable_state.connection_state == kConnected_DrmConnectionState) {
                 goto found_connected_connector;
             }
         }
@@ -1403,24 +1404,24 @@ static int init_display(void) {
 
     // find a connected connector
     for_each_connector_in_drmdev(flutterpi.drm.drmdev, connector) {
-        if (connector->connector->connection == DRM_MODE_CONNECTED) {
+        if (connector->variable_state.connection_state == kConnected_DrmConnectionState) {
             // only update the physical size of the display if the values
             //   are not yet initialized / not set with a commandline option
             if ((flutterpi.display.width_mm == 0) || (flutterpi.display.height_mm == 0)) {
-                if ((connector->connector->connector_type == DRM_MODE_CONNECTOR_DSI) &&
-                    (connector->connector->mmWidth == 0) &&
-                    (connector->connector->mmHeight == 0))
+                if ((connector->type == kDSI_DrmConnectorType) &&
+                    (connector->variable_state.width_mm == 0) &&
+                    (connector->variable_state.height_mm == 0))
                 {
                     // if it's connected via DSI, and the width & height are 0,
                     //   it's probably the official 7 inch touchscreen.
                     flutterpi.display.width_mm = 155;
                     flutterpi.display.height_mm = 86;
-                } else if ((connector->connector->mmHeight % 10 == 0) &&
-                            (connector->connector->mmWidth % 10 == 0)) {
+                } else if ((connector->variable_state.width_mm % 10 == 0) &&
+                            (connector->variable_state.height_mm % 10 == 0)) {
                     // don't change anything.
                 } else {
-                    flutterpi.display.width_mm = connector->connector->mmWidth;
-                    flutterpi.display.height_mm = connector->connector->mmHeight;
+                    flutterpi.display.width_mm = connector->variable_state.width_mm;
+                    flutterpi.display.height_mm = connector->variable_state.height_mm;
                 }
             }
 
@@ -1516,15 +1517,15 @@ static int init_display(void) {
     }
     
     for_each_encoder_in_drmdev(flutterpi.drm.drmdev, encoder) {
-        if (encoder->encoder->encoder_id == connector->connector->encoder_id) {
+        if (encoder->encoder->encoder_id == connector->committed_state.encoder_id) {
             break;
         }
     }
     
     if (encoder == NULL) {
-        for (int i = 0; i < connector->connector->count_encoders; i++, encoder = NULL) {
+        for (int i = 0; i < connector->n_encoders; i++, encoder = NULL) {
             for_each_encoder_in_drmdev(flutterpi.drm.drmdev, encoder) {
-                if (encoder->encoder->encoder_id == connector->connector->encoders[i]) {
+                if (encoder->encoder->encoder_id == connector->encoders[i]) {
                     break;
                 }
             }
@@ -1542,7 +1543,7 @@ static int init_display(void) {
     }
 
     for_each_crtc_in_drmdev(flutterpi.drm.drmdev, crtc) {
-        if (crtc->crtc->crtc_id == encoder->encoder->crtc_id) {
+        if (crtc->id == encoder->encoder->crtc_id) {
             break;
         }
     }
@@ -1561,13 +1562,14 @@ static int init_display(void) {
         return EINVAL;
     }
 
-    ok = drmdev_configure(flutterpi.drm.drmdev, connector->connector->connector_id, encoder->encoder->encoder_id, crtc->crtc->crtc_id, mode);
-    if (ok != 0) return ok;
+    flutterpi.drm.selected_connector_id = connector->id;
+    flutterpi.drm.selected_crtc_id = crtc->id;
+    flutterpi.drm.selected_mode = mode;
 
     // only enable vsync if the kernel supplies valid vblank timestamps
     {
         uint64_t ns = 0;
-        ok = drmCrtcGetSequence(flutterpi.drm.drmdev->fd, flutterpi.drm.drmdev->selected_crtc->crtc->crtc_id, NULL, &ns);
+        ok = drmCrtcGetSequence(drmdev_get_fd(flutterpi.drm.drmdev), flutterpi.drm.selected_crtc_id, NULL, &ns);
         int _errno = errno;
 
         if ((ok == 0) && (ns != 0)) {
@@ -1590,7 +1592,7 @@ static int init_display(void) {
     ok = sd_event_add_io(
         flutterpi.event_loop,
         &flutterpi.drm.drm_pageflip_event_source,
-        flutterpi.drm.drmdev->fd,
+        drmdev_get_fd(flutterpi.drm.drmdev),
         EPOLLIN | EPOLLHUP | EPOLLPRI,
         on_drm_fd_ready,
         NULL
@@ -1618,7 +1620,7 @@ static int init_display(void) {
     /**********************
      * GBM INITIALIZATION *
      **********************/
-    flutterpi.gbm.device = gbm_create_device(flutterpi.drm.drmdev->fd);
+    flutterpi.gbm.device = gbm_create_device(drmdev_get_fd(flutterpi.drm.drmdev));
     flutterpi.gbm.format = DRM_FORMAT_ARGB8888;
     flutterpi.gbm.surface = NULL;
     flutterpi.gbm.modifier = DRM_FORMAT_MOD_LINEAR;
@@ -2424,14 +2426,14 @@ static bool parse_cmd_args(int argc, char **argv) {
 
                 LOG_ERROR(
                     "ERROR: Invalid argument for --pixelformat passed.\n"
-                    "Valid values are: RGB565, ARGB8888, XRGB8888, BGRA8888, RGBA8888\n"
+                    "Valid values are: RGB565, ARGB4444, XRGB4444, ARGB1555, XRGB1555, ARGB8888, XRGB8888, BGRA8888, BGRX8888, RGBA8888, RGBX8888\n"
                     "%s", 
                     usage
                 );
 
                 // Just so we get a compile error when we update the pixel format list
                 // but don't update the valid values above.
-                COMPILE_ASSERT(kCount_PixFmt == 5);
+                COMPILE_ASSERT(kCount_PixFmt == 11);
 
                 valid_format:
                 break;

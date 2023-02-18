@@ -26,13 +26,22 @@
 #   define DRM_FORMAT_FIELD_INITIALIZER(_drm_format)
 #endif
 
-#define PIXFMT_MAPPING(_name, _arg_name, _format, _bpp, _is_opaque, r_length, r_offset, g_length, g_offset, b_length, b_offset, a_length, a_offset, _gbm_format, _drm_format) \
+#ifdef HAS_VULKAN
+#   include <vulkan.h>
+#   define VK_FORMAT_FIELD_INITIALIZER(_vk_format) .vk_format = _vk_format,
+#else
+#   define VK_FORMAT_FIELD_INITIALIZER(_vk_format)
+#endif
+
+#define PIXFMT_MAPPING(_name, _arg_name, _format, _bpp, _bit_depth, _is_opaque, _vk_format, r_length, r_offset, g_length, g_offset, b_length, b_offset, a_length, a_offset, _gbm_format, _drm_format) \
     { \
         .name = _name, \
         .arg_name = _arg_name, \
         .format = _format, \
         .bits_per_pixel = _bpp, \
+        .bit_depth = _bit_depth, \
         .is_opaque = _is_opaque, \
+        VK_FORMAT_FIELD_INITIALIZER(_vk_format) \
         FBDEV_FORMAT_FIELD_INITIALIZER(r_length, r_offset, g_length, g_offset, b_length, b_offset, a_length, a_offset) \
         GBM_FORMAT_FIELD_INITIALIZER(_gbm_format) \
         DRM_FORMAT_FIELD_INITIALIZER(_drm_format) \
@@ -50,3 +59,11 @@ enum {
 const size_t n_pixfmt_infos = n_pixfmt_infos_constexpr;
 
 COMPILE_ASSERT(n_pixfmt_infos_constexpr == kMax_PixFmt+1);
+
+#ifdef DEBUG
+void assert_pixfmt_list_valid() {
+    for (enum pixfmt format = 0; format < kCount_PixFmt; format++) {
+        assert(pixfmt_infos[format].format == format);
+    }
+}
+#endif
