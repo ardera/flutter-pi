@@ -352,7 +352,6 @@ int get_plane_infos(
 ) {
     GstVideoMeta *meta;
     GstMemory *memory;
-    gboolean gst_ok;
     unsigned int n_mems;
     bool is_dmabuf_memory;
     int n_planes, dmabuf_fd;
@@ -374,6 +373,7 @@ int get_plane_infos(
     if (n_mems > 1) {
         LOG_ERROR("Multiple dmabufs for a single frame buffer is not supported right now.\n");
         close(dmabuf_fd);
+        return EINVAL;
     }
 
     n_planes = GST_VIDEO_INFO_N_PLANES(frame_info->gst_info);
@@ -396,6 +396,8 @@ int get_plane_infos(
             plane_infos[i].modifier = DRM_FORMAT_MOD_LINEAR;
         }
     }
+
+    return 0;
 }
 #else
 #   error "Unsupported gstreamer version."
