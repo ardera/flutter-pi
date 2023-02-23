@@ -941,7 +941,7 @@ struct drmdev *drmdev_new_from_fd(int fd, const struct drmdev_interface *interfa
         goto fail_free_drmdev;
     }
 
-    ok = interface->open(device->nodes[DRM_NODE_PRIMARY], O_CLOEXEC | O_NONBLOCK, &master_fd_metadata, userdata);
+    ok = interface->open(device->nodes[DRM_NODE_PRIMARY], O_CLOEXEC, &master_fd_metadata, userdata);
     if (ok < 0) {
         ok = -ok;
         LOG_ERROR("Couldn't open DRM device.\n");
