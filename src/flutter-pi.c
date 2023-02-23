@@ -1192,19 +1192,8 @@ void on_pageflip_event(
     cqueue_unlock(&flutterpi.frame_queue);
 }
 
-static int on_drm_fd_ready(sd_event_source *s, int fd, uint32_t revents, void *userdata) {
-    int ok;
-
-    (void) s;
-    (void) revents;
-    (void) userdata;
-
-    ok = drmHandleEvent(fd, &flutterpi.drm.evctx);
-    if (ok < 0) {
-        perror("[flutter-pi] Could not handle DRM event. drmHandleEvent");
-        return -errno;
-    }
-
+static int on_drm_fd_ready(MAYBE_UNUSED sd_event_source *s, MAYBE_UNUSED int fd, MAYBE_UNUSED uint32_t revents, MAYBE_UNUSED void *userdata) {
+    drmdev_on_event_fd_ready(flutterpi.drm.drmdev);
     return 0;
 }
 
@@ -1605,7 +1594,7 @@ static int init_display(void) {
     ok = sd_event_add_io(
         flutterpi.event_loop,
         &flutterpi.drm.drm_pageflip_event_source,
-        drmdev_get_fd(flutterpi.drm.drmdev),
+        drmdev_get_event_fd(flutterpi.drm.drmdev),
         EPOLLIN | EPOLLHUP | EPOLLPRI,
         on_drm_fd_ready,
         NULL
