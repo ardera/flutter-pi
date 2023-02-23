@@ -2460,7 +2460,6 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
     }
 
     /// TODO: Do we really need the window after this?
-
     ok = sd_event_add_io(
         event_loop,
         NULL,

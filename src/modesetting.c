@@ -2164,14 +2164,14 @@ static int kms_req_commit_common(
 
     if (builder->drmdev->master_fd < 0) {
         LOG_ERROR("Commit requested, but drmdev doesn't have a DRM master fd right now.\n");
-        drmdev_unlock(builder->drmdev);
-        return EBUSY;
+        ok = EBUSY;
+        goto fail_unlock;
     }
 
     if (!is_drm_master(builder->drmdev->master_fd)) {
         LOG_ERROR("Commit requested, but drmdev is paused right now.\n");
-        drmdev_unlock(builder->drmdev);
-        return EBUSY;
+        ok = EBUSY;
+        goto fail_unlock;
     }
 
     // only change the mode if the new mode differs from the old one
