@@ -840,7 +840,14 @@ struct video_frame *frame_new(
         }
     }
 
-    LOG_ERROR("Video format is not supported by EGL.\n");
+    LOG_ERROR(
+        "Video format is not supported by EGL: %c%c%c%c (modifier: %"PRIu64").\n",
+        drm_format & 0xFF,
+        (drm_format >> 8) & 0xFF,
+        (drm_format >> 16) & 0xFF,
+        (drm_format >> 24) & 0xFF,
+        (uint64_t) DRM_FORMAT_MOD_LINEAR
+    );
     return NULL;
 
     format_supported:
