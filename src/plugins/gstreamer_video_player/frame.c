@@ -37,16 +37,166 @@ struct video_frame {
     struct gl_texture_frame gl_frame;
 };
 
+struct egl_modified_format {
+    uint32_t format;
+    uint64_t modifier;
+    bool external_only;
+};
+
+struct frame_interface {
+    struct gbm_device *gbm_device;
+    EGLDisplay display;
+
+    pthread_mutex_t context_lock;
+    EGLContext context;
+
+    PFNEGLCREATEIMAGEKHRPROC eglCreateImageKHR;
+    PFNEGLDESTROYIMAGEKHRPROC eglDestroyImageKHR;
+
+    bool supports_external_target;
+    PFNGLEGLIMAGETARGETTEXTURE2DOESPROC glEGLImageTargetTexture2DOES;
+
+    bool supports_extended_imports;
+    PFNEGLQUERYDMABUFFORMATSEXTPROC eglQueryDmaBufFormatsEXT;
+    PFNEGLQUERYDMABUFMODIFIERSEXTPROC eglQueryDmaBufModifiersEXT;
+
+    int n_formats;
+    struct egl_modified_format *formats;
+
+    refcount_t n_refs;
+};
+
+static bool query_formats(
+    EGLDisplay display,
+    PFNEGLQUERYDMABUFFORMATSEXTPROC egl_query_dmabuf_formats,
+    PFNEGLQUERYDMABUFMODIFIERSEXTPROC egl_query_dmabuf_modifiers,
+    int *n_formats_out,
+    struct egl_modified_format **formats_out
+) {
+    struct egl_modified_format *modified_formats;
+    EGLBoolean *external_only;
+    EGLuint64KHR *modifiers;
+    EGLint *formats;
+    EGLint egl_ok, n_modifiers;
+    int n_formats, n_modified_formats, max_n_modifiers;
+
+    egl_ok = egl_query_dmabuf_formats(display, 0, NULL, &n_formats);
+    if (egl_ok != EGL_TRUE) {
+        LOG_ERROR("Could not query number of dmabuf formats supported by EGL.\n");
+        goto fail;   
+    }
+
+    formats = malloc(n_formats * sizeof *formats);
+    if (formats == NULL) {
+        goto fail;
+    }
+
+    egl_ok = egl_query_dmabuf_formats(display, n_formats, formats, &n_formats);
+    if (egl_ok != EGL_TRUE) {
+        LOG_ERROR("Could not query dmabuf formats supported by EGL.\n");
+        goto fail_free_formats;
+    }
+
+    // first, count how many modifiers we have for each format.
+    n_modified_formats = 0;
+    max_n_modifiers = 0;
+    for (int i = 0; i < n_formats; i++) {
+        egl_ok = egl_query_dmabuf_modifiers(display, formats[i], 0, NULL, NULL, &n_modifiers);
+        if (egl_ok != EGL_TRUE) {
+            LOG_ERROR("Could not query dmabuf formats supported by EGL.\n");
+            goto fail_free_formats;
+        }
+
+        n_modified_formats += n_modifiers;
+
+        if (n_modifiers > max_n_modifiers) {
+            max_n_modifiers = n_modifiers;
+        }
+    }
+
+    modified_formats = malloc(n_modified_formats * sizeof *modified_formats);
+    if (modified_formats == NULL) {
+        goto fail_free_formats;
+    }
+
+    modifiers = malloc(max_n_modifiers * sizeof *modifiers);
+    if (modifiers == NULL) {
+        goto fail_free_modified_formats;
+    }
+
+    external_only = malloc(max_n_modifiers * sizeof *external_only);
+    if (external_only == NULL) {
+        goto fail_free_modifiers;
+    }
+
+    for (int i = 0, j = 0; i < n_formats; i++) {
+        egl_ok = egl_query_dmabuf_modifiers(display, formats[i], max_n_modifiers, modifiers, external_only, &n_modifiers);
+        if (egl_ok != EGL_TRUE) {
+            LOG_ERROR("Could not query dmabuf formats supported by EGL.\n");
+            goto fail_free_formats;
+        }
+
+        for (int k = 0; k < n_modifiers; k++, j++) {
+            modified_formats[j].format = formats[i];
+            modified_formats[j].modifier = modifiers[k];
+            modified_formats[j].external_only = external_only[k];
+        }
+    }
+
+    free(formats);
+    free(modifiers);
+    free(external_only);
+    
+    *n_formats_out = n_modified_formats;
+    *formats_out = modified_formats;
+    return true;
+
+
+    fail_free_modifiers:
+    free(modifiers);
+
+    fail_free_modified_formats:
+    free(modified_formats);
+
+    fail_free_formats:
+    free(formats);
+
+    fail:
+    *n_formats_out = 0;
+    *formats_out = NULL;
+    return false;    
+}
+
 struct frame_interface *frame_interface_new(struct gl_renderer *renderer) {
     struct frame_interface *interface;
     struct gbm_device *gbm_device;
     EGLBoolean egl_ok;
     EGLContext context;
     EGLDisplay display;
+    struct egl_modified_format *formats;
+    bool supports_extended_imports, supports_external_target;
+    int n_formats;
 
     interface = malloc(sizeof *interface);
     if (interface == NULL) {
         return NULL;
+    }
+
+    if (gl_renderer_supports_egl_extension(renderer, "EGL_EXT_image_dma_buf_import")) {
+        LOG_ERROR("EGL does not support EGL_EXT_image_dma_buf_import extension. Video frames cannot be uploaded.\n");
+        goto fail_free;
+    }
+
+    if (gl_renderer_supports_egl_extension(renderer, "EGL_EXT_image_dma_buf_import_modifiers")) {
+        supports_extended_imports = true;
+    } else {
+        supports_extended_imports = false;
+    }
+
+    if (gl_renderer_supports_gl_extension(renderer, "GL_OES_EGL_image_external")) {
+        supports_external_target = true;
+    } else {
+        supports_external_target = false;
     }
 
     display = gl_renderer_get_egl_display(renderer);
@@ -58,7 +208,7 @@ struct frame_interface *frame_interface_new(struct gl_renderer *renderer) {
     if (context == EGL_NO_CONTEXT) {
         goto fail_free;
     }
-
+    
     PFNEGLCREATEIMAGEKHRPROC create_image = (PFNEGLCREATEIMAGEKHRPROC) gl_renderer_get_proc_address(renderer, "eglCreateImageKHR");
     if (create_image == NULL) {
         LOG_ERROR("Could not resolve eglCreateImageKHR EGL procedure.\n");
@@ -80,12 +230,34 @@ struct frame_interface *frame_interface_new(struct gl_renderer *renderer) {
     // These two are optional.
     // Might be useful in the future.
     PFNEGLQUERYDMABUFFORMATSEXTPROC egl_query_dmabuf_formats = (PFNEGLQUERYDMABUFFORMATSEXTPROC) gl_renderer_get_proc_address(renderer, "eglQueryDmaBufFormatsEXT");
+    if (egl_query_dmabuf_formats == NULL && supports_extended_imports) {
+        LOG_ERROR("Could not resolve eglQueryDmaBufFormatsEXT egl procedure, even though it is listed as supported.\n");
+        supports_extended_imports = false;
+    }
+
     PFNEGLQUERYDMABUFMODIFIERSEXTPROC egl_query_dmabuf_modifiers = (PFNEGLQUERYDMABUFMODIFIERSEXTPROC) gl_renderer_get_proc_address(renderer, "eglQueryDmaBufModifiersEXT");
+    if (egl_query_dmabuf_modifiers == NULL && supports_extended_imports) {
+        LOG_ERROR("Could not resolve eglQueryDmaBufModifiersEXT egl procedure, even though it is listed as supported.\n");
+        supports_extended_imports = false;
+    }
 
     gbm_device = gl_renderer_get_gbm_device(renderer);
     if (gbm_device == NULL) {
         LOG_ERROR("GL Render doesn't have a GBM device associated with it, which is necessary for importing the video frames.\n");
         goto fail_destroy_context;
+    }
+
+    if (supports_extended_imports) {
+        query_formats(
+            display,
+            egl_query_dmabuf_formats,
+            egl_query_dmabuf_modifiers,
+            &n_formats,
+            &formats
+        );
+    } else {
+        n_formats = 0;
+        formats = NULL;
     }
 
     interface->gbm_device = gbm_device;
@@ -94,10 +266,13 @@ struct frame_interface *frame_interface_new(struct gl_renderer *renderer) {
     interface->context = context;
     interface->eglCreateImageKHR = create_image;
     interface->eglDestroyImageKHR = destroy_image;
+    interface->supports_external_target = supports_external_target;
     interface->glEGLImageTargetTexture2DOES = gl_egl_image_target_texture2d;
-    interface->supports_extended_imports = false;
+    interface->supports_extended_imports = supports_extended_imports;
     interface->eglQueryDmaBufFormatsEXT = egl_query_dmabuf_formats;
     interface->eglQueryDmaBufModifiersEXT = egl_query_dmabuf_modifiers;
+    interface->n_formats = n_formats;
+    interface->formats = formats;
     interface->n_refs = REFCOUNT_INIT_1;
     return interface;
 
@@ -118,8 +293,35 @@ void frame_interface_destroy(struct frame_interface *interface) {
     pthread_mutex_destroy(&interface->context_lock);
     egl_ok = eglDestroyContext(interface->display, interface->context);
     DEBUG_ASSERT_EGL_TRUE(egl_ok); (void) egl_ok;
+    if (interface->formats != NULL) {
+        free(interface->formats);
+    }
     free(interface);
 }
+
+ATTR_PURE int frame_interface_get_n_formats(struct frame_interface *interface) {
+    return interface->n_formats;
+}
+
+ATTR_PURE const struct egl_modified_format *frame_interface_get_format(struct frame_interface *interface, int index) {
+    DEBUG_ASSERT(index < interface->n_formats);
+    return interface->formats + index;
+}
+
+#define for_each_format_in_frame_interface(index, format, interface) \
+	for ( \
+		const struct egl_modified_format *format = frame_interface_get_format((interface), 0), *guard = NULL; \
+		guard == NULL; \
+		guard = (void*) 1 \
+	) \
+		for ( \
+			size_t index = 0; \
+			index < frame_interface_get_n_formats(interface); \
+			index++, \
+				format = (index) < frame_interface_get_n_formats(interface) ? frame_interface_get_format((interface), (index)) : NULL \
+        )
+
+DEFINE_LOCK_OPS(frame_interface, context_lock)
 
 DEFINE_REF_OPS(frame_interface, n_refs)
 
@@ -129,7 +331,7 @@ DEFINE_REF_OPS(frame_interface, n_refs)
  * Calls gst_buffer_map on the buffer, so buffer could have changed after the call.
  * 
  */
-MAYBE_UNUSED int dup_gst_buffer_as_dmabuf(struct gbm_device *gbm_device, GstBuffer *buffer) {
+MAYBE_UNUSED int dup_gst_buffer_range_as_dmabuf(struct gbm_device *gbm_device, GstBuffer *buffer, unsigned int memory_index, int n_memories) {
     struct gbm_bo *bo;
     GstMapInfo map_info;
     uint32_t stride;
@@ -137,7 +339,7 @@ MAYBE_UNUSED int dup_gst_buffer_as_dmabuf(struct gbm_device *gbm_device, GstBuff
     void *map, *map_data;
     int fd;
     
-    gst_ok = gst_buffer_map(buffer, &map_info, GST_MAP_READ);
+    gst_ok = gst_buffer_map_range(buffer, memory_index, n_memories, &map_info, GST_MAP_READ);
     if (gst_ok == FALSE) {
         LOG_ERROR("Couldn't map gstreamer video frame buffer to copy it into a dma buffer.\n");
         return -1;
@@ -243,17 +445,70 @@ struct plane_info {
     uint64_t modifier;
 };
 
-#if THIS_GSTREAMER_VER >= GSTREAMER_VER(1, 14, 0)
-static size_t calculate_plane_size(
+#if THIS_GSTREAMER_VER < GSTREAMER_VER(1, 14, 0)
+#   error "Unsupported gstreamer version."
+#endif
+
+#if THIS_GSTREAMER_VER >= GSTREAMER_VER(1, 18, 0)
+static bool get_plane_sizes_from_meta(const GstVideoMeta *meta, size_t plane_sizes_out[4]) {
+    GstVideoMeta *meta_non_const;
+    gboolean gst_ok;
+
+#ifdef DEBUG
+    GstVideoMeta _meta_non_const;
+    meta_non_const = &_meta_non_const;
+    memcpy(meta_non_const, meta, sizeof *meta);
+#else
+    meta_non_const = (GstVideoMeta*) meta;
+#endif
+
+    gst_ok = gst_video_meta_get_plane_size(meta_non_const, plane_sizes_out);
+    if (gst_ok != TRUE) {
+        LOG_ERROR("Could not query video frame plane size. gst_video_meta_get_plane_size\n");
+        return false;
+    }
+
+    return true;
+}
+
+static bool get_plane_sizes_from_video_info(const GstVideoInfo *info, size_t plane_sizes_out[4]) {
+    GstVideoAlignment alignment;
+    GstVideoInfo *info_non_const;
+    gboolean gst_ok;
+
+    gst_video_alignment_reset(&alignment);
+
+#ifdef DEBUG
+    info_non_const = gst_video_info_copy(info);
+#else
+    info_non_const = (GstVideoInfo*) info;
+#endif
+
+    gst_ok = gst_video_info_align_full(info_non_const, &alignment, plane_sizes_out);
+    if (gst_ok != TRUE) {
+        LOG_ERROR("Could not query video frame plane size. gst_video_info_align_full\n");
+        return false;
+    }
+
+#ifdef DEBUG
+    DEBUG_ASSERT(gst_video_info_is_equal(info, info_non_const));
+    gst_video_info_free(info_non_const);
+#endif
+
+    return true;
+}
+
+static bool calculate_plane_size(
     const GstVideoInfo *info,
-    int plane_index
+    int plane_index,
+    size_t *plane_size_out
 ) {
     // Taken from: https://github.com/GStreamer/gstreamer/blob/621604aa3e4caa8db27637f63fa55fac2f7721e5/subprojects/gst-plugins-base/gst-libs/gst/video/video-info.c#L1278-L1301
 
 #if THIS_GSTREAMER_VER >= GSTREAMER_VER(1, 21, 3)
-    if (GST_VIDEO_FORMAT_INFO_IS_TILED (info->finfo)) {
-        guint x_tiles = GST_VIDEO_TILE_X_TILES (info->stride[i]);
-        guint y_tiles = GST_VIDEO_TILE_Y_TILES (info->stride[i]);
+    if (GST_VIDEO_FORMAT_INFO_IS_TILED(info->finfo)) {
+        guint x_tiles = GST_VIDEO_TILE_X_TILES(info->stride[i]);
+        guint y_tiles = GST_VIDEO_TILE_Y_TILES(info->stride[i]);
         return x_tiles * y_tiles * GST_VIDEO_FORMAT_INFO_TILE_SIZE(info->finfo, i);
     }
 #endif
@@ -269,8 +524,25 @@ static size_t calculate_plane_size(
         GST_VIDEO_INFO_FIELD_HEIGHT(info)
     );
 
-    return plane_height * GST_VIDEO_INFO_PLANE_STRIDE(info, plane_index);
+    *plane_size_out = plane_height * GST_VIDEO_INFO_PLANE_STRIDE(info, plane_index);
+    return true;
 }
+
+#else
+static bool get_plane_sizes_from_meta(MAYBE_UNUSED const GstVideoMeta *meta, MAYBE_UNUSED size_t plane_sizes_out[4]) {
+    return false;
+}
+static bool get_plane_sizes_from_video_info(MAYBE_UNUSED const GstVideoInfo *info, MAYBE_UNUSED size_t plane_sizes_out[4]) {
+    return false;
+}
+static bool calculate_plane_size(
+    MAYBE_UNUSED const GstVideoInfo *info,
+    MAYBE_UNUSED int plane_index,
+    MAYBE_UNUSED size_t *plane_size_out
+) {
+    return false;
+}
+#endif
 
 static int get_plane_infos(
     GstBuffer *buffer,
@@ -282,21 +554,45 @@ static int get_plane_infos(
     GstMemory *memory;
     gboolean gst_ok;
     size_t plane_sizes[4] = {0};
+    bool has_plane_sizes;
     int n_planes;
 
     n_planes = GST_VIDEO_INFO_N_PLANES(info);
 
+    // There's so many ways to get the plane sizes.
+    // 1. Preferably we should use the video meta.
+    // 2. If that doesn't work, we'll use gst_video_info_align_full() with the video info.
+    // 3. If that doesn't work, we'll calculate them ourselves.
+    // 4. If that doesn't work, we can't determine the plane sizes.
+    //    In that case, we'll error if we have more than one plane.
+    has_plane_sizes = false;
     meta = gst_buffer_get_video_meta(buffer);
     if (meta != NULL) {
-        gst_ok = gst_video_meta_get_plane_size(meta, plane_sizes);
-        if (gst_ok != TRUE) {
-            LOG_ERROR("Could not query video frame plane size.\n");
-            return EIO;
-        }
-    } else {
+        has_plane_sizes = get_plane_sizes_from_meta(meta, plane_sizes);
+    }
+
+    if (!has_plane_sizes) {
+        has_plane_sizes = get_plane_sizes_from_video_info(info, plane_sizes);
+    }
+    
+    if (!has_plane_sizes) {
+        has_plane_sizes = true;
         for (int i = 0; i < n_planes; i++) {
-            plane_sizes[i] = calculate_plane_size(info, i);
+            has_plane_sizes = has_plane_sizes && calculate_plane_size(info, i, plane_sizes + i);
         }
+    }
+
+    if (!has_plane_sizes) {
+        // We couldn't determine the plane sizes.
+        // We can still continue if we have only one plane.
+        if (n_planes != 1) {
+            LOG_ERROR("Couldn't determine video frame plane sizes. Without plane sizes, only planar framebuffer formats are supported, but the supplied format was not planar.\n");
+            return EINVAL;
+        }
+
+        // We'll just assume the first plane spans the entire buffer.
+        plane_sizes[0] = gst_buffer_get_size(buffer);
+        has_plane_sizes = true;
     }
 
     for (int i = 0; i < n_planes; i++) {
@@ -324,55 +620,71 @@ static int get_plane_infos(
         );
         if (gst_ok != TRUE) {
             LOG_ERROR("Could not find video frame memory for plane.\n");
-            return EIO;
+            ok = EIO;
+            goto fail_close_fds;
         }
 
         if (n_memories != 1) {
-            LOG_ERROR("Gstreamer Image planes can't span multiple dmabufs.\n");
-            return EINVAL;
-        }
-
-        memory = gst_buffer_peek_memory(buffer, memory_index);
-        if (gst_is_dmabuf_memory(memory)) {
-            ok = gst_dmabuf_memory_get_fd(memory);
+            ok = dup_gst_buffer_range_as_dmabuf(gbm_device, buffer, memory_index, n_memories);
             if (ok < 0) {
-                LOG_ERROR("Could not get gstreamer memory as dmabuf.\n");
-                return EIO;
-            }
-
-            ok = dup(ok);
-            if (ok < 0) {
-                ok = errno;
-                LOG_ERROR("Could not dup fd. dup: %s\n", strerror(ok));
-                return ok;
+                LOG_ERROR("Could not duplicate gstreamer memory as dmabuf.\n");
+                ok = EIO;
+                goto fail_close_fds;
             }
 
             plane_infos[i].fd = ok;
         } else {
-            /// TODO: When duping, duplicate all non-dmabuf memories into one
-            /// gbm buffer instead.
-            ok = dup_gst_memory_as_dmabuf(gbm_device, memory);
-            if (ok < 0) {
-                LOG_ERROR("Could not duplicate gstreamer memory as dmabuf.\n");
-                return EIO;
-            }
+            memory = gst_buffer_peek_memory(buffer, memory_index);
+            if (gst_is_dmabuf_memory(memory)) {
+                ok = gst_dmabuf_memory_get_fd(memory);
+                if (ok < 0) {
+                    LOG_ERROR("Could not get gstreamer memory as dmabuf.\n");
+                    ok = EIO;
+                    goto fail_close_fds;
+                }
 
-            plane_infos[i].fd = ok;
+                ok = dup(ok);
+                if (ok < 0) {
+                    ok = errno;
+                    LOG_ERROR("Could not dup fd. dup: %s\n", strerror(ok));
+                    goto fail_close_fds;
+                }
+
+                plane_infos[i].fd = ok;
+            } else {
+                /// TODO: When duping, duplicate all non-dmabuf memories into one
+                /// gbm buffer instead.
+                ok = dup_gst_memory_as_dmabuf(gbm_device, memory);
+                if (ok < 0) {
+                    LOG_ERROR("Could not duplicate gstreamer memory as dmabuf.\n");
+                    ok = EIO;
+                    goto fail_close_fds;
+                }
+
+                plane_infos[i].fd = ok;
+            }
         }
 
         plane_infos[i].offset = offset_in_memory;
         plane_infos[i].pitch = stride;
 
         /// TODO: Detect modifiers here
+        /// Modifiers will be supported in future gstreamer, see:
+        /// https://gstreamer.freedesktop.org/documentation/additional/design/dmabuf.html?gi-language=c
         plane_infos[i].has_modifier = false;
         plane_infos[i].modifier = DRM_FORMAT_MOD_LINEAR;
+        continue;
+
+
+        fail_close_fds:
+        for (int j = i - 1; j > 0; j--) {
+            close(plane_infos[i].fd);
+        }
+        return ok;
     }
 
     return 0;
 }
-#else
-#   error "Unsupported gstreamer version."
-#endif
 
 static uint32_t drm_format_from_gst_info(const GstVideoInfo *info) {
     switch (GST_VIDEO_INFO_FORMAT(info)) {
@@ -408,6 +720,53 @@ static uint32_t drm_format_from_gst_info(const GstVideoInfo *info) {
     }
 }
 
+static EGLint egl_color_space_from_gst_info(const GstVideoInfo *info) {
+    if (gst_video_colorimetry_matches(&GST_VIDEO_INFO_COLORIMETRY(info), GST_VIDEO_COLORIMETRY_BT601)) {
+        return EGL_ITU_REC601_EXT;
+    } else if (gst_video_colorimetry_matches(&GST_VIDEO_INFO_COLORIMETRY(info), GST_VIDEO_COLORIMETRY_BT709)) {
+        return EGL_ITU_REC709_EXT;
+    } else if (gst_video_colorimetry_matches(&GST_VIDEO_INFO_COLORIMETRY(info), GST_VIDEO_COLORIMETRY_BT2020)) {
+        return EGL_ITU_REC2020_EXT;
+    } else {
+        LOG_DEBUG("Unsupported video colorimetry: %s\n", gst_video_colorimetry_to_string(&GST_VIDEO_INFO_COLORIMETRY(info)));
+        return EGL_NONE;
+    }
+}
+
+static EGLint egl_sample_range_hint_from_gst_info(const GstVideoInfo *info) {
+    if (GST_VIDEO_INFO_COLORIMETRY(info).range == GST_VIDEO_COLOR_RANGE_0_255) {
+        return EGL_YUV_FULL_RANGE_EXT;
+    } else if (GST_VIDEO_INFO_COLORIMETRY(info).range == GST_VIDEO_COLOR_RANGE_16_235) {
+        return EGL_YUV_NARROW_RANGE_EXT;
+    } else {
+        return EGL_NONE;
+    }
+}
+
+static EGLint egl_horizontal_chroma_siting_from_gst_info(const GstVideoInfo *info) {
+    if ((GST_VIDEO_INFO_CHROMA_SITE(info) & ~(GST_VIDEO_CHROMA_SITE_H_COSITED | GST_VIDEO_CHROMA_SITE_V_COSITED)) == 0) {
+        if (GST_VIDEO_INFO_CHROMA_SITE(info) & GST_VIDEO_CHROMA_SITE_H_COSITED) {
+            return EGL_YUV_CHROMA_SITING_0_EXT;
+        } else {
+            return EGL_YUV_CHROMA_SITING_0_5_EXT;
+        }
+    }
+
+    return EGL_NONE;
+}
+
+static EGLint egl_vertical_chroma_siting_from_gst_info(const GstVideoInfo *info) {
+    if ((GST_VIDEO_INFO_CHROMA_SITE(info) & ~(GST_VIDEO_CHROMA_SITE_H_COSITED | GST_VIDEO_CHROMA_SITE_V_COSITED)) == 0) {
+        if (GST_VIDEO_INFO_CHROMA_SITE(info) & GST_VIDEO_CHROMA_SITE_V_COSITED) {
+            return EGL_YUV_CHROMA_SITING_0_EXT;
+        } else {
+            return EGL_YUV_CHROMA_SITING_0_5_EXT;
+        }
+    }
+
+    return EGL_NONE;
+}
+
 struct video_frame *frame_new(
     struct frame_interface *interface,
     GstSample *sample,
@@ -437,9 +796,11 @@ struct video_frame *frame_new(
 
     buffer = gst_sample_get_buffer(sample);
     if (buffer == NULL) {
+        LOG_ERROR("Could not get buffer from video sample.\n");
         return NULL;
     }
 
+    // If we don't have an explicit info given, we determine it from the sample caps.
     if (info == NULL) {
         caps = gst_sample_get_caps(sample);
         if (caps == NULL) {
@@ -457,6 +818,7 @@ struct video_frame *frame_new(
         caps = NULL;
     }
 
+    // Determine some basic frame info.
     width = GST_VIDEO_INFO_WIDTH(info);
     height = GST_VIDEO_INFO_HEIGHT(info);
     n_planes = GST_VIDEO_INFO_N_PLANES(info);
@@ -468,44 +830,28 @@ struct video_frame *frame_new(
         return NULL;
     }
 
-    // query the color space for this sample
-    if (gst_video_colorimetry_matches(&GST_VIDEO_INFO_COLORIMETRY(info), GST_VIDEO_COLORIMETRY_BT601)) {
-        egl_color_space = EGL_ITU_REC601_EXT;
-    } else if (gst_video_colorimetry_matches(&GST_VIDEO_INFO_COLORIMETRY(info), GST_VIDEO_COLORIMETRY_BT709)) {
-        egl_color_space = EGL_ITU_REC709_EXT;
-    } else if (gst_video_colorimetry_matches(&GST_VIDEO_INFO_COLORIMETRY(info), GST_VIDEO_COLORIMETRY_BT2020)) {
-        egl_color_space = EGL_ITU_REC2020_EXT;
-    } else {
-        LOG_DEBUG("Unsupported video colorimetry: %s\n", gst_video_colorimetry_to_string(&GST_VIDEO_INFO_COLORIMETRY(info)));
-        egl_color_space = EGL_NONE;
+    bool external_only;
+    for_each_format_in_frame_interface(i, format, interface) {
+        if (format->format == drm_format && format->modifier == DRM_FORMAT_MOD_LINEAR) {
+            external_only = format->external_only;
+            goto format_supported;
+        }
     }
+
+    LOG_ERROR("Video format is not supported by EGL.\n");
+    return NULL;
+
+    format_supported:
+
+    // query the color space for this sample
+    egl_color_space = egl_color_space_from_gst_info(info);
 
     // check the sample range
-    if (GST_VIDEO_INFO_COLORIMETRY(info).range == GST_VIDEO_COLOR_RANGE_0_255) {
-        egl_sample_range_hint = EGL_YUV_FULL_RANGE_EXT;
-    } else if (GST_VIDEO_INFO_COLORIMETRY(info).range == GST_VIDEO_COLOR_RANGE_16_235) {
-        egl_sample_range_hint = EGL_YUV_NARROW_RANGE_EXT;
-    } else {
-        egl_sample_range_hint = EGL_NONE;
-    }
+    egl_sample_range_hint = egl_sample_range_hint_from_gst_info(info);
 
     // check the chroma siting
-    if ((GST_VIDEO_INFO_CHROMA_SITE(info) & ~(GST_VIDEO_CHROMA_SITE_H_COSITED | GST_VIDEO_CHROMA_SITE_V_COSITED)) == 0) {
-        if (GST_VIDEO_INFO_CHROMA_SITE(info) & GST_VIDEO_CHROMA_SITE_H_COSITED) {
-            egl_horizontal_chroma_siting = EGL_YUV_CHROMA_SITING_0_EXT;
-        } else {
-            egl_horizontal_chroma_siting = EGL_YUV_CHROMA_SITING_0_5_EXT;
-        }
-
-        if (GST_VIDEO_INFO_CHROMA_SITE(info) & GST_VIDEO_CHROMA_SITE_V_COSITED) {
-            egl_vertical_chroma_siting = EGL_YUV_CHROMA_SITING_0_EXT;
-        } else {
-            egl_vertical_chroma_siting = EGL_YUV_CHROMA_SITING_0_5_EXT;
-        }
-    } else {
-        egl_horizontal_chroma_siting = EGL_NONE;
-        egl_vertical_chroma_siting = EGL_NONE;
-    }
+    egl_horizontal_chroma_siting = egl_horizontal_chroma_siting_from_gst_info(info);
+    egl_vertical_chroma_siting = egl_vertical_chroma_siting_from_gst_info(info);
     
     frame = malloc(sizeof *frame);
     if (frame == NULL) {
@@ -517,6 +863,7 @@ struct video_frame *frame_new(
         goto fail_free_frame;
     }
 
+    // Start putting together the EGL attributes.
     attr_index = 0;
 
     // first, put some of our basic attributes like
@@ -632,9 +979,23 @@ struct video_frame *frame_new(
         goto fail_clear_context;
     }
 
-    glBindTexture(GL_TEXTURE_EXTERNAL_OES, texture);
-    interface->glEGLImageTargetTexture2DOES(GL_TEXTURE_EXTERNAL_OES, egl_image);
-    glBindTexture(GL_TEXTURE_EXTERNAL_OES, 0);
+    GLenum target;
+    if (external_only) {
+        target = GL_TEXTURE_2D;
+    } else {
+        target = GL_TEXTURE_EXTERNAL_OES;
+    }
+
+    glBindTexture(target, texture);
+    
+    interface->glEGLImageTargetTexture2DOES(target, egl_image);
+    gl_error = glGetError();
+    if (gl_error != GL_NO_ERROR) {
+        LOG_ERROR("Couldn't attach EGL Image to OpenGL texture. glEGLImageTargetTexture2DOES: %" PRIu32 "\n", gl_error);
+        goto fail_unbind_texture;
+    }
+
+    glBindTexture(target, 0);
 
     egl_ok = eglMakeCurrent(interface->display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
     if (egl_ok == EGL_FALSE) {
@@ -654,13 +1015,15 @@ struct video_frame *frame_new(
     frame->dmabuf_fds[2] = planes[2].fd;
     frame->dmabuf_fds[3] = planes[3].fd;
     frame->image = egl_image;
-    frame->gl_frame.target = GL_TEXTURE_EXTERNAL_OES;
+    frame->gl_frame.target = target;
     frame->gl_frame.name = texture;
     frame->gl_frame.format = GL_RGBA8_OES;
     frame->gl_frame.width = 0;
     frame->gl_frame.height = 0;
     return 0;
     
+    fail_unbind_texture:
+    glBindTexture(texture, 0);
 
     fail_delete_texture:
     glDeleteTextures(1, &texture);
@@ -684,9 +1047,6 @@ struct video_frame *frame_new(
 void frame_destroy(struct video_frame *frame) {
     EGLBoolean egl_ok;
     int ok;
-
-    /// TODO: See TODO in frame_new 
-    gst_sample_unref(frame->sample);
 
     frame_interface_lock(frame->interface);
     egl_ok = eglMakeCurrent(frame->interface->display, EGL_NO_SURFACE, EGL_NO_SURFACE, frame->interface->context);
