@@ -692,8 +692,10 @@ static uint32_t drm_format_from_gst_info(const GstVideoInfo *info) {
         case GST_VIDEO_FORMAT_YVYU:  return DRM_FORMAT_YVYU;
         case GST_VIDEO_FORMAT_UYVY:  return DRM_FORMAT_UYVY;
         case GST_VIDEO_FORMAT_VYUY:  return DRM_FORMAT_VYUY;
-        case GST_VIDEO_FORMAT_AYUV:
+        case GST_VIDEO_FORMAT_AYUV:  return DRM_FORMAT_AYUV;
+#if THIS_GSTREAMER_VER >= GSTREAMER_VER(1, 16, 0)
         case GST_VIDEO_FORMAT_VUYA:  return DRM_FORMAT_AYUV;
+#endif
         case GST_VIDEO_FORMAT_NV12:  return DRM_FORMAT_NV12;
         case GST_VIDEO_FORMAT_NV21:  return DRM_FORMAT_NV21;
         case GST_VIDEO_FORMAT_NV16:  return DRM_FORMAT_NV16;
