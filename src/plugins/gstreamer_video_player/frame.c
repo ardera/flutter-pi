@@ -192,7 +192,6 @@ struct frame_interface *frame_interface_new(struct flutterpi *flutterpi) {
 
     const char *egl_client_exts = eglQueryString(EGL_NO_DISPLAY, EGL_EXTENSIONS);
     const char *egl_dpy_exts = eglQueryString(display, EGL_EXTENSIONS);
-    const char *gl_exts = (const char*) glGetString(GL_EXTENSIONS);
 
     if (!strstr(egl_client_exts, "EGL_EXT_image_dma_buf_import") && !strstr(egl_dpy_exts, "EGL_EXT_image_dma_buf_import")) {
         LOG_ERROR("EGL does not support EGL_EXT_image_dma_buf_import extension. Video frames cannot be uploaded.\n");
@@ -205,10 +204,23 @@ struct frame_interface *frame_interface_new(struct flutterpi *flutterpi) {
         supports_extended_imports = false;
     }
 
+
+    egl_ok = eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, context);
+    if (egl_ok != EGL_TRUE) {
+        LOG_ERROR("Could not make EGL context current.\n");
+        goto fail_free;
+    }
+    
+    const char *gl_exts = (const char*) glGetString(GL_EXTENSIONS);
     if (strstr(gl_exts, "GL_OES_EGL_image_external")) {
         supports_external_target = true;
     } else {
         supports_external_target = false;
+    }
+
+    egl_ok = eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+    if (egl_ok != EGL_TRUE) {
+        goto fail_free;
     }
 
     PFNEGLCREATEIMAGEKHRPROC create_image = (PFNEGLCREATEIMAGEKHRPROC) eglGetProcAddress("eglCreateImageKHR");
