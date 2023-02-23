@@ -251,8 +251,8 @@ struct _GstSample;
 
 struct video_frame *frame_new(
     struct frame_interface *interface,
-    const struct frame_info *meta,
-    struct _GstSample *sample
+    GstSample *sample,
+    const GstVideoInfo *info
 );
 
 void frame_destroy(struct video_frame *frame);
