@@ -1342,6 +1342,19 @@ static int load_egl_gl_procs(void) {
 	return 0;
 }
 
+static int drmdev_open(const char *path, int flags, MAYBE_UNUSED void **fd_metadata_out, MAYBE_UNUSED void *userdata) {
+    return open(path, flags | O_CLOEXEC);
+}
+
+static void drmdev_close(int fd, MAYBE_UNUSED void *fd_metadata, MAYBE_UNUSED void *userdata) {
+    close(fd);
+}
+
+static const struct drmdev_interface drmdev_interface = {
+    .open = drmdev_open,
+    .close = drmdev_close
+};
+
 static int init_display(void) {
     /**********************
      * DRM INITIALIZATION *
@@ -1376,7 +1389,7 @@ static int init_display(void) {
             continue;
         }
 
-        flutterpi.drm.drmdev = drmdev_new_from_path(device->nodes[DRM_NODE_PRIMARY], NULL, NULL);
+        flutterpi.drm.drmdev = drmdev_new_from_path(device->nodes[DRM_NODE_PRIMARY], &drmdev_interface, NULL);
         if (flutterpi.drm.drmdev == NULL) {
             LOG_ERROR("Could not create drmdev from device at \"%s\". Continuing.\n", device->nodes[DRM_NODE_PRIMARY]);
             continue;
