@@ -207,26 +207,11 @@ struct notifier *gstplayer_get_error_notifier(struct gstplayer *player);
 struct video_frame;
 struct gl_renderer;
 
-struct frame_interface {
-    struct gbm_device *gbm_device;
-    EGLDisplay display;
-
-    pthread_mutex_t context_lock;
-    EGLContext context;
-    PFNEGLCREATEIMAGEKHRPROC eglCreateImageKHR;
-    PFNEGLDESTROYIMAGEKHRPROC eglDestroyImageKHR;
-    PFNGLEGLIMAGETARGETTEXTURE2DOESPROC glEGLImageTargetTexture2DOES;
-
-    bool supports_extended_imports;
-    PFNEGLQUERYDMABUFFORMATSEXTPROC eglQueryDmaBufFormatsEXT;
-    PFNEGLQUERYDMABUFMODIFIERSEXTPROC eglQueryDmaBufModifiersEXT;
-
-    refcount_t n_refs;
-};
+struct frame_interface;
 
 struct frame_interface *frame_interface_new(struct gl_renderer *renderer);
 
-DEFINE_INLINE_LOCK_OPS(frame_interface, context_lock)
+DECLARE_LOCK_OPS(frame_interface)
 
 DECLARE_REF_OPS(frame_interface)
 
