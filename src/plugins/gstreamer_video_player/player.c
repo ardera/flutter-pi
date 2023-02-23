@@ -150,10 +150,6 @@ struct gstplayer {
     GstElement *pipeline, *sink;
     GstBus *bus;
     sd_event_source *busfd_events;
-    uint32_t drm_format;
-    bool has_drm_modifier;
-    uint64_t drm_modifier;
-    EGLint egl_color_space;
 
     bool is_live;
 };
@@ -615,7 +611,6 @@ static void on_element_added(GstBin *bin, GstElement *element, void *userdata) {
 
 static GstPadProbeReturn on_probe_pad(GstPad *pad, GstPadProbeInfo *info, void *userdata) {
     struct gstplayer *player;
-    GstVideoInfo vinfo;
     GstEvent *event;
     GstCaps *caps;
     gboolean ok;
@@ -635,59 +630,24 @@ static GstPadProbeReturn on_probe_pad(GstPad *pad, GstPadProbeInfo *info, void *
         return GST_PAD_PROBE_OK;
     }
 
-    ok = gst_video_info_from_caps(&vinfo, caps);
+    ok = gst_video_info_from_caps(&player->gst_info, caps);
     if (!ok) {
         LOG_ERROR("gstreamer: caps event with invalid video caps\n");
         return GST_PAD_PROBE_OK;
     }
-
-    switch (GST_VIDEO_INFO_FORMAT(&vinfo)) {
-        case GST_VIDEO_FORMAT_Y42B:
-            player->drm_format = DRM_FORMAT_YUV422;
-            break;
-        case GST_VIDEO_FORMAT_YV12:
-            player->drm_format = DRM_FORMAT_YVU420;
-            break;
-        case GST_VIDEO_FORMAT_I420:
-            player->drm_format = DRM_FORMAT_YUV420;
-            break;
-        case GST_VIDEO_FORMAT_NV12:
-            player->drm_format = DRM_FORMAT_NV12;
-            break;
-        case GST_VIDEO_FORMAT_NV21:
-            player->drm_format = DRM_FORMAT_NV21;
-            break;
-        case GST_VIDEO_FORMAT_YUY2:
-            player->drm_format = DRM_FORMAT_YUYV;
-            break;
-        default:
-            LOG_ERROR("unsupported video format: %s\n", GST_VIDEO_INFO_NAME(&vinfo));
-            player->drm_format = 0;
-            break;
-    }
-
-    const GstVideoColorimetry *color = &GST_VIDEO_INFO_COLORIMETRY(&vinfo);
     
-    if (gst_video_colorimetry_matches(color, GST_VIDEO_COLORIMETRY_BT601)) {
-        player->egl_color_space = EGL_ITU_REC601_EXT;
-    } else if (gst_video_colorimetry_matches(color, GST_VIDEO_COLORIMETRY_BT709)) {
-        player->egl_color_space = EGL_ITU_REC709_EXT;
-    } else if (gst_video_colorimetry_matches(color, GST_VIDEO_COLORIMETRY_BT2020)) {
-        player->egl_color_space = EGL_ITU_REC2020_EXT;
-    } else {
-        LOG_ERROR("unsupported video colorimetry: %s\n", gst_video_colorimetry_to_string(color));
-        player->egl_color_space = EGL_NONE;
-    }
-
-    
-    memcpy(&player->gst_info, &vinfo, sizeof vinfo);
     player->has_gst_info = true;
 
-    LOG_DEBUG("on_probe_pad, fps: %f, res: % 4d x % 4d\n", (double) vinfo.fps_n / vinfo.fps_d, vinfo.width, vinfo.height);
+    LOG_DEBUG(
+        "on_probe_pad, fps: %f, res: % 4d x % 4d\n",
+        (double) GST_VIDEO_INFO_FPS_N(&player->gst_info) / GST_VIDEO_INFO_FPS_D(&player->gst_info),
+        GST_VIDEO_INFO_WIDTH(&player->gst_info),
+        GST_VIDEO_INFO_HEIGHT(&player->gst_info)
+    );
 
-    player->info.info.width = vinfo.width;
-    player->info.info.height = vinfo.height;
-    player->info.info.fps = (double) vinfo.fps_n / vinfo.fps_d;
+    player->info.info.width = GST_VIDEO_INFO_WIDTH(&player->gst_info);
+    player->info.info.height = GST_VIDEO_INFO_HEIGHT(&player->gst_info);
+    player->info.info.fps = (double) GST_VIDEO_INFO_FPS_N(&player->gst_info) / GST_VIDEO_INFO_FPS_D(&player->gst_info);
     player->info.has_resolution = true;
     player->info.has_fps = true;
     maybe_send_info(player);
@@ -752,12 +712,8 @@ static GstFlowReturn on_appsink_new_preroll(GstAppSink *appsink, void *userdata)
 
     frame = frame_new(
         player->frame_interface,
-        &(struct frame_info) {
-            .drm_format = player->drm_format,
-            .egl_color_space = player->egl_color_space,
-            .gst_info = &player->gst_info
-        },
-        sample
+        sample,
+        player->has_gst_info ? &player->gst_info : NULL
     );
 
     if (frame != NULL) {
@@ -789,13 +745,11 @@ static GstFlowReturn on_appsink_new_sample(GstAppSink *appsink, void *userdata) 
 
     frame = frame_new(
         player->frame_interface,
-        &(struct frame_info) {
-            .drm_format = player->drm_format,
-            .egl_color_space = player->egl_color_space,
-            .gst_info = &player->gst_info
-        },
-        sample
+        sample,
+        player->has_gst_info ? &player->gst_info : NULL
     );
+
+    gst_sample_unref(sample);
 
     if (frame != NULL) {
         texture_push_frame(player->texture, &(struct texture_frame) {
@@ -1104,7 +1058,6 @@ static struct gstplayer *gstplayer_new(struct flutterpi *flutterpi, const char *
     player->sink = NULL;
     player->bus = NULL;
     player->busfd_events = NULL;
-    player->drm_format = 0;
     player->is_live = false;
     return player;
 

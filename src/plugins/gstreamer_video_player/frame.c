@@ -243,10 +243,38 @@ struct plane_info {
     uint64_t modifier;
 };
 
-#if THIS_GSTREAMER_VER >= GSTREAMER_VER(1, 18, 0)
-int get_plane_infos(
+#if THIS_GSTREAMER_VER >= GSTREAMER_VER(1, 14, 0)
+static size_t calculate_plane_size(
+    const GstVideoInfo *info,
+    int plane_index
+) {
+    // Taken from: https://github.com/GStreamer/gstreamer/blob/621604aa3e4caa8db27637f63fa55fac2f7721e5/subprojects/gst-plugins-base/gst-libs/gst/video/video-info.c#L1278-L1301
+
+#if THIS_GSTREAMER_VER >= GSTREAMER_VER(1, 21, 3)
+    if (GST_VIDEO_FORMAT_INFO_IS_TILED (info->finfo)) {
+        guint x_tiles = GST_VIDEO_TILE_X_TILES (info->stride[i]);
+        guint y_tiles = GST_VIDEO_TILE_Y_TILES (info->stride[i]);
+        return x_tiles * y_tiles * GST_VIDEO_FORMAT_INFO_TILE_SIZE(info->finfo, i);
+    }
+#endif
+
+    gint comp[GST_VIDEO_MAX_COMPONENTS];
+    guint plane_height;
+
+    /* Convert plane index to component index */
+    gst_video_format_info_component (info->finfo, plane_index, comp);
+    plane_height = GST_VIDEO_FORMAT_INFO_SCALE_HEIGHT(
+        info->finfo,
+        comp[0],
+        GST_VIDEO_INFO_FIELD_HEIGHT(info)
+    );
+
+    return plane_height * GST_VIDEO_INFO_PLANE_STRIDE(info, plane_index);
+}
+
+static int get_plane_infos(
     GstBuffer *buffer,
-    const struct frame_info *frame_info,
+    const GstVideoInfo *info,
     struct gbm_device *gbm_device,
     struct plane_info plane_infos[MAX_N_PLANES]
 ) {
@@ -256,7 +284,7 @@ int get_plane_infos(
     size_t plane_sizes[4] = {0};
     int n_planes;
 
-    n_planes = GST_VIDEO_INFO_N_PLANES(frame_info->gst_info);
+    n_planes = GST_VIDEO_INFO_N_PLANES(info);
 
     meta = gst_buffer_get_video_meta(buffer);
     if (meta != NULL) {
@@ -266,43 +294,29 @@ int get_plane_infos(
             return EIO;
         }
     } else {
-        // Taken from: https://github.com/GStreamer/gstreamer/blob/621604aa3e4caa8db27637f63fa55fac2f7721e5/subprojects/gst-plugins-base/gst-libs/gst/video/video-info.c#L1278-L1301
-        for (int i = 0; i < GST_VIDEO_MAX_PLANES; i++) {
-            if (i < GST_VIDEO_INFO_N_PLANES(frame_info->gst_info)) {
-#if THIS_GSTREAMER_VER >= GSTREAMER_VER(1, 21, 3)
-                if (GST_VIDEO_FORMAT_INFO_IS_TILED (frame_info->gst_info->finfo)) {
-                    guint x_tiles = GST_VIDEO_TILE_X_TILES (frame_info->gst_info->stride[i]);
-                    guint y_tiles = GST_VIDEO_TILE_Y_TILES (frame_info->gst_info->stride[i]);
-                    plane_sizes[i] = x_tiles * y_tiles * GST_VIDEO_FORMAT_INFO_TILE_SIZE(frame_info->gst_info->finfo, i);
-                } else {
-#endif
-
-                    gint comp[GST_VIDEO_MAX_COMPONENTS];
-                    guint plane_height;
-
-                    /* Convert plane index to component index */
-                    gst_video_format_info_component (frame_info->gst_info->finfo, i, comp);
-                    plane_height =
-                        GST_VIDEO_FORMAT_INFO_SCALE_HEIGHT(frame_info->gst_info->finfo, comp[0],
-                        GST_VIDEO_INFO_FIELD_HEIGHT(frame_info->gst_info));
-                    plane_sizes[i] = plane_height * GST_VIDEO_INFO_PLANE_STRIDE(frame_info->gst_info, i);
-
-#if THIS_GSTREAMER_VER >= GSTREAMER_VER(1, 21, 3)
-                }
-#endif
-            } else {
-                plane_sizes[i] = 0;
-            }
+        for (int i = 0; i < n_planes; i++) {
+            plane_sizes[i] = calculate_plane_size(info, i);
         }
     }
 
     for (int i = 0; i < n_planes; i++) {
-        unsigned memory_index = 0, n_memories = 0;
         size_t offset_in_memory = 0;
+        size_t offset_in_buffer = 0;
+        unsigned memory_index = 0;
+        unsigned n_memories = 0;
+        int stride, ok;
+
+        if (meta) {
+            offset_in_buffer = meta->offset[i];
+            stride = meta->stride[i];
+        } else {
+            offset_in_buffer = GST_VIDEO_INFO_PLANE_OFFSET(info, i);
+            stride = GST_VIDEO_INFO_PLANE_STRIDE(info, i);
+        }
 
         gst_ok = gst_buffer_find_memory(
             buffer,
-            meta ? meta->offset[i] : GST_VIDEO_INFO_PLANE_OFFSET(frame_info->gst_info, i),
+            offset_in_buffer,
             plane_sizes[i],
             &memory_index,
             &n_memories,
@@ -320,21 +334,34 @@ int get_plane_infos(
 
         memory = gst_buffer_peek_memory(buffer, memory_index);
         if (gst_is_dmabuf_memory(memory)) {
-            plane_infos[i].fd = dup(gst_dmabuf_memory_get_fd(memory));
-            if (plane_infos[i].fd < 0) {
+            ok = gst_dmabuf_memory_get_fd(memory);
+            if (ok < 0) {
                 LOG_ERROR("Could not get gstreamer memory as dmabuf.\n");
                 return EIO;
             }
+
+            ok = dup(ok);
+            if (ok < 0) {
+                ok = errno;
+                LOG_ERROR("Could not dup fd. dup: %s\n", strerror(ok));
+                return ok;
+            }
+
+            plane_infos[i].fd = ok;
         } else {
-            plane_infos[i].fd = dup_gst_memory_as_dmabuf(gbm_device, memory);
-            if (plane_infos[i].fd < 0) {
+            /// TODO: When duping, duplicate all non-dmabuf memories into one
+            /// gbm buffer instead.
+            ok = dup_gst_memory_as_dmabuf(gbm_device, memory);
+            if (ok < 0) {
                 LOG_ERROR("Could not duplicate gstreamer memory as dmabuf.\n");
                 return EIO;
             }
+
+            plane_infos[i].fd = ok;
         }
 
         plane_infos[i].offset = offset_in_memory;
-        plane_infos[i].pitch = meta ? meta->stride[i] : GST_VIDEO_INFO_PLANE_STRIDE(frame_info->gst_info, i);
+        plane_infos[i].pitch = stride;
 
         /// TODO: Detect modifiers here
         plane_infos[i].has_modifier = false;
@@ -343,89 +370,146 @@ int get_plane_infos(
 
     return 0;
 }
-#elif THIS_GSTREAMER_VER >= GSTREAMER_VER(1, 14, 0)
-int get_plane_infos(
-    GstBuffer *buffer,
-    const struct frame_info *frame_info,
-    struct gbm_device *gbm_device,
-    struct plane_info plane_infos[MAX_N_PLANES]
-) {
-    GstVideoMeta *meta;
-    GstMemory *memory;
-    unsigned int n_mems;
-    bool is_dmabuf_memory;
-    int n_planes, dmabuf_fd;
-
-    memory = gst_buffer_peek_memory(buffer, 0);
-    is_dmabuf_memory = gst_is_dmabuf_memory(memory);
-    n_mems = gst_buffer_n_memory(buffer);
-
-    /// TODO: Do we really need to dup() here?
-    if (is_dmabuf_memory) {
-        dmabuf_fd = dup(gst_dmabuf_memory_get_fd(memory));
-    } else {
-        dmabuf_fd = dup_gst_buffer_as_dmabuf(gbm_device, buffer);
-        
-        //LOG_ERROR("Only dmabuf memory is supported for video frame buffers right now, but gstreamer didn't provide a dmabuf memory buffer.\n");
-        //goto fail_free_frame;
-    }
-
-    if (n_mems > 1) {
-        LOG_ERROR("Multiple dmabufs for a single frame buffer is not supported right now.\n");
-        close(dmabuf_fd);
-        return EINVAL;
-    }
-
-    n_planes = GST_VIDEO_INFO_N_PLANES(frame_info->gst_info);
-
-    meta = gst_buffer_get_video_meta(buffer);
-    if (meta != NULL) {
-        for (int i = 0; i < n_planes; i++) {
-            plane_infos[i].fd = dmabuf_fd;
-            plane_infos[i].offset = meta->offset[i];
-            plane_infos[i].pitch = meta->stride[i];
-            plane_infos[i].has_modifier = false;
-            plane_infos[i].modifier = DRM_FORMAT_MOD_LINEAR;
-        }
-    } else {
-        for (int i = 0; i < n_planes; i++) {
-            plane_infos[i].fd = dmabuf_fd;
-            plane_infos[i].offset = GST_VIDEO_INFO_PLANE_OFFSET(frame_info->gst_info, i);
-            plane_infos[i].pitch = GST_VIDEO_INFO_PLANE_STRIDE(frame_info->gst_info, i);
-            plane_infos[i].has_modifier = false;
-            plane_infos[i].modifier = DRM_FORMAT_MOD_LINEAR;
-        }
-    }
-
-    return 0;
-}
 #else
 #   error "Unsupported gstreamer version."
 #endif
 
+static uint32_t drm_format_from_gst_info(const GstVideoInfo *info) {
+    switch (GST_VIDEO_INFO_FORMAT(info)) {
+        case GST_VIDEO_FORMAT_YUY2:  return DRM_FORMAT_YUYV;
+        case GST_VIDEO_FORMAT_YVYU:  return DRM_FORMAT_YVYU;
+        case GST_VIDEO_FORMAT_UYVY:  return DRM_FORMAT_UYVY;
+        case GST_VIDEO_FORMAT_VYUY:  return DRM_FORMAT_VYUY;
+        case GST_VIDEO_FORMAT_AYUV:
+        case GST_VIDEO_FORMAT_VUYA:  return DRM_FORMAT_AYUV;
+        case GST_VIDEO_FORMAT_NV12:  return DRM_FORMAT_NV12;
+        case GST_VIDEO_FORMAT_NV21:  return DRM_FORMAT_NV21;
+        case GST_VIDEO_FORMAT_NV16:  return DRM_FORMAT_NV16;
+        case GST_VIDEO_FORMAT_NV61:  return DRM_FORMAT_NV61;
+        case GST_VIDEO_FORMAT_NV24:  return DRM_FORMAT_NV24;
+        case GST_VIDEO_FORMAT_YUV9:  return DRM_FORMAT_YUV410;
+        case GST_VIDEO_FORMAT_YVU9:  return DRM_FORMAT_YVU410;
+        case GST_VIDEO_FORMAT_Y41B:  return DRM_FORMAT_YUV411;
+        case GST_VIDEO_FORMAT_I420:  return DRM_FORMAT_YUV420;
+        case GST_VIDEO_FORMAT_YV12:  return DRM_FORMAT_YVU420;
+        case GST_VIDEO_FORMAT_Y42B:  return DRM_FORMAT_YUV422;
+        case GST_VIDEO_FORMAT_Y444:  return DRM_FORMAT_YUV444;
+        case GST_VIDEO_FORMAT_RGB16: return DRM_FORMAT_RGB565;
+        case GST_VIDEO_FORMAT_BGR16: return DRM_FORMAT_BGR565;
+        case GST_VIDEO_FORMAT_RGBA:  return DRM_FORMAT_ABGR8888;
+        case GST_VIDEO_FORMAT_RGBx:  return DRM_FORMAT_XBGR8888;
+        case GST_VIDEO_FORMAT_BGRA:  return DRM_FORMAT_ARGB8888;
+        case GST_VIDEO_FORMAT_BGRx:  return DRM_FORMAT_XRGB8888;
+        case GST_VIDEO_FORMAT_ARGB:  return DRM_FORMAT_BGRA8888;
+        case GST_VIDEO_FORMAT_xRGB:  return DRM_FORMAT_BGRX8888;
+        case GST_VIDEO_FORMAT_ABGR:  return DRM_FORMAT_RGBA8888;
+        case GST_VIDEO_FORMAT_xBGR:  return DRM_FORMAT_RGBX8888;
+        default:                     return DRM_FORMAT_INVALID;
+    }
+}
+
 struct video_frame *frame_new(
     struct frame_interface *interface,
-    const struct frame_info *info,
-    GstSample *sample
+    GstSample *sample,
+    const GstVideoInfo *info
 ) {
-#   define PUT_ATTR(_key, _value) do { *attr_cursor++ = _key; *attr_cursor++ = _value; } while (false)
+#   define PUT_ATTR(_key, _value) \
+        do { \
+            DEBUG_ASSERT(attr_index + 2 <= ARRAY_SIZE(attributes)); \
+            attributes[attr_index++] = (_key); \
+            attributes[attr_index++] = (_value); \
+        } while (false)
     struct video_frame *frame;
+    struct plane_info planes[MAX_N_PLANES];
+    GstVideoInfo _info;
     EGLBoolean egl_ok;
-    EGLImage egl_image;
     GstBuffer *buffer;
-    GLenum gl_error;
-    EGLint attributes[2*7 + MAX_N_PLANES*2*5 + 1], *attr_cursor;
+    EGLImage egl_image;
+    gboolean gst_ok;
+    uint32_t drm_format;
+    GstCaps *caps;
     GLuint texture;
+    GLenum gl_error;
     EGLint egl_error;
-    int ok, n_planes, width, height;
-
-    struct plane_info planes[MAX_N_PLANES] = {0};
+    EGLint attributes[2*7 + MAX_N_PLANES*2*5 + 1];
+    EGLint egl_color_space, egl_sample_range_hint, egl_horizontal_chroma_siting, egl_vertical_chroma_siting;
+    int ok, width, height, n_planes, attr_index;
 
     buffer = gst_sample_get_buffer(sample);
+    if (buffer == NULL) {
+        return NULL;
+    }
 
+    if (info == NULL) {
+        caps = gst_sample_get_caps(sample);
+        if (caps == NULL) {
+            return NULL;
+        }
+
+        info = &_info;
+
+        gst_ok = gst_video_info_from_caps(&_info, caps);
+        if (gst_ok == FALSE) {
+            LOG_ERROR("Could not get video info from video sample caps.\n");
+            return NULL;
+        }
+    } else {
+        caps = NULL;
+    }
+
+    width = GST_VIDEO_INFO_WIDTH(info);
+    height = GST_VIDEO_INFO_HEIGHT(info);
+    n_planes = GST_VIDEO_INFO_N_PLANES(info);
+
+    // query the drm format for this sample
+    drm_format = drm_format_from_gst_info(info);
+    if (drm_format == DRM_FORMAT_INVALID) {
+        LOG_ERROR("Video format has no EGL equivalent.\n");
+        return NULL;
+    }
+
+    // query the color space for this sample
+    if (gst_video_colorimetry_matches(&GST_VIDEO_INFO_COLORIMETRY(info), GST_VIDEO_COLORIMETRY_BT601)) {
+        egl_color_space = EGL_ITU_REC601_EXT;
+    } else if (gst_video_colorimetry_matches(&GST_VIDEO_INFO_COLORIMETRY(info), GST_VIDEO_COLORIMETRY_BT709)) {
+        egl_color_space = EGL_ITU_REC709_EXT;
+    } else if (gst_video_colorimetry_matches(&GST_VIDEO_INFO_COLORIMETRY(info), GST_VIDEO_COLORIMETRY_BT2020)) {
+        egl_color_space = EGL_ITU_REC2020_EXT;
+    } else {
+        LOG_DEBUG("Unsupported video colorimetry: %s\n", gst_video_colorimetry_to_string(&GST_VIDEO_INFO_COLORIMETRY(info)));
+        egl_color_space = EGL_NONE;
+    }
+
+    // check the sample range
+    if (GST_VIDEO_INFO_COLORIMETRY(info).range == GST_VIDEO_COLOR_RANGE_0_255) {
+        egl_sample_range_hint = EGL_YUV_FULL_RANGE_EXT;
+    } else if (GST_VIDEO_INFO_COLORIMETRY(info).range == GST_VIDEO_COLOR_RANGE_16_235) {
+        egl_sample_range_hint = EGL_YUV_NARROW_RANGE_EXT;
+    } else {
+        egl_sample_range_hint = EGL_NONE;
+    }
+
+    // check the chroma siting
+    if ((GST_VIDEO_INFO_CHROMA_SITE(info) & ~(GST_VIDEO_CHROMA_SITE_H_COSITED | GST_VIDEO_CHROMA_SITE_V_COSITED)) == 0) {
+        if (GST_VIDEO_INFO_CHROMA_SITE(info) & GST_VIDEO_CHROMA_SITE_H_COSITED) {
+            egl_horizontal_chroma_siting = EGL_YUV_CHROMA_SITING_0_EXT;
+        } else {
+            egl_horizontal_chroma_siting = EGL_YUV_CHROMA_SITING_0_5_EXT;
+        }
+
+        if (GST_VIDEO_INFO_CHROMA_SITE(info) & GST_VIDEO_CHROMA_SITE_V_COSITED) {
+            egl_vertical_chroma_siting = EGL_YUV_CHROMA_SITING_0_EXT;
+        } else {
+            egl_vertical_chroma_siting = EGL_YUV_CHROMA_SITING_0_5_EXT;
+        }
+    } else {
+        egl_horizontal_chroma_siting = EGL_NONE;
+        egl_vertical_chroma_siting = EGL_NONE;
+    }
+    
     frame = malloc(sizeof *frame);
     if (frame == NULL) {
-        goto fail_unref_buffer;
+        return NULL;
     }
 
     ok = get_plane_infos(buffer, info, interface->gbm_device, planes);
@@ -433,47 +517,35 @@ struct video_frame *frame_new(
         goto fail_free_frame;
     }
 
-    width = GST_VIDEO_INFO_WIDTH(info->gst_info);
-    height = GST_VIDEO_INFO_HEIGHT(info->gst_info);
-    n_planes = GST_VIDEO_INFO_N_PLANES(info->gst_info);
-
-    attr_cursor = attributes;
+    attr_index = 0;
 
     // first, put some of our basic attributes like
     // frame size and format
     PUT_ATTR(EGL_WIDTH, width);
     PUT_ATTR(EGL_HEIGHT, height);
-    PUT_ATTR(EGL_LINUX_DRM_FOURCC_EXT, info->drm_format);
+    PUT_ATTR(EGL_LINUX_DRM_FOURCC_EXT, drm_format);
 
     // if we have a color space, put that too
     // could be one of EGL_ITU_REC601_EXT, EGL_ITU_REC709_EXT or EGL_ITU_REC2020_EXT
-    if (info->egl_color_space != EGL_NONE) {
-        PUT_ATTR(EGL_YUV_COLOR_SPACE_HINT_EXT, info->egl_color_space);
+    if (egl_color_space != EGL_NONE) {
+        PUT_ATTR(EGL_YUV_COLOR_SPACE_HINT_EXT, egl_color_space);
     }
 
     // if we have information about the sample range, put that into the attributes too
-    if (GST_VIDEO_INFO_COLORIMETRY(info->gst_info).range == GST_VIDEO_COLOR_RANGE_0_255) {
-        PUT_ATTR(EGL_SAMPLE_RANGE_HINT_EXT, EGL_YUV_FULL_RANGE_EXT);
-    } else if (GST_VIDEO_INFO_COLORIMETRY(info->gst_info).range == GST_VIDEO_COLOR_RANGE_16_235) {
-        PUT_ATTR(EGL_SAMPLE_RANGE_HINT_EXT, EGL_YUV_NARROW_RANGE_EXT);
+    if (egl_sample_range_hint != EGL_NONE) {
+        PUT_ATTR(EGL_SAMPLE_RANGE_HINT_EXT, egl_sample_range_hint);
     }
 
-    // Check that we can actually represent that siting info using the attributes EGL gives us.
-    // For example, we can't represent GST_VIDEO_CHROMA_SITE_ALT_LINE.
-    if ((GST_VIDEO_INFO_CHROMA_SITE(info->gst_info) & ~(GST_VIDEO_CHROMA_SITE_H_COSITED | GST_VIDEO_CHROMA_SITE_V_COSITED)) == 0) {
-        if (GST_VIDEO_INFO_CHROMA_SITE(info->gst_info) & GST_VIDEO_CHROMA_SITE_H_COSITED) {
-            PUT_ATTR(EGL_YUV_CHROMA_HORIZONTAL_SITING_HINT_EXT, EGL_YUV_CHROMA_SITING_0_EXT);
-        } else {
-            PUT_ATTR(EGL_YUV_CHROMA_HORIZONTAL_SITING_HINT_EXT, EGL_YUV_CHROMA_SITING_0_5_EXT);
-        }
-        if (GST_VIDEO_INFO_CHROMA_SITE(info->gst_info) & GST_VIDEO_CHROMA_SITE_V_COSITED) {
-            PUT_ATTR(EGL_YUV_CHROMA_VERTICAL_SITING_HINT_EXT, EGL_YUV_CHROMA_SITING_0_EXT);
-        } else {
-            PUT_ATTR(EGL_YUV_CHROMA_VERTICAL_SITING_HINT_EXT, EGL_YUV_CHROMA_SITING_0_5_EXT);
-        }
+    // chroma siting
+    if (egl_horizontal_chroma_siting != EGL_NONE) {
+        PUT_ATTR(EGL_YUV_CHROMA_HORIZONTAL_SITING_HINT_EXT, egl_horizontal_chroma_siting);
+    }
+
+    if (egl_vertical_chroma_siting != EGL_NONE) {
+        PUT_ATTR(EGL_YUV_CHROMA_VERTICAL_SITING_HINT_EXT, egl_vertical_chroma_siting);
     }
     
-    // now begin with putting in information about plane memory
+    // add plane 1
     PUT_ATTR(EGL_DMA_BUF_PLANE0_FD_EXT, planes[0].fd);
     PUT_ATTR(EGL_DMA_BUF_PLANE0_OFFSET_EXT, planes[0].offset);
     PUT_ATTR(EGL_DMA_BUF_PLANE0_PITCH_EXT, planes[0].pitch);
@@ -483,10 +555,11 @@ struct video_frame *frame_new(
             PUT_ATTR(EGL_DMA_BUF_PLANE0_MODIFIER_HI_EXT, uint32_to_int32(planes[0].modifier >> 32));
         } else {
             LOG_ERROR("video frame buffer uses modified format but EGL doesn't support the EGL_EXT_image_dma_buf_import_modifiers extension.\n");
-            goto fail_close_dmabuf_fd;
+            goto fail_release_planes;
         }
     }
 
+    // add plane 2 (if present)
     if (n_planes >= 2) {
         PUT_ATTR(EGL_DMA_BUF_PLANE1_FD_EXT, planes[1].fd);
         PUT_ATTR(EGL_DMA_BUF_PLANE1_OFFSET_EXT, planes[1].offset);
@@ -497,11 +570,12 @@ struct video_frame *frame_new(
                 PUT_ATTR(EGL_DMA_BUF_PLANE1_MODIFIER_HI_EXT, uint32_to_int32(planes[1].modifier >> 32));
             } else {
                 LOG_ERROR("video frame buffer uses modified format but EGL doesn't support the EGL_EXT_image_dma_buf_import_modifiers extension.\n");
-                goto fail_close_dmabuf_fd;
+                goto fail_release_planes;
             }
         }
     }
 
+    // add plane 3 (if present)
     if (n_planes >= 3) {
         PUT_ATTR(EGL_DMA_BUF_PLANE2_FD_EXT, planes[2].fd);
         PUT_ATTR(EGL_DMA_BUF_PLANE2_OFFSET_EXT, planes[2].offset);
@@ -512,37 +586,34 @@ struct video_frame *frame_new(
                 PUT_ATTR(EGL_DMA_BUF_PLANE2_MODIFIER_HI_EXT, uint32_to_int32(planes[2].modifier >> 32));
             } else {
                 LOG_ERROR("video frame buffer uses modified format but EGL doesn't support the EGL_EXT_image_dma_buf_import_modifiers extension.\n");
-                goto fail_close_dmabuf_fd;
+                goto fail_release_planes;
             }
         }
     }
 
+    // add plane 4 (if present)
     if (n_planes >= 4) {
         if (!interface->supports_extended_imports) {
             LOG_ERROR("The video frame has more than 3 planes but that can't be imported as a GL texture if EGL doesn't support the EGL_EXT_image_dma_buf_import_modifiers extension.\n");
-            goto fail_close_dmabuf_fd;
+            goto fail_release_planes;
         }
 
         PUT_ATTR(EGL_DMA_BUF_PLANE3_FD_EXT, planes[3].fd);
         PUT_ATTR(EGL_DMA_BUF_PLANE3_OFFSET_EXT, planes[3].offset);
         PUT_ATTR(EGL_DMA_BUF_PLANE3_PITCH_EXT, planes[3].pitch);
         if (planes[3].has_modifier) {
-            if (interface->supports_extended_imports) {
-                PUT_ATTR(EGL_DMA_BUF_PLANE3_MODIFIER_LO_EXT, uint32_to_int32(planes[3].modifier & 0xFFFFFFFFlu));
-                PUT_ATTR(EGL_DMA_BUF_PLANE3_MODIFIER_HI_EXT, uint32_to_int32(planes[3].modifier >> 32));
-            } else {
-                LOG_ERROR("video frame buffer uses modified format but EGL doesn't support the EGL_EXT_image_dma_buf_import_modifiers extension.\n");
-                goto fail_close_dmabuf_fd;
-            }
+            PUT_ATTR(EGL_DMA_BUF_PLANE3_MODIFIER_LO_EXT, uint32_to_int32(planes[3].modifier & 0xFFFFFFFFlu));
+            PUT_ATTR(EGL_DMA_BUF_PLANE3_MODIFIER_HI_EXT, uint32_to_int32(planes[3].modifier >> 32));
         }
     }
 
-    // add a EGL_NONE to mark the end of the buffer
-    *attr_cursor++ = EGL_NONE;
+    DEBUG_ASSERT(attr_index < ARRAY_SIZE(attributes));
+    attributes[attr_index++] = EGL_NONE;
 
     egl_image = interface->eglCreateImageKHR(interface->display, EGL_NO_CONTEXT, EGL_LINUX_DMA_BUF_EXT, NULL, attributes);
     if (egl_image == EGL_NO_IMAGE_KHR) {
-        goto fail_close_dmabuf_fd;
+        LOG_ERROR("Couldn't create EGL image from video sample.\n");
+        goto fail_release_planes;
     }
 
     frame_interface_lock(interface);
@@ -574,9 +645,9 @@ struct video_frame *frame_new(
 
     frame_interface_unlock(interface);
 
-    frame->sample = sample;
+    frame->sample = gst_sample_ref(sample);
     frame->interface = frame_interface_ref(interface);
-    frame->drm_format = info->drm_format;
+    frame->drm_format = drm_format;
     frame->n_dmabuf_fds = n_planes;
     frame->dmabuf_fds[0] = planes[0].fd;
     frame->dmabuf_fds[1] = planes[1].fd;
@@ -588,8 +659,8 @@ struct video_frame *frame_new(
     frame->gl_frame.format = GL_RGBA8_OES;
     frame->gl_frame.width = 0;
     frame->gl_frame.height = 0;
-
-    return frame;
+    return 0;
+    
 
     fail_delete_texture:
     glDeleteTextures(1, &texture);
@@ -601,18 +672,13 @@ struct video_frame *frame_new(
     frame_interface_unlock(interface);
     interface->eglDestroyImageKHR(interface->display, egl_image);
 
-    fail_close_dmabuf_fd:
+    fail_release_planes:
     for (int i = 0; i < n_planes; i++)
         close(planes[i].fd);
-
+    
     fail_free_frame:
     free(frame);
-
-    fail_unref_buffer:
-    gst_sample_unref(sample);
     return NULL;
-
-#   undef PUT_ATTR
 }
 
 void frame_destroy(struct video_frame *frame) {
@@ -638,6 +704,8 @@ void frame_destroy(struct video_frame *frame) {
         ok = close(frame->dmabuf_fds[i]);
         DEBUG_ASSERT(ok == 0); (void) ok;
     }
+
+    gst_sample_unref(frame->sample);
     free(frame);
 }
 
