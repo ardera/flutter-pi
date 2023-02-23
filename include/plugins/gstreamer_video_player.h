@@ -202,14 +202,35 @@ struct notifier *gstplayer_get_buffering_state_notifier(struct gstplayer *player
 /// Gets notified when an error happens. (Not yet implemented)
 struct notifier *gstplayer_get_error_notifier(struct gstplayer *player);
 
-
-
 struct video_frame;
 struct gl_renderer;
+
+struct egl_modified_format {
+    uint32_t format;
+    uint64_t modifier;
+    bool external_only;
+};
 
 struct frame_interface;
 
 struct frame_interface *frame_interface_new(struct gl_renderer *renderer);
+
+ATTR_PURE int frame_interface_get_n_formats(struct frame_interface *interface);
+
+ATTR_PURE const struct egl_modified_format *frame_interface_get_format(struct frame_interface *interface, int index);
+
+#define for_each_format_in_frame_interface(index, format, interface) \
+	for ( \
+		const struct egl_modified_format *format = frame_interface_get_format((interface), 0), *guard = NULL; \
+		guard == NULL; \
+		guard = (void*) 1 \
+	) \
+		for ( \
+			size_t index = 0; \
+			index < frame_interface_get_n_formats(interface); \
+			index++, \
+				format = (index) < frame_interface_get_n_formats(interface) ? frame_interface_get_format((interface), (index)) : NULL \
+        )
 
 DECLARE_LOCK_OPS(frame_interface)
 
@@ -233,6 +254,8 @@ struct frame_info {
 };
 
 struct _GstSample;
+
+ATTR_CONST GstVideoFormat gst_video_format_from_drm_format(uint32_t drm_format);
 
 struct video_frame *frame_new(
     struct frame_interface *interface,
