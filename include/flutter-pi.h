@@ -251,8 +251,9 @@ struct flutterpi {
 	struct {
 		struct gbm_device  *device;
 		struct gbm_surface *surface;
-		uint32_t 			format;
-		uint64_t			modifier;
+		bool has_format;
+		enum pixfmt format;
+		uint64_t modifier;
 	} gbm;
 
 	struct {

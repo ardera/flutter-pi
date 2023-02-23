@@ -1634,15 +1634,31 @@ static int init_display(void) {
      * GBM INITIALIZATION *
      **********************/
     flutterpi.gbm.device = gbm_create_device(drmdev_get_fd(flutterpi.drm.drmdev));
-    flutterpi.gbm.format = DRM_FORMAT_ARGB8888;
+    if (flutterpi.gbm.has_format) {
+        flutterpi.gbm.format = kARGB8888_FpiPixelFormat;
+        flutterpi.gbm.has_format = true;
+    }
     flutterpi.gbm.surface = NULL;
     flutterpi.gbm.modifier = DRM_FORMAT_MOD_LINEAR;
 
-    flutterpi.gbm.surface = gbm_surface_create_with_modifiers(flutterpi.gbm.device, flutterpi.display.width, flutterpi.display.height, flutterpi.gbm.format, &flutterpi.gbm.modifier, 1);
+    flutterpi.gbm.surface = gbm_surface_create_with_modifiers(
+        flutterpi.gbm.device,
+        flutterpi.display.width,
+        flutterpi.display.height,
+        get_pixfmt_info(flutterpi.gbm.format)->gbm_format,
+        &flutterpi.gbm.modifier,
+        1
+    );
     if (flutterpi.gbm.surface == NULL) {
         perror("[flutter-pi] Could not create GBM Surface. gbm_surface_create_with_modifiers. Will attempt with gbm_surface_create");
 
-		flutterpi.gbm.surface = gbm_surface_create(flutterpi.gbm.device, flutterpi.display.width, flutterpi.display.height, flutterpi.gbm.format, GBM_BO_USE_SCANOUT | GBM_BO_USE_RENDERING | GBM_BO_USE_LINEAR);
+		flutterpi.gbm.surface = gbm_surface_create(
+            flutterpi.gbm.device,
+            flutterpi.display.width,
+            flutterpi.display.height,
+            get_pixfmt_info(flutterpi.gbm.format)->gbm_format,
+            GBM_BO_USE_SCANOUT | GBM_BO_USE_RENDERING | GBM_BO_USE_LINEAR
+        );
 
 		if (flutterpi.gbm.surface == NULL) {
 			perror("[flutter-pi] Could not create GBM Surface even with gbm_surface_create");
@@ -1747,7 +1763,7 @@ static int init_display(void) {
             continue;
         }
 
-        if (native_visual_id == flutterpi.gbm.format) {
+        if (native_visual_id == get_pixfmt_info(flutterpi.gbm.format)->gbm_format) {
             flutterpi.egl.config = configs[i];
             _found_matching_config = true;
             break;
@@ -2432,7 +2448,8 @@ static bool parse_cmd_args(int argc, char **argv) {
             case 'p':
                 for (int i = 0; i < n_pixfmt_infos; i++) {
                     if (strcmp(optarg, pixfmt_infos[i].arg_name) == 0) {
-                        flutterpi.gbm.format = pixfmt_infos[i].gbm_format;
+                        flutterpi.gbm.has_format = true;
+                        flutterpi.gbm.format = (enum pixfmt) i;
                         goto valid_format;
                     }
                 }
