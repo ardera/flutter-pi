@@ -40,12 +40,6 @@ struct video_frame {
     struct gl_texture_frame gl_frame;
 };
 
-struct egl_modified_format {
-    uint32_t format;
-    uint64_t modifier;
-    bool external_only;
-};
-
 struct frame_interface {
     struct gbm_device *gbm_device;
     EGLDisplay display;
@@ -315,19 +309,6 @@ ATTR_PURE const struct egl_modified_format *frame_interface_get_format(struct fr
     DEBUG_ASSERT(index < interface->n_formats);
     return interface->formats + index;
 }
-
-#define for_each_format_in_frame_interface(index, format, interface) \
-	for ( \
-		const struct egl_modified_format *format = frame_interface_get_format((interface), 0), *guard = NULL; \
-		guard == NULL; \
-		guard = (void*) 1 \
-	) \
-		for ( \
-			size_t index = 0; \
-			index < frame_interface_get_n_formats(interface); \
-			index++, \
-				format = (index) < frame_interface_get_n_formats(interface) ? frame_interface_get_format((interface), (index)) : NULL \
-        )
 
 DEFINE_LOCK_OPS(frame_interface, context_lock)
 
@@ -727,6 +708,43 @@ static uint32_t drm_format_from_gst_info(const GstVideoInfo *info) {
         case GST_VIDEO_FORMAT_ABGR:  return DRM_FORMAT_RGBA8888;
         case GST_VIDEO_FORMAT_xBGR:  return DRM_FORMAT_RGBX8888;
         default:                     return DRM_FORMAT_INVALID;
+    }
+}
+
+ATTR_CONST GstVideoFormat gst_video_format_from_drm_format(uint32_t drm_format) {
+    switch (drm_format) {
+        case DRM_FORMAT_YUYV: return GST_VIDEO_FORMAT_YUY2;
+        case DRM_FORMAT_YVYU: return GST_VIDEO_FORMAT_YVYU;
+        case DRM_FORMAT_UYVY: return GST_VIDEO_FORMAT_UYVY;
+        case DRM_FORMAT_VYUY: return GST_VIDEO_FORMAT_VYUY;
+        case DRM_FORMAT_AYUV: return GST_VIDEO_FORMAT_AYUV;
+#if THIS_GSTREAMER_VER >= GSTREAMER_VER(1, 16, 0)
+        // GST_VIDEO_FORMAT_AYUV and _VUYA both map to DRM_FORMAT_AYUV 
+        // case DRM_FORMAT_AYUV: return GST_VIDEO_FORMAT_VUYA;
+#endif
+        case DRM_FORMAT_NV12: return GST_VIDEO_FORMAT_NV12;
+        case DRM_FORMAT_NV21: return GST_VIDEO_FORMAT_NV21;
+        case DRM_FORMAT_NV16: return GST_VIDEO_FORMAT_NV16;
+        case DRM_FORMAT_NV61: return GST_VIDEO_FORMAT_NV61;
+        case DRM_FORMAT_NV24: return GST_VIDEO_FORMAT_NV24;
+        case DRM_FORMAT_YUV410: return GST_VIDEO_FORMAT_YUV9;
+        case DRM_FORMAT_YVU410: return GST_VIDEO_FORMAT_YVU9;
+        case DRM_FORMAT_YUV411: return GST_VIDEO_FORMAT_Y41B;
+        case DRM_FORMAT_YUV420: return GST_VIDEO_FORMAT_I420;
+        case DRM_FORMAT_YVU420: return GST_VIDEO_FORMAT_YV12;
+        case DRM_FORMAT_YUV422: return GST_VIDEO_FORMAT_Y42B;
+        case DRM_FORMAT_YUV444: return GST_VIDEO_FORMAT_Y444;
+        case DRM_FORMAT_RGB565: return GST_VIDEO_FORMAT_RGB16;
+        case DRM_FORMAT_BGR565: return GST_VIDEO_FORMAT_BGR16;
+        case DRM_FORMAT_ABGR8888: return GST_VIDEO_FORMAT_RGBA;
+        case DRM_FORMAT_XBGR8888: return GST_VIDEO_FORMAT_RGBx;
+        case DRM_FORMAT_ARGB8888: return GST_VIDEO_FORMAT_BGRA;
+        case DRM_FORMAT_XRGB8888: return GST_VIDEO_FORMAT_BGRx;
+        case DRM_FORMAT_BGRA8888: return GST_VIDEO_FORMAT_ARGB;
+        case DRM_FORMAT_BGRX8888: return GST_VIDEO_FORMAT_xRGB;
+        case DRM_FORMAT_RGBA8888: return GST_VIDEO_FORMAT_ABGR;
+        case DRM_FORMAT_RGBX8888: return GST_VIDEO_FORMAT_xBGR;
+        default: return GST_VIDEO_FORMAT_UNKNOWN;
     }
 }
 
