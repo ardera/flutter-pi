@@ -21,6 +21,9 @@ FILE_DESCR("gstreamer video_player")
 #define GSTREAMER_VER(major, minor, patch) ((((major) & 0xFF) << 16) | (((minor) & 0xFF) << 8) | ((patch) & 0xFF))
 #define THIS_GSTREAMER_VER GSTREAMER_VER(LIBGSTREAMER_VERSION_MAJOR, LIBGSTREAMER_VERSION_MINOR, LIBGSTREAMER_VERSION_PATCH)
 
+#define DRM_FOURCC_FORMAT "c%c%c%c"
+#define DRM_FOURCC_ARGS(format) (format) & 0xFF, ((format) >> 8) & 0xFF, ((format) >> 16) & 0xFF, ((format) >> 24) & 0xFF
+
 struct video_frame {
     GstSample *sample;
 
@@ -129,6 +132,7 @@ static bool query_formats(
         goto fail_free_modifiers;
     }
 
+    LOG_DEBUG("supported formats for EGL import: ");
     for (int i = 0, j = 0; i < n_formats; i++) {
         egl_ok = egl_query_dmabuf_modifiers(display, formats[i], max_n_modifiers, modifiers, external_only, &n_modifiers);
         if (egl_ok != EGL_TRUE) {
@@ -136,12 +140,16 @@ static bool query_formats(
             goto fail_free_formats;
         }
 
+        LOG_DEBUG_UNPREFIXED("%" DRM_FOURCC_FORMAT ", ", DRM_FOURCC_ARGS(formats[i]));
+
         for (int k = 0; k < n_modifiers; k++, j++) {
             modified_formats[j].format = formats[i];
             modified_formats[j].modifier = modifiers[k];
             modified_formats[j].external_only = external_only[k];
         }
     }
+
+    LOG_DEBUG_UNPREFIXED("\n");
 
     free(formats);
     free(modifiers);
@@ -841,11 +849,8 @@ struct video_frame *frame_new(
     }
 
     LOG_ERROR(
-        "Video format is not supported by EGL: %c%c%c%c (modifier: %"PRIu64").\n",
-        drm_format & 0xFF,
-        (drm_format >> 8) & 0xFF,
-        (drm_format >> 16) & 0xFF,
-        (drm_format >> 24) & 0xFF,
+        "Video format is not supported by EGL: %" DRM_FOURCC_FORMAT " (modifier: %"PRIu64").\n",
+        DRM_FOURCC_ARGS(drm_format),
         (uint64_t) DRM_FORMAT_MOD_LINEAR
     );
     return NULL;
