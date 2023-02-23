@@ -2299,13 +2299,19 @@ static int kms_req_commit_common(
         ok = drmdev_on_modesetting_fd_ready_locked(builder->drmdev);
         if (ok != 0) {
             LOG_ERROR("Couldn't synchronously handle pageflip event.\n");
-            goto fail_unlock;
+            goto fail_unset_scanout_callback;
         }
     }
 
     drmdev_unlock(builder->drmdev);
 
     return 0;
+
+fail_unset_scanout_callback:
+    builder->drmdev->per_crtc_state[builder->crtc->index].scanout_callback = NULL;
+    builder->drmdev->per_crtc_state[builder->crtc->index].destroy_callback = NULL;
+    builder->drmdev->per_crtc_state[builder->crtc->index].userdata = NULL;
+    goto fail_unlock;
 
 fail_unref_builder:
     kms_req_builder_unref(builder);
