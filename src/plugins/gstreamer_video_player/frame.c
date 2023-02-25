@@ -940,7 +940,7 @@ struct video_frame *frame_new(
 
     // add plane 2 (if present)
     if (n_planes >= 2) {
-        PUT_ATTR(EGL_DMA_BUF_PLANE1_FD_EXT, planes[1].fd);
+        PUT_ATTR(EGL_DMA_BUF_PLANE1_FD_EXT, planes[0].fd);
         PUT_ATTR(EGL_DMA_BUF_PLANE1_OFFSET_EXT, planes[1].offset);
         PUT_ATTR(EGL_DMA_BUF_PLANE1_PITCH_EXT, planes[1].pitch);
         if (planes[1].has_modifier) {
@@ -956,7 +956,7 @@ struct video_frame *frame_new(
 
     // add plane 3 (if present)
     if (n_planes >= 3) {
-        PUT_ATTR(EGL_DMA_BUF_PLANE2_FD_EXT, planes[2].fd);
+        PUT_ATTR(EGL_DMA_BUF_PLANE2_FD_EXT, planes[0].fd);
         PUT_ATTR(EGL_DMA_BUF_PLANE2_OFFSET_EXT, planes[2].offset);
         PUT_ATTR(EGL_DMA_BUF_PLANE2_PITCH_EXT, planes[2].pitch);
         if (planes[2].has_modifier) {
@@ -1013,9 +1013,9 @@ struct video_frame *frame_new(
 
     GLenum target;
     if (external_only) {
-        target = GL_TEXTURE_2D;
-    } else {
         target = GL_TEXTURE_EXTERNAL_OES;
+    } else {
+        target = GL_TEXTURE_2D;
     }
 
     glBindTexture(target, texture);
@@ -1052,7 +1052,7 @@ struct video_frame *frame_new(
     frame->gl_frame.format = GL_RGBA8_OES;
     frame->gl_frame.width = 0;
     frame->gl_frame.height = 0;
-    return 0;
+    return frame;
     
     fail_unbind_texture:
     glBindTexture(texture, 0);

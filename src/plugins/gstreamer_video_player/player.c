@@ -157,15 +157,15 @@ struct gstplayer {
 #define MAX_N_PLANES 4
 #define MAX_N_EGL_DMABUF_IMAGE_ATTRIBUTES 6 + 6*MAX_N_PLANES + 1
 
-static inline void lock(struct gstplayer *player) {
+MAYBE_UNUSED static inline void lock(struct gstplayer *player) {
     pthread_mutex_lock(&player->lock);
 }
 
-static inline void unlock(struct gstplayer *player) {
+MAYBE_UNUSED static inline void unlock(struct gstplayer *player) {
     pthread_mutex_unlock(&player->lock);
 }
 
-static inline void trace_instant(struct gstplayer *player, const char *name) {
+MAYBE_UNUSED static inline void trace_instant(struct gstplayer *player, const char *name) {
     return flutterpi_trace_event_instant(player->flutterpi, name);
 }
 
@@ -639,10 +639,11 @@ static GstPadProbeReturn on_probe_pad(GstPad *pad, GstPadProbeInfo *info, void *
     player->has_gst_info = true;
 
     LOG_DEBUG(
-        "on_probe_pad, fps: %f, res: % 4d x % 4d\n",
+        "on_probe_pad, fps: %f, res: % 4d x % 4d, format: %s\n",
         (double) GST_VIDEO_INFO_FPS_N(&player->gst_info) / GST_VIDEO_INFO_FPS_D(&player->gst_info),
         GST_VIDEO_INFO_WIDTH(&player->gst_info),
-        GST_VIDEO_INFO_HEIGHT(&player->gst_info)
+        GST_VIDEO_INFO_HEIGHT(&player->gst_info),
+        gst_video_format_to_string(player->gst_info.finfo->format)
     );
 
     player->info.info.width = GST_VIDEO_INFO_WIDTH(&player->gst_info);
@@ -958,28 +959,6 @@ static int init(struct gstplayer *player, bool force_sw_decoders) {
 }
 
 static void maybe_deinit(struct gstplayer *player) {
-    struct my_gst_object {
-        GInitiallyUnowned object;
-
-        /*< public >*/ /* with LOCK */
-        GMutex         lock;        /* object LOCK */
-        gchar         *name;        /* object name */
-        GstObject     *parent;      /* this object's parent, weak ref */
-        guint32        flags;
-
-        /*< private >*/
-        GList         *control_bindings;  /* List of GstControlBinding */
-        guint64        control_rate;
-        guint64        last_sync;
-
-        gpointer _gst_reserved;
-    };
-
-    struct my_gst_object *sink = (struct my_gst_object*) player->sink, *bus = (struct my_gst_object*) player->bus, *pipeline = (struct my_gst_object*) player->pipeline;
-    (void) sink;
-    (void) bus;
-    (void) pipeline;
-
     if (player->busfd_events != NULL) {
         sd_event_source_unrefp(&player->busfd_events);
     }

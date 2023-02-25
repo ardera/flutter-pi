@@ -203,6 +203,9 @@ static int rendertarget_gbm_present(
 
 	next_front_fb_id = gbm_bo_get_drm_fb_id(next_front_bo);
 
+	release_data->surface = gbm_target->gbm_surface;
+	release_data->bo = next_front_bo;
+
 	ok = kms_req_builder_push_fb_layer(
 		builder,
 		&(const struct kms_fb_layer) {
