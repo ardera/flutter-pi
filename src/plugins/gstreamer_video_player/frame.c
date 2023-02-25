@@ -652,6 +652,8 @@ static int get_plane_infos(
 
                 plane_infos[i].fd = ok;
             }
+
+            offset_in_memory += memory->offset;
         }
 
         plane_infos[i].offset = offset_in_memory;
@@ -772,27 +774,27 @@ static EGLint egl_sample_range_hint_from_gst_info(const GstVideoInfo *info) {
 }
 
 static EGLint egl_horizontal_chroma_siting_from_gst_info(const GstVideoInfo *info) {
-    if ((GST_VIDEO_INFO_CHROMA_SITE(info) & ~(GST_VIDEO_CHROMA_SITE_H_COSITED | GST_VIDEO_CHROMA_SITE_V_COSITED)) == 0) {
-        if (GST_VIDEO_INFO_CHROMA_SITE(info) & GST_VIDEO_CHROMA_SITE_H_COSITED) {
-            return EGL_YUV_CHROMA_SITING_0_EXT;
-        } else {
-            return EGL_YUV_CHROMA_SITING_0_5_EXT;
-        }
-    }
+    GstVideoChromaSite chroma_site = GST_VIDEO_INFO_CHROMA_SITE(info);
 
-    return EGL_NONE;
+    if (chroma_site == GST_VIDEO_CHROMA_SITE_H_COSITED || chroma_site == GST_VIDEO_CHROMA_SITE_COSITED) {
+        return EGL_YUV_CHROMA_SITING_0_EXT;
+    } else if (chroma_site == GST_VIDEO_CHROMA_SITE_V_COSITED || chroma_site == GST_VIDEO_CHROMA_SITE_NONE) {
+        return EGL_YUV_CHROMA_SITING_0_5_EXT;
+    } else {
+        return EGL_NONE;
+    }
 }
 
 static EGLint egl_vertical_chroma_siting_from_gst_info(const GstVideoInfo *info) {
-    if ((GST_VIDEO_INFO_CHROMA_SITE(info) & ~(GST_VIDEO_CHROMA_SITE_H_COSITED | GST_VIDEO_CHROMA_SITE_V_COSITED)) == 0) {
-        if (GST_VIDEO_INFO_CHROMA_SITE(info) & GST_VIDEO_CHROMA_SITE_V_COSITED) {
-            return EGL_YUV_CHROMA_SITING_0_EXT;
-        } else {
-            return EGL_YUV_CHROMA_SITING_0_5_EXT;
-        }
-    }
+    GstVideoChromaSite chroma_site = GST_VIDEO_INFO_CHROMA_SITE(info);
 
-    return EGL_NONE;
+    if (chroma_site == GST_VIDEO_CHROMA_SITE_V_COSITED || chroma_site == GST_VIDEO_CHROMA_SITE_COSITED) {
+        return EGL_YUV_CHROMA_SITING_0_EXT;
+    } else if (chroma_site == GST_VIDEO_CHROMA_SITE_H_COSITED || chroma_site == GST_VIDEO_CHROMA_SITE_NONE) {
+        return EGL_YUV_CHROMA_SITING_0_5_EXT;
+    } else {
+        return EGL_NONE;
+    }
 }
 
 struct video_frame *frame_new(
@@ -940,7 +942,7 @@ struct video_frame *frame_new(
 
     // add plane 2 (if present)
     if (n_planes >= 2) {
-        PUT_ATTR(EGL_DMA_BUF_PLANE1_FD_EXT, planes[0].fd);
+        PUT_ATTR(EGL_DMA_BUF_PLANE1_FD_EXT, planes[1].fd);
         PUT_ATTR(EGL_DMA_BUF_PLANE1_OFFSET_EXT, planes[1].offset);
         PUT_ATTR(EGL_DMA_BUF_PLANE1_PITCH_EXT, planes[1].pitch);
         if (planes[1].has_modifier) {
@@ -956,7 +958,7 @@ struct video_frame *frame_new(
 
     // add plane 3 (if present)
     if (n_planes >= 3) {
-        PUT_ATTR(EGL_DMA_BUF_PLANE2_FD_EXT, planes[0].fd);
+        PUT_ATTR(EGL_DMA_BUF_PLANE2_FD_EXT, planes[2].fd);
         PUT_ATTR(EGL_DMA_BUF_PLANE2_OFFSET_EXT, planes[2].offset);
         PUT_ATTR(EGL_DMA_BUF_PLANE2_PITCH_EXT, planes[2].pitch);
         if (planes[2].has_modifier) {
