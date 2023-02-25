@@ -10,7 +10,7 @@ static struct {
     char label[256];
     uint32_t primary_color;  // ARGB8888 (blue is the lowest byte)
     char isolate_id[32];
-} services = {0};
+} services;
 
 
 static int on_receive_navigation(char *channel, struct platch_obj *object, FlutterPlatformMessageResponseHandle *responsehandle) {
