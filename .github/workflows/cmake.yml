@@ -21,13 +21,17 @@ jobs:
     # See: https://docs.github.com/en/free-pro-team@latest/actions/learn-github-actions/managing-complex-workflows#using-a-build-matrix
     runs-on: [linux, bullseye]
 
+    strategy:
+      matrix:
+        compiler: [gcc, clang]
+
     steps:
       - name: Install dependencies
         run: |
           sudo apt-get install -y \
             git cmake libgl1-mesa-dev libgles2-mesa-dev libegl1-mesa-dev libdrm-dev libgbm-dev \
             ttf-mscorefonts-installer fontconfig libsystemd-dev libinput-dev libudev-dev \
-            libxkbcommon-dev ninja-build libgstreamer-plugins-base1.0-dev
+            libxkbcommon-dev ninja-build libgstreamer-plugins-base1.0-dev clang
             
       - uses: actions/checkout@v3
         with:
@@ -44,6 +48,7 @@ jobs:
             -DBUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN=On \
             -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} \
             -DENABLE_TESTS=On \
+            -DCMAKE_C_COMPILER=${{ matrix.compiler }} \
             -GNinja
 
       - name: Build
@@ -66,13 +71,16 @@ jobs:
     defaults:
       run:
         shell: bash
+    strategy:
+      matrix:
+        compiler: [gcc, clang]
     steps:
       - name: Install dependencies
         run: |
           apt-get update && apt-get install -y \
             git cmake libgl1-mesa-dev libgles2-mesa-dev libegl1-mesa-dev libdrm-dev libgbm-dev \
             fonts-liberation fontconfig libsystemd-dev libinput-dev libudev-dev \
-            libxkbcommon-dev ninja-build libgstreamer-plugins-base1.0-dev
+            libxkbcommon-dev ninja-build libgstreamer-plugins-base1.0-dev clang
 
       - uses: actions/checkout@v3
         with:
@@ -89,6 +97,7 @@ jobs:
             -DBUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN=On \
             -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} \
             -DENABLE_TESTS=On \
+            -DCMAKE_C_COMPILER=${{ matrix.compiler }} \
             -GNinja
 
       - name: Build
