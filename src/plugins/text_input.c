@@ -58,7 +58,7 @@ static inline uint8_t *symbol_at(unsigned int symbol_index) {
     return symbol_index? NULL : cursor;
 }
 
-static inline int to_byte_index(unsigned int symbol_index) {
+MAYBE_UNUSED static inline int to_byte_index(unsigned int symbol_index) {
     char *cursor = text_input.text;
 
     while ((*cursor) && (symbol_index--))

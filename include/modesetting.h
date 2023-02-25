@@ -182,7 +182,7 @@ typedef struct {
     };
 } drm_plane_transform_t;
 
-#define PLANE_TRANSFORM_NONE ((const drm_plane_transform_t){ .u32 = 0 })
+#define PLANE_TRANSFORM_NONE ((const drm_plane_transform_t){ .u64 = 0 })
 #define PLANE_TRANSFORM_ROTATE_0 ((const drm_plane_transform_t){ .u32 = DRM_MODE_ROTATE_0 })
 #define PLANE_TRANSFORM_ROTATE_90 ((const drm_plane_transform_t){ .u32 = DRM_MODE_ROTATE_90 })
 #define PLANE_TRANSFORM_ROTATE_180 ((const drm_plane_transform_t){ .u32 = DRM_MODE_ROTATE_180 })
