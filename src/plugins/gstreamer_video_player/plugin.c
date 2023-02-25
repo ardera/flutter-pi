@@ -381,10 +381,8 @@ static int on_receive_evch(
         meta->has_listener = true;
 
         meta->video_info_listener = notifier_listen(gstplayer_get_video_info_notifier(player), on_video_info_notify, NULL, meta);
-        if (meta->video_info_listener == NULL) {
-            LOG_ERROR("Couldn't listen for video info events in gstplayer.\n");
-        }
-
+        // We don't care if it's NULL, it could also be on_video_info_notify was called synchronously. (And returned kUnlisten)
+        
         meta->buffering_state_listener = notifier_listen(gstplayer_get_buffering_state_notifier(player), on_buffering_state_notify, NULL, meta);
         if (meta->buffering_state_listener == NULL) {
             LOG_ERROR("Couldn't listen for buffering events in gstplayer.\n");

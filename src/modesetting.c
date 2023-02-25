@@ -208,6 +208,7 @@ static int fetch_connector(int drm_fd, uint32_t connector_id, struct drm_connect
     if (connector->modes != NULL) {
         modes = memdup(connector->modes, connector->count_modes * sizeof(*connector->modes));
         if (modes == NULL) {
+            ok = ENOMEM;
             goto fail_free_props;
         }
     } else {
