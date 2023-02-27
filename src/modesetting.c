@@ -916,9 +916,7 @@ static int set_drm_client_caps(int fd, bool *supports_atomic_modesetting) {
 struct drmdev *drmdev_new_from_fd(int fd, const struct drmdev_interface *interface, void *userdata) {
     struct gbm_device *gbm_device;
     struct drmdev *drmdev;
-    drmDevicePtr device;
     bool supports_atomic_modesetting;
-    void *master_fd_metadata;
     int ok, master_fd, event_fd;
 
     assert_rotations_work();
@@ -928,31 +926,7 @@ struct drmdev *drmdev_new_from_fd(int fd, const struct drmdev_interface *interfa
         return NULL;
     }
 
-    if (is_drm_master(fd)) {
-        ok = drmDropMaster(fd);
-        if (ok < 0) {
-            LOG_ERROR("Couldn't drop DRM master. drmDropMaster: %s\n", strerror(errno));
-        }
-    }
-
-    ok = drmGetDevice(fd, &device);
-    if (ok < 0) {
-        ok = errno;
-        LOG_ERROR("Couldn't query DRM device info. drmGetDevice: %s\n", strerror(ok));
-        goto fail_free_drmdev;
-    }
-
-    ok = interface->open(device->nodes[DRM_NODE_PRIMARY], O_CLOEXEC, &master_fd_metadata, userdata);
-    if (ok < 0) {
-        ok = -ok;
-        LOG_ERROR("Couldn't open DRM device.\n");
-        master_fd = -1;
-        master_fd_metadata = NULL;
-    }
-
-    master_fd = ok;
-
-    drmFreeDevice(&device);
+    master_fd = fd;
 
     ok = set_drm_client_caps(fd, &supports_atomic_modesetting);
     if (ok != 0) {
@@ -1033,7 +1007,6 @@ struct drmdev *drmdev_new_from_fd(int fd, const struct drmdev_interface *interfa
     drmdev->event_fd = event_fd;
     memset(drmdev->per_crtc_state, 0, sizeof(drmdev->per_crtc_state));
     drmdev->master_fd = master_fd;
-    drmdev->master_fd_metadata = master_fd_metadata;
     drmdev->interface = *interface;
     drmdev->userdata = userdata;
     return drmdev;
@@ -1063,7 +1036,7 @@ fail_free_resources:
     drmModeFreeResources(drmdev->res);
 
 fail_close_master_fd:
-    interface->close(master_fd, master_fd_metadata, userdata);
+    interface->close(master_fd, NULL, userdata);
 
 fail_free_drmdev:
     free(drmdev);
