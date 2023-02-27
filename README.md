@@ -5,9 +5,9 @@
   - Engine binaries no longer need to be installed on the target system.
   - See updated [Building flutter-pi on the Raspberry Pi](#-building-flutter-pi-on-the-raspberry-pi) and [Building the App](#building-the-app-new-method-linux-only) sections below.
 - Added a section for useful dart packages, See [Useful Dart Packages](#-useful-dart-packages)
-- There's now a new video player based on gstreamer. See [gstreamer video player](#gstreamer-video-player) section.
 - The new latest flutter gallery commit for flutter 3.10 is `d77920b4ced4a105ad35659fbe3958800d418fb9`
-- The gstreamer video player dependencies have been updated. If the playback fails to initialize, see the [gstreamer video player](#gstreamer-video-player) section.
+- The [gstreamer video player](#gstreamer-video-player) now supports creating players from a raw gstreamer pipeline.
+- The deprecated `omxplayer`-based video player has been removed.
 
 # flutter-pi
 A light-weight Flutter Engine Embedder for Raspberry Pi. Inspired by https://github.com/chinmaygarde/flutter_from_scratch.
@@ -408,7 +408,7 @@ of the flutter app you're trying to run.
 `[flutter engine options...]` will be passed as commandline arguments to the flutter engine. You can find a list of commandline options for the flutter engine [Here](https://github.com/flutter/engine/blob/master/shell/common/switches.h).
 
 ### gstreamer video player
-Gstreamer video player is a newer video player based on gstreamer. The older video player (omxplayer_video_player) was based on deprecated omxplayer and it was kind of a hack. So I recommend using the gstreamer one instead. 
+Gstreamer video player is a newer video player based on gstreamer.
 
 To use the gstreamer video player, just rebuild flutter-pi (delete your build folder and reconfigure) and make sure the necessary gstreamer packages are installed. (See [dependencies](#dependencies))
 
