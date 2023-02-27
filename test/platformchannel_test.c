@@ -869,15 +869,344 @@ void test_raw_std_value_get_size() {
 }
 
 void test_raw_std_value_after() {
+    // null
+    {
+        alignas(16) uint8_t buffer[] = {
+            kStdNull,
+            0,
+        };
+
+        TEST_ASSERT_EQUAL_PTR(buffer + 1, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
+    }
+
+    // true
+    {
+        alignas(16) uint8_t buffer[] = {
+            kStdTrue,
+            0,
+        };
+
+        TEST_ASSERT_EQUAL_PTR(buffer + 1, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
+    }
+
+    // true
+    {
+        alignas(16) uint8_t buffer[] = {
+            kStdFalse,
+            0,
+        };
+
+        TEST_ASSERT_EQUAL_PTR(buffer + 1, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
+    }
     
+    // int32
+    {
+        alignas(16) uint8_t buffer[] = {
+            kStdInt32,
+            1, 2, 3, 4,
+        };
+
+        TEST_ASSERT_EQUAL_PTR(buffer + 5, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
+    }
+
+    // int64
+    {
+        alignas(16) uint8_t buffer[] = {
+            kStdInt64,
+            1, 2, 3, 4, 5, 6, 7, 8
+        };
+
+        TEST_ASSERT_EQUAL_PTR(buffer + 9, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
+    }
+
+    // float64
+    {
+        alignas(16) uint8_t buffer[] = {
+            // type byte
+            kStdFloat64,
+            // 7 alignment bytes
+            0, 0, 0, 0, 0, 0, 0,
+            // bytes for 1 float64
+            0, 0, 0, 0, 0, 0, 0, 0,
+        };
+
+        TEST_ASSERT_EQUAL_PTR(buffer + 1 + 7 + 8, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
+    }
+
+    // string
+    {
+        const char *str = "The quick brown fox jumps over the lazy dog.";
+
+        alignas(16) uint8_t buffer[1 + 1 + 4] = {
+            kStdString,
+            strlen(str),
+            0
+        };
+
+        // only string lengths less or equal 253 are actually encoded as one byte in
+        // the standard message codec encoding.
+        TEST_ASSERT_LESS_OR_EQUAL_size_t(253, strlen(str));
+
+        TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + strlen(str), raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
+        
+        buffer[1] = 0;
+        TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
+
+        buffer[1] = 254;
+        buffer[2] = 254;
+        buffer[3] = 0;
+        TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 2 + 254, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
+
+        buffer[1] = 255;
+        buffer[2] = 0;
+        buffer[3] = 0;
+        buffer[4] = 1;
+        buffer[5] = 0;
+        TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 4 + 0x00010000, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
+    }
+
+    // uint8array
+    {
+        alignas(16) uint8_t buffer[1 + 1 + 4 + 0x00010000] = {
+            kStdUInt8Array,
+            4,
+            1, 2, 3, 4
+        };
+        
+        TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 4, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
+
+        buffer[1] = 0;
+        TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
+
+        buffer[1] = 254;
+        buffer[2] = 254;
+        buffer[3] = 0;
+        TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 2 + 254, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
+
+        buffer[1] = 255;
+        buffer[2] = 0;
+        buffer[3] = 0;
+        buffer[4] = 1;
+        buffer[5] = 0;
+        TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 4 + 0x00010000, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
+    }
+
+    // int32array
+    {
+        alignas(16) uint8_t buffer[1 + 1 + 4 + 2 + 0x010000*4] = {
+            // type
+            kStdInt32Array,
+            // size
+            2,
+            // 2 alignment bytes
+            0, 0,
+            // space for 2 int32_t's
+            0, 0, 0, 0,
+            0, 0, 0, 0
+        };
+
+        TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 2 + 8, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
+
+        buffer[1] = 0;
+        TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 2, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
+
+        buffer[1] = 254;
+        buffer[2] = 254;
+        buffer[3] = 0;
+        TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 2 + 254*4, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
+
+        buffer[1] = 255;
+        buffer[2] = 0;
+        buffer[3] = 0;
+        buffer[4] = 1;
+        buffer[5] = 0;
+        TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 4 + 2 + 0x010000*4, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
+    }
+
+    // int64array
+    {
+        alignas(16) uint8_t buffer[1 + 1 + 4 + 2 + 0x010000*8] = {
+            // type
+            kStdInt64Array,
+            // size
+            2,
+            // 6 alignment bytes
+            0, 0, 0, 0, 0, 0,
+            // space for 2 int64_t's
+            0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0,
+        };
+
+        TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 6 + 2*8, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
+
+        buffer[1] = 0;
+        TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 6, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
+
+        buffer[1] = 254;
+        buffer[2] = 254;
+        buffer[3] = 0;
+        TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 4 + 2 + 254*8, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
+
+        buffer[1] = 255;
+        buffer[2] = 0;
+        buffer[3] = 0;
+        buffer[4] = 1;
+        buffer[5] = 0;
+        TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 4 + 2 + 0x010000*8, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
+    }
+
+    // float64array
+    {
+        alignas(16) uint8_t buffer[1 + 1 + 4 + 2 + 0x010000*8] = {
+            // type
+            kStdFloat64Array,
+            // size
+            2,
+            // 6 alignment bytes
+            0, 0, 0, 0, 0, 0,
+            // space for 2 doubles
+            0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0,
+        };
+
+        TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 6 + 2*8, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
+
+        buffer[1] = 0;
+        TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 6, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
+
+        buffer[1] = 254;
+        buffer[2] = 254;
+        buffer[3] = 0;
+        TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 4 + 2 + 254*8, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
+
+        buffer[1] = 255;
+        buffer[2] = 0;
+        buffer[3] = 0;
+        buffer[4] = 1;
+        buffer[5] = 0;
+        TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 4 + 2 + 0x010000*8, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
+    }
+
+    // list
+    {
+        const char *str = "The quick brown fox jumps over the lazy dog.";
+
+        alignas(16) uint8_t buffer[1 + 1 + 4 + 1 + 1 + 4 + strlen(str) + 1];
+        buffer[0] = kStdList;
+        buffer[1] = 2;
+        buffer[2] = kStdString;
+        buffer[3] = strlen(str);
+        buffer[4 + strlen(str)] = kStdTrue;
+
+        // only string lengths less or equal 253 are actually encoded as one byte in
+        // the standard message codec encoding.
+        TEST_ASSERT_LESS_OR_EQUAL_size_t(253, strlen(str));
+
+        TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 1 + 1 + strlen(str) + 1, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
+        
+        buffer[1] = 0;
+        TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
+
+        buffer[1] = 1;
+        TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 1 + 1 + strlen(str), raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
+    }
+
+    // map
+    {
+        const char *str = "The quick brown fox jumps over the lazy dog.";
+
+        alignas(16) uint8_t buffer[] = {
+            [0] = kStdMap,
+            [1] = 2,
+            [2] = kStdNull,
+            [3] = kStdInt64,
+            [4] = 0, 0, 0, 0, 0, 0, 0, 0,
+            [12] = kStdFloat32Array,
+            [13] = 2,
+            [16] = 0, 0, 0, 0, 0, 0, 0, 0,
+            [24] = kStdTrue,
+        };
+
+        TEST_ASSERT_EQUAL_PTR(buffer + 25, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
+
+        buffer[1] = 0;
+        TEST_ASSERT_EQUAL_PTR(buffer + 2, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
+
+        buffer[1] = 1;
+        TEST_ASSERT_EQUAL_PTR(buffer + 12, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
+    }
+
+    // float32array
+    {
+        alignas(16) uint8_t buffer[1 + 1 + 4 + 2 + 0x040000] = {
+            // type
+            kStdFloat32Array,
+            // size
+            2,
+            // 2 alignment bytes
+            0, 0,
+            // space for 2 int32_t's
+            0, 0, 0, 0,
+            0, 0, 0, 0
+        };
+
+        TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 2 + 8, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
+
+        buffer[1] = 0;
+        TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 2, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
+
+        buffer[1] = 254;
+        buffer[2] = 254;
+        buffer[3] = 0;
+        TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 2 + 254*4, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
+
+        buffer[1] = 255;
+        buffer[2] = 0;
+        buffer[3] = 0;
+        buffer[4] = 1;
+        buffer[5] = 0;
+        TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 4 + 2 + 0x010000*4, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
+    }
 }
 
 void test_raw_std_list_get_first_element() {
+    // list
+    const char *str = "The quick brown fox jumps over the lazy dog.";
 
+    alignas(16) uint8_t buffer[1 + 1 + 4 + 1 + 1 + 4 + strlen(str) + 1];
+    buffer[0] = kStdList;
+    buffer[1] = 2;
+    buffer[2] = kStdString;
+    buffer[3] = strlen(str);
+    buffer[4 + strlen(str)] = kStdTrue;
+
+    // only string lengths less or equal 253 are actually encoded as one byte in
+    // the standard message codec encoding.
+    TEST_ASSERT_LESS_OR_EQUAL_size_t(253, strlen(str));
+
+    TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1, raw_std_list_get_first_element(AS_RAW_STD_VALUE(buffer)));
+    
+    TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 1 + 1 + strlen(str), raw_std_value_after(raw_std_list_get_first_element(AS_RAW_STD_VALUE(buffer))));
 }
 
 void test_raw_std_list_get_nth_element() {
+    // list
+    const char *str = "The quick brown fox jumps over the lazy dog.";
 
+    alignas(16) uint8_t buffer[1 + 1 + 4 + 1 + 1 + 4 + strlen(str) + 1];
+    buffer[0] = kStdList;
+    buffer[1] = 2;
+    buffer[2] = kStdString;
+    buffer[3] = strlen(str);
+    buffer[4 + strlen(str)] = kStdTrue;
+
+    // only string lengths less or equal 253 are actually encoded as one byte in
+    // the standard message codec encoding.
+    TEST_ASSERT_LESS_OR_EQUAL_size_t(253, strlen(str));
+
+    TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1, raw_std_list_get_nth_element(AS_RAW_STD_VALUE(buffer), 0));
+    
+    TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 1 + 1 + strlen(str), raw_std_value_after(raw_std_list_get_first_element(AS_RAW_STD_VALUE(buffer))));
 }
 
 void test_raw_std_map_get_first_key() {
