@@ -1778,10 +1778,10 @@ ATTR_CONST static const void *get_array_value_ptr(const struct raw_std_value *va
 
 	// skip initial size byte
 	addr++;
-	if (size == 254) {
+	if (size >= 254 && size < 0x00010000) {
 		// skip two additional size bytes
 		addr += 2;
-	} else if (size == 255) {
+	} else if (size >= 0x00010000) {
 		// skip four additional size bytes
 		addr += 4;
 	}
@@ -2150,17 +2150,17 @@ ATTR_PURE size_t raw_std_value_get_size(const struct raw_std_value *value) {
     } else if (size == 254) {
 		size = 0;
 		memcpy(&size, byteptr + 1, 2);
+		DEBUG_ASSERT(size >= 254);
 		return size;
 	} else if (size == 255) {
 		size = 0;
 		memcpy(&size, byteptr + 1, 4);
+		DEBUG_ASSERT(size >= 0x10000);
 		return size;
 	}
 
 	UNREACHABLE();
 }
-
-
 
 ATTR_PURE const struct raw_std_value *raw_std_value_after(const struct raw_std_value *value) {
 	size_t size;
@@ -2180,7 +2180,7 @@ ATTR_PURE const struct raw_std_value *raw_std_value_after(const struct raw_std_v
 		case kStdString:
 			return get_array_after_ptr(value, 0, raw_std_value_get_size(value), 1);
 		case kStdFloat64:
-			return get_array_after_ptr(value, 8, raw_std_value_get_size(value), 8);
+			return get_after_ptr(value, 8, 8);
 		case kStdUInt8Array:
 			return get_array_after_ptr(value, 0, raw_std_value_get_size(value), 1);
 		case kStdInt32Array:
@@ -2287,8 +2287,23 @@ ATTR_PURE static bool check_size(const struct raw_std_value *value, size_t buffe
 		if (buffer_size < 2) {
 			return false;
 		}
+		
+		// Calculation in @ref get_array_value_ptr assumes an array size 254 <= s < 0x10000 uses 3 size bytes
+		// If we allow a size smaller than 254 here, it would break that calculation. 
+		size = 0;
+		memcpy(&size, byteptr + 1, 2);
+		if (size < 254) {
+			return false;
+		}
 	} else if (size == 255) {
 		if (buffer_size < 4) {
+			return false;
+		}
+		
+		// See above.
+		size = 0;
+		memcpy(&size, byteptr + 1, 4);
+		if (size < 0x10000) {
 			return false;
 		}
 	}

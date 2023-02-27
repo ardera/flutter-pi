@@ -1,5 +1,6 @@
 ## 📰 NEWS
-- There's now a new video player based on gstreamer. See [gstreamer video player](#gstreamer-video-player) section.
+- The [gstreamer video player](#gstreamer-video-player) now supports creating players from a raw gstreamer pipeline.
+- The deprecated `omxplayer`-based video player has been removed.
 - The new latest flutter gallery commit for flutter 3.7 is `9776b9fd916635e10a32bd426fcd7a20c3841faf`
 
 # flutter-pi
@@ -342,7 +343,7 @@ of the flutter app you're trying to run.
 `[flutter engine options...]` will be passed as commandline arguments to the flutter engine. You can find a list of commandline options for the flutter engine [Here](https://github.com/flutter/engine/blob/master/shell/common/switches.h).
 
 ### gstreamer video player
-Gstreamer video player is a newer video player based on gstreamer. The older video player (omxplayer_video_player) was based on deprecated omxplayer and it was kind of a hack. So I recommend using the gstreamer one instead. 
+Gstreamer video player is a newer video player based on gstreamer.
 
 To use the gstreamer video player, just rebuild flutter-pi (delete your build folder and reconfigure) and make sure the necessary gstreamer packages are installed. (See [dependencies](#dependencies))
 
