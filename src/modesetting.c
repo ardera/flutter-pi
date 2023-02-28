@@ -1762,9 +1762,12 @@ struct kms_req_builder *drmdev_create_request_builder(struct drmdev *drmdev, uin
     drmModeAtomicReq *req;
     struct drm_crtc *crtc;
     int64_t min_zpos;
+    bool supports_atomic_modesetting;
 
     DEBUG_ASSERT_NOT_NULL(drmdev);
     DEBUG_ASSERT(crtc_id != 0 && crtc_id != 0xFFFFFFFF);
+
+    drmdev_lock(drmdev);
 
     for_each_crtc_in_drmdev(drmdev, crtc) {
         if (crtc->id == crtc_id) {
@@ -1774,19 +1777,20 @@ struct kms_req_builder *drmdev_create_request_builder(struct drmdev *drmdev, uin
 
     if (crtc == NULL) {
         LOG_ERROR("Invalid CRTC id: %" PRId32 "\n", crtc_id);
-        return NULL;
+        goto fail_unlock;
     }
 
     builder = malloc(sizeof *builder);
     if (builder == NULL) {
-        return NULL;
+        goto fail_unlock;
     }
 
-    if (drmdev->supports_atomic_modesetting) {
+    supports_atomic_modesetting = drmdev->supports_atomic_modesetting;
+
+    if (supports_atomic_modesetting) {
         req = drmModeAtomicAlloc();
         if (req == NULL) {
-            free(builder);
-            return NULL;
+            goto fail_free_builder;
         }
     } else {
         req = NULL;
@@ -1805,20 +1809,27 @@ struct kms_req_builder *drmdev_create_request_builder(struct drmdev *drmdev, uin
         }
     }
 
+    drmdev_unlock(drmdev);
+
     builder->n_refs = REFCOUNT_INIT_1;
-    builder->drmdev = drmdev;
+    builder->drmdev = drmdev_ref(drmdev);
     // right now they're the same, but they might not be in the future.
-    builder->use_legacy = !drmdev->supports_atomic_modesetting;
-    builder->supports_atomic = drmdev->supports_atomic_modesetting;
+    builder->use_legacy = !supports_atomic_modesetting;
+    builder->supports_atomic = supports_atomic_modesetting;
     builder->crtc = crtc;
     builder->req = req;
-
-    /// TODO: Use the actual min zpos here
     builder->next_zpos = min_zpos;
     builder->n_layers = 0;
     builder->has_mode = false;
     builder->unset_mode = false;
     return builder;
+
+    fail_free_builder:
+    free(builder);
+
+    fail_unlock:
+    drmdev_unlock(drmdev);
+    return NULL;
 }
 
 void kms_req_builder_destroy(struct kms_req_builder *builder) {
@@ -1828,6 +1839,10 @@ void kms_req_builder_destroy(struct kms_req_builder *builder) {
             builder->layers[i].release_callback(builder->layers[i].release_callback_userdata);
         }
     }
+    if (builder->req != NULL) {
+        drmModeAtomicFree(builder->req);
+    }
+    drmdev_unref(builder->drmdev);
     free(builder);
 }
 
