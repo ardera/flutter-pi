@@ -1210,7 +1210,32 @@ void test_raw_std_list_get_nth_element() {
 }
 
 void test_raw_std_map_get_first_key() {
+    // map
+    alignas(16) uint8_t buffer[] = {
+        [0] = kStdMap,
+        [1] = 2,
+        [2] = kStdNull,
+        [3] = kStdInt64,
+        [4] = 0, 0, 0, 0, 0, 0, 0, 0,
+        [12] = kStdFloat32Array,
+        [13] = 2,
+        [16] = 0, 0, 0, 0, 0, 0, 0, 0,
+        [24] = kStdTrue,
+    };
 
+    TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1, raw_std_map_get_first_key(AS_RAW_STD_VALUE(buffer)));
+
+    buffer[1] = 254;
+    buffer[2] = 254;
+    buffer[3] = 0;
+    TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 2, raw_std_map_get_first_key(AS_RAW_STD_VALUE(buffer)));
+
+    buffer[1] = 255;
+    buffer[2] = 0x00;
+    buffer[3] = 0x00;
+    buffer[4] = 0x01;
+    buffer[5] = 0x00;
+    TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 4, raw_std_map_get_first_key(AS_RAW_STD_VALUE(buffer)));
 }
 
 void test_raw_std_map_find() {
