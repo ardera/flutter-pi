@@ -73,7 +73,7 @@ struct cursor_buffer {
 	int hot_x, hot_y;
 };
 
-const static int size_for_cursor_size[] = {
+static const int pixel_size_for_cursor_size[] = {
 	[k32x32_CursorSize] = 32,
 	[k48x48_CursorSize] = 48,
 	[k64x64_CursorSize] = 64,
@@ -81,7 +81,7 @@ const static int size_for_cursor_size[] = {
 	[k128x128_CursorSize] = 128
 };
 
-COMPILE_ASSERT(ARRAY_SIZE(size_for_cursor_size) == kCount_CursorSize);
+COMPILE_ASSERT(ARRAY_SIZE(pixel_size_for_cursor_size) == kCount_CursorSize);
 
 
 static enum cursor_size cursor_size_from_pixel_ratio(double device_pixel_ratio) {
@@ -89,7 +89,7 @@ static enum cursor_size cursor_size_from_pixel_ratio(double device_pixel_ratio) 
 	enum cursor_size size;
 
 	for (enum cursor_size size_iter = k32x32_CursorSize; size_iter < kCount_CursorSize; size_iter++) {
-		double cursor_dpr = (size_for_cursor_size[size_iter] * 3 * 10.0) / (25.4 * 38);
+		double cursor_dpr = (pixel_size_for_cursor_size[size_iter] * 3 * 10.0) / (25.4 * 38);
 		double cursor_screen_dpr_diff = device_pixel_ratio - cursor_dpr;
 		if ((-last_diff < cursor_screen_dpr_diff) && (cursor_screen_dpr_diff < last_diff)) {
 			size = size_iter;
@@ -123,7 +123,7 @@ static struct cursor_buffer *cursor_buffer_new(struct drmdev *drmdev, enum curso
 		return NULL;
 	}
 
-	pixel_size = size_for_cursor_size[size];
+	pixel_size = pixel_size_for_cursor_size[size];
 
 	ok = drmdev_create_dumb_buffer(
 		drmdev,
