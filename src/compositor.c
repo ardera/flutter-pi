@@ -419,6 +419,7 @@ static int rendertarget_gbm_present(
 			.rotation = PLANE_TRANSFORM_NONE,
 			.has_in_fence_fd = false,
 			.in_fence_fd = 0,
+			.prefer_cursor = false,
 		},
 		on_release_gbm_rendertarget_fb,
 		NULL,
