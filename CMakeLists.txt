@@ -176,7 +176,7 @@ target_compile_options(flutterpi_module PRIVATE
 # GCC prior to 11.3 reports false positives for missing-field-initializers warning.
 if (CMAKE_C_COMPILER_ID STREQUAL "GNU")
   if (CMAKE_C_COMPILER_VERSION VERSION_LESS "11.3")
-    target_compile_options(flutterpi_module PRIVATE -Wno-error=missing-field-initializers)
+    target_compile_options(flutterpi_module PRIVATE -Wno-missing-field-initializers)
   endif()
 endif()
 
