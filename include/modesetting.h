@@ -432,6 +432,11 @@ struct _drmModeModeInfo;
 
 int drmdev_get_fd(struct drmdev *drmdev);
 int drmdev_get_event_fd(struct drmdev *drmdev);
+bool drmdev_supports_dumb_buffers(struct drmdev *drmdev);
+int drmdev_create_dumb_buffer(struct drmdev *drmdev, int width, int height, int bpp, uint32_t *gem_handle_out, uint32_t *pitch_out, size_t *size_out);
+void drmdev_destroy_dumb_buffer(struct drmdev *drmdev, uint32_t gem_handle);
+void *drmdev_map_dumb_buffer(struct drmdev *drmdev, uint32_t gem_handle, size_t size);
+void drmdev_unmap_dumb_buffer(struct drmdev *drmdev, void *map, size_t size);
 int drmdev_on_event_fd_ready(struct drmdev *drmdev);
 const struct drm_connector *drmdev_get_selected_connector(struct drmdev *drmdev);
 const struct drm_encoder *drmdev_get_selected_encoder(struct drmdev *drmdev);
@@ -518,6 +523,8 @@ struct kms_fb_layer {
 
     bool has_in_fence_fd;
     int in_fence_fd;
+
+    bool prefer_cursor;
 };
 
 typedef void (*kms_fb_release_cb_t)(void *userdata);

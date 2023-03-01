@@ -8,7 +8,9 @@
 #include <fcntl.h>
 #include <unistd.h>
 
+#include <sys/mman.h>
 #include <sys/epoll.h>
+#include <sys/ioctl.h>
 #include <xf86drm.h>
 #include <xf86drmMode.h>
 
@@ -61,6 +63,7 @@ struct drmdev {
     refcount_t n_refs;
     pthread_mutex_t mutex;
     bool supports_atomic_modesetting;
+    bool supports_dumb_buffers;
 
     size_t n_connectors;
     struct drm_connector *connectors;
@@ -916,7 +919,9 @@ static int set_drm_client_caps(int fd, bool *supports_atomic_modesetting) {
 struct drmdev *drmdev_new_from_fd(int fd, const struct drmdev_interface *interface, void *userdata) {
     struct gbm_device *gbm_device;
     struct drmdev *drmdev;
+    uint64_t cap;
     bool supports_atomic_modesetting;
+    bool supports_dumb_buffers;
     int ok, master_fd, event_fd;
 
     assert_rotations_work();
@@ -933,15 +938,12 @@ struct drmdev *drmdev_new_from_fd(int fd, const struct drmdev_interface *interfa
         goto fail_close_master_fd;
     }
 
-    if (master_fd > 0) {
-        bool master_fd_supports_atomic_modesetting;
-
-        ok = set_drm_client_caps(master_fd, &master_fd_supports_atomic_modesetting);
-        if (ok != 0) {
-            goto fail_close_master_fd;
-        }
-
-        DEBUG_ASSERT_EQUALS(supports_atomic_modesetting, master_fd_supports_atomic_modesetting);
+    cap = 0;
+    ok = drmGetCap(fd, DRM_CAP_DUMB_BUFFER, &cap);
+    if (ok < 0) {
+        supports_dumb_buffers = false;
+    } else {
+        supports_dumb_buffers = !!cap;
     }
 
     drmdev->res = drmModeGetResources(fd);
@@ -1003,6 +1005,7 @@ struct drmdev *drmdev_new_from_fd(int fd, const struct drmdev_interface *interfa
     drmdev->n_refs = REFCOUNT_INIT_1;
     drmdev->fd = fd;
     drmdev->supports_atomic_modesetting = supports_atomic_modesetting;
+    drmdev->supports_dumb_buffers = supports_dumb_buffers;
     drmdev->gbm_device = gbm_device;
     drmdev->event_fd = event_fd;
     memset(drmdev->per_crtc_state, 0, sizeof(drmdev->per_crtc_state));
@@ -1090,6 +1093,93 @@ int drmdev_get_fd(struct drmdev *drmdev) {
 int drmdev_get_event_fd(struct drmdev *drmdev) {
     DEBUG_ASSERT_NOT_NULL(drmdev);
     return drmdev->master_fd;
+}
+
+bool drmdev_supports_dumb_buffers(struct drmdev *drmdev) {
+    return drmdev->supports_dumb_buffers;
+}
+
+int drmdev_create_dumb_buffer(struct drmdev *drmdev, int width, int height, int bpp, uint32_t *gem_handle_out, uint32_t *pitch_out, size_t *size_out) {
+    struct drm_mode_create_dumb create_req;
+    int ok;
+
+    DEBUG_ASSERT_NOT_NULL(drmdev);
+    DEBUG_ASSERT_NOT_NULL(gem_handle_out);
+    DEBUG_ASSERT_NOT_NULL(pitch_out);
+    DEBUG_ASSERT_NOT_NULL(size_out);
+    
+    memset(&create_req, 0, sizeof create_req);
+    create_req.width = width;
+	create_req.height = height;
+	create_req.bpp = bpp;
+	create_req.flags = 0;
+
+    ok = ioctl(drmdev->fd, DRM_IOCTL_MODE_CREATE_DUMB, &create_req);
+	if (ok < 0) {
+		ok = errno;
+		LOG_ERROR("Could not create dumb buffer. ioctl: %s\n", strerror(errno));
+		goto fail_return_ok;
+	}
+
+    *gem_handle_out = create_req.handle;
+    *pitch_out = create_req.pitch;
+    *size_out = create_req.size;
+    return 0;
+
+    fail_return_ok:
+    return ok;
+}
+
+void drmdev_destroy_dumb_buffer(struct drmdev *drmdev, uint32_t gem_handle) {
+    struct drm_mode_destroy_dumb destroy_req;
+    int ok;
+
+    DEBUG_ASSERT_NOT_NULL(drmdev);
+
+	memset(&destroy_req, 0, sizeof destroy_req);
+	destroy_req.handle = gem_handle;
+
+	ok = ioctl(drmdev->fd, DRM_IOCTL_MODE_DESTROY_DUMB, &destroy_req);
+    if (ok < 0) {
+		LOG_ERROR("Could not destroy dumb buffer. ioctl: %s\n", strerror(errno));
+	}
+}
+
+void *drmdev_map_dumb_buffer(struct drmdev *drmdev, uint32_t gem_handle, size_t size) {
+    struct drm_mode_map_dumb map_req;
+    void *map;
+    int ok;
+
+    DEBUG_ASSERT_NOT_NULL(drmdev);
+
+    memset(&map_req, 0, sizeof map_req);
+	map_req.handle = gem_handle;
+
+	ok = ioctl(drmdev->fd, DRM_IOCTL_MODE_MAP_DUMB, &map_req);
+	if (ok < 0) {
+		LOG_ERROR("Could not prepare dumb buffer mmap. ioctl: %s\n", strerror(errno));
+		return NULL;
+	}
+
+	map = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, drmdev->fd, map_req.offset);
+	if (map == MAP_FAILED) {
+		LOG_ERROR("Could not mmap dumb buffer. mmap: %s\n", strerror(errno));
+        return NULL;
+	}
+
+    return map;
+}
+
+void drmdev_unmap_dumb_buffer(struct drmdev *drmdev, void *map, size_t size) {
+    int ok;
+
+    DEBUG_ASSERT_NOT_NULL(drmdev);
+    DEBUG_ASSERT_NOT_NULL(map);
+
+    ok = munmap(map, size);
+    if (ok < 0) {
+        LOG_ERROR("Couldn't unmap dumb buffer. munmap: %s\n", strerror(ok));
+    }
 }
 
 static void drmdev_on_page_flip_locked(
@@ -1931,8 +2021,27 @@ int kms_req_builder_push_fb_layer(
     // Index of our layer.
     index = builder->n_layers;
 
+    // If we should prefer a cursor plane, try to find one first.
+    plane = NULL;
+    if (layer->prefer_cursor) {
+        plane = allocate_plane(
+            builder,
+            /* allow_primary */ false,
+            /* allow_overlay */ false,
+            /* allow_cursor  */ true,
+            /* format */ layer->format,
+            /* modifier */ layer->has_modifier, layer->modifier,
+            /* zpos */ false, 0, 0,
+            /* rotation */ layer->has_rotation, layer->rotation,
+            /* id_range */ false, 0
+        );
+        if (plane == NULL) {
+            LOG_DEBUG("Couldn't find a fitting cursor plane.\n");
+        }
+    }
+
     /// TODO: Not sure we can use crtc_x, crtc_y, etc with primary planes
-    if (index == 0) {
+    if (plane == NULL && index == 0) {
         // if this is the first layer, try using a
         // primary plane for it.
 
@@ -1942,16 +2051,11 @@ int kms_req_builder_push_fb_layer(
             /* allow_primary */ true,
             /* allow_overlay */ false,
             /* allow_cursor */ false,
-            layer->format,
-            layer->has_modifier,
-            layer->modifier,
-            false,
-            0,
-            0,
-            layer->has_rotation,
-            layer->rotation,
-            false,
-            0
+            /* format */ layer->format,
+            /* modifier */ layer->has_modifier, layer->modifier,
+            /* zpos */ false, 0, 0,
+            /* rotation */ layer->has_rotation, layer->rotation,
+            /* id_range */ false, 0
         );
 
         if (plane == NULL && !get_pixfmt_info(layer->format)->is_opaque) {
@@ -1961,35 +2065,25 @@ int kms_req_builder_push_fb_layer(
                 /* allow_primary */ true,
                 /* allow_overlay */ false,
                 /* allow_cursor */ false,
-                pixfmt_opaque(layer->format),
-                layer->has_modifier,
-                layer->modifier,
-                false,
-                0,
-                0,
-                layer->has_rotation,
-                layer->rotation,
-                false,
-                0
+                /* format */ pixfmt_opaque(layer->format),
+                /* modifier */ layer->has_modifier, layer->modifier,
+                /* zpos */ false, 0, 0,
+                /* rotation */ layer->has_rotation, layer->rotation,
+                /* id_range */ false, 0
             );
         }
-    } else {
+    } else if (plane == NULL) {
         // First try to find an overlay plane with a higher zpos.
         plane = allocate_plane(
             builder,
             /* allow_primary */ false,
             /* allow_overlay */ true,
             /* allow_cursor */ false,
-            layer->format,
-            layer->has_modifier,
-            layer->modifier,
-            true,
-            builder->next_zpos,
-            INT64_MAX,
-            layer->has_rotation,
-            layer->rotation,
-            false,
-            0
+            /* format */ layer->format,
+            /* modifier */ layer->has_modifier, layer->modifier,
+            /* zpos */ true, builder->next_zpos, INT64_MAX,
+            /* rotation */ layer->has_rotation, layer->rotation,
+            /* id_range */ false, 0
         );
 
         // If we can't find one, find an overlay plane with the next highest plane_id.
@@ -2002,16 +2096,11 @@ int kms_req_builder_push_fb_layer(
                 /* allow_primary */ false,
                 /* allow_overlay */ true,
                 /* allow_cursor */ false,
-                layer->format,
-                layer->has_modifier,
-                layer->modifier,
-                false,
-                0,
-                0,
-                layer->has_rotation,
-                layer->rotation,
-                true,
-                builder->layers[index - 1].plane_id + 1
+                /* format */ layer->format,
+                /* modifier */ layer->has_modifier, layer->modifier,
+                /* zpos */ false, 0, 0,
+                /* rotation */ layer->has_rotation, layer->rotation,
+                /* id_range */ true, builder->layers[index - 1].plane_id + 1
             );
         }
     }
