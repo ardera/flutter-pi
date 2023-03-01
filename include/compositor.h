@@ -26,6 +26,8 @@ struct platform_view_params {
     double opacity;
 };
 
+struct cursor_buffer;
+
 struct compositor {
     struct drmdev *drmdev;
 
@@ -69,24 +71,9 @@ struct compositor {
      * @brief Whether the mouse cursor is currently enabled and visible.
      */
 
-    struct {
-        bool is_enabled;
-        int cursor_size;
-        const struct cursor_icon *current_cursor;
-        int current_rotation;
-        int hot_x, hot_y;
-        int x, y;
+    struct cursor_buffer *cursor;
 
-        bool has_buffer;
-        int buffer_depth;
-        int buffer_pitch;
-        int buffer_width;
-        int buffer_height;
-        int buffer_size;
-        uint32_t drm_fb_id;
-        uint32_t gem_bo_handle;
-        uint32_t *buffer;
-    } cursor;
+    int cursor_x, cursor_y;
 
     /**
      * If true, @ref on_present_layers will commit blockingly.

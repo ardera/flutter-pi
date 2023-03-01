@@ -1,3 +1,4 @@
+#include <collection.h>
 #include <cursor.h>
 
 const unsigned char cursor_32x32_data[32*32*4 + 1] = 
@@ -3945,4 +3946,8 @@ const struct cursor_icon cursors[5] = {
   }
 };
 
-int n_cursors = sizeof(cursors) / sizeof(*cursors);
+int n_cursors = ARRAY_SIZE(cursors);
+
+// So we get an error if we change the enum cursor_size in compositor.c
+// without changing this array.
+COMPILE_ASSERT(ARRAY_SIZE(cursors) == 5);
