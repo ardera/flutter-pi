@@ -1909,6 +1909,7 @@ struct kms_req_builder *drmdev_create_request_builder(struct drmdev *drmdev, uin
     // right now they're the same, but they might not be in the future.
     builder->use_legacy = !supports_atomic_modesetting;
     builder->supports_atomic = supports_atomic_modesetting;
+    builder->connector = NULL;
     builder->crtc = crtc;
     builder->req = req;
     builder->next_zpos = min_zpos;
@@ -2343,6 +2344,11 @@ static int kms_req_commit_common(
         /// TODO: If we can do explicit fencing, don't use the page flip event.
         /// TODO: Can we set OUT_FENCE_PTR even though we didn't set any IN_FENCE_FDs?
         flags = DRM_MODE_PAGE_FLIP_EVENT | (blocking ? 0 : DRM_MODE_ATOMIC_NONBLOCK) | (update_mode ? DRM_MODE_ATOMIC_ALLOW_MODESET : 0);
+
+        if (builder->connector != NULL) {
+            // add the CRTC_ID property if that was explicitly set
+            drmModeAtomicAddProperty(builder->req, builder->connector->id, builder->connector->ids.crtc_id, builder->crtc->id);
+        }
 
         /// TODO: If we're on raspberry pi and only have one layer, we can do an async pageflip
         /// on the primary plane to replace the next queued frame. (To do _real_ triple buffering
