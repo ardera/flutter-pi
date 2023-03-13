@@ -1882,6 +1882,9 @@ struct kms_req_builder *drmdev_create_request_builder(struct drmdev *drmdev, uin
         if (req == NULL) {
             goto fail_free_builder;
         }
+
+        // set the CRTC to active
+        drmModeAtomicAddProperty(req, crtc->id, crtc->ids.active, 1);
     } else {
         req = NULL;
     }

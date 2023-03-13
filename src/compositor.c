@@ -619,7 +619,7 @@ extern void on_pageflip_event(
 	void *userdata
 );
 
-static int execute_simulate_page_flip_event(void *userdata) {
+MAYBE_UNUSED static int execute_simulate_page_flip_event(void *userdata) {
 	struct simulated_page_flip_event_data *data;
 
 	data = userdata;
@@ -976,15 +976,14 @@ static bool on_present_layers(
 			goto fail_unref_req;
 		}
 
-		struct simulated_page_flip_event_data *data = malloc(sizeof(struct simulated_page_flip_event_data));
-		if (data == NULL) {
-			goto fail_unref_req;
-		}
-
-		data->sec = vblank_ns / 1000000000llu;
-		data->usec = (vblank_ns % 1000000000llu) / 1000;
-
-		flutterpi_post_platform_task(execute_simulate_page_flip_event, data);
+		// Disabled because vsync callback is broken.
+		// struct simulated_page_flip_event_data *data = malloc(sizeof(struct simulated_page_flip_event_data));
+		// if (data == NULL) {
+		//     goto fail_unref_req;
+		// }
+		// data->sec = vblank_ns / 1000000000llu;
+		// data->usec = (vblank_ns % 1000000000llu) / 1000;
+		// flutterpi_post_platform_task(execute_simulate_page_flip_event, data);
 	}
 
 	kms_req_unref(req);
