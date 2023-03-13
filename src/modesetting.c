@@ -2350,6 +2350,14 @@ static int kms_req_commit_common(
             drmModeAtomicAddProperty(builder->req, builder->connector->id, builder->connector->ids.crtc_id, builder->crtc->id);
         }
 
+        if (update_mode) {
+            if (mode_blob != NULL) {
+                drmModeAtomicAddProperty(builder->req, builder->crtc->id, builder->crtc->ids.mode_id, mode_blob->blob_id);
+            } else {
+                drmModeAtomicAddProperty(builder->req, builder->crtc->id, builder->crtc->ids.mode_id, 0);
+            }
+        }
+
         /// TODO: If we're on raspberry pi and only have one layer, we can do an async pageflip
         /// on the primary plane to replace the next queued frame. (To do _real_ triple buffering
         /// with fully decoupled framerate, potentially)
