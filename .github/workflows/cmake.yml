@@ -12,8 +12,8 @@ env:
   BUILD_TYPE: Debug
 
 jobs:
-  pi4:
-    name: Build & Test on Raspberry Pi 4
+  build:
+    name: Build and Test on Raspberry Pi 4
     runs-on: ${{ matrix.runner }}
     strategy:
       matrix:
