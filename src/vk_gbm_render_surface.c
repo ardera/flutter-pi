@@ -291,12 +291,12 @@ static int fb_init(struct fb *fb, struct gbm_device *gbm_device, struct vk_rende
     // Just some paranoid checks that the layout matches (had some issues with that initially)
     if (gbm_bo_get_offset(bo, 0) != layout.offset) {
         LOG_ERROR("GBM BO layout doesn't match image layout. This is probably a driver / kernel bug.\n");
-        goto fail_destroy_bo;
+        goto fail_destroy_image;
     }
 
     if (gbm_bo_get_stride_for_plane(bo, 0) != layout.rowPitch) {
         LOG_ERROR("GBM BO layout doesn't match image layout. This is probably a driver / kernel bug.\n");
-        goto fail_destroy_bo;
+        goto fail_destroy_image;
     }
 
     // gbm_bo_get_fd will dup us a new dmabuf fd.
@@ -304,7 +304,7 @@ static int fb_init(struct fb *fb, struct gbm_device *gbm_device, struct vk_rende
     fd = gbm_bo_get_fd(bo);
     if (fd < 0) {
         LOG_ERROR("Couldn't get dmabuf fd for GBM buffer. gbm_bo_get_fd: %s\n", strerror(errno));
-        goto fail_destroy_bo;
+        goto fail_destroy_image;
     }
 
     // find out as which memory types we can import our dmabuf fd
