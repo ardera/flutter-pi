@@ -28,9 +28,9 @@ ATTR_PURE struct vk_gbm_render_surface *__checked_cast_vk_gbm_render_surface(voi
 #   define CAST_VK_GBM_RENDER_SURFACE(ptr) CAST_VK_GBM_RENDER_SURFACE_UNCHECKED(ptr)
 #endif
 
-ATTR_MALLOC struct vk_gbm_render_surface *vk_gbm_render_surface_new(
+struct vk_gbm_render_surface *vk_gbm_render_surface_new(
     struct tracer *tracer,
-    struct vec2f size,
+    struct vec2i size,
     struct gbm_device *device,
     struct vk_renderer *renderer,
     enum pixfmt pixel_format

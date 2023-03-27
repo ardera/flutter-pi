@@ -206,7 +206,7 @@ struct window {
     struct vec2i cursor_pos;
 
     int (*push_composition)(struct window *window, struct fl_layer_composition *composition);
-    struct render_surface *(*get_render_surface)(struct window *window, struct vec2f size);
+    struct render_surface *(*get_render_surface)(struct window *window, struct vec2i size);
     EGLSurface (*get_egl_surface)(struct window *window);
     int (*enable_cursor)(struct window *window, struct vec2i pos);
     int (*disable_cursor)(struct window *window);
@@ -456,7 +456,7 @@ EGLSurface window_get_egl_surface(struct window *window) {
     return window->get_egl_surface(window);
 }
 
-struct render_surface *window_get_render_surface(struct window *window, struct vec2f size) {
+struct render_surface *window_get_render_surface(struct window *window, struct vec2i size) {
     DEBUG_ASSERT_NOT_NULL(window);
     DEBUG_ASSERT_NOT_NULL(window->get_render_surface);
     return window->get_render_surface(window, size);
@@ -667,7 +667,7 @@ static int select_mode(
 }
 
 static int kms_window_push_composition(struct window *window, struct fl_layer_composition *composition);
-static struct render_surface *kms_window_get_render_surface(struct window *window, struct vec2f size);
+static struct render_surface *kms_window_get_render_surface(struct window *window, struct vec2i size);
 static EGLSurface kms_window_get_egl_surface(struct window *window);
 static void kms_window_deinit(struct window *window);
 
@@ -1050,7 +1050,7 @@ fail_unlock:
     return ok;
 }
 
-static struct render_surface *kms_window_get_render_surface_internal(struct window *window, bool has_size, struct vec2f size) {
+static struct render_surface *kms_window_get_render_surface_internal(struct window *window, bool has_size, struct vec2i size) {
     struct render_surface *render_surface;
 
     DEBUG_ASSERT_NOT_NULL(window);
@@ -1063,22 +1063,64 @@ static struct render_surface *kms_window_get_render_surface_internal(struct wind
         // Flutter wants a render surface, but hasn't told us the backing store dimensions yet.
         // Just make a good guess about the dimensions.
         LOG_DEBUG("Flutter requested render surface before supplying surface dimensions.\n");
-        size = VEC2F(window->kms.mode->hdisplay, window->kms.mode->vdisplay);
+        size = VEC2I(window->kms.mode->hdisplay, window->kms.mode->vdisplay);
+    }
+
+    enum pixfmt pixel_format = window->has_forced_pixel_format ? window->forced_pixel_format : kARGB8888_FpiPixelFormat;
+
+    // Possibly populate this with the supported modifiers for this pixel format.
+    // If no plane lists modifiers for this pixel format, this will be left at NULL,
+    // and egl_gbm_render_surface_new... will create the GBM surface using usage flags
+    // (GBM_USE_SCANOUT | GBM_USE_RENDER) instead.
+    uint64_t *allowed_modifiers = NULL;
+    size_t n_allowed_modifiers = 0;
+
+    // For now just set the supported modifiers for the first plane that supports this pixel format
+    // as the allowed modifiers.
+    {
+        struct drm_plane *plane;
+        for_each_plane_in_drmdev(window->kms.drmdev, plane) {
+            if (!(plane->possible_crtcs & window->kms.crtc->bitmask)) {
+                continue;
+            }
+
+
+            if (plane->type != kPrimary_DrmPlaneType && plane->type != kOverlay_DrmPlaneType) {
+                continue;
+            }
+
+            for (int i = 0; i < plane->n_supported_modified_formats; i++) {
+                if (plane->supported_modified_formats[i].format == pixel_format) {
+                    n_allowed_modifiers++;
+                }
+            }
+
+            allowed_modifiers = malloc(n_allowed_modifiers * sizeof *allowed_modifiers);
+            for (int i = 0, j = 0; i < plane->n_supported_modified_formats; i++) {
+                if (plane->supported_modified_formats[i].format == pixel_format) {
+                    allowed_modifiers[j++] = plane->supported_modified_formats[i].modifier;
+                }
+            }
+
+            break;
+        }
     }
 
     if (window->renderer_type == kOpenGL_RendererType) {
         // opengl
-        
-        struct egl_gbm_render_surface *egl_surface = egl_gbm_render_surface_new(
+        struct egl_gbm_render_surface *egl_surface = egl_gbm_render_surface_new_with_egl_config(
             window->tracer,
             size,
             gl_renderer_get_gbm_device(window->gl_renderer),
             window->gl_renderer,
-            window->has_forced_pixel_format ? window->forced_pixel_format : kARGB8888_FpiPixelFormat
+            window->has_forced_pixel_format ? window->forced_pixel_format : kARGB8888_FpiPixelFormat,
+            EGL_NO_CONFIG_KHR,
+            allowed_modifiers,
+            n_allowed_modifiers
         );
         if (egl_surface == NULL) {
             LOG_ERROR("Couldn't create EGL GBM rendering surface.\n");
-            return NULL;
+            goto fail_free_allowed_modifiers;
         }
 
         render_surface = CAST_RENDER_SURFACE(egl_surface);
@@ -1094,7 +1136,7 @@ static struct render_surface *kms_window_get_render_surface_internal(struct wind
         );
         if (vk_surface == NULL) {
             LOG_ERROR("Couldn't create Vulkan GBM rendering surface.\n");
-            return NULL;
+            goto fail_free_allowed_modifiers;
         }
 
         render_surface = CAST_RENDER_SURFACE(vk_surface);
@@ -1103,18 +1145,30 @@ static struct render_surface *kms_window_get_render_surface_internal(struct wind
 #endif
     }
 
+    if (allowed_modifiers != NULL) {
+        free(allowed_modifiers);
+    }
+
     window->render_surface = render_surface;
     return render_surface;
+
+
+    fail_free_allowed_modifiers:
+    if (allowed_modifiers != NULL) {
+        free(allowed_modifiers);
+    }
+
+    return NULL;
 }
 
-static struct render_surface *kms_window_get_render_surface(struct window *window, struct vec2f size) {
+static struct render_surface *kms_window_get_render_surface(struct window *window, struct vec2i size) {
     DEBUG_ASSERT_NOT_NULL(window);
     return kms_window_get_render_surface_internal(window, true, size);
 }
 
 static EGLSurface kms_window_get_egl_surface(struct window *window) {
     if (window->renderer_type == kOpenGL_RendererType) {
-        struct render_surface *render_surface = kms_window_get_render_surface_internal(window, false, VEC2F(0, 0));
+        struct render_surface *render_surface = kms_window_get_render_surface_internal(window, false, VEC2I(0, 0));
         return egl_gbm_render_surface_get_egl_surface(CAST_EGL_GBM_RENDER_SURFACE(render_surface));
     } else {
         return EGL_NO_SURFACE;

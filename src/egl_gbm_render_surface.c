@@ -102,14 +102,16 @@ static int egl_gbm_render_surface_present_fbdev(struct surface *s, const struct 
 static int egl_gbm_render_surface_fill(struct render_surface *s, FlutterBackingStore *fl_store);
 static int egl_gbm_render_surface_queue_present(struct render_surface *s, const FlutterBackingStore *fl_store);
 
-int egl_gbm_render_surface_init(
+static int egl_gbm_render_surface_init(
     struct egl_gbm_render_surface *s,
     struct tracer *tracer,
-    struct vec2f size,
+    struct vec2i size,
     struct gbm_device *gbm_device,
     struct gl_renderer *renderer,
     enum pixfmt pixel_format,
-    EGLConfig egl_config
+    EGLConfig egl_config,
+    const uint64_t *allowed_modifiers,
+    size_t n_allowed_modifiers
 ) {
     struct gbm_surface *gbm_surface;
     EGLDisplay egl_display;
@@ -135,19 +137,35 @@ int egl_gbm_render_surface_init(
         DEBUG_ASSERT_EQUALS_MSG(value, get_pixfmt_info(pixel_format)->gbm_format, "EGL framebuffer config pixel format doesn't match the argument pixel format.");
     }
 #endif
-    /// TODO: Think about allowing different tilings / modifiers here
-    gbm_surface = gbm_surface_create(
-        gbm_device,
-        (uint32_t) size.x, (uint32_t) size.y,
-        get_pixfmt_info(pixel_format)->gbm_format,
-        GBM_BO_USE_RENDERING | GBM_BO_USE_SCANOUT
-    );
-    if (gbm_surface == NULL) {
-        ok = errno;
-        LOG_ERROR("Couldn't create GBM surface for rendering. gbm_surface_create_with_modifiers: %s\n", strerror(ok));
-        return ok;
+
+    if (allowed_modifiers != NULL) {
+        gbm_surface = gbm_surface_create_with_modifiers(
+            gbm_device,
+            size.x, size.y,
+            get_pixfmt_info(pixel_format)->gbm_format,
+            allowed_modifiers,
+            n_allowed_modifiers
+        );
+        if (gbm_surface == NULL) {
+            ok = errno;
+            LOG_ERROR("Couldn't create GBM surface for rendering. gbm_surface_create_with_modifiers: %s\n", strerror(ok));
+            return ok;
+        }
+    } else {
+        gbm_surface = gbm_surface_create(
+            gbm_device,
+            size.x, size.y,
+            get_pixfmt_info(pixel_format)->gbm_format,
+            GBM_BO_USE_RENDERING | GBM_BO_USE_SCANOUT
+        );
+        if (gbm_surface == NULL) {
+            ok = errno;
+            LOG_ERROR("Couldn't create GBM surface for rendering. gbm_surface_create_with_modifiers: %s\n", strerror(ok));
+            return ok;
+        }
     }
 
+    /// TODO: Think about allowing different tilings / modifiers here  
     if (egl_config == EGL_NO_CONFIG_KHR) {
         // choose a config
         egl_config = gl_renderer_choose_config_direct(renderer, pixel_format);
@@ -234,13 +252,15 @@ int egl_gbm_render_surface_init(
  * @param egl_config The EGLConfig used for creating the EGLSurface.
  * @return struct egl_gbm_render_surface* 
  */
-ATTR_MALLOC struct egl_gbm_render_surface *egl_gbm_render_surface_new_with_egl_config(
+struct egl_gbm_render_surface *egl_gbm_render_surface_new_with_egl_config(
     struct tracer *tracer,
-    struct vec2f size,
+    struct vec2i size,
     struct gbm_device *device,
     struct gl_renderer *renderer,
     enum pixfmt pixel_format,
-    EGLConfig egl_config
+    EGLConfig egl_config,
+    const uint64_t *allowed_modifiers,
+    size_t n_allowed_modifiers
 ) {
     struct egl_gbm_render_surface *surface;
     int ok;
@@ -250,7 +270,7 @@ ATTR_MALLOC struct egl_gbm_render_surface *egl_gbm_render_surface_new_with_egl_c
         goto fail_return_null;
     }
 
-    ok = egl_gbm_render_surface_init(surface, tracer, size, device, renderer, pixel_format, egl_config);
+    ok = egl_gbm_render_surface_init(surface, tracer, size, device, renderer, pixel_format, egl_config, allowed_modifiers, n_allowed_modifiers);
     if (ok != 0) {
         goto fail_free_surface;
     }
@@ -275,9 +295,9 @@ ATTR_MALLOC struct egl_gbm_render_surface *egl_gbm_render_surface_new_with_egl_c
  * @param pixel_format The pixel format to be used by the framebuffers of the surface.
  * @return struct egl_gbm_render_surface*
  */
-ATTR_MALLOC struct egl_gbm_render_surface *egl_gbm_render_surface_new(
+struct egl_gbm_render_surface *egl_gbm_render_surface_new(
     struct tracer *tracer,
-    struct vec2f size,
+    struct vec2i size,
     struct gbm_device *device,
     struct gl_renderer *renderer,
     enum pixfmt pixel_format
@@ -288,7 +308,9 @@ ATTR_MALLOC struct egl_gbm_render_surface *egl_gbm_render_surface_new(
         device,
         renderer,
         pixel_format,
-        EGL_NO_CONFIG_KHR
+        EGL_NO_CONFIG_KHR,
+        NULL,
+        0
     );
 }
 

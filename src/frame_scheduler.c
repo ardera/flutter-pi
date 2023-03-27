@@ -56,7 +56,6 @@ void frame_scheduler_destroy(struct frame_scheduler *scheduler) {
     free(scheduler);
 }
 
-
 void frame_scheduler_on_fl_vsync_request(struct frame_scheduler *scheduler, intptr_t vsync_baton) {
     DEBUG_ASSERT_NOT_NULL(scheduler);
     DEBUG_ASSERT(vsync_baton != 0);
