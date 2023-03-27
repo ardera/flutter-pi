@@ -49,13 +49,14 @@ jobs:
       
       - name: Show file tree
         run: |
+          pwd
           tree -apugshDF
 
       - name: Configure CMake
         run: |
           cmake \
             -B ./build \
-            -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} \
+            -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} \
             -DCMAKE_C_COMPILER=${{ matrix.compiler }} }
             -DBUILD_GSTREAMER_AUDIO_PLAYER_PLUGIN=On \
             -DBUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN=On \
