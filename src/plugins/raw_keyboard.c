@@ -395,7 +395,7 @@ ATTR_CONST static uint64_t physical_key_for_xkb_keycode(xkb_keycode_t xkb_keycod
     return physical_key_for_evdev_keycode(xkb_keycode - 8);
 }
 
-ATTR_CONST static char eascii_to_lower(char n) {
+ATTR_CONST static char eascii_to_lower(unsigned char n) {
     if (n >= 'A' && n <= 'Z') {
         return n - 'A' + 'a';
     }
@@ -749,7 +749,7 @@ int rawkb_send_flutter_keyevent(
     const char *character,
     bool synthesized
 ) {
-    COMPILE_ASSERT(sizeof(FlutterKeyEvent) == 48);
+    COMPILE_ASSERT(sizeof(FlutterKeyEvent) == 48 || sizeof(FlutterKeyEvent) == 56);
     rawkb->interface.send_key_event(
         rawkb->userdata,
         &(FlutterKeyEvent) {

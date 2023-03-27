@@ -185,7 +185,9 @@ void compositor_destroy(struct compositor *compositor) {
     for_each_pointer_in_pset(&compositor->platform_views, view) {
         surface_unref(view->surface);
         free(view);
+        view = NULL;
     }
+
     pset_deinit(&compositor->platform_views);
     tracer_unref(compositor->tracer);
     window_unref(compositor->main_window);
