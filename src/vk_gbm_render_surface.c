@@ -220,7 +220,7 @@ static int fb_init(struct fb *fb, struct gbm_device *gbm_device, struct vk_rende
     );
     if (bo == NULL) {
         LOG_ERROR("Could not create GBM BO. gbm_bo_create: %s\n", strerror(errno));
-        goto EIO;
+        return EIO;
     }
 
     ok = vkCreateImage(
