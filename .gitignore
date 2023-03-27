@@ -1,2 +1,6 @@
-.vscode
-build
+/.vscode
+/.clang-format
+/build
+/out
+/CMakePresets.json
+/cross-pi4-toolchain.cmake
