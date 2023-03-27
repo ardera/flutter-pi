@@ -46,19 +46,13 @@ jobs:
       - uses: actions/checkout@v3
         with:
           submodules: 'recursive'
-      
-      - name: Show file tree
-        run: |
-          pwd
-          tree -apugshDF
 
       - name: Configure CMake
         run: |
           cmake \
             -B ./build \
-            -S $(pwd) \
             -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} \
-            -DCMAKE_C_COMPILER=${{ matrix.compiler }} }
+            -DCMAKE_C_COMPILER=${{ matrix.compiler }} \
             -DBUILD_GSTREAMER_AUDIO_PLAYER_PLUGIN=On \
             -DBUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN=On \
             -DENABLE_VULKAN=${{ matrix.enable-vulkan }} \
@@ -71,7 +65,7 @@ jobs:
 
       - name: Test
         working-directory: build
-        run: ctest -C ${{env.BUILD_TYPE}} --output-on-failure
+        run: ctest -C ${{ env.BUILD_TYPE }} --output-on-failure
     
   container:
     name: Build & Test in Container
@@ -127,7 +121,7 @@ jobs:
             -GNinja
 
       - name: Build
-        run: cmake --build ./build --config ${{ env.BUILD_TYPE}}
+        run: cmake --build ./build --config ${{ env.BUILD_TYPE }}
 
       - name: Test
         working-directory: build
