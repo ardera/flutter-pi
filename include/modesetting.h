@@ -388,6 +388,7 @@ struct drm_plane {
     /// A pair of pixel format / modifier that is definitely supported.
     /// DRM_FORMAT_MOD_LINEAR is supported for most (but not all pixel formats).
     /// There are some format & modifier pairs that may be faster to scanout by the GPU.
+    /// Might be NULL if the plane didn't specify an IN_FORMATS property.
     struct modified_format *supported_modified_formats;
 
     /// Whether this plane has a mutable alpha property we can set.
@@ -419,7 +420,7 @@ struct drmdev_interface {
     void (*close)(int fd, void *fd_metadata, void *userdata);
 };
 
-struct drmdev *drmdev_new_from_fd(int fd, const struct drmdev_interface *interface, void *userdata);
+struct drmdev *drmdev_new_from_interface_fd(int fd, void *fd_metadata, const struct drmdev_interface *interface, void *userdata);
 
 struct drmdev *drmdev_new_from_path(const char *path, const struct drmdev_interface *interface, void *userdata);
 

@@ -21,12 +21,12 @@ struct render_surface {
     struct surface surface;
 
     uuid_t uuid;
-    struct vec2f size;
+    struct vec2i size;
     int (*fill)(struct render_surface *surface, FlutterBackingStore *fl_store);
     int (*queue_present)(struct render_surface *surface, const FlutterBackingStore *fl_store);
 };
 
-int render_surface_init(struct render_surface *surface, struct tracer *tracer, struct vec2f size);
+int render_surface_init(struct render_surface *surface, struct tracer *tracer, struct vec2i size);
 
 void render_surface_deinit(struct surface *s);
 

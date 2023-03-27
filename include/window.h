@@ -114,6 +114,6 @@ EGLSurface window_get_egl_surface(struct window *window);
  * This only makes sense if there's a single UI (engine) layer. If there's multiple ones, lifetimes become weird.
  * 
  */
-struct render_surface *window_get_render_surface(struct window *window, struct vec2f size);
+struct render_surface *window_get_render_surface(struct window *window, struct vec2i size);
 
 #endif // _FLUTTERPI_INCLUDE_WINDOW_H
