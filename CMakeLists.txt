@@ -56,6 +56,7 @@ option(ENABLE_ASAN "True to build & link with -fsanitize=address" OFF)
 option(ENABLE_UBSAN "True to build & link with -fsanitize=undefined" OFF)
 option(ENABLE_MTRACE "True if flutter-pi should call GNU mtrace() on startup." OFF)
 option(ENABLE_TESTS "True if tests should be built. Requires Unity to be checked out at third_party/Unity." OFF)
+option(ENABLE_SESSION_SWITCHING "True if flutter-pi should be built with session switching support. Requires libseat-dev to be installed." ON)
 
 set(FILESYSTEM_LAYOUTS default meta-flutter)
 set(FILESYSTEM_LAYOUT "default" CACHE STRING "Where to look for the icudtl.dat, app.so/libapp.so, flutter asset bundle.")
@@ -121,7 +122,10 @@ pkg_check_modules(LIBSYSTEMD REQUIRED IMPORTED_TARGET libsystemd)
 pkg_check_modules(LIBINPUT REQUIRED IMPORTED_TARGET libinput)
 pkg_check_modules(LIBXKBCOMMON REQUIRED IMPORTED_TARGET xkbcommon)
 pkg_check_modules(LIBUDEV REQUIRED IMPORTED_TARGET libudev)
-pkg_check_modules(LIBSEAT IMPORTED_TARGET libseat)
+
+if (ENABLE_SESSION_SWITCHING)
+  pkg_check_modules(LIBSEAT IMPORTED_TARGET libseat)
+endif()
 
 # find pthreads
 set(THREADS_PREFER_PTHREAD_FLAG ON)
@@ -161,7 +165,6 @@ target_link_libraries(flutterpi_module PUBLIC
   PkgConfig::LIBINPUT
   PkgConfig::LIBXKBCOMMON
   PkgConfig::LIBUDEV
-  PkgConfig::LIBSEAT
   Threads::Threads
   ${CMAKE_DL_LIBS}
   rt m atomic
@@ -307,6 +310,16 @@ if (NOT VULKAN_FOUND)
   endif()
 
   target_include_directories(flutterpi_module PRIVATE ${vulkan_headers_SOURCE_DIR}/include/)
+endif()
+
+message(STATUS "Session switching ...... ${ENABLE_SESSION_SWITCHING}")
+if (ENABLE_SESSION_SWITCHING)
+  if (LIBSEAT_FOUND)
+    target_link_libraries(flutterpi_module PUBLIC PkgConfig::LIBSEAT)
+    target_compile_definitions(flutterpi_module PUBLIC "HAS_LIBSEAT")
+  else()
+    message("libseat was not found. flutter-pi will be built without session switching support.")
+  endif()
 endif()
 
 
