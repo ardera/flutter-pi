@@ -214,7 +214,9 @@ struct egl_modified_format {
 
 struct frame_interface;
 
-struct frame_interface *frame_interface_new();
+struct flutterpi;
+
+struct frame_interface *frame_interface_new(struct flutterpi *flutterpi);
 
 ATTR_PURE int frame_interface_get_n_formats(struct frame_interface *interface);
 

@@ -713,7 +713,7 @@ static void fill_platform_view_params(
 	rotation = fmod(rotation, 360.0);
 
 	params_out->rect = quad;
-	params_out->opacity = 0;
+	params_out->opacity = opacity;
 	params_out->rotation = rotation;
 	params_out->clip_rects = NULL;
 	params_out->n_clip_rects = 0;
