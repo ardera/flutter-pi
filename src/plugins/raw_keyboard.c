@@ -365,13 +365,30 @@ ATTR_CONST static uint64_t physical_key_for_evdev_keycode(uint16_t evdev_keycode
         [KEY_SCREENSAVER] = 0x000c01b1,  // launchScreenSaver
         [KEY_VOICECOMMAND] = 0x000c00cf,  // speechInputToggle
         [KEY_ASSISTANT] = 0x000c01cb,  // launchAssistant
+
+#ifndef KEY_KBD_LAYOUT_NEXT
+#   define KEY_KBD_LAYOUT_NEXT 0x248
+#endif
         [KEY_KBD_LAYOUT_NEXT] = 0x000c029d,  // keyboardLayoutSelect
+
+#ifndef KEY_EMOJI_PICKER
+#   define KEY_EMOJI_PICKER 0x249
+#endif
         [KEY_EMOJI_PICKER] = 0,
+
+#ifndef KEY_DICTATE
+#   define KEY_DICTATE 0x24a
+#endif
         [KEY_DICTATE] = 0,
+
         // unused
         [KEY_BRIGHTNESS_MIN] = 0x000c0073,  // brightnessMinimum
         [KEY_BRIGHTNESS_MAX] = 0x000c0074,  // brightnessMaximum
         // KEY_KBDINPUTASSIST_PREV ... KEY_ONSCREEN_KEYBOARD
+
+#ifndef KEY_PRIVACY_SCREEN_TOGGLE
+#   define KEY_PRIVACY_SCREEN_TOGGLE 0x279
+#endif
         [KEY_PRIVACY_SCREEN_TOGGLE] = 0x00000017  // privacyScreenToggle
     };
     // clang-format on
