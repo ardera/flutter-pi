@@ -34,6 +34,7 @@ jobs:
     steps:
       - name: Install dependencies
         run: |
+          id
           sudo apt-get install -y \
             git cmake libgl1-mesa-dev libgles2-mesa-dev libegl1-mesa-dev libdrm-dev libgbm-dev \
             ttf-mscorefonts-installer fontconfig libsystemd-dev libinput-dev libudev-dev \
@@ -89,10 +90,8 @@ jobs:
           - compiler: 'clang'
             clang-deps: 'clang'
     steps:
-      - uses: actions/checkout@v3
-        with:
-          submodules: 'recursive'
-
+      # git needs to be installed before checking out, otherwise the checkout will fallback to the REST API,
+      # and the submodule download won't work. 
       - name: Install dependencies
         run: |
           apt-get update && apt-get install -y \
@@ -101,6 +100,10 @@ jobs:
             libxkbcommon-dev ninja-build libgstreamer-plugins-base1.0-dev \
             ${{ matrix.vulkan-deps }} \
             ${{ matrix.clang-deps }}
+
+      - uses: actions/checkout@v3
+        with:
+          submodules: 'recursive'
 
       - name: Configure CMake
         run: |
