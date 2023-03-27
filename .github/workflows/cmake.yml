@@ -11,9 +11,9 @@ env:
   # Customize the CMake build type here (Release, Debug, RelWithDebInfo, etc.)
   BUILD_TYPE: Debug
 jobs:
-  build:
+  pi4:
     name: Build and Test on Raspberry Pi 4
-    runs-on: ARM
+    runs-on: ${{ matrix.runner }}
     strategy:
       matrix:
         runner:
@@ -57,18 +57,18 @@ jobs:
             -DENABLE_TESTS=On \
             -GNinja
 
-    - name: Build
-      run: cmake --build ./build --config ${{env.BUILD_TYPE}}
+      - name: Build
+        run: cmake --build ./build --config ${{env.BUILD_TYPE}}
 
-    - name: Test
-      working-directory: build
-      run: ctest -C ${{env.BUILD_TYPE}} --output-on-failure
-  
+      - name: Test
+        working-directory: build
+        run: ctest -C ${{env.BUILD_TYPE}} --output-on-failure
+    
   container:
     name: Build & Test in Container
     runs-on: ubuntu-latest
     container:
-      image: debian:bullseye
+      image: ${{ matrix.container }}
       env:
         DEBIAN_FRONTEND: noninteractive
     strategy:
