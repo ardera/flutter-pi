@@ -31,9 +31,6 @@ jobs:
           
           - compiler: 'clang'
             clang-deps: 'clang'
-    defaults:
-      run:
-        shell: sh
     steps:
       # On the self-hosted runners, we assume those are already installed.
       # - name: Install dependencies
@@ -59,7 +56,7 @@ jobs:
         run: |
           cmake \
             -B ./build \
-            -S . \
+            -S $(pwd) \
             -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} \
             -DCMAKE_C_COMPILER=${{ matrix.compiler }} }
             -DBUILD_GSTREAMER_AUDIO_PLAYER_PLUGIN=On \
@@ -67,6 +64,7 @@ jobs:
             -DENABLE_VULKAN=${{ matrix.enable-vulkan }} \
             -DENABLE_TESTS=On \
             -GNinja
+          echo test
 
       - name: Build
         run: cmake --build ./build --config ${{env.BUILD_TYPE}}
