@@ -1340,7 +1340,7 @@ static FlutterEngine create_flutter_engine(
         };
     }
 
-    COMPILE_ASSERT(sizeof(FlutterProjectArgs) == 144 || sizeof(FlutterProjectArgs) == 272);
+    COMPILE_ASSERT(sizeof(FlutterProjectArgs) == 144 || sizeof(FlutterProjectArgs) == 280);
 
     // configure the project
     project_args = (FlutterProjectArgs) {
