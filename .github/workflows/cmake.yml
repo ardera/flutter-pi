@@ -14,7 +14,7 @@ env:
 jobs:
   build:
     name: Build and Test on Raspberry Pi 4
-    runs-on: ${{ matrix.runner }}
+    runs-on: ARM
     strategy:
       matrix:
         runner:
@@ -69,7 +69,7 @@ jobs:
     name: Build & Test in Container
     runs-on: ubuntu-latest
     container:
-      image: ${{ matrix.container }}
+      image: debian:bullseye
       env:
         DEBIAN_FRONTEND: noninteractive
     strategy:
