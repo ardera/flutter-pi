@@ -837,7 +837,8 @@ int rawkb_on_key_event(
 }
 
 static void assert_key_modifiers_work() {
-    key_modifiers_t mods = {0};
+    key_modifiers_t mods;
+    memset(&mods, 0, sizeof(mods));
 
     mods.u32 = 1;
     DEBUG_ASSERT_EQUALS(mods.shift, true);
