@@ -115,24 +115,7 @@ struct std_value {
 #define STDVALUE_IS_STRING(value) ((value).type == kStdString)
 #define STDVALUE_AS_STRING(value) ((value).string_value)
 
-
-#if defined(WARN_MISSING_FIELD_INITIALIZERS) && (defined(__GNUC__) || defined(__clang__)) 
-#	define STDSTRING(str) (*({ \
-		struct std_value *value = alloca(sizeof(struct std_value)); \
-		memset(value, 0, sizeof *value); \
-		value->type = kStdString; \
-		value->string_value = (str); \
-		value; \
-	}))
-#else
-// somehow GCC warns about field "values" being uninitialized, even though it isn't.
-// so if we haven't enabled warning about missing field initializers, we can use this, otherwise
-// we somehow need to silence it.
-#	define STDSTRING(str) ((struct std_value) {.type = kStdString, .string_value = (str)})
-#	ifdef WARN_MISSING_FIELD_INITIALIZERS
-#		pragma warning "Warning about missing field initializers but neither clang nor gcc is used - spurious warnings will ocurr."
-#	endif
-#endif
+#define STDSTRING(str) ((struct std_value) {.type = kStdString, .string_value = (str)})
 
 #define STDVALUE_IS_LIST(value) ((value).type == kStdList)
 #define STDVALUE_IS_SIZE(value, _size) ((value).size == (_size))
@@ -609,8 +592,6 @@ struct std_value {
 	} \
 })
 
-#pragma GCC diagnostic pop
-
 /// codec of an abstract channel object
 /// These tell this API how it should encode ChannelObjects -> platform messages
 /// and how to decode platform messages -> ChannelObjects.
@@ -980,6 +961,5 @@ ATTR_PURE const struct raw_std_value *raw_std_method_call_get_arg(const struct r
 
 #define for_each_element_in_raw_std_list(value, list) \
 	for_each_element_in_raw_std_list_indexed(UNIQUE_NAME(__raw_std_list_element_index), value, list)
-
 
 #endif
