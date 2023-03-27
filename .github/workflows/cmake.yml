@@ -12,8 +12,8 @@ env:
   BUILD_TYPE: Debug
 
 jobs:
-  build-pi4:
-    name: build (raspbian bullseye)
+  pi4:
+    name: Build & Test on Raspberry Pi 4
     runs-on: ${{ matrix.runner }}
     strategy:
       matrix:
@@ -65,8 +65,8 @@ jobs:
       working-directory: build
       run: ctest -C ${{env.BUILD_TYPE}} --output-on-failure
   
-  build-bullseye:
-    name: build
+  container:
+    name: Build & Test in Container
     runs-on: ubuntu-latest
     container:
       image: ${{ matrix.container }}
