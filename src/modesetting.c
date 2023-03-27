@@ -711,11 +711,14 @@ static int fetch_plane(int drm_fd, uint32_t plane_id, struct drm_plane *plane_ou
         }
 
 #define CHECK_ASSIGN_PROPERTY_ID(_name_str, _name) \
-        else if (strncmp(info->name, _name_str, ARRAY_SIZE(info->name)) == 0) { \
+        if (strncmp(info->name, _name_str, ARRAY_SIZE(info->name)) == 0) { \
             ids._name = info->prop_id; \
-        }
+        } else 
 
         DRM_PLANE_PROPERTIES(CHECK_ASSIGN_PROPERTY_ID)
+        {
+            // do nothing
+        }
 
 #undef CHECK_ASSIGN_PROPERTY_ID
 
@@ -916,7 +919,7 @@ static int set_drm_client_caps(int fd, bool *supports_atomic_modesetting) {
     return 0;
 }
 
-struct drmdev *drmdev_new_from_fd(int fd, const struct drmdev_interface *interface, void *userdata) {
+struct drmdev *drmdev_new_from_interface_fd(int fd, void *fd_metadata, const struct drmdev_interface *interface, void *userdata) {
     struct gbm_device *gbm_device;
     struct drmdev *drmdev;
     uint64_t cap;
@@ -1010,6 +1013,7 @@ struct drmdev *drmdev_new_from_fd(int fd, const struct drmdev_interface *interfa
     drmdev->event_fd = event_fd;
     memset(drmdev->per_crtc_state, 0, sizeof(drmdev->per_crtc_state));
     drmdev->master_fd = master_fd;
+    drmdev->master_fd_metadata = fd_metadata;
     drmdev->interface = *interface;
     drmdev->userdata = userdata;
     return drmdev;
@@ -1049,18 +1053,19 @@ fail_free_drmdev:
 
 struct drmdev *drmdev_new_from_path(const char *path, const struct drmdev_interface *interface, void *userdata) {
     struct drmdev *drmdev;
+    void *fd_metadata;
     int fd;
 
     DEBUG_ASSERT_NOT_NULL(path);
     DEBUG_ASSERT_NOT_NULL(interface);
 
-    fd = open(path, O_RDWR);
+    fd = interface->open(path, O_RDWR, &fd_metadata, userdata);
     if (fd < 0) {
-        LOG_ERROR("Could not open DRM device. open: %s\n", strerror(errno));
+        LOG_ERROR("Could not open DRM device. interface->open: %s\n", strerror(errno));
         return NULL;
     }
 
-    drmdev = drmdev_new_from_fd(fd, interface, userdata);
+    drmdev = drmdev_new_from_interface_fd(fd, fd_metadata, interface, userdata);
     if (drmdev == NULL) {
         close(fd);
         return NULL;
@@ -1071,7 +1076,8 @@ struct drmdev *drmdev_new_from_path(const char *path, const struct drmdev_interf
 
 void drmdev_destroy(struct drmdev *drmdev) {
     DEBUG_ASSERT(refcount_is_zero(&drmdev->n_refs));
-    
+
+    drmdev->interface.close(drmdev->master_fd, drmdev->master_fd_metadata, drmdev->userdata);
     close(drmdev->event_fd);
     gbm_device_destroy(drmdev->gbm_device);
     free_planes(drmdev->planes, drmdev->n_planes);
