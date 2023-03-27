@@ -8,7 +8,7 @@
 
 #define MAX_COLLECTED_FLUTTER_POINTER_EVENTS 64
 
-COMPILE_ASSERT(sizeof(FlutterPointerEvent) == 104);
+COMPILE_ASSERT(sizeof(FlutterPointerEvent) == 104 || sizeof(FlutterPointerEvent) == 112);
 
 #define FLUTTER_POINTER_EVENT(_phase, _timestamp, _x, _y, _device, _signal_kind, _scroll_delta_x, _scroll_delta_y, _device_kind, _buttons, _pan_x, _pan_y, _scale, _rotation) \
     (FlutterPointerEvent) { \
