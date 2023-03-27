@@ -123,6 +123,10 @@ pkg_check_modules(LIBXKBCOMMON REQUIRED IMPORTED_TARGET xkbcommon)
 pkg_check_modules(LIBUDEV REQUIRED IMPORTED_TARGET libudev)
 pkg_check_modules(LIBSEAT IMPORTED_TARGET libseat)
 
+# find pthreads
+set(THREADS_PREFER_PTHREAD_FLAG ON)
+find_package(Threads REQUIRED)
+
 add_library(
   flutterpi_module OBJECT
   src/flutter-pi.c
@@ -158,7 +162,9 @@ target_link_libraries(flutterpi_module PUBLIC
   PkgConfig::LIBXKBCOMMON
   PkgConfig::LIBUDEV
   PkgConfig::LIBSEAT
-  pthread dl rt m atomic
+  Threads::Threads
+  ${CMAKE_DL_LIBS}
+  rt m atomic
 )
 
 target_include_directories(flutterpi_module PUBLIC
