@@ -220,7 +220,7 @@ static int fb_init(struct fb *fb, struct gbm_device *gbm_device, struct vk_rende
     );
     if (bo == NULL) {
         LOG_ERROR("Could not create GBM BO. gbm_bo_create: %s\n", strerror(errno));
-        goto fail_destroy_image;
+        goto EIO;
     }
 
     ok = vkCreateImage(
@@ -272,7 +272,7 @@ static int fb_init(struct fb *fb, struct gbm_device *gbm_device, struct vk_rende
     );
     if (ok != VK_SUCCESS) {
         LOG_VK_ERROR(ok, "Could not create Vulkan image. vkCreateImage");
-        return EIO;
+        goto fail_destroy_bo;
     }
 
     // We _should_ only have one plane in the linear case.
