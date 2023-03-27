@@ -31,6 +31,9 @@ jobs:
           
           - compiler: 'clang'
             clang-deps: 'clang'
+    defaults:
+      run:
+        shell: sh
     steps:
       # On the self-hosted runners, we assume those are already installed.
       # - name: Install dependencies
