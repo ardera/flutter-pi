@@ -38,11 +38,11 @@ struct tracer *tracer_new_with_cbs(
     }
 
     tracer->n_refs = REFCOUNT_INIT_1;
-    tracer->has_cbs = ATOMIC_VAR_INIT(true);
+    tracer->has_cbs = true;
     tracer->trace_begin = trace_begin;
     tracer->trace_end = trace_end;
     tracer->trace_instant = trace_instant;
-    tracer->logged_discarded_events = ATOMIC_VAR_INIT(false);
+    tracer->logged_discarded_events = false;
     return tracer;
 
 
@@ -59,11 +59,11 @@ struct tracer *tracer_new_with_stubs() {
     }
 
     tracer->n_refs = REFCOUNT_INIT_1;
-    tracer->has_cbs = ATOMIC_VAR_INIT(false);
+    tracer->has_cbs = false;
     tracer->trace_begin = NULL;
     tracer->trace_end = NULL;
     tracer->trace_instant = NULL;
-    tracer->logged_discarded_events = ATOMIC_VAR_INIT(false);
+    tracer->logged_discarded_events = false;
     return tracer;
 
 

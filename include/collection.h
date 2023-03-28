@@ -1,6 +1,11 @@
 #ifndef _COLLECTION_H
 #define _COLLECTION_H
 
+#if !defined(_XOPEN_SOURCE) || _XOPEN_SOURCE < 500L
+#	define _XOPEN_SOURCE 500L
+#endif
+
+#include <features.h>
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -452,6 +457,18 @@ static const char *__attribute__((unused)) __file_logging_name = _logging_name;
 #define DEBUG_ASSERT_EQUALS_MSG(__a, __b, __msg) DEBUG_ASSERT_MSG((__a) == (__b), __msg)
 #define DEBUG_ASSERT_EGL_TRUE(__var) DEBUG_ASSERT((__var) == EGL_TRUE)
 #define DEBUG_ASSERT_EGL_TRUE_MSG(__var, __msg) DEBUG_ASSERT_MSG((__var) == EGL_TRUE, __msg)
+#define DEBUG_ASSERT_MUTEX_LOCKED(__mutex) \
+	DEBUG_ASSERT( ({ \
+		bool result; \
+		int r = pthread_mutex_trylock(&(__mutex)); \
+		if (r == 0) { \
+			pthread_mutex_unlock(&(__mutex)); \
+			result = false; \
+		} else { \
+			result = true; \
+		} \
+		result; \
+	}) )
 
 #if !(201112L <= __STDC_VERSION__ || (!defined __STRICT_ANSI__ && (__GNUC__ > 4) || ((__GNUC__ == 4) && (__GNUC_MINOR >= 6))))
 #	error "Needs C11 or later or GCC (not in pedantic mode) 4.6.0 or later for compile time asserts."
@@ -599,26 +616,44 @@ MAYBE_UNUSED void obj_name ## _unlock(struct obj_name *obj);
 
 #define DEFINE_LOCK_OPS(obj_name, mutex_member_name) \
 MAYBE_UNUSED void obj_name ## _lock(struct obj_name *obj) { \
-	pthread_mutex_lock(&obj->mutex_member_name); \
+	int ok; \
+	ok = pthread_mutex_lock(&obj->mutex_member_name); \
+	DEBUG_ASSERT_EQUALS_MSG(ok, 0, "Error locking mutex."); \
+	(void) ok; \
 } \
 MAYBE_UNUSED void obj_name ## _unlock(struct obj_name *obj) { \
-	pthread_mutex_unlock(&obj->mutex_member_name); \
+	int ok; \
+	ok = pthread_mutex_unlock(&obj->mutex_member_name); \
+	DEBUG_ASSERT_EQUALS_MSG(ok, 0, "Error unlocking mutex."); \
+	(void) ok; \
 }
 
 #define DEFINE_STATIC_LOCK_OPS(obj_name, mutex_member_name) \
 MAYBE_UNUSED static void obj_name ## _lock(struct obj_name *obj) { \
-	pthread_mutex_lock(&obj->mutex_member_name); \
+	int ok; \
+	ok = pthread_mutex_lock(&obj->mutex_member_name); \
+	DEBUG_ASSERT_EQUALS_MSG(ok, 0, "Error locking mutex."); \
+	(void) ok; \
 } \
 MAYBE_UNUSED static void obj_name ## _unlock(struct obj_name *obj) { \
-	pthread_mutex_unlock(&obj->mutex_member_name); \
+	int ok; \
+	ok = pthread_mutex_unlock(&obj->mutex_member_name); \
+	DEBUG_ASSERT_EQUALS_MSG(ok, 0, "Error unlocking mutex."); \
+	(void) ok; \
 }
 
 #define DEFINE_INLINE_LOCK_OPS(obj_name, mutex_member_name) \
 MAYBE_UNUSED static inline void obj_name ## _lock(struct obj_name *obj) { \
-	pthread_mutex_lock(&obj->mutex_member_name); \
+	int ok; \
+	ok = pthread_mutex_lock(&obj->mutex_member_name); \
+	DEBUG_ASSERT_EQUALS_MSG(ok, 0, "Error locking mutex."); \
+	(void) ok; \
 } \
 MAYBE_UNUSED static inline void obj_name ## _unlock(struct obj_name *obj) { \
-	pthread_mutex_unlock(&obj->mutex_member_name); \
+	int ok; \
+	ok = pthread_mutex_unlock(&obj->mutex_member_name); \
+	DEBUG_ASSERT_EQUALS_MSG(ok, 0, "Error unlocking mutex."); \
+	(void) ok; \
 }
 
 #define BITCAST(to_type, value) (*((const to_type*) (&(value))))
@@ -888,5 +923,7 @@ ATTR_CONST static inline struct vec2f vec2f_swap_xy(const struct vec2f point) {
 ATTR_PURE static inline bool streq(const char *a, const char *b) {
 	return strcmp(a, b) == 0;
 }
+
+const pthread_mutexattr_t *get_default_mutex_attrs();
 
 #endif
