@@ -223,6 +223,8 @@ struct flutterpi {
 	sd_event *event_loop;
 	int wakeup_event_loop_fd;
 
+    struct evloop *evloop;
+
 	/**
      * @brief Manages all plugins.
      * 
@@ -2668,7 +2670,7 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
     fpi->drmdev = drmdev;
     fpi->plugin_registry = plugin_registry;
     fpi->texture_registry = texture_registry;
-    //fpi->libseat = libseat;
+    fpi->libseat = libseat;
     return fpi;
 
     fail_destroy_texture_registry:
@@ -2765,7 +2767,7 @@ void flutterpi_destroy(struct flutterpi *flutterpi) {
 #ifdef HAS_LIBSEAT
         libseat_close_seat(flutterpi->libseat);
 #else
-        UNREACAHBLE();
+        UNREACHABLE();
 #endif
     }
     sd_event_unrefp(&flutterpi->event_loop);
