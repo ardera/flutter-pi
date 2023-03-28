@@ -1097,11 +1097,12 @@ struct gstplayer *gstplayer_new_from_asset(
 ) {
     struct gstplayer *player;
     char *uri;
+    int ok;
 
     (void) package_name;
 
-    asprintf(&uri, "file://%s/%s", flutterpi_get_asset_bundle_path(flutterpi), asset_path);
-    if (uri == NULL) {
+    ok = asprintf(&uri, "file://%s/%s", flutterpi_get_asset_bundle_path(flutterpi), asset_path);
+    if (ok < 0) {
         return NULL;
     }
 

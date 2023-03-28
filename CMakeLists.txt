@@ -35,6 +35,7 @@ project(flutter-pi LANGUAGES C VERSION "1.0.0")
 message(STATUS "Generator .............. ${CMAKE_GENERATOR}")
 message(STATUS "Build Type ............. ${CMAKE_BUILD_TYPE}")
 
+# configure options
 option(BUILD_TEXT_INPUT_PLUGIN "Include the text input plugin in the finished binary. Enables text input (to flutter text fields, for example) via attached keyboards." ON)
 option(BUILD_RAW_KEYBOARD_PLUGIN "Include the raw keyboard plugin in the finished binary. Enables raw keycode listening in flutter via the flutter RawKeyboard interface." ON)
 option(BUILD_TEST_PLUGIN "Include the test plugin in the finished binary. Allows testing platform channel communication." OFF)
@@ -65,6 +66,7 @@ set_property(CACHE FILESYSTEM_LAYOUT PROPERTY STRINGS ${FILESYSTEM_LAYOUTS})
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+# Download the flutter_embedder.h if it's not specified
 if(NOT FLUTTER_EMBEDDER_HEADER)
 
   include(FetchContent)
@@ -114,11 +116,10 @@ endif()
 include(ExternalProject)
 include(CheckCCompilerFlag)
 
+# Those libraries we definitely need.
 include(FindPkgConfig)
 pkg_check_modules(DRM REQUIRED IMPORTED_TARGET libdrm)
 pkg_check_modules(GBM REQUIRED IMPORTED_TARGET gbm)
-pkg_check_modules(EGL REQUIRED IMPORTED_TARGET egl)
-pkg_check_modules(GLESV2 REQUIRED IMPORTED_TARGET glesv2)
 pkg_check_modules(LIBSYSTEMD REQUIRED IMPORTED_TARGET libsystemd)
 pkg_check_modules(LIBINPUT REQUIRED IMPORTED_TARGET libinput)
 pkg_check_modules(LIBXKBCOMMON REQUIRED IMPORTED_TARGET xkbcommon)
@@ -170,13 +171,12 @@ target_link_libraries(flutterpi_module PUBLIC
 target_include_directories(flutterpi_module PUBLIC
   ${CMAKE_BINARY_DIR}
   ${CMAKE_SOURCE_DIR}/include
-  ${CMAKE_SOURCE_DIR}/include/plugins
 )
 
 target_compile_options(flutterpi_module PRIVATE
   $<$<CONFIG:Debug>:-O0 -Wall -Wextra -Wno-sign-compare -Werror -ggdb -U_FORTIFY_SOURCE -DDEBUG>
-  $<$<CONFIG:RelWithDebInfo>:-O2 -Wall -Wextra -Wno-sign-compare -ggdb>
-  $<$<CONFIG:Release>:-O2 -Wall -Wextra -Wno-sign-compare -ggdb>
+  $<$<CONFIG:RelWithDebInfo>:-O3 -Wall -Wextra -Wno-sign-compare -ggdb>
+  $<$<CONFIG:Release>:-O3 -Wall -Wextra -Wno-sign-compare>
 )
 
 # GCC prior to 11.3 reports false positives for missing-field-initializers warning.
@@ -186,6 +186,7 @@ if (CMAKE_C_COMPILER_ID STREQUAL "GNU")
   endif()
 endif()
 
+# libinput stuff
 # There's no other way to query the libinput version (in code) somehow.
 # So we need to roll our own libinput version macro
 string(REPLACE "." ";" LIBINPUT_VERSION_AS_LIST ${LIBINPUT_VERSION})
@@ -200,10 +201,10 @@ target_compile_definitions(flutterpi_module PRIVATE
 )
 
 # TODO: Just unconditionally define those, make them optional later 
-target_compile_definitions(flutterpi_module PRIVATE HAS_KMS HAS_EGL HAS_GBM HAS_FBDEV)
+target_compile_definitions(flutterpi_module PRIVATE HAS_KMS HAS_GBM HAS_FBDEV)
 
-pkg_check_modules(EGL egl)
-pkg_check_modules(GLESV2 glesv2)
+pkg_check_modules(EGL IMPORTED_TARGET egl)
+pkg_check_modules(GLESV2 IMPORTED_TARGET glesv2)
 
 if (ENABLE_OPENGL)
   if (EGL_FOUND AND GLESV2_FOUND)
@@ -212,8 +213,8 @@ if (ENABLE_OPENGL)
       src/gl_renderer.c
     )
     target_link_libraries(flutterpi_module PUBLIC
-      ${EGL_LDFLAGS}
-      ${GLESV2_LDFLAGS}
+      PkgConfig::EGL
+      PkgConfig::GLESV2
     )
     target_compile_definitions(flutterpi_module PRIVATE HAS_EGL HAS_GL)
   elseif (TRY_ENABLE_OPENGL)
@@ -261,29 +262,30 @@ else()
   target_include_directories(flutterpi_module PRIVATE ${ogl_registry_SOURCE_DIR}/api/)
 endif()
 
+# Filesystem Layout
+# meta-flutter or normal flutter-pi.
+# see src/filesystem_layout.c for details.
 if(NOT FILESYSTEM_LAYOUT IN_LIST FILESYSTEM_LAYOUTS)
   message(FATAL_ERROR "FILESYSTEM_LAYOUT must be one of ${FILESYSTEM_LAYOUTS}")
 endif()
 
 message(STATUS "Filesystem Layout ...... ${FILESYSTEM_LAYOUT}")
-
 if(FILESYSTEM_LAYOUT STREQUAL default)
   target_compile_definitions(flutterpi_module PRIVATE "FILESYSTEM_LAYOUT_DEFAULT")
 elseif(FILESYSTEM_LAYOUT STREQUAL meta-flutter)
   target_compile_definitions(flutterpi_module PRIVATE "FILESYSTEM_LAYOUT_METAFLUTTER")
 endif()
 
-pkg_check_modules(VULKAN vulkan)
+pkg_check_modules(VULKAN IMPORTED_TARGET vulkan)
 if (ENABLE_VULKAN)
   if (VULKAN_FOUND)
     target_sources(flutterpi_module PRIVATE
       src/vk_gbm_render_surface.c
       src/vk_renderer.c
     )
-    target_compile_definitions(flutterpi_module PRIVATE HAS_VULKAN)
-    target_include_directories(flutterpi_module PRIVATE ${VULKAN_INCLUDE_DIRS})
-    target_compile_options(flutterpi_module PRIVATE ${VULKAN_CFLAGS})
-    target_link_libraries(flutterpi_module PUBLIC ${VULKAN_LDFLAGS})
+    target_link_libraries(flutterpi_module PUBLIC
+      PkgConfig::VULKAN
+    )
   elseif (TRY_ENABLE_VULKAN)
     message("Vulkan was not found. Flutter-pi will build without vulkan rendering support.")
   else()
@@ -309,6 +311,7 @@ if (NOT VULKAN_FOUND)
   target_include_directories(flutterpi_module PRIVATE ${vulkan_headers_SOURCE_DIR}/include/)
 endif()
 
+# Session switching support (using libseat)
 message(STATUS "Session switching ...... ${ENABLE_SESSION_SWITCHING}")
 if (ENABLE_SESSION_SWITCHING)
   if (TRY_ENABLE_SESSION_SWITCHING)
@@ -412,28 +415,20 @@ if (BUILD_GSTREAMER_AUDIO_PLAYER_PLUGIN)
 endif()
 
 # Needed so dart VM can actually resolve symbols in the same
-# executable.
+# executable. (For dart:ffi DynamicLibrary.executable / DynamicLibrary.process)
 target_link_options(flutterpi_module PRIVATE -rdynamic)
 
-# Enable lto if supported.
-cmake_policy(SET CMP0069 NEW)
-include(CheckIPOSupported)
-check_ipo_supported(RESULT ipo_support_result OUTPUT ipo_support_output)
-if (ipo_support_result)
-  set_property(TARGET flutterpi_module PROPERTY INTERPROCEDURAL_OPTIMIZATION $<IF:$<CONFIG:Debug>,FALSE,TRUE>)
-else()
-  message(WARNING "IPO/LTO is not supported: ${ipo_support_output}")
-endif()
-
+# Define VULKAN_DEBUG if it was set to On, or if it was set to AUTO and we're using debug mode.
 if (VULKAN_DEBUG STREQUAL "AUTO")
   target_compile_definitions(flutterpi_module PRIVATE $<$<CONFIG:Debug>:VULKAN_DEBUG>)
 elseif (VULKAN_DEBUG)
   target_compile_definitions(flutterpi_module PRIVATE VULKAN_DEBUG)
 endif()
 
+# Some sanitizer configs.
 if (ENABLE_TSAN)
-  target_link_options(flutterpi_module PRIVATE -fsanitize=thread)
-  target_compile_options(flutterpi_module PRIVATE -fsanitize=thread)
+  target_link_options(flutterpi_module PUBLIC -fsanitize=thread)
+  target_compile_options(flutterpi_module PUBLIC -fsanitize=thread)
 endif()
 if (ENABLE_ASAN)
   # when we use asan, we need to force linking against the C++ stdlib.
@@ -442,33 +437,44 @@ if (ENABLE_ASAN)
   # intercepted stdc++ yet.
   # Also disable --as-needed so we _actually_ link against c++, even though we don't use any symbols from it.
   target_link_libraries(flutterpi_module stdc++)
-  target_link_options(flutterpi_module PRIVATE -fsanitize=address -fno-omit-frame-pointer -Wl,--no-as-needed)
-  target_compile_options(flutterpi_module PRIVATE -fsanitize=address)
+  target_link_options(flutterpi_module PUBLIC -fsanitize=address -fno-omit-frame-pointer -Wl,--no-as-needed)
+  target_compile_options(flutterpi_module PUBLIC -fsanitize=address)
 
   check_c_compiler_flag(-static-libasan HAS_STATIC_LIBASAN)
   if (HAS_STATIC_LIBASAN)
-    target_link_options(flutterpi_module PRIVATE -static-libasan)
+    target_link_options(flutterpi_module PUBLIC -static-libasan)
   endif()
 endif()
 if (ENABLE_UBSAN)
-  target_link_options(flutterpi_module PRIVATE -fsanitize=undefined)
-  target_compile_options(flutterpi_module PRIVATE -fsanitize=undefined)
+  target_link_options(flutterpi_module PUBLIC -fsanitize=undefined)
+  target_compile_options(flutterpi_module PUBLIC -fsanitize=undefined)
 endif()
 if (ENABLE_MTRACE)
-  target_compile_definitions(flutterpi_module PRIVATE "ENABLE_MTRACE")
+  target_compile_definitions(flutterpi_module PUBLIC "ENABLE_MTRACE")
 endif()
 
+# Actual flutter-pi executable.
 add_executable(
   flutter-pi
   src/main.c
 )
-
 target_link_libraries(
   flutter-pi
   flutterpi_module
 )
-
 install(TARGETS flutter-pi RUNTIME DESTINATION bin)
+
+# Enable lto if supported.
+cmake_policy(SET CMP0069 NEW)
+include(CheckIPOSupported)
+check_ipo_supported(RESULT ipo_support_result OUTPUT ipo_support_output)
+string(TOLOWER "${CMAKE_BUILD_TYPE}" CMAKE_BUILD_TYPE_LOWER)
+if (ipo_support_result AND NOT (CMAKE_BUILD_TYPE_LOWER STREQUAL DEBUG))
+  set_property(TARGET flutterpi_module PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
+  set_property(TARGET flutter-pi PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
+else()
+  message(WARNING "IPO/LTO is not supported: ${ipo_support_output}")
+endif()
 
 if(ENABLE_TESTS)
   include(CTest)
