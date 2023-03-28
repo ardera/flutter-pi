@@ -300,7 +300,7 @@ static void fill_platform_view_layer_props(
     props_out->is_aa_rect = false;
     props_out->aa_rect = AA_RECT_FROM_COORDS(0, 0, 0, 0);
     props_out->quad = quad;
-    props_out->opacity = 0;
+    props_out->opacity = opacity;
     props_out->rotation = rotation;
 
     /// TODO: Implement clip rects
