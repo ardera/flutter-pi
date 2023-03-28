@@ -499,19 +499,19 @@ static int add_headers_to_player(
 static struct gstplayer_meta *create_meta(int64_t texture_id) {
     struct gstplayer_meta *meta;
     char *event_channel_name;
+    int ok;
 
     meta = malloc(sizeof *meta);
     if (meta == NULL) {
         return NULL;
     }
 
-    asprintf(
+    ok = asprintf(
         &event_channel_name,
         "flutter.io/videoPlayer/videoEvents%" PRId64,
         texture_id
     );
-
-    if (event_channel_name == NULL) {
+    if (ok < 0) {
         free(meta);
         return NULL;
     }
@@ -1145,10 +1145,16 @@ static int check_arg_is_minimum_sized_list(
     size_t minimum_size,
     FlutterPlatformMessageResponseHandle *responsehandle
 ) {
+    int ok;
+
     if (!(raw_std_value_is_list(arg) && raw_std_list_get_size(arg) >= minimum_size)) {
         char *error_message = NULL;
 
-        asprintf(&error_message, "Expected `arg` to be a list with at least %zu element(s).", minimum_size);
+        ok = asprintf(&error_message, "Expected `arg` to be a list with at least %zu element(s).", minimum_size);
+        if (ok < 0) {
+            platch_respond_illegal_arg_std(responsehandle, "Expected `arg` to be a list with a minimum size.");
+            return EINVAL;
+        }
 
         platch_respond_illegal_arg_std(responsehandle, error_message);
 
