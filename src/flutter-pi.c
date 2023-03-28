@@ -147,6 +147,8 @@ SEE ALSO:\n\
     https://github.com/flutter/engine/blob/main/shell/common/switches.h\n\
 ";
 
+struct libseat;
+
 struct flutterpi {
 	/**
 	 * @brief The KMS device.
@@ -236,11 +238,9 @@ struct flutterpi {
 	struct gl_renderer *gl_renderer;
 	struct vk_renderer *vk_renderer;
 
-#ifdef HAS_LIBSEAT
     struct libseat *libseat;
     struct pointer_set fd_for_device_id;
     bool session_active;
-#endif
 
     char *desired_videomode;
 };
@@ -1407,14 +1407,16 @@ static int flutterpi_run(struct flutterpi *flutterpi) {
 
     procs = &flutterpi->flutter.procs;
 
-#ifdef HAS_LIBSEAT
     if (flutterpi->libseat != NULL) {
+#ifdef HAS_LIBSEAT
         ok = libseat_dispatch(flutterpi->libseat, 0);
         if (ok < 0) {
             LOG_ERROR("initial libseat dispatch failed. libseat_dispatch: %s\n", strerror(errno));
         }
-    }
+#else
+        UNREACHABLE();
 #endif
+    }
 
     ok = plugin_registry_ensure_plugins_initialized(flutterpi->plugin_registry);
     if (ok != 0) {
@@ -1710,16 +1712,18 @@ static void on_switch_vt(void *userdata, int vt) {
 
     LOG_DEBUG("on_switch_vt(%d)\n", vt);
 
-#ifdef HAS_LIBSEAT
     if (flutterpi->libseat != NULL) {
+#ifdef HAS_LIBSEAT
         int ok;
 
         ok = libseat_switch_session(flutterpi->libseat, vt);
         if (ok < 0) {
             LOG_ERROR("Could not switch session. libseat_switch_session: %s\n", strerror(errno));
         }
-    }
+#else
+        UNREACHABLE();
 #endif
+    }
 }
 
 static void on_set_cursor_enabled(void *userdata, bool enabled) {
@@ -1773,8 +1777,8 @@ static int on_user_input_open(const char *path, int flags, void *userdata) {
     flutterpi = userdata;
     (void) flutterpi;
 
-#ifdef HAS_LIBSEAT
     if (flutterpi->libseat != NULL) {
+#ifdef HAS_LIBSEAT
         struct device_id_and_fd *entry;
         int device_id;
 
@@ -1798,18 +1802,20 @@ static int on_user_input_open(const char *path, int flags, void *userdata) {
 
         pset_put(&flutterpi->fd_for_device_id, entry);
         return fd;
-    }
+#else
+        UNREACHABLE();
 #endif
+    } else {
+        ok = open(path, flags);
+        if (ok < 0) {
+            ok = errno;
+            LOG_ERROR("Couldn't open evdev device. open: %s\n", strerror(ok));
+            return -ok;
+        }
 
-    ok = open(path, flags);
-    if (ok < 0) {
-        ok = errno;
-        LOG_ERROR("Couldn't open evdev device. open: %s\n", strerror(ok));
-        return -ok;
+        fd = ok;
+        return fd;
     }
-
-    fd = ok;
-    return fd;
 }
 
 static void on_user_input_close(int fd, void *userdata) {
@@ -1820,8 +1826,8 @@ static void on_user_input_close(int fd, void *userdata) {
     flutterpi = userdata;
     (void) flutterpi;
 
-#ifdef HAS_LIBSEAT
     if (flutterpi->libseat != NULL) { 
+#ifdef HAS_LIBSEAT
         struct device_id_and_fd *entry;
 
         for_each_pointer_in_pset(&flutterpi->fd_for_device_id, entry) {
@@ -1843,12 +1849,14 @@ static void on_user_input_close(int fd, void *userdata) {
         pset_remove(&flutterpi->fd_for_device_id, entry);
         free(entry);
         return;
-    }
+#else
+        UNREACHABLE();
 #endif
-    
-    ok = close(fd);
-    if (ok < 0) {
-        LOG_ERROR("Could not close evdev device. close: %s\n", strerror(errno));
+    } else {
+        ok = close(fd);
+        if (ok < 0) {
+            LOG_ERROR("Could not close evdev device. close: %s\n", strerror(errno));
+        }
     }
 }
 
@@ -2080,9 +2088,7 @@ static int on_drmdev_open(const char *path, int flags, void **fd_metadata_out, v
     (void) userdata;
 
 #if HAS_LIBSEAT
-    struct libseat *libseat;
-
-    libseat = userdata;
+    struct libseat *libseat = userdata;
     if (libseat != NULL) {
         ok = libseat_open_device(libseat, path, &fd);
         if (ok < 0) {
@@ -2094,6 +2100,8 @@ static int on_drmdev_open(const char *path, int flags, void **fd_metadata_out, v
         *(intptr_t*) fd_metadata_out = (intptr_t) device_id;
         return fd;
     }
+#else
+    DEBUG_ASSERT_EQUALS(userdata, NULL);
 #endif
     
     ok = open(path, flags);
@@ -2117,8 +2125,7 @@ static void on_drmdev_close(int fd, void *fd_metadata, void *userdata) {
     (void) userdata;
 
 #ifdef HAS_LIBSEAT
-    struct libseat *libseat;
-    libseat = userdata;
+    struct libseat *libseat = userdata;
     if (libseat != NULL) {
         int device_id = (intptr_t) fd_metadata;
 
@@ -2130,6 +2137,8 @@ static void on_drmdev_close(int fd, void *fd_metadata, void *userdata) {
 
         return;
     }
+#else
+    DEBUG_ASSERT_EQUALS(userdata, NULL);
 #endif
     
     ok = close(fd);
@@ -2144,15 +2153,15 @@ static const struct drmdev_interface drmdev_interface = {
     .close = on_drmdev_close
 };
 
-static struct drmdev *find_drmdev(
-#ifdef HAS_LIBSEAT
-    struct libseat *libseat
-#endif
-) {
+static struct drmdev *find_drmdev(struct libseat *libseat) {
     struct drm_connector *connector;
     struct drmdev *drmdev;
     drmDevicePtr devices[64];
     int ok, n_devices;
+
+#ifndef HAS_LIBSEAT
+    DEBUG_ASSERT_EQUALS(libseat, NULL);
+#endif
 
     ok = drmGetDevices2(0, devices, sizeof(devices)/sizeof(*devices));
     if (ok < 0) {
@@ -2161,7 +2170,7 @@ static struct drmdev *find_drmdev(
     }
 
     n_devices = ok;
-    
+
     // find a GPU that has a primary node
     drmdev = NULL;
     for (int i = 0; i < n_devices; i++) {
@@ -2174,15 +2183,10 @@ static struct drmdev *find_drmdev(
             continue;
         }
 
-        void *drmdev_interface_userdata = NULL;
-#ifdef HAS_LIBSEAT
-        drmdev_interface_userdata = libseat;
-#endif
-
         drmdev = drmdev_new_from_path(
             device->nodes[DRM_NODE_PRIMARY],
             &drmdev_interface,
-            drmdev_interface_userdata
+            libseat
         );
         if (drmdev == NULL) {
             LOG_ERROR("Could not create drmdev from device at \"%s\". Continuing.\n", device->nodes[DRM_NODE_PRIMARY]);
@@ -2313,9 +2317,7 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
     struct flutterpi *fpi;
     struct sd_event *event_loop;
     struct cmd_args cmd_args;
-#ifdef HAS_LIBSEAT
     struct libseat *libseat;
-#endif
     struct locales *locales;
     struct drmdev *drmdev;
     struct tracer *tracer;
@@ -2406,6 +2408,8 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
     if (libseat != NULL) {
         libseat_set_log_level(LIBSEAT_LOG_LEVEL_DEBUG);
     }
+#else
+    libseat = NULL;
 #endif
 
     locales = locales_new();
@@ -2416,11 +2420,7 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
 
     locales_print(locales);
 
-    drmdev = find_drmdev(
-#ifdef HAS_LIBSEAT
-        libseat
-#endif
-    );
+    drmdev = find_drmdev(libseat);
     if (drmdev == NULL) {
         goto fail_destroy_locales;
     }
@@ -2543,10 +2543,8 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
         .on_key_event = NULL
     };
 
-#ifdef HAS_LIBSEAT
     fpi->libseat = libseat;
     pset_init(&fpi->fd_for_device_id, PSET_DEFAULT_MAX_SIZE); 
-#endif
 
     input = user_input_new(
         &user_input_interface,
@@ -2714,11 +2712,13 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
     locales_destroy(locales);
 
     fail_destroy_libseat:
-#ifdef HAS_LIBSEAT
     if (libseat != NULL) {
+#ifdef HAS_LIBSEAT
         libseat_close_seat(libseat);
-    }
+#else
+        UNREACHABLE();
 #endif
+    }
 
     fail_unref_event_loop:
     sd_event_unrefp(&event_loop);
@@ -2761,11 +2761,13 @@ void flutterpi_destroy(struct flutterpi *flutterpi) {
     tracer_unref(flutterpi->tracer);
     drmdev_unref(flutterpi->drmdev);
     locales_destroy(flutterpi->locales);
-#ifdef HAS_LIBSEAT
     if (flutterpi->libseat != NULL) {
+#ifdef HAS_LIBSEAT
         libseat_close_seat(flutterpi->libseat);
-    }
+#else
+        UNREACAHBLE();
 #endif
+    }
     sd_event_unrefp(&flutterpi->event_loop);
     close(flutterpi->wakeup_event_loop_fd);
     flutter_paths_free(flutterpi->flutter.paths);
