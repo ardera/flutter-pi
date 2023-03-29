@@ -178,6 +178,12 @@ int compositor_get_event_fd(struct compositor *compositor);
 
 int compositor_on_event_fd_ready(struct compositor *compositor);
 
+void compositor_set_cursor(
+    struct compositor *compositor,
+    bool has_enabled, bool enabled,
+    bool has_delta, struct vec2f delta
+);
+
 ATTR_PURE EGLConfig egl_choose_config_with_pixel_format(EGLDisplay egl_display, const EGLint *config_attribs, enum pixfmt pixel_format);
 
 

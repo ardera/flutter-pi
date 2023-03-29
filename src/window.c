@@ -12,6 +12,7 @@
 #include <pthread.h>
 
 #include <window.h>
+#include <cursor.h>
 #include <collection.h>
 #include <modesetting.h>
 #include <flutter-pi.h>
@@ -518,6 +519,198 @@ int window_set_cursor(
     return ok;
 }
 
+
+enum cursor_size {
+	k32x32_CursorSize,
+	k48x48_CursorSize,
+	k64x64_CursorSize,
+	k96x96_CursorSize,
+	k128x128_CursorSize,
+
+	kMax_CursorSize = k128x128_CursorSize,
+	kCount_CursorSize = kMax_CursorSize + 1
+};
+
+struct cursor_buffer {
+	refcount_t n_refs;
+
+	struct drmdev *drmdev;
+	uint32_t gem_handle;
+	int drm_fb_id;
+	enum pixfmt format;
+	int width, height;
+	enum cursor_size size;
+	int rotation;
+
+	int hot_x, hot_y;
+};
+
+static const int pixel_size_for_cursor_size[] = {
+	[k32x32_CursorSize] = 32,
+	[k48x48_CursorSize] = 48,
+	[k64x64_CursorSize] = 64,
+	[k96x96_CursorSize] = 96,
+	[k128x128_CursorSize] = 128
+};
+
+COMPILE_ASSERT(ARRAY_SIZE(pixel_size_for_cursor_size) == kCount_CursorSize);
+
+
+MAYBE_UNUSED static enum cursor_size cursor_size_from_pixel_ratio(double device_pixel_ratio) {
+	double last_diff = INFINITY;
+	enum cursor_size size;
+
+	for (enum cursor_size size_iter = k32x32_CursorSize; size_iter < kCount_CursorSize; size_iter++) {
+		double cursor_dpr = (pixel_size_for_cursor_size[size_iter] * 3 * 10.0) / (25.4 * 38);
+		double cursor_screen_dpr_diff = device_pixel_ratio - cursor_dpr;
+		if ((-last_diff < cursor_screen_dpr_diff) && (cursor_screen_dpr_diff < last_diff)) {
+			size = size_iter;
+			last_diff = cursor_screen_dpr_diff;
+		}
+	}
+
+	return size;
+}
+
+MAYBE_UNUSED static struct cursor_buffer *cursor_buffer_new(struct drmdev *drmdev, enum cursor_size size, int rotation) {
+	const struct cursor_icon *icon;
+	struct cursor_buffer *b;
+	uint32_t gem_handle, pitch;
+	uint32_t fb_id;
+	size_t buffer_size;
+	void *map_void;
+	int pixel_size, hot_x, hot_y;
+	int ok;
+
+	DEBUG_ASSERT_NOT_NULL(drmdev);
+	DEBUG_ASSERT(rotation == 0 || rotation == 1 || rotation == 2 || rotation == 3);
+
+	if (!drmdev_supports_dumb_buffers(drmdev)) {
+		LOG_ERROR("KMS doesn't support dumb buffers. Can't upload mouse cursor icon.\n");
+		return NULL;
+	}
+
+	b = malloc(sizeof *b);
+	if (b == NULL) {
+		return NULL;
+	}
+
+	pixel_size = pixel_size_for_cursor_size[size];
+
+	ok = drmdev_create_dumb_buffer(
+		drmdev,
+		pixel_size, pixel_size, 32,
+		&gem_handle,
+		&pitch,
+		&buffer_size
+	);
+	if (ok != 0) {
+		goto fail_free_b;
+	}
+
+	map_void = drmdev_map_dumb_buffer(
+		drmdev,
+		gem_handle,
+		buffer_size
+	);
+	if (map_void == NULL) {
+		goto fail_destroy_dumb_buffer;
+	}
+	
+	icon = cursors + size;
+	DEBUG_ASSERT_EQUALS(pixel_size, icon->width);
+	DEBUG_ASSERT_EQUALS(pixel_size, icon->height);
+
+	if (rotation == 0) {
+		DEBUG_ASSERT_EQUALS(pixel_size * 4, pitch);
+		memcpy(map_void, icon->data, buffer_size);
+		hot_x = icon->hot_x;
+		hot_y = icon->hot_y;
+	} else if ((rotation == 1) || (rotation == 2) || (rotation == 3)) {
+		uint32_t *map_uint32 = (uint32_t*) map_void;
+
+		for (int y = 0; y < pixel_size; y++) {
+			for (int x = 0; x < pixel_size; x++) {
+				int buffer_x, buffer_y;
+				if (rotation == 1) {
+					buffer_x = pixel_size - y - 1;
+					buffer_y = x;
+				} else if (rotation == 2) {
+					buffer_x = pixel_size - y - 1;
+					buffer_y = pixel_size - x - 1;
+				} else {
+					buffer_x = y;
+					buffer_y = pixel_size - x - 1;
+				}
+
+				int buffer_offset = pitch * buffer_y + 4 * buffer_x;
+				int cursor_offset = pixel_size * y + x;
+
+				map_uint32[buffer_offset / 4] = icon->data[cursor_offset];
+			}
+		}
+
+		if (rotation == 1) {
+			hot_x = pixel_size - icon->hot_y - 1;
+			hot_y = icon->hot_x;
+		} else if (rotation == 2) {
+			hot_x = pixel_size - icon->hot_x - 1;
+			hot_y = pixel_size - icon->hot_y - 1;
+		} else {
+			DEBUG_ASSERT(rotation == 3);
+			hot_x = icon->hot_y;
+			hot_y = pixel_size - icon->hot_x - 1;
+		}
+	}
+
+	drmdev_unmap_dumb_buffer(drmdev, map_void, size);
+
+	fb_id = drmdev_add_fb(
+		drmdev,
+		pixel_size,
+		pixel_size,
+		kARGB8888_FpiPixelFormat,
+		gem_handle,
+		pitch,
+		0,
+		true,
+		DRM_FORMAT_MOD_LINEAR
+	);
+	if (fb_id == 0) {
+		LOG_ERROR("Couldn't add mouse cursor buffer as KMS framebuffer.\n");
+		goto fail_destroy_dumb_buffer;
+	}
+
+	b->n_refs = REFCOUNT_INIT_1;
+	b->drmdev = drmdev_ref(drmdev);
+	b->gem_handle = gem_handle;
+	b->drm_fb_id = fb_id;
+	b->format = kARGB8888_FpiPixelFormat;
+	b->width = pixel_size;
+	b->height = pixel_size;
+	b->size = size;
+	b->rotation = rotation;
+	b->hot_x = hot_x;
+	b->hot_y = hot_y;
+	return b;
+
+	fail_destroy_dumb_buffer:
+	drmdev_destroy_dumb_buffer(drmdev, gem_handle);
+
+	fail_free_b:
+	free(b);
+	return NULL;
+}
+
+static void cursor_buffer_destroy(struct cursor_buffer *buffer) {
+	drmdev_rm_fb(buffer->drmdev, buffer->drm_fb_id);
+	drmdev_destroy_dumb_buffer(buffer->drmdev, buffer->gem_handle);
+	drmdev_unref(buffer->drmdev);
+	free(buffer);
+}
+
+DEFINE_STATIC_REF_OPS(cursor_buffer, n_refs)
+
 static int select_mode(
     struct drmdev *drmdev,
     struct drm_connector **connector_out,
@@ -948,20 +1141,6 @@ static int kms_window_push_composition(struct window *window, struct fl_layer_co
             goto fail_unref_builder;
         }
     }
-
-    /// TODO: Fix this
-    /// make kms_req_builder keep a ref on the buffers
-    /// delete the release callbacks
-    // ok = kms_req_builder_add_scanout_callback(
-    //     builder,
-    //     on_scanout,
-    //     window_ref(window),
-    //     unref_window_void
-    // );
-    // if (ok != 0) {
-    //     LOG_ERROR("Couldn't register scanout callback.\n");
-    //     goto fail_unref_window;
-    // }
 
     req = kms_req_builder_build(builder);
     if (req == NULL) {

@@ -1345,7 +1345,7 @@ int user_input_on_fd_ready(struct user_input *input) {
 
     // only move the pointer if the cursor is enabled now
     if (cursor_enabled && ((cursor_x != cursor_x_before) || (cursor_y != cursor_y_before))) {
-        input->interface.on_move_cursor(input->userdata, cursor_x, cursor_y);
+        input->interface.on_move_cursor(input->userdata, VEC2F(cursor_x - cursor_x_before, cursor_y - cursor_y_before));
     }
 
     return 0;

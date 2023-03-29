@@ -88,7 +88,7 @@ typedef void (*gtk_keyevent_callback_t)(
 
 typedef void (*set_cursor_enabled_callback_t)(void *userdata, bool enabled);
 
-typedef void (*move_cursor_callback_t)(void *userdata, unsigned int x, unsigned int y);
+typedef void (*move_cursor_callback_t)(void *userdata, struct vec2f delta);
 
 typedef void (*keyevent_callback_t)(
     void *userdata,

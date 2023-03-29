@@ -1730,44 +1730,28 @@ static void on_switch_vt(void *userdata, int vt) {
 
 static void on_set_cursor_enabled(void *userdata, bool enabled) {
     struct flutterpi *flutterpi;
-    int ok;
 
     flutterpi = userdata;
     (void) flutterpi;
-    (void) ok;
-    (void) enabled;
 
-    /// TODO: Implement
-    /*
-    ok = compositor_apply_cursor_state(
-        enabled,
-        flutterpi->view.rotation,
-        flutterpi->display.pixel_ratio
+    compositor_set_cursor(
+        flutterpi->compositor,
+        true, enabled,
+        false, VEC2F(0, 0)
     );
-    if (ok != 0) {
-        LOG_ERROR("Error enabling / disabling mouse cursor. compositor_apply_cursor_state: %s\n", strerror(ok));
-    }
-    */
 }
 
-static void on_move_cursor(void *userdata, unsigned int x, unsigned int y) {
+static void on_move_cursor(void *userdata, struct vec2f delta) {
     struct flutterpi *flutterpi;
     int ok;
 
     flutterpi = userdata;
-    (void) ok;
-    (void) flutterpi;
-    (void) x;
-    (void) y;
 
-    /// TODO: Implement
-
-    /*
-    ok = compositor_set_cursor_pos(x, y);
-    if (ok != 0) {
-        LOG_ERROR("Error moving mouse cursor. compositor_set_cursor_pos: %s\n", strerror(ok));
-    }
-    */
+    compositor_set_cursor(
+        flutterpi->compositor,
+        true, true,
+        true, delta
+    );
 }
 
 static int on_user_input_open(const char *path, int flags, void *userdata) {
