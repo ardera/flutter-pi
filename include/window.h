@@ -116,4 +116,12 @@ EGLSurface window_get_egl_surface(struct window *window);
  */
 struct render_surface *window_get_render_surface(struct window *window, struct vec2i size);
 
+bool window_is_cursor_enabled(struct window *window);
+
+int window_set_cursor(
+    struct window *window,
+    bool has_enabled, bool enabled,
+    bool has_pos, struct vec2i pos
+);
+
 #endif // _FLUTTERPI_INCLUDE_WINDOW_H
