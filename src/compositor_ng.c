@@ -114,6 +114,9 @@ struct compositor {
     struct pointer_set platform_views;
 
     FlutterCompositor flutter_compositor;
+
+    bool cursor_enabled;
+    struct vec2f cursor_pos;
 };
 
 struct platform_view_with_id {
@@ -534,4 +537,57 @@ static bool on_flutter_collect_backing_store(const FlutterBackingStore *fl_store
 const FlutterCompositor *compositor_get_flutter_compositor(struct compositor *compositor) {
     DEBUG_ASSERT_NOT_NULL(compositor);
     return &compositor->flutter_compositor;
+}
+
+void compositor_set_cursor(
+    struct compositor *compositor,
+    bool has_enabled, bool enabled,
+    bool has_delta, struct vec2f delta
+) {
+    if (!has_enabled && !has_delta) {
+        return;
+    }
+
+    compositor_lock(compositor);
+
+    if (has_enabled) {
+        if (enabled && !compositor->cursor_enabled) {
+            // enable cursor            
+        } else if (!enabled && compositor->cursor_enabled) {
+            // disable cursor
+        }
+    }
+
+    if (has_delta) {
+        if (compositor->cursor_enabled) {
+            // move cursor
+            compositor->cursor_pos = vec2f_add(compositor->cursor_pos, delta);
+            
+            struct view_geometry viewgeo = window_get_view_geometry(compositor->main_window);
+
+            if (compositor->cursor_pos.x < 0.0f) {
+                compositor->cursor_pos.x = 0.0f;
+            } else if (compositor->cursor_pos.x > viewgeo.view_size.x) {
+                compositor->cursor_pos.x = viewgeo.view_size.x;
+            }
+
+            if (compositor->cursor_pos.y < 0.0f) {
+                compositor->cursor_pos.y = 0.0f;
+            } else if (compositor->cursor_pos.y > viewgeo.view_size.y) {
+                compositor->cursor_pos.y = viewgeo.view_size.y;
+            }
+        } else {
+            // !enabled && !window->cursor_enabled
+            // move cursor while cursor is disabled
+            LOG_ERROR("Attempted to move cursor while cursor is disabled.\n");
+        }
+    }
+
+    window_set_cursor(
+        compositor->main_window,
+        has_enabled, enabled,
+        has_delta, VEC2I((int) round(compositor->cursor_pos.x), (int) round(compositor->cursor_pos.y))
+    );
+
+    compositor_unlock(compositor);
 }

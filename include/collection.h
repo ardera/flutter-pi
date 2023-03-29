@@ -757,6 +757,10 @@ struct vec2f {
 
 #define VEC2F(_x, _y) ((struct vec2f) {.x = (_x), .y = (_y)})
 
+ATTR_CONST static inline struct vec2f vec2f_add(struct vec2f a, struct vec2f b) {
+	return VEC2F(a.x + b.x, a.y + b.y);
+}
+
 struct vec2i {
 	int x, y;	
 };

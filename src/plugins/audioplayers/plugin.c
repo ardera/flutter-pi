@@ -26,6 +26,8 @@ static int on_local_method_call(char *channel, struct platch_obj *object, Flutte
     const char *method;
     char *player_id, *mode;
     int result = 1;
+    int ok;
+
     (void) responsehandle;
     (void) channel;
     method = object->method;
@@ -88,8 +90,8 @@ static int on_local_method_call(char *channel, struct platch_obj *object, Flutte
         bool is_local = STDVALUE_AS_BOOL(*tmp);
         if (is_local) {
             char *local_url = NULL;
-            asprintf(&local_url, "file://%s", url);
-            if (local_url == NULL) {
+            ok = asprintf(&local_url, "file://%s", url);
+            if (ok < 0) {
                 return platch_respond_native_error_std(responsehandle, ENOMEM);
             }
             url = local_url;
