@@ -156,6 +156,7 @@ struct window {
         drmModeModeInfo *mode;
         
         bool should_apply_mode;
+        struct cursor_buffer *cursor;
     } kms;
 
     /**
@@ -209,9 +210,9 @@ struct window {
     int (*push_composition)(struct window *window, struct fl_layer_composition *composition);
     struct render_surface *(*get_render_surface)(struct window *window, struct vec2i size);
     EGLSurface (*get_egl_surface)(struct window *window);
-    int (*enable_cursor)(struct window *window, struct vec2i pos);
-    int (*disable_cursor)(struct window *window);
-    int (*move_cursor)(struct window *window, struct vec2i pos);
+    int (*enable_cursor_locked)(struct window *window, struct vec2i pos);
+    int (*disable_cursor_locked)(struct window *window);
+    int (*move_cursor_locked)(struct window *window, struct vec2i pos);
     void (*deinit)(struct window *window);
 };
 
@@ -389,9 +390,9 @@ static int window_init(
     window->push_composition = NULL;
     window->get_render_surface = NULL;
     window->get_egl_surface = NULL;
-    window->enable_cursor = NULL;
-    window->disable_cursor = NULL;
-    window->move_cursor = NULL;
+    window->enable_cursor_locked = NULL;
+    window->disable_cursor_locked = NULL;
+    window->move_cursor_locked = NULL;
     window->deinit = window_deinit;
     return 0;
 }
@@ -493,20 +494,20 @@ int window_set_cursor(
     if (has_enabled) {
         if (enabled && !window->cursor_enabled) {
             // enable cursor
-            DEBUG_ASSERT_NOT_NULL(window->enable_cursor);
-            ok = window->enable_cursor(window, pos);
+            DEBUG_ASSERT_NOT_NULL(window->enable_cursor_locked);
+            ok = window->enable_cursor_locked(window, pos);
         } else if (!enabled && window->cursor_enabled) {
             // disable cursor
-            DEBUG_ASSERT_NOT_NULL(window->disable_cursor);
-            ok = window->disable_cursor(window);
+            DEBUG_ASSERT_NOT_NULL(window->disable_cursor_locked);
+            ok = window->disable_cursor_locked(window);
         }
     }
 
     if (has_pos) {
         if (window->cursor_enabled) {
             // move cursor
-            DEBUG_ASSERT_NOT_NULL(window->move_cursor);
-            ok = window->move_cursor(window, pos);
+            DEBUG_ASSERT_NOT_NULL(window->move_cursor_locked);
+            ok = window->move_cursor_locked(window, pos);
         } else {
             // !enabled && !window->cursor_enabled
             // move cursor while cursor is disabled
@@ -540,7 +541,7 @@ struct cursor_buffer {
 	enum pixfmt format;
 	int width, height;
 	enum cursor_size size;
-	int rotation;
+	drm_plane_transform_t rotation;
 
 	int hot_x, hot_y;
 };
@@ -572,7 +573,7 @@ MAYBE_UNUSED static enum cursor_size cursor_size_from_pixel_ratio(double device_
 	return size;
 }
 
-MAYBE_UNUSED static struct cursor_buffer *cursor_buffer_new(struct drmdev *drmdev, enum cursor_size size, int rotation) {
+MAYBE_UNUSED static struct cursor_buffer *cursor_buffer_new(struct drmdev *drmdev, enum cursor_size size, drm_plane_transform_t rotation) {
 	const struct cursor_icon *icon;
 	struct cursor_buffer *b;
 	uint32_t gem_handle, pitch;
@@ -583,7 +584,7 @@ MAYBE_UNUSED static struct cursor_buffer *cursor_buffer_new(struct drmdev *drmde
 	int ok;
 
 	DEBUG_ASSERT_NOT_NULL(drmdev);
-	DEBUG_ASSERT(rotation == 0 || rotation == 1 || rotation == 2 || rotation == 3);
+	DEBUG_ASSERT(PLANE_TRANSFORM_IS_ONLY_ROTATION(rotation));
 
 	if (!drmdev_supports_dumb_buffers(drmdev)) {
 		LOG_ERROR("KMS doesn't support dumb buffers. Can't upload mouse cursor icon.\n");
@@ -621,24 +622,25 @@ MAYBE_UNUSED static struct cursor_buffer *cursor_buffer_new(struct drmdev *drmde
 	DEBUG_ASSERT_EQUALS(pixel_size, icon->width);
 	DEBUG_ASSERT_EQUALS(pixel_size, icon->height);
 
-	if (rotation == 0) {
+	if (rotation.rotate_0 == 0) {
 		DEBUG_ASSERT_EQUALS(pixel_size * 4, pitch);
 		memcpy(map_void, icon->data, buffer_size);
 		hot_x = icon->hot_x;
 		hot_y = icon->hot_y;
-	} else if ((rotation == 1) || (rotation == 2) || (rotation == 3)) {
+	} else if (rotation.rotate_90 || rotation.rotate_180 || rotation.rotate_270) {
 		uint32_t *map_uint32 = (uint32_t*) map_void;
 
 		for (int y = 0; y < pixel_size; y++) {
 			for (int x = 0; x < pixel_size; x++) {
 				int buffer_x, buffer_y;
-				if (rotation == 1) {
+				if (rotation.rotate_90) {
 					buffer_x = pixel_size - y - 1;
 					buffer_y = x;
-				} else if (rotation == 2) {
+				} else if (rotation.rotate_180) {
 					buffer_x = pixel_size - y - 1;
 					buffer_y = pixel_size - x - 1;
 				} else {
+                    DEBUG_ASSERT(rotation.rotate_270);
 					buffer_x = y;
 					buffer_y = pixel_size - x - 1;
 				}
@@ -650,14 +652,14 @@ MAYBE_UNUSED static struct cursor_buffer *cursor_buffer_new(struct drmdev *drmde
 			}
 		}
 
-		if (rotation == 1) {
+		if (rotation.rotate_90) {
 			hot_x = pixel_size - icon->hot_y - 1;
 			hot_y = icon->hot_x;
-		} else if (rotation == 2) {
+		} else if (rotation.rotate_180) {
 			hot_x = pixel_size - icon->hot_x - 1;
 			hot_y = pixel_size - icon->hot_y - 1;
 		} else {
-			DEBUG_ASSERT(rotation == 3);
+			DEBUG_ASSERT(rotation.rotate_270);
 			hot_x = icon->hot_y;
 			hot_y = pixel_size - icon->hot_x - 1;
 		}
@@ -863,6 +865,9 @@ static int kms_window_push_composition(struct window *window, struct fl_layer_co
 static struct render_surface *kms_window_get_render_surface(struct window *window, struct vec2i size);
 static EGLSurface kms_window_get_egl_surface(struct window *window);
 static void kms_window_deinit(struct window *window);
+static int kms_window_enable_cursor_locked(struct window *window, struct vec2i pos);
+static int kms_window_disable_cursor_locked(struct window *window);
+static int kms_window_move_cursor_locked(struct window *window, struct vec2i pos);
 
 ATTR_MALLOC struct window *kms_window_new(
     // clang-format off
@@ -970,6 +975,7 @@ ATTR_MALLOC struct window *kms_window_new(
     window->kms.crtc = selected_crtc;
     window->kms.mode = selected_mode;
     window->kms.should_apply_mode = true;
+    window->kms.cursor = NULL;
     window->renderer_type = renderer_type;
     window->gl_renderer = gl_renderer != NULL ? gl_renderer_ref(gl_renderer) : NULL;
     if (vk_renderer != NULL) {
@@ -985,6 +991,9 @@ ATTR_MALLOC struct window *kms_window_new(
     window->get_render_surface = kms_window_get_render_surface;
     window->get_egl_surface = kms_window_get_egl_surface;
     window->deinit = kms_window_deinit;
+    window->enable_cursor_locked = kms_window_enable_cursor_locked;
+    window->disable_cursor_locked = kms_window_disable_cursor_locked;
+    window->move_cursor_locked = kms_window_move_cursor_locked;
     return window;
 
 
@@ -1108,7 +1117,6 @@ static int kms_window_push_composition(struct window *window, struct fl_layer_co
     window_lock(window);
 
     /// TODO: If we don't have new revisions, we don't need to scanout anything.
-
     fl_layer_composition_swap_ptrs(&window->composition, composition);
 
     builder = drmdev_create_request_builder(window->kms.drmdev, window->kms.crtc->id);
@@ -1141,6 +1149,40 @@ static int kms_window_push_composition(struct window *window, struct fl_layer_co
             goto fail_unref_builder;
         }
     }
+
+    // add cursor infos
+	if (window->kms.cursor != NULL) {
+		ok = kms_req_builder_push_fb_layer(
+			builder,
+			&(const struct kms_fb_layer) {
+				.drm_fb_id = window->kms.cursor->drm_fb_id,
+				.format = window->kms.cursor->format,
+				.has_modifier = true,
+				.modifier = DRM_FORMAT_MOD_LINEAR,
+				.src_x = 0,
+				.src_y = 0,
+				.src_w = ((uint16_t) window->kms.cursor->width) << 16,
+				.src_h = ((uint16_t) window->kms.cursor->height) << 16,
+				.dst_x = window->cursor_pos.x - window->kms.cursor->hot_x,
+				.dst_y = window->cursor_pos.y - window->kms.cursor->hot_y,
+				.dst_w = window->kms.cursor->width,
+				.dst_h = window->kms.cursor->height,
+				.has_rotation = false,
+				.rotation = PLANE_TRANSFORM_NONE,
+				.has_in_fence_fd = false,
+				.in_fence_fd = 0,
+				.prefer_cursor = true,
+			},
+			cursor_buffer_unref_void,
+			NULL,
+			window->kms.cursor
+		);
+		if (ok != 0) {
+			LOG_ERROR("Couldn't present cursor.\n");
+		} else {
+			cursor_buffer_ref(window->kms.cursor);
+		}
+	}
 
     req = kms_req_builder_build(builder);
     if (req == NULL) {
@@ -1352,4 +1394,33 @@ static EGLSurface kms_window_get_egl_surface(struct window *window) {
     } else {
         return EGL_NO_SURFACE;
     }
+}
+
+static int kms_window_enable_cursor_locked(struct window *window, struct vec2i pos) {
+    struct cursor_buffer *cursor;
+
+    DEBUG_ASSERT_EQUALS(window->kms.cursor, NULL);
+
+    cursor = cursor_buffer_new(window->kms.drmdev, cursor_size_from_pixel_ratio(window->pixel_ratio), window->rotation);
+    if (cursor == NULL) {
+        return EIO;
+    }
+
+    window->cursor_pos = pos;
+    
+    window->kms.cursor = cursor;
+    return 0;
+}
+
+static int kms_window_disable_cursor_locked(struct window *window) {
+    cursor_buffer_unrefp(&window->kms.cursor);
+    return 0;
+}
+
+static int kms_window_move_cursor_locked(struct window *window, struct vec2i pos) {
+    window->cursor_pos = pos;
+
+    /// TODO: Draw a new frame or redraw the last frame with new cursor pos here.
+
+    return 0;
 }
