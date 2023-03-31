@@ -1711,6 +1711,7 @@ static void on_switch_vt(void *userdata, int vt) {
     DEBUG_ASSERT_NOT_NULL(userdata);
     flutterpi = userdata;
     (void) flutterpi;
+    (void) vt;
 
     LOG_DEBUG("on_switch_vt(%d)\n", vt);
 
