@@ -44,10 +44,10 @@ MAYBE_UNUSED static bool supports_extension(int n_extensions, VkExtensionPropert
 }
 
 static VkBool32 on_debug_utils_message(
-    VkDebugUtilsMessageSeverityFlagBitsEXT           severity,
-    MAYBE_UNUSED VkDebugUtilsMessageTypeFlagsEXT     types,
-    const VkDebugUtilsMessengerCallbackDataEXT*      data,
-    MAYBE_UNUSED void*                               userdata
+    MAYBE_UNUSED VkDebugUtilsMessageSeverityFlagBitsEXT severity,
+    MAYBE_UNUSED VkDebugUtilsMessageTypeFlagsEXT types,
+    MAYBE_UNUSED const VkDebugUtilsMessengerCallbackDataEXT *data,
+    MAYBE_UNUSED void *userdata
 ) {
     LOG_DEBUG(
         "[%s] (%d, %s) %s (queues: %d, cmdbufs: %d, objects: %d)\n",

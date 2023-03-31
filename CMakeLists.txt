@@ -482,6 +482,9 @@ if(LTO AND (CMAKE_BUILD_TYPE STREQUAL Release OR CMAKE_BUILD_TYPE STREQUAL RelWi
   endif()
 
   check_ipo_supported(RESULT IPO_SUPPORTED OUTPUT IPO_SUPPORT_OUTPUT)
+  if (NOT IPO_SUPPORTED)
+    message(WARNING "IPO/LTO was requested in the configure options, but is not supported by the toolchain. Check CMakeFiles/CMakeError.log for details.")
+  endif()
   
   # Try to enable IPO with gold and lld.
   # Needs CMP0138.
@@ -516,11 +519,18 @@ if(LTO AND (CMAKE_BUILD_TYPE STREQUAL Release OR CMAKE_BUILD_TYPE STREQUAL RelWi
   #     set(CMAKE_C_FLAGS "${OLD_CMAKE_C_FLAGS}")
   #   endif()
   # endif()
+
+  # clang doesn't support LTO when using GNU ld.
+  if(IPO_SUPPORTED AND ("${CMAKE_C_COMPILER_ID}" STREQUAL "CLANG"))
+    execute_process(COMMAND ${CMAKE_C_COMPILER} -Wl,--version OUTPUT_VARIABLE LINKER_VERSION_OUTPUT ERROR_QUIET)
+    if("${LINKER_VERSION_OUTPUT}" MATCHES "GNU ld")
+      message(WARNING "IPO/LTO was requested, but is not supported when using clang with GNU ld as the linker. Try setting gold or lld as the system linker.")
+      set(IPO_SUPPORTED OFF)
+    endif()
+  endif()
   
   if (IPO_SUPPORTED)
     set(USE_LTO ON)
-  else()
-    message(WARNING "IPO/LTO was requested in the configure options, but is not supported by the toolchain. Check CMakeFiles/CMakeError.log for details.")
   endif()
 endif()
 
