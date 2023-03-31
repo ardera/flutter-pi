@@ -521,7 +521,7 @@ if(LTO AND (CMAKE_BUILD_TYPE STREQUAL Release OR CMAKE_BUILD_TYPE STREQUAL RelWi
   # endif()
 
   # clang doesn't support LTO when using GNU ld.
-  if(IPO_SUPPORTED AND ("${CMAKE_C_COMPILER_ID}" STREQUAL "CLANG"))
+  if(IPO_SUPPORTED AND ("${CMAKE_C_COMPILER_ID}" STREQUAL "Clang"))
     execute_process(COMMAND ${CMAKE_C_COMPILER} -Wl,--version OUTPUT_VARIABLE LINKER_VERSION_OUTPUT ERROR_QUIET)
     if("${LINKER_VERSION_OUTPUT}" MATCHES "GNU ld")
       message(WARNING "IPO/LTO was requested, but is not supported when using clang with GNU ld as the linker. Try setting gold or lld as the system linker.")
