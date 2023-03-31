@@ -1181,6 +1181,7 @@ void drmdev_unmap_dumb_buffer(struct drmdev *drmdev, void *map, size_t size) {
 
     DEBUG_ASSERT_NOT_NULL(drmdev);
     DEBUG_ASSERT_NOT_NULL(map);
+    (void) drmdev;
 
     ok = munmap(map, size);
     if (ok < 0) {
