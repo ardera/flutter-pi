@@ -169,11 +169,11 @@ MAYBE_UNUSED static inline void trace_instant(struct gstplayer *player, const ch
     return flutterpi_trace_event_instant(player->flutterpi, name);
 }
 
-static inline void trace_begin(struct gstplayer *player, const char *name) {
+MAYBE_UNUSED static inline void trace_begin(struct gstplayer *player, const char *name) {
     return flutterpi_trace_event_begin(player->flutterpi, name);
 }
 
-static inline void trace_end(struct gstplayer *player, const char *name) {
+MAYBE_UNUSED static inline void trace_end(struct gstplayer *player, const char *name) {
     return flutterpi_trace_event_end(player->flutterpi, name);
 }
 

@@ -59,6 +59,7 @@ option(ENABLE_MTRACE "True if flutter-pi should call GNU mtrace() on startup." O
 option(ENABLE_TESTS "True if tests should be built. Requires Unity to be checked out at third_party/Unity." OFF)
 option(ENABLE_SESSION_SWITCHING "True if flutter-pi should be built with session switching support. Requires libseat-dev to be installed." ON)
 option(TRY_ENABLE_SESSION_SWITCHING "Don't throw an error if libseat isn't found, instead just build without session switching support in that case." ON)
+option(LTO "Check for IPO/LTO support and enable, if supported. May require gold/lld when building with clang. (Either using `-fuse-ld` in CMAKE_C_FLAGS or by setting as the default system linker.) Only applies to Release or RelWithDebInfo build types." ON)
 
 set(FILESYSTEM_LAYOUTS default meta-flutter)
 set(FILESYSTEM_LAYOUT "default" CACHE STRING "Where to look for the icudtl.dat, app.so/libapp.so, flutter asset bundle.")
@@ -468,13 +469,73 @@ install(TARGETS flutter-pi RUNTIME DESTINATION bin)
 # Enable lto if supported.
 cmake_policy(SET CMP0069 NEW)
 include(CheckIPOSupported)
-check_ipo_supported(RESULT ipo_support_result OUTPUT ipo_support_output)
-string(TOLOWER "${CMAKE_BUILD_TYPE}" CMAKE_BUILD_TYPE_LOWER)
-if (ipo_support_result AND NOT (CMAKE_BUILD_TYPE_LOWER STREQUAL DEBUG))
+# include(CheckLinkerFlag)
+
+set(USE_LTO OFF)
+# set(NEEDS_GOLD OFF)
+# set(NEEDS_LLD OFF)
+if(LTO AND (CMAKE_BUILD_TYPE STREQUAL Release OR CMAKE_BUILD_TYPE STREQUAL RelWithDebInfo))
+  # So people can specify `-fuse-ld=lld` in the CMAKE_C_FLAGS.
+  # Otherwise check_ipo_supported will not use CMAKE_C_FLAGS.
+  if (POLICY CMP0138)
+    cmake_policy(SET CMP0138 NEW)
+  endif()
+
+  check_ipo_supported(RESULT IPO_SUPPORTED OUTPUT IPO_SUPPORT_OUTPUT)
+  
+  # Try to enable IPO with gold and lld.
+  # Needs CMP0138.
+  # (untested because CMP0138 required CMake 3.24, that's why it's commented out)
+  # if (NOT IPO_SUPPORTED)
+  #   check_linker_flag(C "-fuse-ld=gold" SUPPORTS_GOLD)
+  #   if (SUPPORTS_GOLD)
+  #     set(OLD_CMAKE_C_FLAGS "${CMAKE_C_FLAGS}")
+  #     
+  #     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fuse-ld=gold")
+  #     try_compile()
+  #     check_ipo_supported(RESULT IPO_SUPPORTED_WITH_GOLD OUTPUT IPO_SUPPORT_OUTPUT)
+  #     if (IPO_SUPPORTED_WITH_GOLD)
+  #       set(IPO_SUPPORTED ON)
+  #       set(NEEDS_GOLD ON)
+  #     endif()
+  #     
+  #     set(CMAKE_C_FLAGS "${OLD_CMAKE_C_FLAGS}")
+  #   endif()
+  #
+  #   check_linker_flag(C "-fuse-ld=lld" SUPPORTS_LLD)
+  #   if (SUPPORTS_LLD)
+  #     set(OLD_CMAKE_C_FLAGS "${CMAKE_C_FLAGS}")
+  #     
+  #     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fuse-ld=lld")
+  #     check_ipo_supported(RESULT IPO_SUPPORTED_WITH_LLD OUTPUT IPO_SUPPORT_OUTPUT)
+  #     if (IPO_SUPPORTED_WITH_LLD)
+  #       set(IPO_SUPPORTED ON)
+  #       set(NEEDS_LLD ON)
+  #     endif()
+  #     
+  #     set(CMAKE_C_FLAGS "${OLD_CMAKE_C_FLAGS}")
+  #   endif()
+  # endif()
+  
+  if (IPO_SUPPORTED)
+    set(USE_LTO ON)
+  else()
+    message(WARNING "IPO/LTO was requested in the configure options, but is not supported by the toolchain. Check CMakeFiles/CMakeError.log for details.")
+  endif()
+endif()
+
+message(STATUS "IPO/LTO ................ ${USE_LTO}")
+if (USE_LTO)
   set_property(TARGET flutterpi_module PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
   set_property(TARGET flutter-pi PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
-else()
-  message(WARNING "IPO/LTO is not supported: ${ipo_support_output}")
+  # if (NEEDS_GOLD)
+  #   Technically specifying only for one would suffice.
+  #   target_link_options(flutterpi_module PUBLIC "-fuse-ld=gold")
+  #   target_link_options(flutter-pi PUBLIC "-fuse-ld=gold")
+  # elseif (NEEDS_LLD)
+  #   target_link_options(flutterpi_module PUBLIC "-fuse-ld=lld")
+  #   target_link_options(flutter-pi PUBLIC "-fuse-ld=lld")
+  # endif()
 endif()
 
 if(ENABLE_TESTS)
