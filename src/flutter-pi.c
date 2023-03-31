@@ -1743,7 +1743,6 @@ static void on_set_cursor_enabled(void *userdata, bool enabled) {
 
 static void on_move_cursor(void *userdata, struct vec2f delta) {
     struct flutterpi *flutterpi;
-    int ok;
 
     flutterpi = userdata;
 
