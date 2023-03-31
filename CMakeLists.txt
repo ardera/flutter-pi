@@ -286,6 +286,7 @@ if (ENABLE_VULKAN)
     target_link_libraries(flutterpi_module PUBLIC
       PkgConfig::VULKAN
     )
+    target_compile_definitions(flutterpi_module PRIVATE HAS_VULKAN)
   elseif (TRY_ENABLE_VULKAN)
     message("Vulkan was not found. Flutter-pi will build without vulkan rendering support.")
   else()
