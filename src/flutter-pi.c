@@ -376,6 +376,10 @@ MAYBE_UNUSED static void *on_get_vulkan_proc_address(
     (void) userdata;
 
 #ifdef HAS_VULKAN
+    if (streq(name, "GetInstanceProcAddr")) {
+        name = "vkGetInstanceProcAddr";
+    }
+
     return (void*) vkGetInstanceProcAddr((VkInstance) instance, name);
 #else
     (void) userdata;
