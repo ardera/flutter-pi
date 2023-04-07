@@ -23,14 +23,24 @@ struct texture_registry {
 
 struct counted_texture_frame {
     refcount_t n_refs;
+
+    bool is_resolved;
     struct texture_frame frame;
+
+    struct unresolved_texture_frame unresolved_frame;
 };
 
 void counted_texture_frame_destroy(struct counted_texture_frame *frame) {
-    frame->frame.destroy(
-        &frame->frame,
-        frame->frame.userdata
-    );
+    if (frame->is_resolved) {
+        if (frame->frame.destroy != NULL) {
+            frame->frame.destroy(
+                &frame->frame,
+                frame->frame.userdata
+            );
+        }
+    } else if (frame->unresolved_frame.destroy != NULL){
+        frame->unresolved_frame.destroy(frame->unresolved_frame.userdata);
+    }
     free(frame);
 }
 
@@ -203,26 +213,28 @@ int64_t texture_get_id(struct texture *texture) {
     return texture->id;
 }
 
-int texture_push_frame(struct texture *texture, const struct texture_frame *frame) {
+static int push_frame(struct texture *texture, bool is_resolved, const struct texture_frame *frame, const struct unresolved_texture_frame *unresolved_frame) {
     struct counted_texture_frame *counted_frame;
     int ok;
 
+    // I know there's memdup, but let's just be explicit here.
     counted_frame = malloc(sizeof *counted_frame);
     if (counted_frame == NULL) {
         return ENOMEM;
     }
 
-    counted_frame->n_refs = REFCOUNT_INIT_1;
-    counted_frame->frame = *frame;
+    counted_frame->n_refs = REFCOUNT_INIT_0;
+    counted_frame->is_resolved = is_resolved;
+    if (frame != NULL) {
+        counted_frame->frame = *frame;
+    }
+    if (unresolved_frame != NULL) {
+        counted_frame->unresolved_frame = *unresolved_frame;
+    }
 
     texture_lock(texture);
 
-    if (texture->next_frame != NULL) {
-        counted_texture_frame_unref(texture->next_frame);
-        texture->next_frame = NULL;
-    }
-
-    texture->next_frame = counted_frame;
+    counted_texture_frame_swap_ptrs(&texture->next_frame, counted_frame);
     
     if (texture->dirty == false) {
         ok = texture->registry->interface.mark_frame_available(texture->registry->userdata, texture->id);
@@ -240,6 +252,24 @@ int texture_push_frame(struct texture *texture, const struct texture_frame *fram
     texture_unlock(texture);
 
     return 0;
+}
+
+int texture_push_frame(struct texture *texture, const struct texture_frame *frame) {
+    return push_frame(
+        texture,
+        true,
+        frame,
+        NULL
+    );
+}
+
+int texture_push_unresolved_frame(struct texture *texture, const struct unresolved_texture_frame *frame) {
+    return push_frame(
+        texture,
+        false,
+        NULL,
+        frame
+    );
 }
 
 void texture_destroy(struct texture *texture) {
@@ -268,6 +298,7 @@ static bool texture_gl_external_texture_frame_callback(
     FlutterOpenGLTexture *texture_out
 ) {
     struct counted_texture_frame *frame;
+    int ok;
 
     (void) width;
     (void) height;
@@ -288,6 +319,19 @@ static bool texture_gl_external_texture_frame_callback(
     /// flutter has now fetched the texture, so if we want to present a new frame
     /// we need to call @ref texture_registry_engine_notify_frame_available again.
     texture->dirty = false;
+
+    if (!frame->is_resolved) {
+        // resolve the frame to an actual OpenGL frame.
+        ok = frame->unresolved_frame.resolve(width, height, frame->unresolved_frame.userdata, &frame->frame);
+        if (ok != 0) {
+            LOG_ERROR("Couldn't resolve texture frame.\n");
+            counted_texture_frame_unrefp(&frame);
+            counted_texture_frame_unrefp(&texture->next_frame);
+        }
+
+        frame->unresolved_frame.destroy(frame->unresolved_frame.userdata);
+        frame->is_resolved = true;
+    }
     
     texture_unlock(texture);
 
