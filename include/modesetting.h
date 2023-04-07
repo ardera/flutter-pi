@@ -183,12 +183,12 @@ typedef struct {
 } drm_plane_transform_t;
 
 #define PLANE_TRANSFORM_NONE ((const drm_plane_transform_t){ .u64 = 0 })
-#define PLANE_TRANSFORM_ROTATE_0 ((const drm_plane_transform_t){ .u32 = DRM_MODE_ROTATE_0 })
-#define PLANE_TRANSFORM_ROTATE_90 ((const drm_plane_transform_t){ .u32 = DRM_MODE_ROTATE_90 })
-#define PLANE_TRANSFORM_ROTATE_180 ((const drm_plane_transform_t){ .u32 = DRM_MODE_ROTATE_180 })
-#define PLANE_TRANSFORM_ROTATE_270 ((const drm_plane_transform_t){ .u32 = DRM_MODE_ROTATE_270 })
-#define PLANE_TRANSFORM_REFLECT_X ((const drm_plane_transform_t){ .u32 = DRM_MODE_REFLECT_X })
-#define PLANE_TRANSFORM_REFLECT_Y ((const drm_plane_transform_t){ .u32 = DRM_MODE_REFLECT_Y })
+#define PLANE_TRANSFORM_ROTATE_0 ((const drm_plane_transform_t){ .u64 = DRM_MODE_ROTATE_0 })
+#define PLANE_TRANSFORM_ROTATE_90 ((const drm_plane_transform_t){ .u64 = DRM_MODE_ROTATE_90 })
+#define PLANE_TRANSFORM_ROTATE_180 ((const drm_plane_transform_t){ .u64 = DRM_MODE_ROTATE_180 })
+#define PLANE_TRANSFORM_ROTATE_270 ((const drm_plane_transform_t){ .u64 = DRM_MODE_ROTATE_270 })
+#define PLANE_TRANSFORM_REFLECT_X ((const drm_plane_transform_t){ .u64 = DRM_MODE_REFLECT_X })
+#define PLANE_TRANSFORM_REFLECT_Y ((const drm_plane_transform_t){ .u64 = DRM_MODE_REFLECT_Y })
 
 #define PLANE_TRANSFORM_IS_VALID(t) (((t).u64 & ~(DRM_MODE_ROTATE_MASK | DRM_MODE_REFLECT_MASK)) == 0)
 #define PLANE_TRANSFORM_IS_ONLY_ROTATION(t) (((t).u64 & ~DRM_MODE_ROTATE_MASK) == 0 && (HWEIGHT((t).u64) == 1))
