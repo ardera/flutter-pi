@@ -159,8 +159,24 @@ ATTR_MALLOC struct dmabuf_surface *dmabuf_surface_new(struct tracer *tracer, str
     return NULL;
 }
 
+int on_resolve_texture_frame(size_t width, size_t height, void *userdata, struct texture_frame *frame_out) {
+    /// TODO: Implement
+    (void) width;
+    (void) height;
+    (void) userdata;
+    frame_out->gl.target = GL_TEXTURE_2D;
+    frame_out->gl.name = 0;
+    frame_out->gl.format = GL_RGBA8_OES;
+    frame_out->gl.width = 0;
+    frame_out->gl.height = 0;
+    frame_out->userdata = NULL;
+    frame_out->destroy = NULL;
+    return 0;
+}
+
 int dmabuf_surface_push_dmabuf(struct dmabuf_surface *s, const struct dmabuf *buf, dmabuf_release_cb_t release_cb) {
     struct refcounted_dmabuf *b;
+    int ok;
 
     DEBUG_ASSERT_NOT_NULL(s);
     DEBUG_ASSERT_NOT_NULL(buf);
@@ -177,18 +193,31 @@ int dmabuf_surface_push_dmabuf(struct dmabuf_surface *s, const struct dmabuf *bu
         return ENOMEM;
     }
 
-    b->n_refs = REFCOUNT_INIT_1;
+    b->n_refs = REFCOUNT_INIT_0;
     b->buf = *buf;
     b->release_callback = release_cb;
     b->drmdev = NULL;
     b->drm_fb_id = DRM_ID_NONE;
 
     surface_lock(CAST_SURFACE_UNCHECKED(s));
-
-    if (s->next_buf != NULL) {
-        refcounted_dmabuf_unref(s->next_buf);
+    
+    ok = texture_push_unresolved_frame(
+        s->texture,
+        &(const struct unresolved_texture_frame) {
+            .resolve = on_resolve_texture_frame,
+            .destroy = surface_unref_void,
+            .userdata = surface_ref(CAST_SURFACE_UNCHECKED(s)),
+        }
+    );
+    if (ok != 0) {
+        LOG_ERROR("Couldn't post new frame to texture.\n");
+        surface_unref(CAST_SURFACE_UNCHECKED(s));
+        surface_unlock(CAST_SURFACE_UNCHECKED(s));
+        free(b);
+        return ok;
     }
-    s->next_buf = b;
+
+    refcounted_dmabuf_swap_ptrs(&s->next_buf, b);
 
     surface_unlock(CAST_SURFACE_UNCHECKED(s));
 
@@ -198,11 +227,6 @@ int dmabuf_surface_push_dmabuf(struct dmabuf_surface *s, const struct dmabuf *bu
 ATTR_PURE int64_t dmabuf_surface_get_texture_id(struct dmabuf_surface *s) {
     DEBUG_ASSERT_NOT_NULL(s);
     return texture_get_id(s->texture);
-}
-
-static void on_release_layer(void *userdata) {
-    DEBUG_ASSERT_NOT_NULL(userdata);
-    refcounted_dmabuf_unref((struct refcounted_dmabuf*) userdata);
 }
 
 static int dmabuf_surface_present_kms(struct surface *_s, const struct fl_layer_props *props, struct kms_req_builder *builder) {
@@ -265,7 +289,7 @@ static int dmabuf_surface_present_kms(struct surface *_s, const struct fl_layer_
             .has_rotation = false, .rotation = PLANE_TRANSFORM_ROTATE_0,
             .has_in_fence_fd = false, .in_fence_fd = 0,
         },
-        on_release_layer,
+        refcounted_dmabuf_unref_void,
         NULL,
         refcounted_dmabuf_ref(s->next_buf)
     );

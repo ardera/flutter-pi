@@ -37,6 +37,12 @@ struct texture_frame {
     void *userdata;
 };
 
+struct unresolved_texture_frame {
+    int (*resolve)(size_t width, size_t height, void *userdata, struct texture_frame *frame_out);
+    void (*destroy)(void *userdata);
+    void *userdata;
+};
+
 struct texture_registry *texture_registry_new(const struct texture_registry_interface *interface, void *userdata);
 
 void texture_registry_destroy(struct texture_registry *reg);
@@ -53,6 +59,8 @@ struct texture *texture_new(struct texture_registry *reg);
 int64_t texture_get_id(struct texture *texture);
 
 int texture_push_frame(struct texture *texture, const struct texture_frame *frame);
+
+int texture_push_unresolved_frame(struct texture *texture, const struct unresolved_texture_frame *frame);
 
 void texture_destroy(struct texture *texture);
 
