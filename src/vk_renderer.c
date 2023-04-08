@@ -5,12 +5,12 @@
  * Copyright (c) 2022, Hannes Winkler <hanneswinkler2000@web.de>
  */
 
-
 #include <stdlib.h>
+
 #include <alloca.h>
+#include <vulkan.h>
 
 #include <collection.h>
-#include <vulkan.h>
 #include <vk_renderer.h>
 
 #define VALIDATION_LAYER_NAME "VK_LAYER_KHRONOS_validation"
@@ -52,9 +52,10 @@ static VkBool32 on_debug_utils_message(
     LOG_DEBUG(
         "[%s] (%d, %s) %s (queues: %d, cmdbufs: %d, objects: %d)\n",
         severity == VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT ? "VERBOSE" :
-            severity == VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT ? "INFO" :
-            severity == VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT ? "WARNING" :
-            severity == VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT ? "ERROR" : "unknown severity",
+        severity == VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT    ? "INFO" :
+        severity == VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT ? "WARNING" :
+        severity == VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT   ? "ERROR" :
+                                                                      "unknown severity",
         data->messageIdNumber,
         data->pMessageIdName,
         data->pMessage,
@@ -127,13 +128,12 @@ static int score_physical_device(VkPhysicalDevice device, const char **required_
         LOG_ERROR("Required extension %s is not supported by vulkan device.\n", *cursor);
         return 0;
 
-        found:
+found:
         continue;
     }
 
     return score;
 }
-
 
 struct vk_renderer {
     refcount_t n_refs;
@@ -241,36 +241,37 @@ ATTR_MALLOC struct vk_renderer *vk_renderer_new() {
     /// TODO: Maybe enable some other useful instance extensions here?
 
     ok = vkCreateInstance(
-        &(VkInstanceCreateInfo) {
+        &(VkInstanceCreateInfo){
             .sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
             .flags = 0,
-            .pApplicationInfo = &(VkApplicationInfo) {
-                .sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,
-                .pApplicationName = "flutter-pi",
-                .applicationVersion = VK_MAKE_VERSION(1, 0, 0),
-                .pEngineName = "flutter-pi",
-                .engineVersion = VK_MAKE_VERSION(1, 0, 0),
-                .apiVersion = VK_MAKE_VERSION(1, 1, 0),
-                .pNext = NULL,
-            },
+            .pApplicationInfo =
+                &(VkApplicationInfo){
+                    .sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,
+                    .pApplicationName = "flutter-pi",
+                    .applicationVersion = VK_MAKE_VERSION(1, 0, 0),
+                    .pEngineName = "flutter-pi",
+                    .engineVersion = VK_MAKE_VERSION(1, 0, 0),
+                    .apiVersion = VK_MAKE_VERSION(1, 1, 0),
+                    .pNext = NULL,
+                },
             .enabledLayerCount = n_enabled_layers,
             .ppEnabledLayerNames = enabled_layers,
             .enabledExtensionCount = n_enabled_instance_extensions,
             .ppEnabledExtensionNames = enabled_instance_extensions,
-            .pNext = enable_debug_utils_messenger ? &(VkDebugUtilsMessengerCreateInfoEXT) {
-                .sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT,
-                .flags = 0,
-                .messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT
-                    | VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT
-                    | VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT
-                    | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT,
-                .messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT
-                    | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT
-                    | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT,
-                .pfnUserCallback = on_debug_utils_message,
-                .pUserData = NULL,
-                .pNext = NULL,
-            } : NULL
+            .pNext =
+                enable_debug_utils_messenger ?
+                    &(VkDebugUtilsMessengerCreateInfoEXT){
+                        .sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT,
+                        .flags = 0,
+                        .messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT |
+                                           VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT,
+                        .messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
+                                       VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT,
+                        .pfnUserCallback = on_debug_utils_message,
+                        .pUserData = NULL,
+                        .pNext = NULL,
+                    } :
+                    NULL,
         },
         NULL,
         &instance
@@ -281,13 +282,15 @@ ATTR_MALLOC struct vk_renderer *vk_renderer_new() {
     }
 
     if (enable_debug_utils_messenger) {
-        create_debug_utils_messenger = (PFN_vkCreateDebugUtilsMessengerEXT) vkGetInstanceProcAddr(instance, "vkCreateDebugUtilsMessengerEXT");
+        create_debug_utils_messenger = (PFN_vkCreateDebugUtilsMessengerEXT
+        ) vkGetInstanceProcAddr(instance, "vkCreateDebugUtilsMessengerEXT");
         if (create_debug_utils_messenger == NULL) {
             LOG_ERROR("Could not resolve vkCreateDebugUtilsMessengerEXT function.\n");
             goto fail_destroy_instance;
         }
 
-        destroy_debug_utils_messenger = (PFN_vkDestroyDebugUtilsMessengerEXT) vkGetInstanceProcAddr(instance, "vkDestroyDebugUtilsMessengerEXT");
+        destroy_debug_utils_messenger = (PFN_vkDestroyDebugUtilsMessengerEXT
+        ) vkGetInstanceProcAddr(instance, "vkDestroyDebugUtilsMessengerEXT");
         if (destroy_debug_utils_messenger == NULL) {
             LOG_ERROR("Could not resolve vkDestroyDebugUtilsMessengerEXT function.\n");
             goto fail_destroy_instance;
@@ -295,16 +298,13 @@ ATTR_MALLOC struct vk_renderer *vk_renderer_new() {
 
         ok = create_debug_utils_messenger(
             instance,
-            &(VkDebugUtilsMessengerCreateInfoEXT) {
+            &(VkDebugUtilsMessengerCreateInfoEXT){
                 .sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT,
                 .flags = 0,
-                .messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT
-                    | VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT
-                    | VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT
-                    | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT,
-                .messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT
-                    | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT
-                    | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT,
+                .messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT |
+                                   VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT,
+                .messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
+                               VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT,
                 .pfnUserCallback = on_debug_utils_message,
                 .pUserData = NULL,
                 .pNext = NULL,
@@ -334,14 +334,10 @@ ATTR_MALLOC struct vk_renderer *vk_renderer_new() {
     }
 
     static const char *required_device_extensions[] = {
-        VK_KHR_EXTERNAL_MEMORY_EXTENSION_NAME,
-        VK_KHR_EXTERNAL_MEMORY_FD_EXTENSION_NAME,
-        VK_KHR_EXTERNAL_SEMAPHORE_EXTENSION_NAME,
-        VK_KHR_EXTERNAL_SEMAPHORE_FD_EXTENSION_NAME,
-        VK_EXT_EXTERNAL_MEMORY_DMA_BUF_EXTENSION_NAME,
-        VK_KHR_IMAGE_FORMAT_LIST_EXTENSION_NAME,
-        VK_EXT_IMAGE_DRM_FORMAT_MODIFIER_EXTENSION_NAME,
-        NULL
+        VK_KHR_EXTERNAL_MEMORY_EXTENSION_NAME,           VK_KHR_EXTERNAL_MEMORY_FD_EXTENSION_NAME,
+        VK_KHR_EXTERNAL_SEMAPHORE_EXTENSION_NAME,        VK_KHR_EXTERNAL_SEMAPHORE_FD_EXTENSION_NAME,
+        VK_EXT_EXTERNAL_MEMORY_DMA_BUF_EXTENSION_NAME,   VK_KHR_IMAGE_FORMAT_LIST_EXTENSION_NAME,
+        VK_EXT_IMAGE_DRM_FORMAT_MODIFIER_EXTENSION_NAME, NULL
     };
 
     physical_device = VK_NULL_HANDLE;
@@ -392,25 +388,26 @@ ATTR_MALLOC struct vk_renderer *vk_renderer_new() {
 
     ok = vkCreateDevice(
         physical_device,
-        &(const VkDeviceCreateInfo) {
+        &(const VkDeviceCreateInfo){
             .sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
             .flags = 0,
             .queueCreateInfoCount = 1,
-            .pQueueCreateInfos = (const VkDeviceQueueCreateInfo[1]) {
-                {
-                    .sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
-                    .flags = 0,
-                    .queueFamilyIndex = graphics_queue_family_index,
-                    .queueCount = 1,
-                    .pQueuePriorities = (float[1]) { 1.0f },
-                    .pNext = NULL,
+            .pQueueCreateInfos =
+                (const VkDeviceQueueCreateInfo[1]){
+                    {
+                        .sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
+                        .flags = 0,
+                        .queueFamilyIndex = graphics_queue_family_index,
+                        .queueCount = 1,
+                        .pQueuePriorities = (float[1]){ 1.0f },
+                        .pNext = NULL,
+                    },
                 },
-            },
             .enabledLayerCount = n_enabled_layers,
             .ppEnabledLayerNames = enabled_layers,
             .enabledExtensionCount = n_enabled_device_extensions,
             .ppEnabledExtensionNames = enabled_device_extensions,
-            .pEnabledFeatures = &(const VkPhysicalDeviceFeatures) { 0 },
+            .pEnabledFeatures = &(const VkPhysicalDeviceFeatures){ 0 },
             .pNext = NULL,
         },
         NULL,
@@ -425,7 +422,7 @@ ATTR_MALLOC struct vk_renderer *vk_renderer_new() {
 
     ok = vkCreateCommandPool(
         device,
-        &(const VkCommandPoolCreateInfo) {
+        &(const VkCommandPoolCreateInfo){
             .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
             .flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
             .queueFamilyIndex = graphics_queue_family_index,
@@ -488,28 +485,27 @@ ATTR_MALLOC struct vk_renderer *vk_renderer_new() {
     renderer->enabled_device_extensions = enabled_device_extensions;
     return renderer;
 
-
-    fail_destroy_device:
+fail_destroy_device:
     vkDestroyDevice(device, NULL);
 
-    fail_free_enabled_device_extensions:
+fail_free_enabled_device_extensions:
     free(enabled_device_extensions);
 
-    fail_maybe_destroy_messenger:
+fail_maybe_destroy_messenger:
     if (debug_utils_messenger != VK_NULL_HANDLE) {
         destroy_debug_utils_messenger(instance, debug_utils_messenger, NULL);
     }
 
-    fail_destroy_instance:
+fail_destroy_instance:
     vkDestroyInstance(instance, NULL);
 
-    fail_free_enabled_instance_extensions:
+fail_free_enabled_instance_extensions:
     free(enabled_instance_extensions);
 
-    fail_free_enabled_layers:
+fail_free_enabled_layers:
     free(enabled_layers);
 
-    fail_free_renderer:
+fail_free_renderer:
     free(renderer);
     return NULL;
 }

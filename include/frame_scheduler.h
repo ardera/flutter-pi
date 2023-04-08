@@ -7,7 +7,6 @@
  * Copyright (c) 2022, Hannes Winkler <hanneswinkler2000@web.de>
  */
 
-
 #ifndef _FLUTTERPI_INCLUDE_FRAME_SCHEDULER_H
 #define _FLUTTERPI_INCLUDE_FRAME_SCHEDULER_H
 
@@ -15,12 +14,14 @@
 
 struct frame_scheduler;
 
-typedef void (*fl_vsync_callback_t)(void *userdata, intptr_t vsync_baton, uint64_t frame_start_time_nanos, uint64_t next_frame_start_time_nanos);
+typedef void (*fl_vsync_callback_t)(
+    void *userdata,
+    intptr_t vsync_baton,
+    uint64_t frame_start_time_nanos,
+    uint64_t next_frame_start_time_nanos
+);
 
-enum present_mode {
-    kDoubleBufferedVsync_PresentMode,
-    kTripleBufferedVsync_PresentMode
-};
+enum present_mode { kDoubleBufferedVsync_PresentMode, kTripleBufferedVsync_PresentMode };
 
 /**
  * @brief Creates a new frame scheduler.
@@ -42,7 +43,8 @@ enum present_mode {
  * @param userdata            userdata that will be passed to vsync_cb.
  * @return struct frame_scheduler* The new frame scheduler.
  */
-ATTR_MALLOC struct frame_scheduler *frame_scheduler_new(bool uses_frame_requests, enum present_mode present_mode, fl_vsync_callback_t vsync_cb, void *userdata);
+ATTR_MALLOC struct frame_scheduler *
+frame_scheduler_new(bool uses_frame_requests, enum present_mode present_mode, fl_vsync_callback_t vsync_cb, void *userdata);
 
 void frame_scheduler_destroy(struct frame_scheduler *scheduler);
 
@@ -75,4 +77,4 @@ void frame_scheduler_on_fb_released(struct frame_scheduler *scheduler, bool has_
  */
 void frame_scheduler_present_frame(struct frame_scheduler *scheduler, void_callback_t present_cb, void *userdata, void_callback_t cancel_cb);
 
-#endif // _FLUTTERPI_INCLUDE_FRAME_SCHEDULER_H
+#endif  // _FLUTTERPI_INCLUDE_FRAME_SCHEDULER_H

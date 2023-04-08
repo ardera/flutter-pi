@@ -22,12 +22,7 @@ int evloop_post_task_locked(struct evloop *loop, void_callback_t callback, void 
 
 int evloop_post_task(struct evloop *loop, void_callback_t callback, void *userdata);
 
-int evloop_post_delayed_task_locked(
-    struct evloop *loop,
-    void_callback_t callback,
-    void *userdata,
-    uint64_t target_time_usec
-);
+int evloop_post_delayed_task_locked(struct evloop *loop, void_callback_t callback, void *userdata, uint64_t target_time_usec);
 
 int evloop_post_delayed_task(struct evloop *loop, void_callback_t callback, void *userdata, uint64_t target_time_usec);
 
@@ -35,28 +30,13 @@ struct evsrc;
 void evsrc_destroy_locked(struct evsrc *src);
 void evsrc_destroy(struct evsrc *src);
 
-enum event_handler_return {
-    kNoAction_EventHandlerReturn,
-    kRemoveSrc_EventHandlerReturn
-};
+enum event_handler_return { kNoAction_EventHandlerReturn, kRemoveSrc_EventHandlerReturn };
 
 typedef enum event_handler_return (*evloop_io_handler_t)(int fd, uint32_t revents, void *userdata);
 
-struct evsrc *evloop_add_io_locked(
-    struct evloop *loop,
-    int fd,
-    uint32_t events,
-    evloop_io_handler_t callback,
-    void *userdata
-);
+struct evsrc *evloop_add_io_locked(struct evloop *loop, int fd, uint32_t events, evloop_io_handler_t callback, void *userdata);
 
-struct evsrc *evloop_add_io(
-    struct evloop *loop,
-    int fd,
-    uint32_t events,
-    evloop_io_handler_t callback,
-    void *userdata
-);
+struct evsrc *evloop_add_io(struct evloop *loop, int fd, uint32_t events, evloop_io_handler_t callback, void *userdata);
 
 struct evthread;
 

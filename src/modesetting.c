@@ -6,9 +6,9 @@
 #include <string.h>
 
 #include <fcntl.h>
+#include <sys/mman.h>
 #include <unistd.h>
 
-#include <sys/mman.h>
 #include <sys/epoll.h>
 #include <sys/ioctl.h>
 #include <xf86drm.h>
@@ -186,7 +186,7 @@ static int fetch_connector(int drm_fd, uint32_t connector_id, struct drm_connect
             goto fail_free_props;
         }
 
-#define CHECK_ASSIGN_PROPERTY_ID(_name_str, _name)                         \
+#define CHECK_ASSIGN_PROPERTY_ID(_name_str, _name)                     \
     if (strncmp(prop_info->name, _name_str, DRM_PROP_NAME_LEN) == 0) { \
         ids._name = prop_info->prop_id;                                \
     } else
@@ -236,7 +236,6 @@ static int fetch_connector(int drm_fd, uint32_t connector_id, struct drm_connect
     drmModeFreeObjectProperties(props);
     drmModeFreeConnector(connector);
     return 0;
-
 
 fail_free_props:
     drmModeFreeObjectProperties(props);
@@ -381,9 +380,9 @@ static int fetch_crtc(int drm_fd, int crtc_index, uint32_t crtc_id, struct drm_c
             goto fail_free_props;
         }
 
-#define CHECK_ASSIGN_PROPERTY_ID(_name_str, _name)                                       \
+#define CHECK_ASSIGN_PROPERTY_ID(_name_str, _name)                               \
     if (strncmp(prop_info->name, _name_str, ARRAY_SIZE(prop_info->name)) == 0) { \
-        ids._name = prop_info->prop_id;                                              \
+        ids._name = prop_info->prop_id;                                          \
     } else
 
         DRM_CRTC_PROPERTIES(CHECK_ASSIGN_PROPERTY_ID) {
@@ -407,7 +406,6 @@ static int fetch_crtc(int drm_fd, int crtc_index, uint32_t crtc_id, struct drm_c
     drmModeFreeObjectProperties(props);
     drmModeFreeCrtc(crtc);
     return 0;
-
 
 fail_free_props:
     drmModeFreeObjectProperties(props);
@@ -518,8 +516,7 @@ static int fetch_plane(int drm_fd, uint32_t plane_id, struct drm_plane *plane_ou
     int64_t min_zpos, max_zpos, hardcoded_zpos, committed_zpos;
     bool supported_blend_modes[kCount_DrmBlendMode] = { 0 };
     bool supported_formats[kCount_PixFmt] = { 0 };
-    bool has_type, has_rotation, has_zpos, has_hardcoded_zpos, has_hardcoded_rotation, supports_modifiers, has_alpha,
-        has_blend_mode;
+    bool has_type, has_rotation, has_zpos, has_hardcoded_zpos, has_hardcoded_rotation, supports_modifiers, has_alpha, has_blend_mode;
     int ok, n_supported_modified_formats;
 
     drm_plane_prop_ids_init(&ids);
@@ -710,13 +707,12 @@ static int fetch_plane(int drm_fd, uint32_t plane_id, struct drm_plane *plane_ou
             DEBUG_ASSERT(supported_blend_modes[committed_blend_mode]);
         }
 
-#define CHECK_ASSIGN_PROPERTY_ID(_name_str, _name) \
-        if (strncmp(info->name, _name_str, ARRAY_SIZE(info->name)) == 0) { \
-            ids._name = info->prop_id; \
-        } else
+#define CHECK_ASSIGN_PROPERTY_ID(_name_str, _name)                     \
+    if (strncmp(info->name, _name_str, ARRAY_SIZE(info->name)) == 0) { \
+        ids._name = info->prop_id;                                     \
+    } else
 
-        DRM_PLANE_PROPERTIES(CHECK_ASSIGN_PROPERTY_ID)
-        {
+        DRM_PLANE_PROPERTIES(CHECK_ASSIGN_PROPERTY_ID) {
             // do nothing
         }
 
@@ -813,10 +809,7 @@ static int fetch_planes(struct drmdev *drmdev, struct drm_plane **planes_out, si
             return ENOMEM;
         }
 
-        DEBUG_ASSERT_MSG(
-            planes[0].has_zpos == planes[i].has_zpos,
-            "If one plane has a zpos property, all planes need to have one."
-        );
+        DEBUG_ASSERT_MSG(planes[0].has_zpos == planes[i].has_zpos, "If one plane has a zpos property, all planes need to have one.");
     }
 
     *planes_out = planes;
@@ -997,8 +990,7 @@ struct drmdev *drmdev_new_from_interface_fd(int fd, void *fd_metadata, const str
         goto fail_destroy_gbm_device;
     }
 
-    ok =
-        epoll_ctl(event_fd, EPOLL_CTL_ADD, fd, &(struct epoll_event){ .events = EPOLLIN | EPOLLPRI, .data.ptr = NULL });
+    ok = epoll_ctl(event_fd, EPOLL_CTL_ADD, fd, &(struct epoll_event){ .events = EPOLLIN | EPOLLPRI, .data.ptr = NULL });
     if (ok != 0) {
         LOG_ERROR("Could not add DRM file descriptor to epoll instance.\n");
         goto fail_close_event_fd;
@@ -1105,7 +1097,15 @@ bool drmdev_supports_dumb_buffers(struct drmdev *drmdev) {
     return drmdev->supports_dumb_buffers;
 }
 
-int drmdev_create_dumb_buffer(struct drmdev *drmdev, int width, int height, int bpp, uint32_t *gem_handle_out, uint32_t *pitch_out, size_t *size_out) {
+int drmdev_create_dumb_buffer(
+    struct drmdev *drmdev,
+    int width,
+    int height,
+    int bpp,
+    uint32_t *gem_handle_out,
+    uint32_t *pitch_out,
+    size_t *size_out
+) {
     struct drm_mode_create_dumb create_req;
     int ok;
 
@@ -1116,23 +1116,23 @@ int drmdev_create_dumb_buffer(struct drmdev *drmdev, int width, int height, int 
 
     memset(&create_req, 0, sizeof create_req);
     create_req.width = width;
-	create_req.height = height;
-	create_req.bpp = bpp;
-	create_req.flags = 0;
+    create_req.height = height;
+    create_req.bpp = bpp;
+    create_req.flags = 0;
 
     ok = ioctl(drmdev->fd, DRM_IOCTL_MODE_CREATE_DUMB, &create_req);
-	if (ok < 0) {
-		ok = errno;
-		LOG_ERROR("Could not create dumb buffer. ioctl: %s\n", strerror(errno));
-		goto fail_return_ok;
-	}
+    if (ok < 0) {
+        ok = errno;
+        LOG_ERROR("Could not create dumb buffer. ioctl: %s\n", strerror(errno));
+        goto fail_return_ok;
+    }
 
     *gem_handle_out = create_req.handle;
     *pitch_out = create_req.pitch;
     *size_out = create_req.size;
     return 0;
 
-    fail_return_ok:
+fail_return_ok:
     return ok;
 }
 
@@ -1142,13 +1142,13 @@ void drmdev_destroy_dumb_buffer(struct drmdev *drmdev, uint32_t gem_handle) {
 
     DEBUG_ASSERT_NOT_NULL(drmdev);
 
-	memset(&destroy_req, 0, sizeof destroy_req);
-	destroy_req.handle = gem_handle;
+    memset(&destroy_req, 0, sizeof destroy_req);
+    destroy_req.handle = gem_handle;
 
-	ok = ioctl(drmdev->fd, DRM_IOCTL_MODE_DESTROY_DUMB, &destroy_req);
+    ok = ioctl(drmdev->fd, DRM_IOCTL_MODE_DESTROY_DUMB, &destroy_req);
     if (ok < 0) {
-		LOG_ERROR("Could not destroy dumb buffer. ioctl: %s\n", strerror(errno));
-	}
+        LOG_ERROR("Could not destroy dumb buffer. ioctl: %s\n", strerror(errno));
+    }
 }
 
 void *drmdev_map_dumb_buffer(struct drmdev *drmdev, uint32_t gem_handle, size_t size) {
@@ -1159,19 +1159,19 @@ void *drmdev_map_dumb_buffer(struct drmdev *drmdev, uint32_t gem_handle, size_t 
     DEBUG_ASSERT_NOT_NULL(drmdev);
 
     memset(&map_req, 0, sizeof map_req);
-	map_req.handle = gem_handle;
+    map_req.handle = gem_handle;
 
-	ok = ioctl(drmdev->fd, DRM_IOCTL_MODE_MAP_DUMB, &map_req);
-	if (ok < 0) {
-		LOG_ERROR("Could not prepare dumb buffer mmap. ioctl: %s\n", strerror(errno));
-		return NULL;
-	}
-
-	map = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, drmdev->fd, map_req.offset);
-	if (map == MAP_FAILED) {
-		LOG_ERROR("Could not mmap dumb buffer. mmap: %s\n", strerror(errno));
+    ok = ioctl(drmdev->fd, DRM_IOCTL_MODE_MAP_DUMB, &map_req);
+    if (ok < 0) {
+        LOG_ERROR("Could not prepare dumb buffer mmap. ioctl: %s\n", strerror(errno));
         return NULL;
-	}
+    }
+
+    map = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, drmdev->fd, map_req.offset);
+    if (map == MAP_FAILED) {
+        LOG_ERROR("Could not mmap dumb buffer. mmap: %s\n", strerror(errno));
+        return NULL;
+    }
 
     return map;
 }
@@ -1189,14 +1189,8 @@ void drmdev_unmap_dumb_buffer(struct drmdev *drmdev, void *map, size_t size) {
     }
 }
 
-static void drmdev_on_page_flip_locked(
-    int fd,
-    unsigned int sequence,
-    unsigned int tv_sec,
-    unsigned int tv_usec,
-    unsigned int crtc_id,
-    void *userdata
-) {
+static void
+drmdev_on_page_flip_locked(int fd, unsigned int sequence, unsigned int tv_sec, unsigned int tv_usec, unsigned int crtc_id, void *userdata) {
     struct kms_req_builder *builder;
     struct drm_crtc *crtc;
     struct kms_req **last_flipped;
@@ -1343,7 +1337,7 @@ uint32_t drmdev_add_fb(
 
     fb_id = 0;
     if (has_modifier) {
-        LOG_DEBUG("adding fb with pixel format %"PRIu32" and modifier %"PRIu64"\n", get_pixfmt_info(pixel_format)->drm_format, modifier);
+        LOG_DEBUG("adding fb with pixel format %" PRIu32 " and modifier %" PRIu64 "\n", get_pixfmt_info(pixel_format)->drm_format, modifier);
         ok = drmModeAddFB2WithModifiers(
             drmdev->fd,
             width,
@@ -1420,17 +1414,7 @@ uint32_t drmdev_add_fb_multiplanar(
             return 0;
         }
     } else {
-        ok = drmModeAddFB2(
-            drmdev->fd,
-            width,
-            height,
-            get_pixfmt_info(pixel_format)->drm_format,
-            bo_handles,
-            pitches,
-            offsets,
-            &fb_id,
-            0
-        );
+        ok = drmModeAddFB2(drmdev->fd, width, height, get_pixfmt_info(pixel_format)->drm_format, bo_handles, pitches, offsets, &fb_id, 0);
         if (ok < 0) {
             LOG_ERROR("Couldn't add buffer as DRM fb. drmModeAddFB2: %s\n", strerror(-ok));
             return 0;
@@ -1486,17 +1470,7 @@ uint32_t drmdev_add_fb_from_dmabuf_multiplanar(
         }
     }
 
-    return drmdev_add_fb_multiplanar(
-        drmdev,
-        width,
-        height,
-        pixel_format,
-        bo_handles,
-        pitches,
-        offsets,
-        has_modifiers,
-        modifiers
-    );
+    return drmdev_add_fb_multiplanar(drmdev, width, height, pixel_format, bo_handles, pitches, offsets, has_modifiers, modifiers);
 }
 
 int drmdev_rm_fb(struct drmdev *drmdev, uint32_t fb_id) {
@@ -1584,14 +1558,14 @@ int drmdev_resume(struct drmdev *drmdev) {
     drmdev_unlock(drmdev);
     return 0;
 
-    fail_close_device:
+fail_close_device:
     drmdev->interface.close(master_fd, fd_metadata, drmdev->userdata);
     goto fail_unlock;
 
-    fail_free_device:
+fail_free_device:
     drmFreeDevice(&device);
 
-    fail_unlock:
+fail_unlock:
     drmdev_unlock(drmdev);
     return ok;
 }
@@ -1618,7 +1592,11 @@ static void drmdev_set_scanout_callback_locked(
     // If there's already a scanout callback configured, this is probably a state machine error.
     // The scanout callback is configured in kms_req_commit and is cleared after it was called.
     // So if this is called again this mean kms_req_commit is called but the previous frame wasn't committed yet.
-    DEBUG_ASSERT_EQUALS_MSG(drmdev->per_crtc_state[crtc->index].scanout_callback, NULL, "There's already a scanout callback configured for this CRTC.");
+    DEBUG_ASSERT_EQUALS_MSG(
+        drmdev->per_crtc_state[crtc->index].scanout_callback,
+        NULL,
+        "There's already a scanout callback configured for this CRTC."
+    );
     drmdev->per_crtc_state[crtc->index].scanout_callback = scanout_callback;
     drmdev->per_crtc_state[crtc->index].destroy_callback = destroy_callback;
     drmdev->per_crtc_state[crtc->index].userdata = userdata;
@@ -1737,8 +1715,7 @@ static bool plane_qualifies(
 
         // search for the modified format in the list of supported modified formats
         for (int i = 0; i < plane->n_supported_modified_formats; i++) {
-            if (plane->supported_modified_formats[i].format == format &&
-                plane->supported_modified_formats[i].modifier == modifier) {
+            if (plane->supported_modified_formats[i].format == format && plane->supported_modified_formats[i].modifier == modifier) {
                 goto found;
             }
         }
@@ -1925,10 +1902,10 @@ struct kms_req_builder *drmdev_create_request_builder(struct drmdev *drmdev, uin
     builder->unset_mode = false;
     return builder;
 
-    fail_free_builder:
+fail_free_builder:
     free(builder);
 
-    fail_unlock:
+fail_unlock:
     drmdev_unlock(drmdev);
     return NULL;
 }
@@ -2017,9 +1994,7 @@ int kms_req_builder_push_fb_layer(
         // if the driver supports atomic modesetting, drmModeSetPlane will block for vblank, so we can't use it,
         // and we can't use drmModeAtomicCommit for non-blocking multi-plane commits of course.
         // For the first layer we can use drmModePageFlip though.
-        LOG_DEBUG(
-            "Can't do multi-plane commits when using legacy modesetting (and driver supports atomic modesetting).\n"
-        );
+        LOG_DEBUG("Can't do multi-plane commits when using legacy modesetting (and driver supports atomic modesetting).\n");
         return EINVAL;
     }
 
@@ -2036,6 +2011,7 @@ int kms_req_builder_push_fb_layer(
     plane = NULL;
     if (layer->prefer_cursor) {
         plane = allocate_plane(
+            // clang-format off
             builder,
             /* allow_primary */ false,
             /* allow_overlay */ false,
@@ -2045,6 +2021,7 @@ int kms_req_builder_push_fb_layer(
             /* zpos */ false, 0, 0,
             /* rotation */ layer->has_rotation, layer->rotation,
             /* id_range */ false, 0
+            // clang-format on
         );
         if (plane == NULL) {
             LOG_DEBUG("Couldn't find a fitting cursor plane.\n");
@@ -2058,6 +2035,7 @@ int kms_req_builder_push_fb_layer(
 
         /// TODO: Use cursor_plane->max_zpos - 1 as the upper zpos limit, instead of INT64_MAX
         plane = allocate_plane(
+            // clang-format off
             builder,
             /* allow_primary */ true,
             /* allow_overlay */ false,
@@ -2067,11 +2045,13 @@ int kms_req_builder_push_fb_layer(
             /* zpos */ false, 0, 0,
             /* rotation */ layer->has_rotation, layer->rotation,
             /* id_range */ false, 0
+            // clang-format on
         );
 
         if (plane == NULL && !get_pixfmt_info(layer->format)->is_opaque) {
             // maybe we can find a plane if we use the opaque version of this pixel format?
             plane = allocate_plane(
+                // clang-format off
                 builder,
                 /* allow_primary */ true,
                 /* allow_overlay */ false,
@@ -2081,11 +2061,13 @@ int kms_req_builder_push_fb_layer(
                 /* zpos */ false, 0, 0,
                 /* rotation */ layer->has_rotation, layer->rotation,
                 /* id_range */ false, 0
+                // clang-format on
             );
         }
     } else if (plane == NULL) {
         // First try to find an overlay plane with a higher zpos.
         plane = allocate_plane(
+            // clang-format off
             builder,
             /* allow_primary */ false,
             /* allow_overlay */ true,
@@ -2095,6 +2077,7 @@ int kms_req_builder_push_fb_layer(
             /* zpos */ true, builder->next_zpos, INT64_MAX,
             /* rotation */ layer->has_rotation, layer->rotation,
             /* id_range */ false, 0
+            // clang-format on
         );
 
         // If we can't find one, find an overlay plane with the next highest plane_id.
@@ -2103,6 +2086,7 @@ int kms_req_builder_push_fb_layer(
         // planes with lower id)
         if (plane == NULL) {
             plane = allocate_plane(
+                // clang-format off
                 builder,
                 /* allow_primary */ false,
                 /* allow_overlay */ true,
@@ -2112,6 +2096,7 @@ int kms_req_builder_push_fb_layer(
                 /* zpos */ false, 0, 0,
                 /* rotation */ layer->has_rotation, layer->rotation,
                 /* id_range */ true, builder->layers[index - 1].plane_id + 1
+                // clang-format on
             );
         }
     }
@@ -2215,7 +2200,7 @@ struct kms_req *kms_req_builder_build(struct kms_req_builder *builder) {
 }
 
 MAYBE_UNUSED struct kms_req *kms_req_ref(struct kms_req *req) {
-    return (struct kms_req*) kms_req_builder_ref((struct kms_req_builder *) req);
+    return (struct kms_req *) kms_req_builder_ref((struct kms_req_builder *) req);
 }
 
 MAYBE_UNUSED void kms_req_unref(struct kms_req *req) {
@@ -2227,16 +2212,11 @@ MAYBE_UNUSED void kms_req_unrefp(struct kms_req **req) {
 }
 
 MAYBE_UNUSED void kms_req_swap_ptrs(struct kms_req **oldp, struct kms_req *new) {
-    return kms_req_builder_swap_ptrs((struct kms_req_builder**) oldp, (struct kms_req_builder*) new);
+    return kms_req_builder_swap_ptrs((struct kms_req_builder **) oldp, (struct kms_req_builder *) new);
 }
 
-static int kms_req_commit_common(
-    struct kms_req *req,
-    bool blocking,
-    kms_scanout_cb_t scanout_cb,
-    void *userdata,
-    void_callback_t destroy_cb
-) {
+static int
+kms_req_commit_common(struct kms_req *req, bool blocking, kms_scanout_cb_t scanout_cb, void *userdata, void_callback_t destroy_cb) {
     struct kms_req_builder *builder;
     struct drm_mode_blob *mode_blob;
     uint32_t flags;
@@ -2443,11 +2423,7 @@ int kms_req_commit_blocking(struct kms_req *req, uint64_t *vblank_ns_out) {
     int ok;
 
     vblank_ns = int64_to_uint64(-1);
-    ok = kms_req_commit_common(
-        req,
-        true,
-        set_vblank_ns, &vblank_ns, NULL
-    );
+    ok = kms_req_commit_common(req, true, set_vblank_ns, &vblank_ns, NULL);
     if (ok != 0) {
         return ok;
     }
@@ -2462,9 +2438,5 @@ int kms_req_commit_blocking(struct kms_req *req, uint64_t *vblank_ns_out) {
 }
 
 int kms_req_commit_nonblocking(struct kms_req *req, kms_scanout_cb_t scanout_cb, void *userdata, void_callback_t destroy_cb) {
-    return kms_req_commit_common(
-        req,
-        false,
-        scanout_cb, userdata, destroy_cb
-    );
+    return kms_req_commit_common(req, false, scanout_cb, userdata, destroy_cb);
 }

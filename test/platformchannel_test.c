@@ -1,18 +1,21 @@
 #define _GNU_SOURCE
-#include <platformchannel.h>
-#include <math.h>
 #include <limits.h>
+#include <math.h>
 #include <stdalign.h>
 
 #include <unity.h>
 
-#define RAW_STD_BUF(...) (const struct raw_std_value*) ((const uint8_t[]) {__VA_ARGS__})
-#define AS_RAW_STD_VALUE(_value) ((const struct raw_std_value*) (_value))
+#include <platformchannel.h>
+
+#define RAW_STD_BUF(...) (const struct raw_std_value *) ((const uint8_t[]){ __VA_ARGS__ })
+#define AS_RAW_STD_VALUE(_value) ((const struct raw_std_value *) (_value))
 
 // required by Unity.
-void setUp() {}
+void setUp() {
+}
 
-void tearDown() {}
+void tearDown() {
+}
 
 void test_raw_std_value_is_null() {
     TEST_ASSERT_TRUE(raw_std_value_is_null(RAW_STD_BUF(kStdNull)));
@@ -35,11 +38,7 @@ void test_raw_std_value_is_int32() {
 }
 
 void test_raw_std_value_as_int32() {
-    alignas(16) uint8_t buffer[5] = {
-        kStdInt32,
-        0, 0, 0, 0
-    };
-
+    alignas(16) uint8_t buffer[5] = { kStdInt32, 0, 0, 0, 0 };
 
     TEST_ASSERT_EQUAL_INT32(0, raw_std_value_as_int32(AS_RAW_STD_VALUE(buffer)));
 
@@ -55,10 +54,7 @@ void test_raw_std_value_is_int64() {
 }
 
 void test_raw_std_value_as_int64() {
-    alignas(16) uint8_t buffer[9] = {
-        kStdInt64,
-        0, 0, 0, 0, 0, 0, 0, 0
-    };
+    alignas(16) uint8_t buffer[9] = { kStdInt64, 0, 0, 0, 0, 0, 0, 0, 0 };
 
     TEST_ASSERT_EQUAL_INT64(0, raw_std_value_as_int64(AS_RAW_STD_VALUE(buffer)));
 
@@ -74,11 +70,7 @@ void test_raw_std_value_is_float64() {
 }
 
 void test_raw_std_value_as_float64() {
-    alignas(16) uint8_t buffer[] = {
-        kStdFloat64,
-        0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0
-    };
+    alignas(16) uint8_t buffer[] = { kStdFloat64, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
 
     double value = M_PI;
     memcpy(buffer + 8, &value, sizeof(value));
@@ -99,9 +91,7 @@ void test_raw_std_value_is_string() {
 void test_raw_std_string_dup() {
     const char *str = "The quick brown fox jumps over the lazy dog.";
 
-    alignas(16) uint8_t buffer[1 + 1 + 45] = {
-        kStdString, 45, 0
-    };
+    alignas(16) uint8_t buffer[1 + 1 + 45] = { kStdString, 45, 0 };
 
     memcpy(buffer + 2, str, strlen(str));
 
@@ -147,15 +137,9 @@ void test_raw_std_value_is_uint8array() {
 }
 
 void test_raw_std_value_as_uint8array() {
-    alignas(16) uint8_t buffer[] = {
-        kStdUInt8Array,
-        4,
-        1, 2, 3, 4
-    };
+    alignas(16) uint8_t buffer[] = { kStdUInt8Array, 4, 1, 2, 3, 4 };
 
-    alignas(16) uint8_t expected[] = {
-        1, 2, 3, 4
-    };
+    alignas(16) uint8_t expected[] = { 1, 2, 3, 4 };
 
     TEST_ASSERT_EQUAL_UINT8_ARRAY(expected, raw_std_value_as_uint8array(AS_RAW_STD_VALUE(buffer)), 4);
 
@@ -171,16 +155,22 @@ void test_raw_std_value_is_int32array() {
 }
 
 void test_raw_std_value_as_int32array() {
-    alignas(16) uint8_t buffer[] = {
-        // type
-        kStdInt32Array,
-        // size
-        2,
-        // 2 alignment bytes
-        0, 0,
-        // space for 2 int32_t's
-        0, 0, 0, 0,
-        0, 0, 0, 0
+    alignas(16) uint8_t buffer[] = { // type
+                                     kStdInt32Array,
+                                     // size
+                                     2,
+                                     // 2 alignment bytes
+                                     0,
+                                     0,
+                                     // space for 2 int32_t's
+                                     0,
+                                     0,
+                                     0,
+                                     0,
+                                     0,
+                                     0,
+                                     0,
+                                     0
     };
 
     int32_t expected[] = {
@@ -210,10 +200,29 @@ void test_raw_std_value_as_int64array() {
         // size
         2,
         // 6 alignment bytes
-        0, 0, 0, 0, 0, 0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
         // space for 2 int64_t's
-        0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
     };
 
     int64_t expected[] = {
@@ -243,10 +252,29 @@ void test_raw_std_value_as_float64array() {
         // size
         2,
         // 6 alignment bytes
-        0, 0, 0, 0, 0, 0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
         // space for 2 doubles
-        0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
     };
 
     double expected[] = {
@@ -276,7 +304,10 @@ void test_raw_std_list_get_size() {
         // size
         2,
         // space for more size bytes
-        0, 0, 0, 0,
+        0,
+        0,
+        0,
+        0,
     };
 
     TEST_ASSERT_EQUAL_size_t(2, raw_std_list_get_size(AS_RAW_STD_VALUE(buffer)));
@@ -311,7 +342,10 @@ void test_raw_std_map_get_size() {
         // size
         2,
         // space for more size bytes
-        0, 0, 0, 0,
+        0,
+        0,
+        0,
+        0,
     };
 
     TEST_ASSERT_EQUAL_size_t(2, raw_std_map_get_size(AS_RAW_STD_VALUE(buffer)));
@@ -346,10 +380,17 @@ void test_raw_std_value_as_float32array() {
         // size
         2,
         // 2 alignment bytes
-        0, 0,
+        0,
+        0,
         // space for 2 floats
-        0, 0, 0, 0,
-        0, 0, 0, 0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
     };
 
     float expected[] = {
@@ -375,13 +416,11 @@ void test_raw_std_value_equals() {
     // int32
     {
         alignas(16) uint8_t lhs[] = {
-            kStdInt32,
-            1, 2, 3, 4,
+            kStdInt32, 1, 2, 3, 4,
         };
 
         alignas(16) uint8_t rhs[] = {
-            kStdInt32,
-            1, 2, 3, 4,
+            kStdInt32, 1, 2, 3, 4,
         };
 
         TEST_ASSERT_TRUE(raw_std_value_equals(AS_RAW_STD_VALUE(lhs), AS_RAW_STD_VALUE(rhs)));
@@ -392,15 +431,9 @@ void test_raw_std_value_equals() {
 
     // int64
     {
-        alignas(16) uint8_t lhs[] = {
-            kStdInt64,
-            1, 2, 3, 4, 5, 6, 7, 8
-        };
+        alignas(16) uint8_t lhs[] = { kStdInt64, 1, 2, 3, 4, 5, 6, 7, 8 };
 
-        alignas(16) uint8_t rhs[] = {
-            kStdInt64,
-            1, 2, 3, 4, 5, 6, 7, 8
-        };
+        alignas(16) uint8_t rhs[] = { kStdInt64, 1, 2, 3, 4, 5, 6, 7, 8 };
 
         TEST_ASSERT_TRUE(raw_std_value_equals(AS_RAW_STD_VALUE(lhs), AS_RAW_STD_VALUE(rhs)));
 
@@ -414,18 +447,44 @@ void test_raw_std_value_equals() {
             // type byte
             kStdFloat64,
             // 7 alignment bytes
-            0, 0, 0, 0, 0, 0, 0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
             // bytes for 1 float64
-            0, 0, 0, 0, 0, 0, 0, 0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
         };
 
         alignas(16) uint8_t rhs[] = {
             // type byte
             kStdFloat64,
             // 7 alignment bytes
-            0, 0, 0, 0, 0, 0, 0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
             // bytes for 1 float64
-            0, 0, 0, 0, 0, 0, 0, 0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
         };
 
         double f = M_PI;
@@ -476,17 +535,9 @@ void test_raw_std_value_equals() {
 
     // uint8array
     {
-        alignas(16) uint8_t lhs[] = {
-            kStdUInt8Array,
-            4,
-            1, 2, 3, 4
-        };
+        alignas(16) uint8_t lhs[] = { kStdUInt8Array, 4, 1, 2, 3, 4 };
 
-        alignas(16) uint8_t rhs[] = {
-            kStdUInt8Array,
-            4,
-            1, 2, 3, 4
-        };
+        alignas(16) uint8_t rhs[] = { kStdUInt8Array, 4, 1, 2, 3, 4 };
 
         TEST_ASSERT_TRUE(raw_std_value_equals(AS_RAW_STD_VALUE(lhs), AS_RAW_STD_VALUE(rhs)));
 
@@ -502,28 +553,40 @@ void test_raw_std_value_equals() {
 
     // int32array
     {
-        alignas(16) uint8_t lhs[] = {
-            // type
-            kStdInt32Array,
-            // size
-            2,
-            // 2 alignment bytes
-            0, 0,
-            // space for 2 int32_t's
-            0, 0, 0, 0,
-            0, 0, 0, 0
+        alignas(16) uint8_t lhs[] = { // type
+                                      kStdInt32Array,
+                                      // size
+                                      2,
+                                      // 2 alignment bytes
+                                      0,
+                                      0,
+                                      // space for 2 int32_t's
+                                      0,
+                                      0,
+                                      0,
+                                      0,
+                                      0,
+                                      0,
+                                      0,
+                                      0
         };
 
-        alignas(16) uint8_t rhs[] = {
-            // type
-            kStdInt32Array,
-            // size
-            2,
-            // 2 alignment bytes
-            0, 0,
-            // space for 2 int32_t's
-            0, 0, 0, 0,
-            0, 0, 0, 0
+        alignas(16) uint8_t rhs[] = { // type
+                                      kStdInt32Array,
+                                      // size
+                                      2,
+                                      // 2 alignment bytes
+                                      0,
+                                      0,
+                                      // space for 2 int32_t's
+                                      0,
+                                      0,
+                                      0,
+                                      0,
+                                      0,
+                                      0,
+                                      0,
+                                      0
         };
 
         int32_t array[] = {
@@ -558,10 +621,29 @@ void test_raw_std_value_equals() {
             // size
             2,
             // 6 alignment bytes
-            0, 0, 0, 0, 0, 0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
             // space for 2 int64_t's
-            0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
         };
 
         alignas(16) uint8_t rhs[] = {
@@ -570,10 +652,29 @@ void test_raw_std_value_equals() {
             // size
             2,
             // 6 alignment bytes
-            0, 0, 0, 0, 0, 0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
             // space for 2 int64_t's
-            0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
         };
 
         int64_t array[] = {
@@ -608,10 +709,29 @@ void test_raw_std_value_equals() {
             // size
             2,
             // 6 alignment bytes
-            0, 0, 0, 0, 0, 0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
             // space for 2 doubles
-            0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
         };
 
         alignas(16) uint8_t rhs[] = {
@@ -620,10 +740,29 @@ void test_raw_std_value_equals() {
             // size
             2,
             // 6 alignment bytes
-            0, 0, 0, 0, 0, 0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
             // space for 2 doubles
-            0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
         };
 
         double array[] = {
@@ -700,23 +839,30 @@ void test_raw_std_value_equals() {
             [1] = 2,
             [2] = kStdNull,
             [3] = kStdInt64,
-            [4] = 0, 0, 0, 0, 0, 0, 0, 0,
+            [4] = 0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
             [12] = kStdFloat32Array,
             [13] = 2,
-            [16] = 0, 0, 0, 0, 0, 0, 0, 0,
+            [16] = 0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
             [24] = kStdTrue,
         };
 
         alignas(16) uint8_t rhs[] = {
-            [0] = kStdMap,
-            [1] = 2,
-            [2] = kStdFloat32Array,
-            [3] = 2,
-            [4] = 0, 0, 0, 0, 0, 0, 0, 0,
-            [12] = kStdTrue,
-            [13] = kStdNull,
-            [14] = kStdInt64,
-            [15] = 0, 0, 0, 0, 0, 0, 0, 0,
+            [0] = kStdMap,   [1] = 2,         [2] = kStdFloat32Array, [3] = 2,  [4] = 0, 0, 0, 0, 0, 0, 0, 0,
+            [12] = kStdTrue, [13] = kStdNull, [14] = kStdInt64,       [15] = 0, 0,       0, 0, 0, 0, 0, 0,
         };
 
         int64_t int64 = (int64_t) INT64_MIN;
@@ -752,10 +898,17 @@ void test_raw_std_value_equals() {
             // size
             2,
             // 2 alignment bytes
-            0, 0,
+            0,
+            0,
             // space for 2 floats
-            0, 0, 0, 0,
-            0, 0, 0, 0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
         };
 
         alignas(16) uint8_t rhs[] = {
@@ -764,10 +917,17 @@ void test_raw_std_value_equals() {
             // size
             2,
             // 2 alignment bytes
-            0, 0,
+            0,
+            0,
             // space for 2 floats
-            0, 0, 0, 0,
-            0, 0, 0, 0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
         };
 
         float array[] = {
@@ -816,10 +976,7 @@ void test_raw_std_value_is_int() {
 }
 
 void test_raw_std_value_as_int() {
-    alignas(16) uint8_t buffer[9] = {
-        kStdInt32,
-        0, 0, 0, 0, 0, 0, 0, 0
-    };
+    alignas(16) uint8_t buffer[9] = { kStdInt32, 0, 0, 0, 0, 0, 0, 0, 0 };
 
     int64_t int64 = INT64_MAX;
     buffer[0] = kStdInt64;
@@ -844,7 +1001,10 @@ void test_raw_std_value_get_size() {
         // size
         2,
         // space for more size bytes
-        0, 0, 0, 0,
+        0,
+        0,
+        0,
+        0,
     };
 
     TEST_ASSERT_EQUAL_size_t(2, raw_std_value_get_size(AS_RAW_STD_VALUE(buffer)));
@@ -902,8 +1062,7 @@ void test_raw_std_value_after() {
     // int32
     {
         alignas(16) uint8_t buffer[] = {
-            kStdInt32,
-            1, 2, 3, 4,
+            kStdInt32, 1, 2, 3, 4,
         };
 
         TEST_ASSERT_EQUAL_PTR(buffer + 5, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
@@ -911,10 +1070,7 @@ void test_raw_std_value_after() {
 
     // int64
     {
-        alignas(16) uint8_t buffer[] = {
-            kStdInt64,
-            1, 2, 3, 4, 5, 6, 7, 8
-        };
+        alignas(16) uint8_t buffer[] = { kStdInt64, 1, 2, 3, 4, 5, 6, 7, 8 };
 
         TEST_ASSERT_EQUAL_PTR(buffer + 9, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
     }
@@ -925,9 +1081,22 @@ void test_raw_std_value_after() {
             // type byte
             kStdFloat64,
             // 7 alignment bytes
-            0, 0, 0, 0, 0, 0, 0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
             // bytes for 1 float64
-            0, 0, 0, 0, 0, 0, 0, 0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
         };
 
         TEST_ASSERT_EQUAL_PTR(buffer + 1 + 7 + 8, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
@@ -937,11 +1106,7 @@ void test_raw_std_value_after() {
     {
         const char *str = "The quick brown fox jumps over the lazy dog.";
 
-        alignas(16) uint8_t buffer[1 + 1 + 4] = {
-            kStdString,
-            strlen(str),
-            0
-        };
+        alignas(16) uint8_t buffer[1 + 1 + 4] = { kStdString, strlen(str), 0 };
 
         // only string lengths less or equal 253 are actually encoded as one byte in
         // the standard message codec encoding.
@@ -967,11 +1132,7 @@ void test_raw_std_value_after() {
 
     // uint8array
     {
-        alignas(16) uint8_t buffer[1 + 1 + 4 + 0x00010000] = {
-            kStdUInt8Array,
-            4,
-            1, 2, 3, 4
-        };
+        alignas(16) uint8_t buffer[1 + 1 + 4 + 0x00010000] = { kStdUInt8Array, 4, 1, 2, 3, 4 };
 
         TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 4, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
 
@@ -993,16 +1154,22 @@ void test_raw_std_value_after() {
 
     // int32array
     {
-        alignas(16) uint8_t buffer[1 + 1 + 4 + 2 + 0x010000*4] = {
-            // type
-            kStdInt32Array,
-            // size
-            2,
-            // 2 alignment bytes
-            0, 0,
-            // space for 2 int32_t's
-            0, 0, 0, 0,
-            0, 0, 0, 0
+        alignas(16) uint8_t buffer[1 + 1 + 4 + 2 + 0x010000 * 4] = { // type
+                                                                     kStdInt32Array,
+                                                                     // size
+                                                                     2,
+                                                                     // 2 alignment bytes
+                                                                     0,
+                                                                     0,
+                                                                     // space for 2 int32_t's
+                                                                     0,
+                                                                     0,
+                                                                     0,
+                                                                     0,
+                                                                     0,
+                                                                     0,
+                                                                     0,
+                                                                     0
         };
 
         TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 2 + 8, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
@@ -1013,31 +1180,50 @@ void test_raw_std_value_after() {
         buffer[1] = 254;
         buffer[2] = 254;
         buffer[3] = 0;
-        TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 2 + 254*4, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
+        TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 2 + 254 * 4, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
 
         buffer[1] = 255;
         buffer[2] = 0;
         buffer[3] = 0;
         buffer[4] = 1;
         buffer[5] = 0;
-        TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 4 + 2 + 0x010000*4, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
+        TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 4 + 2 + 0x010000 * 4, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
     }
 
     // int64array
     {
-        alignas(16) uint8_t buffer[1 + 1 + 4 + 2 + 0x010000*8] = {
+        alignas(16) uint8_t buffer[1 + 1 + 4 + 2 + 0x010000 * 8] = {
             // type
             kStdInt64Array,
             // size
             2,
             // 6 alignment bytes
-            0, 0, 0, 0, 0, 0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
             // space for 2 int64_t's
-            0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
         };
 
-        TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 6 + 2*8, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
+        TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 6 + 2 * 8, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
 
         buffer[1] = 0;
         TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 6, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
@@ -1045,31 +1231,50 @@ void test_raw_std_value_after() {
         buffer[1] = 254;
         buffer[2] = 254;
         buffer[3] = 0;
-        TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 4 + 2 + 254*8, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
+        TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 4 + 2 + 254 * 8, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
 
         buffer[1] = 255;
         buffer[2] = 0;
         buffer[3] = 0;
         buffer[4] = 1;
         buffer[5] = 0;
-        TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 4 + 2 + 0x010000*8, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
+        TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 4 + 2 + 0x010000 * 8, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
     }
 
     // float64array
     {
-        alignas(16) uint8_t buffer[1 + 1 + 4 + 2 + 0x010000*8] = {
+        alignas(16) uint8_t buffer[1 + 1 + 4 + 2 + 0x010000 * 8] = {
             // type
             kStdFloat64Array,
             // size
             2,
             // 6 alignment bytes
-            0, 0, 0, 0, 0, 0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
             // space for 2 doubles
-            0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
         };
 
-        TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 6 + 2*8, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
+        TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 6 + 2 * 8, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
 
         buffer[1] = 0;
         TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 6, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
@@ -1077,14 +1282,14 @@ void test_raw_std_value_after() {
         buffer[1] = 254;
         buffer[2] = 254;
         buffer[3] = 0;
-        TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 4 + 2 + 254*8, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
+        TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 4 + 2 + 254 * 8, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
 
         buffer[1] = 255;
         buffer[2] = 0;
         buffer[3] = 0;
         buffer[4] = 1;
         buffer[5] = 0;
-        TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 4 + 2 + 0x010000*8, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
+        TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 4 + 2 + 0x010000 * 8, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
     }
 
     // list
@@ -1120,10 +1325,24 @@ void test_raw_std_value_after() {
             [1] = 2,
             [2] = kStdNull,
             [3] = kStdInt64,
-            [4] = 0, 0, 0, 0, 0, 0, 0, 0,
+            [4] = 0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
             [12] = kStdFloat32Array,
             [13] = 2,
-            [16] = 0, 0, 0, 0, 0, 0, 0, 0,
+            [16] = 0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
             [24] = kStdTrue,
         };
 
@@ -1138,16 +1357,22 @@ void test_raw_std_value_after() {
 
     // float32array
     {
-        alignas(16) uint8_t buffer[1 + 1 + 4 + 2 + 0x040000] = {
-            // type
-            kStdFloat32Array,
-            // size
-            2,
-            // 2 alignment bytes
-            0, 0,
-            // space for 2 int32_t's
-            0, 0, 0, 0,
-            0, 0, 0, 0
+        alignas(16) uint8_t buffer[1 + 1 + 4 + 2 + 0x040000] = { // type
+                                                                 kStdFloat32Array,
+                                                                 // size
+                                                                 2,
+                                                                 // 2 alignment bytes
+                                                                 0,
+                                                                 0,
+                                                                 // space for 2 int32_t's
+                                                                 0,
+                                                                 0,
+                                                                 0,
+                                                                 0,
+                                                                 0,
+                                                                 0,
+                                                                 0,
+                                                                 0
         };
 
         TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 2 + 8, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
@@ -1158,14 +1383,14 @@ void test_raw_std_value_after() {
         buffer[1] = 254;
         buffer[2] = 254;
         buffer[3] = 0;
-        TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 2 + 254*4, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
+        TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 2 + 254 * 4, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
 
         buffer[1] = 255;
         buffer[2] = 0;
         buffer[3] = 0;
         buffer[4] = 1;
         buffer[5] = 0;
-        TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 4 + 2 + 0x010000*4, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
+        TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 4 + 2 + 0x010000 * 4, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
     }
 }
 
@@ -1186,7 +1411,10 @@ void test_raw_std_list_get_first_element() {
 
     TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1, raw_std_list_get_first_element(AS_RAW_STD_VALUE(buffer)));
 
-    TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 1 + 1 + strlen(str), raw_std_value_after(raw_std_list_get_first_element(AS_RAW_STD_VALUE(buffer))));
+    TEST_ASSERT_EQUAL_PTR(
+        buffer + 1 + 1 + 1 + 1 + strlen(str),
+        raw_std_value_after(raw_std_list_get_first_element(AS_RAW_STD_VALUE(buffer)))
+    );
 }
 
 void test_raw_std_list_get_nth_element() {
@@ -1206,7 +1434,10 @@ void test_raw_std_list_get_nth_element() {
 
     TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1, raw_std_list_get_nth_element(AS_RAW_STD_VALUE(buffer), 0));
 
-    TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 1 + 1 + strlen(str), raw_std_value_after(raw_std_list_get_first_element(AS_RAW_STD_VALUE(buffer))));
+    TEST_ASSERT_EQUAL_PTR(
+        buffer + 1 + 1 + 1 + 1 + strlen(str),
+        raw_std_value_after(raw_std_list_get_first_element(AS_RAW_STD_VALUE(buffer)))
+    );
 }
 
 void test_raw_std_map_get_first_key() {
@@ -1216,10 +1447,24 @@ void test_raw_std_map_get_first_key() {
         [1] = 2,
         [2] = kStdNull,
         [3] = kStdInt64,
-        [4] = 0, 0, 0, 0, 0, 0, 0, 0,
+        [4] = 0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
         [12] = kStdFloat32Array,
         [13] = 2,
-        [16] = 0, 0, 0, 0, 0, 0, 0, 0,
+        [16] = 0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
         [24] = kStdTrue,
     };
 
@@ -1239,39 +1484,30 @@ void test_raw_std_map_get_first_key() {
 }
 
 void test_raw_std_map_find() {
-
 }
 
 void test_raw_std_map_find_str() {
-
 }
 
 void test_raw_std_value_check() {
-
 }
 
 void test_raw_std_method_call_check() {
-
 }
 
 void test_raw_std_method_call_response_check() {
-
 }
 
 void test_raw_std_event_check() {
-
 }
 
 void test_raw_std_method_call_get_method() {
-
 }
 
 void test_raw_std_method_call_get_method_dup() {
-
 }
 
 void test_raw_std_method_call_get_arg() {
-
 }
 
 int main(void) {

@@ -7,15 +7,16 @@
 
 #define _GNU_SOURCE
 #include <stdlib.h>
-#include <pthread.h>
+
 #include <dlfcn.h>
+#include <pthread.h>
 
 #include <collection.h>
 #include <egl.h>
-#include <gles.h>
-#include <tracer.h>
-#include <pixel_format.h>
 #include <gl_renderer.h>
+#include <gles.h>
+#include <pixel_format.h>
+#include <tracer.h>
 
 FILE_DESCR("EGL/GL renderer")
 
@@ -60,7 +61,10 @@ static ATTR_PURE EGLConfig choose_config_with_pixel_format(EGLDisplay display, c
     n_matched = 0;
     egl_ok = eglChooseConfig(display, attrib_list, NULL, 0, &n_matched);
     if (egl_ok != EGL_TRUE) {
-        LOG_ERROR("Could not query number of EGL framebuffer configurations with fitting attributes. eglChooseConfig: 0x%08X\n", eglGetError());
+        LOG_ERROR(
+            "Could not query number of EGL framebuffer configurations with fitting attributes. eglChooseConfig: 0x%08X\n",
+            eglGetError()
+        );
         return EGL_NO_CONFIG_KHR;
     }
 
@@ -151,12 +155,8 @@ struct gl_renderer *gl_renderer_new_from_gbm_device(
         forced_egl_config = EGL_NO_CONFIG_KHR;
     } else {
         // choose a config
-        const EGLint config_attribs[] = {
-            EGL_SURFACE_TYPE,       EGL_WINDOW_BIT,
-            EGL_RENDERABLE_TYPE,    EGL_OPENGL_ES2_BIT,
-            EGL_SAMPLES,            0,
-            EGL_NONE
-        };
+        const EGLint config_attribs[] = { EGL_SURFACE_TYPE, EGL_WINDOW_BIT, EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT, EGL_SAMPLES, 0,
+                                          EGL_NONE };
 
         if (has_forced_pixel_format == false) {
             has_forced_pixel_format = true;
@@ -170,10 +170,7 @@ struct gl_renderer *gl_renderer_new_from_gbm_device(
         }
     }
 
-    static const EGLint context_attribs[] = {
-        EGL_CONTEXT_CLIENT_VERSION, 2,
-        EGL_NONE
-    };
+    static const EGLint context_attribs[] = { EGL_CONTEXT_CLIENT_VERSION, 2, EGL_NONE };
 
     root_context = eglCreateContext(egl_display, forced_egl_config, EGL_NO_CONTEXT, context_attribs);
     if (root_context == EGL_NO_CONTEXT) {
@@ -205,13 +202,13 @@ struct gl_renderer *gl_renderer_new_from_gbm_device(
         goto fail_destroy_flutter_setup_context;
     }
 
-    gl_renderer = (const char*) glGetString(GL_RENDERER);
+    gl_renderer = (const char *) glGetString(GL_RENDERER);
     if (gl_renderer == NULL) {
         LOG_ERROR("Couldn't query OpenGL ES renderer information.\n");
         goto fail_clear_current;
     }
 
-    gl_exts = (const char*) glGetString(GL_EXTENSIONS);
+    gl_exts = (const char *) glGetString(GL_EXTENSIONS);
     if (gl_exts == NULL) {
         LOG_ERROR("Couldn't query supported OpenGL ES extensions.\n");
         goto fail_clear_current;
@@ -279,29 +276,28 @@ struct gl_renderer *gl_renderer_new_from_gbm_device(
 
     return renderer;
 
-
-    fail_clear_current:
+fail_clear_current:
     eglMakeCurrent(egl_display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
 
-    fail_destroy_flutter_setup_context:
+fail_destroy_flutter_setup_context:
     eglDestroyContext(egl_display, flutter_setup_context);
 
-    fail_destroy_flutter_resource_uploading_context:
+fail_destroy_flutter_resource_uploading_context:
     eglDestroyContext(egl_display, flutter_resource_uploading_context);
 
-    fail_destroy_flutter_render_context:
+fail_destroy_flutter_render_context:
     eglDestroyContext(egl_display, flutter_render_context);
 
-    fail_destroy_root_context:
+fail_destroy_root_context:
     eglDestroyContext(egl_display, root_context);
 
-    fail_terminate_display:
+fail_terminate_display:
     eglTerminate(egl_display);
 
-    fail_free_renderer:
+fail_free_renderer:
     free(renderer);
 
-    fail_return_null:
+fail_return_null:
     return NULL;
 }
 
@@ -349,11 +345,7 @@ int gl_renderer_make_flutter_setup_context_current(struct gl_renderer *renderer)
     DEBUG_ASSERT_NOT_NULL(renderer);
 
     TRACER_BEGIN(renderer->tracer, "gl_renderer_make_flutter_rendering_context_current");
-    egl_ok = eglMakeCurrent(
-        renderer->egl_display,
-        EGL_NO_SURFACE, EGL_NO_SURFACE,
-        renderer->flutter_setup_context
-    );
+    egl_ok = eglMakeCurrent(renderer->egl_display, EGL_NO_SURFACE, EGL_NO_SURFACE, renderer->flutter_setup_context);
     TRACER_END(renderer->tracer, "gl_renderer_make_flutter_rendering_context_current");
 
     if (egl_ok != EGL_TRUE) {
@@ -372,11 +364,7 @@ int gl_renderer_make_flutter_rendering_context_current(struct gl_renderer *rende
     /// DEBUG_ASSERT(surface != EGL_NO_SURFACE);
 
     TRACER_BEGIN(renderer->tracer, "gl_renderer_make_flutter_rendering_context_current");
-    egl_ok = eglMakeCurrent(
-        renderer->egl_display,
-        surface, surface,
-        renderer->flutter_rendering_context
-    );
+    egl_ok = eglMakeCurrent(renderer->egl_display, surface, surface, renderer->flutter_rendering_context);
     TRACER_END(renderer->tracer, "gl_renderer_make_flutter_rendering_context_current");
 
     if (egl_ok != EGL_TRUE) {
@@ -393,11 +381,7 @@ int gl_renderer_make_flutter_resource_uploading_context_current(struct gl_render
     DEBUG_ASSERT_NOT_NULL(renderer);
 
     TRACER_BEGIN(renderer->tracer, "gl_renderer_make_flutter_resource_uploading_context_current");
-    egl_ok = eglMakeCurrent(
-        renderer->egl_display,
-        EGL_NO_SURFACE, EGL_NO_SURFACE,
-        renderer->flutter_resource_uploading_context
-    );
+    egl_ok = eglMakeCurrent(renderer->egl_display, EGL_NO_SURFACE, EGL_NO_SURFACE, renderer->flutter_resource_uploading_context);
     TRACER_END(renderer->tracer, "gl_renderer_make_flutter_resource_uploading_context_current");
 
     if (egl_ok != EGL_TRUE) {
@@ -425,7 +409,7 @@ int gl_renderer_clear_current(struct gl_renderer *renderer) {
     return 0;
 }
 
-void *gl_renderer_get_proc_address(MAYBE_UNUSED struct gl_renderer *renderer, const char* name) {
+void *gl_renderer_get_proc_address(MAYBE_UNUSED struct gl_renderer *renderer, const char *name) {
     void *address;
 
     address = eglGetProcAddress(name);
@@ -535,26 +519,22 @@ void gl_renderer_cleanup_this_render_thread() {
     }
 }
 
-ATTR_PURE EGLConfig gl_renderer_choose_config(struct gl_renderer *renderer, bool has_desired_pixel_format, enum pixfmt desired_pixel_format) {
+ATTR_PURE EGLConfig
+gl_renderer_choose_config(struct gl_renderer *renderer, bool has_desired_pixel_format, enum pixfmt desired_pixel_format) {
     DEBUG_ASSERT_NOT_NULL(renderer);
 
     if (renderer->forced_egl_config != EGL_NO_CONFIG_KHR) {
         return renderer->forced_egl_config;
     }
 
-    const EGLint config_attribs[] = {
-        EGL_SURFACE_TYPE,       EGL_WINDOW_BIT,
-        EGL_RENDERABLE_TYPE,    EGL_OPENGL_ES2_BIT,
-        EGL_SAMPLES,            0,
-        EGL_NONE
-    };
+    const EGLint config_attribs[] = { EGL_SURFACE_TYPE, EGL_WINDOW_BIT, EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT, EGL_SAMPLES, 0, EGL_NONE };
 
     return choose_config_with_pixel_format(
         renderer->egl_display,
         config_attribs,
         renderer->has_forced_pixel_format ? renderer->pixel_format :
-            has_desired_pixel_format ? desired_pixel_format :
-            kARGB8888_FpiPixelFormat
+        has_desired_pixel_format          ? desired_pixel_format :
+                                            kARGB8888_FpiPixelFormat
     );
 }
 
@@ -562,16 +542,7 @@ ATTR_PURE EGLConfig gl_renderer_choose_config_direct(struct gl_renderer *rendere
     DEBUG_ASSERT_NOT_NULL(renderer);
     DEBUG_ASSERT_PIXFMT_VALID(pixel_format);
 
-    const EGLint config_attribs[] = {
-        EGL_SURFACE_TYPE,       EGL_WINDOW_BIT,
-        EGL_RENDERABLE_TYPE,    EGL_OPENGL_ES2_BIT,
-        EGL_SAMPLES,            0,
-        EGL_NONE
-    };
+    const EGLint config_attribs[] = { EGL_SURFACE_TYPE, EGL_WINDOW_BIT, EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT, EGL_SAMPLES, 0, EGL_NONE };
 
-    return choose_config_with_pixel_format(
-        renderer->egl_display,
-        config_attribs,
-        pixel_format
-    );
+    return choose_config_with_pixel_format(renderer->egl_display, config_attribs, pixel_format);
 }

@@ -9,23 +9,25 @@
 
 #define _GNU_SOURCE
 #include <stdlib.h>
+
 #include <pthread.h>
 
-#include <window.h>
-#include <cursor.h>
-#include <collection.h>
-#include <modesetting.h>
-#include <flutter-pi.h>
 #include <flutter_embedder.h>
-#include <frame_scheduler.h>
+
+#include <collection.h>
 #include <compositor_ng.h>
-#include <tracer.h>
-#include <surface.h>
-#include <render_surface.h>
-#include <vk_renderer.h>
-#include <gl_renderer.h>
+#include <cursor.h>
 #include <egl_gbm_render_surface.h>
+#include <flutter-pi.h>
+#include <frame_scheduler.h>
+#include <gl_renderer.h>
+#include <modesetting.h>
+#include <render_surface.h>
+#include <surface.h>
+#include <tracer.h>
 #include <vk_gbm_render_surface.h>
+#include <vk_renderer.h>
+#include <window.h>
 
 FILE_DESCR("native windows")
 
@@ -355,13 +357,7 @@ static int window_init(
 
     DEBUG_ASSERT(has_orientation && has_rotation);
 
-    fill_view_matrices(
-        rotation,
-        width,
-        height,
-        &window->display_to_view_transform,
-        &window->view_to_display_transform
-    );
+    fill_view_matrices(rotation, width, height, &window->display_to_view_transform, &window->view_to_display_transform);
 
     pthread_mutex_init(&window->lock, NULL);
     window->n_refs = REFCOUNT_INIT_1;
@@ -476,11 +472,7 @@ bool window_is_cursor_enabled(struct window *window) {
     return enabled;
 }
 
-int window_set_cursor(
-    struct window *window,
-    bool has_enabled, bool enabled,
-    bool has_pos, struct vec2i pos
-) {
+int window_set_cursor(struct window *window, bool has_enabled, bool enabled, bool has_pos, struct vec2i pos) {
     int ok;
 
     DEBUG_ASSERT_NOT_NULL(window);
@@ -520,195 +512,168 @@ int window_set_cursor(
     return ok;
 }
 
-
 enum cursor_size {
-	k32x32_CursorSize,
-	k48x48_CursorSize,
-	k64x64_CursorSize,
-	k96x96_CursorSize,
-	k128x128_CursorSize,
+    k32x32_CursorSize,
+    k48x48_CursorSize,
+    k64x64_CursorSize,
+    k96x96_CursorSize,
+    k128x128_CursorSize,
 
-	kMax_CursorSize = k128x128_CursorSize,
-	kCount_CursorSize = kMax_CursorSize + 1
+    kMax_CursorSize = k128x128_CursorSize,
+    kCount_CursorSize = kMax_CursorSize + 1
 };
 
 struct cursor_buffer {
-	refcount_t n_refs;
+    refcount_t n_refs;
 
-	struct drmdev *drmdev;
-	uint32_t gem_handle;
-	int drm_fb_id;
-	enum pixfmt format;
-	int width, height;
-	enum cursor_size size;
-	drm_plane_transform_t rotation;
+    struct drmdev *drmdev;
+    uint32_t gem_handle;
+    int drm_fb_id;
+    enum pixfmt format;
+    int width, height;
+    enum cursor_size size;
+    drm_plane_transform_t rotation;
 
-	int hot_x, hot_y;
+    int hot_x, hot_y;
 };
 
-static const int pixel_size_for_cursor_size[] = {
-	[k32x32_CursorSize] = 32,
-	[k48x48_CursorSize] = 48,
-	[k64x64_CursorSize] = 64,
-	[k96x96_CursorSize] = 96,
-	[k128x128_CursorSize] = 128
-};
+static const int pixel_size_for_cursor_size
+    [] = { [k32x32_CursorSize] = 32, [k48x48_CursorSize] = 48, [k64x64_CursorSize] = 64, [k96x96_CursorSize] = 96, [k128x128_CursorSize] = 128 };
 
 COMPILE_ASSERT(ARRAY_SIZE(pixel_size_for_cursor_size) == kCount_CursorSize);
 
-
 MAYBE_UNUSED static enum cursor_size cursor_size_from_pixel_ratio(double device_pixel_ratio) {
-	double last_diff = INFINITY;
-	enum cursor_size size;
+    double last_diff = INFINITY;
+    enum cursor_size size;
 
-	for (enum cursor_size size_iter = k32x32_CursorSize; size_iter < kCount_CursorSize; size_iter++) {
-		double cursor_dpr = (pixel_size_for_cursor_size[size_iter] * 3 * 10.0) / (25.4 * 38);
-		double cursor_screen_dpr_diff = device_pixel_ratio - cursor_dpr;
-		if ((-last_diff < cursor_screen_dpr_diff) && (cursor_screen_dpr_diff < last_diff)) {
-			size = size_iter;
-			last_diff = cursor_screen_dpr_diff;
-		}
-	}
+    for (enum cursor_size size_iter = k32x32_CursorSize; size_iter < kCount_CursorSize; size_iter++) {
+        double cursor_dpr = (pixel_size_for_cursor_size[size_iter] * 3 * 10.0) / (25.4 * 38);
+        double cursor_screen_dpr_diff = device_pixel_ratio - cursor_dpr;
+        if ((-last_diff < cursor_screen_dpr_diff) && (cursor_screen_dpr_diff < last_diff)) {
+            size = size_iter;
+            last_diff = cursor_screen_dpr_diff;
+        }
+    }
 
-	return size;
+    return size;
 }
 
 MAYBE_UNUSED static struct cursor_buffer *cursor_buffer_new(struct drmdev *drmdev, enum cursor_size size, drm_plane_transform_t rotation) {
-	const struct cursor_icon *icon;
-	struct cursor_buffer *b;
-	uint32_t gem_handle, pitch;
-	uint32_t fb_id;
-	size_t buffer_size;
-	void *map_void;
-	int pixel_size, hot_x, hot_y;
-	int ok;
+    const struct cursor_icon *icon;
+    struct cursor_buffer *b;
+    uint32_t gem_handle, pitch;
+    uint32_t fb_id;
+    size_t buffer_size;
+    void *map_void;
+    int pixel_size, hot_x, hot_y;
+    int ok;
 
-	DEBUG_ASSERT_NOT_NULL(drmdev);
-	DEBUG_ASSERT(PLANE_TRANSFORM_IS_ONLY_ROTATION(rotation));
+    DEBUG_ASSERT_NOT_NULL(drmdev);
+    DEBUG_ASSERT(PLANE_TRANSFORM_IS_ONLY_ROTATION(rotation));
 
-	if (!drmdev_supports_dumb_buffers(drmdev)) {
-		LOG_ERROR("KMS doesn't support dumb buffers. Can't upload mouse cursor icon.\n");
-		return NULL;
-	}
+    if (!drmdev_supports_dumb_buffers(drmdev)) {
+        LOG_ERROR("KMS doesn't support dumb buffers. Can't upload mouse cursor icon.\n");
+        return NULL;
+    }
 
-	b = malloc(sizeof *b);
-	if (b == NULL) {
-		return NULL;
-	}
+    b = malloc(sizeof *b);
+    if (b == NULL) {
+        return NULL;
+    }
 
-	pixel_size = pixel_size_for_cursor_size[size];
+    pixel_size = pixel_size_for_cursor_size[size];
 
-	ok = drmdev_create_dumb_buffer(
-		drmdev,
-		pixel_size, pixel_size, 32,
-		&gem_handle,
-		&pitch,
-		&buffer_size
-	);
-	if (ok != 0) {
-		goto fail_free_b;
-	}
+    ok = drmdev_create_dumb_buffer(drmdev, pixel_size, pixel_size, 32, &gem_handle, &pitch, &buffer_size);
+    if (ok != 0) {
+        goto fail_free_b;
+    }
 
-	map_void = drmdev_map_dumb_buffer(
-		drmdev,
-		gem_handle,
-		buffer_size
-	);
-	if (map_void == NULL) {
-		goto fail_destroy_dumb_buffer;
-	}
+    map_void = drmdev_map_dumb_buffer(drmdev, gem_handle, buffer_size);
+    if (map_void == NULL) {
+        goto fail_destroy_dumb_buffer;
+    }
 
-	icon = cursors + size;
-	DEBUG_ASSERT_EQUALS(pixel_size, icon->width);
-	DEBUG_ASSERT_EQUALS(pixel_size, icon->height);
+    icon = cursors + size;
+    DEBUG_ASSERT_EQUALS(pixel_size, icon->width);
+    DEBUG_ASSERT_EQUALS(pixel_size, icon->height);
 
-	if (rotation.rotate_0 == 0) {
-		DEBUG_ASSERT_EQUALS(pixel_size * 4, pitch);
-		memcpy(map_void, icon->data, buffer_size);
-		hot_x = icon->hot_x;
-		hot_y = icon->hot_y;
-	} else if (rotation.rotate_90 || rotation.rotate_180 || rotation.rotate_270) {
-		uint32_t *map_uint32 = (uint32_t*) map_void;
+    if (rotation.rotate_0 == 0) {
+        DEBUG_ASSERT_EQUALS(pixel_size * 4, pitch);
+        memcpy(map_void, icon->data, buffer_size);
+        hot_x = icon->hot_x;
+        hot_y = icon->hot_y;
+    } else if (rotation.rotate_90 || rotation.rotate_180 || rotation.rotate_270) {
+        uint32_t *map_uint32 = (uint32_t *) map_void;
 
-		for (int y = 0; y < pixel_size; y++) {
-			for (int x = 0; x < pixel_size; x++) {
-				int buffer_x, buffer_y;
-				if (rotation.rotate_90) {
-					buffer_x = pixel_size - y - 1;
-					buffer_y = x;
-				} else if (rotation.rotate_180) {
-					buffer_x = pixel_size - y - 1;
-					buffer_y = pixel_size - x - 1;
-				} else {
+        for (int y = 0; y < pixel_size; y++) {
+            for (int x = 0; x < pixel_size; x++) {
+                int buffer_x, buffer_y;
+                if (rotation.rotate_90) {
+                    buffer_x = pixel_size - y - 1;
+                    buffer_y = x;
+                } else if (rotation.rotate_180) {
+                    buffer_x = pixel_size - y - 1;
+                    buffer_y = pixel_size - x - 1;
+                } else {
                     DEBUG_ASSERT(rotation.rotate_270);
-					buffer_x = y;
-					buffer_y = pixel_size - x - 1;
-				}
+                    buffer_x = y;
+                    buffer_y = pixel_size - x - 1;
+                }
 
-				int buffer_offset = pitch * buffer_y + 4 * buffer_x;
-				int cursor_offset = pixel_size * y + x;
+                int buffer_offset = pitch * buffer_y + 4 * buffer_x;
+                int cursor_offset = pixel_size * y + x;
 
-				map_uint32[buffer_offset / 4] = icon->data[cursor_offset];
-			}
-		}
+                map_uint32[buffer_offset / 4] = icon->data[cursor_offset];
+            }
+        }
 
-		if (rotation.rotate_90) {
-			hot_x = pixel_size - icon->hot_y - 1;
-			hot_y = icon->hot_x;
-		} else if (rotation.rotate_180) {
-			hot_x = pixel_size - icon->hot_x - 1;
-			hot_y = pixel_size - icon->hot_y - 1;
-		} else {
-			DEBUG_ASSERT(rotation.rotate_270);
-			hot_x = icon->hot_y;
-			hot_y = pixel_size - icon->hot_x - 1;
-		}
-	}
+        if (rotation.rotate_90) {
+            hot_x = pixel_size - icon->hot_y - 1;
+            hot_y = icon->hot_x;
+        } else if (rotation.rotate_180) {
+            hot_x = pixel_size - icon->hot_x - 1;
+            hot_y = pixel_size - icon->hot_y - 1;
+        } else {
+            DEBUG_ASSERT(rotation.rotate_270);
+            hot_x = icon->hot_y;
+            hot_y = pixel_size - icon->hot_x - 1;
+        }
+    }
 
-	drmdev_unmap_dumb_buffer(drmdev, map_void, size);
+    drmdev_unmap_dumb_buffer(drmdev, map_void, size);
 
-	fb_id = drmdev_add_fb(
-		drmdev,
-		pixel_size,
-		pixel_size,
-		kARGB8888_FpiPixelFormat,
-		gem_handle,
-		pitch,
-		0,
-		true,
-		DRM_FORMAT_MOD_LINEAR
-	);
-	if (fb_id == 0) {
-		LOG_ERROR("Couldn't add mouse cursor buffer as KMS framebuffer.\n");
-		goto fail_destroy_dumb_buffer;
-	}
+    fb_id = drmdev_add_fb(drmdev, pixel_size, pixel_size, kARGB8888_FpiPixelFormat, gem_handle, pitch, 0, true, DRM_FORMAT_MOD_LINEAR);
+    if (fb_id == 0) {
+        LOG_ERROR("Couldn't add mouse cursor buffer as KMS framebuffer.\n");
+        goto fail_destroy_dumb_buffer;
+    }
 
-	b->n_refs = REFCOUNT_INIT_1;
-	b->drmdev = drmdev_ref(drmdev);
-	b->gem_handle = gem_handle;
-	b->drm_fb_id = fb_id;
-	b->format = kARGB8888_FpiPixelFormat;
-	b->width = pixel_size;
-	b->height = pixel_size;
-	b->size = size;
-	b->rotation = rotation;
-	b->hot_x = hot_x;
-	b->hot_y = hot_y;
-	return b;
+    b->n_refs = REFCOUNT_INIT_1;
+    b->drmdev = drmdev_ref(drmdev);
+    b->gem_handle = gem_handle;
+    b->drm_fb_id = fb_id;
+    b->format = kARGB8888_FpiPixelFormat;
+    b->width = pixel_size;
+    b->height = pixel_size;
+    b->size = size;
+    b->rotation = rotation;
+    b->hot_x = hot_x;
+    b->hot_y = hot_y;
+    return b;
 
-	fail_destroy_dumb_buffer:
-	drmdev_destroy_dumb_buffer(drmdev, gem_handle);
+fail_destroy_dumb_buffer:
+    drmdev_destroy_dumb_buffer(drmdev, gem_handle);
 
-	fail_free_b:
-	free(b);
-	return NULL;
+fail_free_b:
+    free(b);
+    return NULL;
 }
 
 static void cursor_buffer_destroy(struct cursor_buffer *buffer) {
-	drmdev_rm_fb(buffer->drmdev, buffer->drm_fb_id);
-	drmdev_destroy_dumb_buffer(buffer->drmdev, buffer->gem_handle);
-	drmdev_unref(buffer->drmdev);
-	free(buffer);
+    drmdev_rm_fb(buffer->drmdev, buffer->drm_fb_id);
+    drmdev_destroy_dumb_buffer(buffer->drmdev, buffer->gem_handle);
+    drmdev_unref(buffer->drmdev);
+    free(buffer);
 }
 
 DEFINE_STATIC_REF_OPS(cursor_buffer, n_refs)
@@ -744,12 +709,12 @@ static int select_mode(
         for_each_mode_in_connector(connector, mode_iter) {
             char *modeline = NULL, *modeline_nohz = NULL;
 
-            ok = asprintf(&modeline, "%"PRIu16"x%"PRIu16"@%"PRIu32, mode_iter->hdisplay, mode_iter->vdisplay, mode_iter->vrefresh);
+            ok = asprintf(&modeline, "%" PRIu16 "x%" PRIu16 "@%" PRIu32, mode_iter->hdisplay, mode_iter->vdisplay, mode_iter->vrefresh);
             if (ok < 0) {
                 return ENOMEM;
             }
 
-            ok = asprintf(&modeline_nohz, "%"PRIu16"x%"PRIu16, mode_iter->hdisplay, mode_iter->vdisplay);
+            ok = asprintf(&modeline_nohz, "%" PRIu16 "x%" PRIu16, mode_iter->hdisplay, mode_iter->vdisplay);
             if (ok < 0) {
                 return ENOMEM;
             }
@@ -789,8 +754,7 @@ static int select_mode(
                 int old_area = mode->hdisplay * mode->vdisplay;
 
                 if ((area > old_area) || ((area == old_area) && (mode_iter->vrefresh > mode->vrefresh)) ||
-                    ((area == old_area) && (mode_iter->vrefresh == mode->vrefresh) &&
-                    ((mode->flags & DRM_MODE_FLAG_INTERLACE) == 0))) {
+                    ((area == old_area) && (mode_iter->vrefresh == mode->vrefresh) && ((mode->flags & DRM_MODE_FLAG_INTERLACE) == 0))) {
                     mode = mode_iter;
                 }
             }
@@ -957,14 +921,17 @@ ATTR_MALLOC struct window *kms_window_new(
 
     LOG_DEBUG_UNPREFIXED(
         "display mode:\n"
-        "  resolution: %"PRIu16" x %"PRIu16"\n"
+        "  resolution: %" PRIu16 " x %" PRIu16
+        "\n"
         "  refresh rate: %fHz\n"
         "  physical size: %dmm x %dmm\n"
         "  flutter device pixel ratio: %f\n"
         "  pixel format: %s\n",
-        selected_mode->hdisplay, selected_mode->vdisplay,
+        selected_mode->hdisplay,
+        selected_mode->vdisplay,
         mode_get_vrefresh(selected_mode),
-        width_mm, height_mm,
+        width_mm,
+        height_mm,
         window->pixel_ratio,
         has_forced_pixel_format ? get_pixfmt_info(forced_pixel_format)->name : "(any)"
     );
@@ -996,8 +963,7 @@ ATTR_MALLOC struct window *kms_window_new(
     window->move_cursor_locked = kms_window_move_cursor_locked;
     return window;
 
-
-    fail_free_window:
+fail_free_window:
     free(window);
     return NULL;
 }
@@ -1151,38 +1117,38 @@ static int kms_window_push_composition(struct window *window, struct fl_layer_co
     }
 
     // add cursor infos
-	if (window->kms.cursor != NULL) {
-		ok = kms_req_builder_push_fb_layer(
-			builder,
-			&(const struct kms_fb_layer) {
-				.drm_fb_id = window->kms.cursor->drm_fb_id,
-				.format = window->kms.cursor->format,
-				.has_modifier = true,
-				.modifier = DRM_FORMAT_MOD_LINEAR,
-				.src_x = 0,
-				.src_y = 0,
-				.src_w = ((uint16_t) window->kms.cursor->width) << 16,
-				.src_h = ((uint16_t) window->kms.cursor->height) << 16,
-				.dst_x = window->cursor_pos.x - window->kms.cursor->hot_x,
-				.dst_y = window->cursor_pos.y - window->kms.cursor->hot_y,
-				.dst_w = window->kms.cursor->width,
-				.dst_h = window->kms.cursor->height,
-				.has_rotation = false,
-				.rotation = PLANE_TRANSFORM_NONE,
-				.has_in_fence_fd = false,
-				.in_fence_fd = 0,
-				.prefer_cursor = true,
-			},
-			cursor_buffer_unref_void,
-			NULL,
-			window->kms.cursor
-		);
-		if (ok != 0) {
-			LOG_ERROR("Couldn't present cursor.\n");
-		} else {
-			cursor_buffer_ref(window->kms.cursor);
-		}
-	}
+    if (window->kms.cursor != NULL) {
+        ok = kms_req_builder_push_fb_layer(
+            builder,
+            &(const struct kms_fb_layer){
+                .drm_fb_id = window->kms.cursor->drm_fb_id,
+                .format = window->kms.cursor->format,
+                .has_modifier = true,
+                .modifier = DRM_FORMAT_MOD_LINEAR,
+                .src_x = 0,
+                .src_y = 0,
+                .src_w = ((uint16_t) window->kms.cursor->width) << 16,
+                .src_h = ((uint16_t) window->kms.cursor->height) << 16,
+                .dst_x = window->cursor_pos.x - window->kms.cursor->hot_x,
+                .dst_y = window->cursor_pos.y - window->kms.cursor->hot_y,
+                .dst_w = window->kms.cursor->width,
+                .dst_h = window->kms.cursor->height,
+                .has_rotation = false,
+                .rotation = PLANE_TRANSFORM_NONE,
+                .has_in_fence_fd = false,
+                .in_fence_fd = 0,
+                .prefer_cursor = true,
+            },
+            cursor_buffer_unref_void,
+            NULL,
+            window->kms.cursor
+        );
+        if (ok != 0) {
+            LOG_ERROR("Couldn't present cursor.\n");
+        } else {
+            cursor_buffer_ref(window->kms.cursor);
+        }
+    }
 
     req = kms_req_builder_build(builder);
     if (req == NULL) {
@@ -1305,7 +1271,6 @@ static struct render_surface *kms_window_get_render_surface_internal(struct wind
                 continue;
             }
 
-
             if (plane->type != kPrimary_DrmPlaneType && plane->type != kOverlay_DrmPlaneType) {
                 continue;
             }
@@ -1373,8 +1338,7 @@ static struct render_surface *kms_window_get_render_surface_internal(struct wind
     window->render_surface = render_surface;
     return render_surface;
 
-
-    fail_free_allowed_modifiers:
+fail_free_allowed_modifiers:
     if (allowed_modifiers != NULL) {
         free(allowed_modifiers);
     }

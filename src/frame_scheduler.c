@@ -7,7 +7,6 @@
  * Copyright (c) 2022, Hannes Winkler <hanneswinkler2000@web.de>
  */
 
-
 #include <stdlib.h>
 
 #include <collection.h>
@@ -28,12 +27,8 @@ struct frame_scheduler {
 DEFINE_REF_OPS(frame_scheduler, n_refs)
 DEFINE_STATIC_LOCK_OPS(frame_scheduler, mutex)
 
-struct frame_scheduler *frame_scheduler_new(
-    bool uses_frame_requests,
-    enum present_mode present_mode,
-    fl_vsync_callback_t vsync_cb,
-    void *userdata
-) {
+struct frame_scheduler *
+frame_scheduler_new(bool uses_frame_requests, enum present_mode present_mode, fl_vsync_callback_t vsync_cb, void *userdata) {
     struct frame_scheduler *scheduler;
 
     // uses_frame_requests? => vsync_cb != NULL

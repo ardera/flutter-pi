@@ -12,7 +12,6 @@ static struct {
     char isolate_id[32];
 } services;
 
-
 static int on_receive_navigation(char *channel, struct platch_obj *object, FlutterPlatformMessageResponseHandle *responsehandle) {
     (void) channel;
     (void) object;
@@ -209,9 +208,9 @@ static int on_receive_platform_views(char *channel, struct platch_obj *object, F
     (void) channel;
     (void) object;
 
-    if STREQ("create", object->method) {
+    if STREQ ("create", object->method) {
         return platch_respond_not_implemented(responsehandle);
-    } else if STREQ("dispose", object->method) {
+    } else if STREQ ("dispose", object->method) {
         return platch_respond_not_implemented(responsehandle);
     }
 
@@ -256,19 +255,19 @@ enum plugin_init_result services_init(struct flutterpi *flutterpi, void **userda
 
     return 0;
 
-    fail_remove_accessibility_receiver:
+fail_remove_accessibility_receiver:
     plugin_registry_remove_receiver(FLUTTER_ACCESSIBILITY_CHANNEL);
 
-    fail_remove_platform_receiver:
+fail_remove_platform_receiver:
     plugin_registry_remove_receiver(FLUTTER_PLATFORM_CHANNEL);
 
-    fail_remove_isolate_receiver:
+fail_remove_isolate_receiver:
     plugin_registry_remove_receiver(FLUTTER_ISOLATE_CHANNEL);
 
-    fail_remove_navigation_receiver:
+fail_remove_navigation_receiver:
     plugin_registry_remove_receiver(FLUTTER_NAVIGATION_CHANNEL);
 
-    fail_return_ok:
+fail_return_ok:
     return kError_PluginInitResult;
 }
 
@@ -282,9 +281,4 @@ void services_deinit(struct flutterpi *flutterpi, void *userdata) {
     plugin_registry_remove_receiver(FLUTTER_PLATFORM_VIEWS_CHANNEL);
 }
 
-FLUTTERPI_PLUGIN(
-    "services",
-    services,
-    services_init,
-    services_deinit
-)
+FLUTTERPI_PLUGIN("services", services, services_init, services_deinit)

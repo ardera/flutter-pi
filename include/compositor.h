@@ -3,8 +3,8 @@
 
 #include <stdint.h>
 
-#include <gbm.h>
 #include <flutter_embedder.h>
+#include <gbm.h>
 
 #include <collection.h>
 #include <modesetting.h>
@@ -87,7 +87,6 @@ struct compositor {
     bool do_blocking_atomic_commits;
 };
 
-
 struct drm_rbo {
     EGLImage egl_image;
     GLuint gl_rbo_id;
@@ -118,10 +117,7 @@ struct rendertarget {
     GLuint gl_fbo_id;
 
     void (*destroy)(struct rendertarget *target);
-    int (*present)(
-        struct rendertarget *target,
-        struct kms_req_builder *builder
-    );
+    int (*present)(struct rendertarget *target, struct kms_req_builder *builder);
 };
 
 struct flutterpi_backing_store {
@@ -132,32 +128,16 @@ struct flutterpi_backing_store {
 
 extern const FlutterCompositor flutter_compositor;
 
-int compositor_on_page_flip(
-	uint32_t sec,
-	uint32_t usec
-);
+int compositor_on_page_flip(uint32_t sec, uint32_t usec);
 
-int compositor_set_view_callbacks(
-    int64_t view_id,
-    platform_view_present_cb present,
-    void *userdata
-);
+int compositor_set_view_callbacks(int64_t view_id, platform_view_present_cb present, void *userdata);
 
-int compositor_remove_view_callbacks(
-    int64_t view_id
-);
+int compositor_remove_view_callbacks(int64_t view_id);
 
-int compositor_apply_cursor_state(
-    bool is_enabled,
-    int rotation,
-    double device_pixel_ratio
-);
+int compositor_apply_cursor_state(bool is_enabled, int rotation, double device_pixel_ratio);
 
 int compositor_set_cursor_pos(int x, int y);
 
-int compositor_initialize(
-    struct drmdev *drmdev
-);
-
+int compositor_initialize(struct drmdev *drmdev);
 
 #endif

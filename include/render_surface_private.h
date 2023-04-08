@@ -8,14 +8,14 @@
  * Copyright (c) 2022, Hannes Winkler <hanneswinkler2000@web.de>
  */
 
-
 #ifndef _FLUTTERPI_INCLUDE_RENDER_SURFACE_PRIVATE_H
 #define _FLUTTERPI_INCLUDE_RENDER_SURFACE_PRIVATE_H
 
 #include <flutter_embedder.h>
+
 #include <collection.h>
-#include <surface_private.h>
 #include <compositor_ng.h>
+#include <surface_private.h>
 
 struct render_surface {
     struct surface surface;
@@ -30,4 +30,4 @@ int render_surface_init(struct render_surface *surface, struct tracer *tracer, s
 
 void render_surface_deinit(struct surface *s);
 
-#endif // _FLUTTERPI_INCLUDE_BACKING_STORE_PRIVATE_H
+#endif  // _FLUTTERPI_INCLUDE_BACKING_STORE_PRIVATE_H

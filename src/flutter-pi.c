@@ -1,76 +1,80 @@
-#define  _GNU_SOURCE
+#define _GNU_SOURCE
 
+#include <assert.h>
 #include <ctype.h>
-#include <features.h>
+#include <errno.h>
+#include <float.h>
+#include <limits.h>
+#include <locale.h>
+#include <math.h>
+#include <signal.h>
+#include <stdbool.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
+
 #include <dlfcn.h>
 #include <fcntl.h>
-#include <stdio.h>
-#include <stdint.h>
-#include <string.h>
-#include <stdlib.h>
-#include <unistd.h>
-#include <stdbool.h>
 #include <pthread.h>
-#include <signal.h>
-#include <errno.h>
-#include <math.h>
-#include <limits.h>
-#include <float.h>
-#include <assert.h>
-#include <time.h>
-#include <getopt.h>
-#include <locale.h>
-#include <elf.h>
-#include <langinfo.h>
-#include <sys/eventfd.h>
-#include <sys/types.h>
 #include <sys/mman.h>
-#include <sys/types.h>
 #include <sys/stat.h>
-#include <linux/input.h>
+#include <sys/types.h>
+#include <unistd.h>
 
-#include <xf86drm.h>
-#include <xf86drmMode.h>
+#include <elf.h>
+#include <features.h>
+#include <getopt.h>
+#include <langinfo.h>
+
+#include <linux/input.h>
+#include <sys/eventfd.h>
+
 #include <drm_fourcc.h>
 #include <gbm.h>
-#include <egl.h>
-#include <gles.h>
 #include <libinput.h>
 #include <libudev.h>
 #include <systemd/sd-event.h>
+#include <xf86drm.h>
+#include <xf86drmMode.h>
+
+#include <egl.h>
+#include <gles.h>
 #ifdef HAS_LIBSEAT
-#   include <libseat.h>
+    #include <libseat.h>
 #endif
+#include <filesystem_layout.h>
 #include <flutter_embedder.h>
 
-#include <flutter-pi.h>
-#include <pixel_format.h>
-#include <gl_renderer.h>
 #include <compositor_ng.h>
+#include <flutter-pi.h>
+#include <frame_scheduler.h>
+#include <gl_renderer.h>
 #include <keyboard.h>
-#include <user_input.h>
 #include <locales.h>
+#include <modesetting.h>
+#include <pixel_format.h>
 #include <platformchannel.h>
 #include <pluginregistry.h>
-#include <texture_registry.h>
-#include <modesetting.h>
-#include <tracer.h>
-#include <plugins/text_input.h>
 #include <plugins/raw_keyboard.h>
-#include <filesystem_layout.h>
+#include <plugins/text_input.h>
+#include <texture_registry.h>
+#include <tracer.h>
+#include <user_input.h>
 #include <vk_renderer.h>
-#include <frame_scheduler.h>
 #include <window.h>
 
 #ifdef ENABLE_MTRACE
-#   include <mcheck.h>
+    #include <mcheck.h>
 #endif
 
 FILE_DESCR("flutter-pi")
 
 #define PIXFMT_ARG_NAME(_name, _arg_name, ...) _arg_name ", "
 
-const char *const usage ="\
+const char *const usage =
+    "\
 flutter-pi - run flutter apps on your Raspberry Pi.\n\
 \n\
 USAGE:\n\
@@ -89,11 +93,11 @@ OPTIONS:\n\
 \n\
   --vulkan                   Use vulkan for rendering.\n"
 #ifndef HAS_VULKAN
-"\
+    "\
                              NOTE: This flutter-pi executable was built without\n\
                              vulkan support.\n"
 #endif
-"\n\
+    "\n\
   -o, --orientation <orientation>  Start the app in this orientation. Valid\n\
                              for <orientation> are: portrait_up, landscape_left,\n\
                              portrait_down, landscape_right.\n\
@@ -119,7 +123,8 @@ OPTIONS:\n\
   --pixelformat <format>     Selects the pixel format to use for the framebuffers.\n\
                              If this is not specified, a good pixel format will\n\
                              be selected automatically.\n\
-                             Available pixel formats: " PIXFMT_LIST(PIXFMT_ARG_NAME) "\n\
+                             Available pixel formats: " PIXFMT_LIST(PIXFMT_ARG_NAME
+    ) "\n\
   --videomode widthxheight\n\
   --videomode widthxheight@hz  Uses an output videomode that satisfies the argument.\n\
                              If no hz value is given, the highest possible refreshrate\n\
@@ -150,86 +155,86 @@ SEE ALSO:\n\
 struct libseat;
 
 struct flutterpi {
-	/**
+    /**
 	 * @brief The KMS device.
 	 *
 	 */
     struct drmdev *drmdev;
 
-	/**
+    /**
 	 * @brief The flutter event tracing interface.
 	 *
 	 */
-	struct tracer *tracer;
+    struct tracer *tracer;
 
-	/**
+    /**
 	 * @brief The compositor. Manages all the window stuff.
 	 *
 	 */
-	struct compositor *compositor;
+    struct compositor *compositor;
 
-	/**
+    /**
 	 * @brief Event source which represents the compositor event fd as registered to the
 	 * event loop.
 	 *
 	 */
-	// sd_event_source *compositor_event_source;
+    // sd_event_source *compositor_event_source;
 
-	/**
+    /**
 	 * @brief The user input instance.
 	 *
 	 * Handles touch, mouse and keyboard input and calls the callbacks.
 	 */
-	struct user_input *user_input;
+    struct user_input *user_input;
 
-	/**
+    /**
 	 * @brief The user input instance event fd registered to the event loop.
 	 *
 	 */
-	// sd_event_source *user_input_event_source;
+    // sd_event_source *user_input_event_source;
 
-	/**
+    /**
 	 * @brief The locales instance. Provides the system locales to flutter.
 	 *
 	 */
-	struct locales *locales;
+    struct locales *locales;
 
-	/**
+    /**
 	 * @brief flutter stuff.
 	 *
 	 */
-	struct {
-		char *bundle_path;
-		struct flutter_paths *paths;
-		void *app_elf_handle;
+    struct {
+        char *bundle_path;
+        struct flutter_paths *paths;
+        void *app_elf_handle;
         void *engine_handle;
 
-		FlutterLocale **locales;
-		size_t n_locales;
+        FlutterLocale **locales;
+        size_t n_locales;
 
-		int engine_argc;
-		char **engine_argv;
-		enum flutter_runtime_mode runtime_mode;
-		FlutterEngineProcTable procs;
-		FlutterEngine engine;
+        int engine_argc;
+        char **engine_argv;
+        enum flutter_runtime_mode runtime_mode;
+        FlutterEngineProcTable procs;
+        FlutterEngine engine;
         FlutterEngineAOTData aot_data;
 
-		bool next_frame_request_is_secondary;
-	} flutter;
+        bool next_frame_request_is_secondary;
+    } flutter;
 
-	/// main event loop
-	pthread_t event_loop_thread;
-	pthread_mutex_t event_loop_mutex;
-	sd_event *event_loop;
-	int wakeup_event_loop_fd;
+    /// main event loop
+    pthread_t event_loop_thread;
+    pthread_mutex_t event_loop_mutex;
+    sd_event *event_loop;
+    int wakeup_event_loop_fd;
 
     struct evloop *evloop;
 
-	/**
+    /**
      * @brief Manages all plugins.
      *
      */
-	struct plugin_registry *plugin_registry;
+    struct plugin_registry *plugin_registry;
 
     /**
      * @brief Manages all external textures registered to the flutter engine.
@@ -237,8 +242,8 @@ struct flutterpi {
      */
     struct texture_registry *texture_registry;
 
-	struct gl_renderer *gl_renderer;
-	struct vk_renderer *vk_renderer;
+    struct gl_renderer *gl_renderer;
+    struct vk_renderer *vk_renderer;
 
     struct libseat *libseat;
     struct pointer_set fd_for_device_id;
@@ -255,11 +260,6 @@ struct device_id_and_fd {
 /// TODO: Remove this
 struct flutterpi *flutterpi;
 
-/*static int flutterpi_post_platform_task(
-    int (*callback)(void *userdata),
-    void *userdata
-);*/
-
 static bool runs_platform_tasks_on_current_thread(void *userdata);
 
 /*********************
@@ -267,7 +267,7 @@ static bool runs_platform_tasks_on_current_thread(void *userdata);
  *********************/
 /// Called on some flutter internal thread when the flutter
 /// rendering EGLContext should be made current.
-static bool on_make_current(void* userdata) {
+static bool on_make_current(void *userdata) {
     struct flutterpi *flutterpi;
     EGLSurface surface;
     int ok;
@@ -293,7 +293,7 @@ static bool on_make_current(void* userdata) {
 
 /// Called on some flutter internal thread to
 /// clear the EGLContext.
-static bool on_clear_current(void* userdata) {
+static bool on_clear_current(void *userdata) {
     struct flutterpi *flutterpi;
     int ok;
 
@@ -322,7 +322,7 @@ static bool on_present(void *userdata) {
 /// GL FBO id flutter should render into
 /// (Won't be called since we're supplying a compositor,
 /// still needs to be present)
-static uint32_t fbo_callback(void* userdata) {
+static uint32_t fbo_callback(void *userdata) {
     struct flutterpi *flutterpi;
 
     DEBUG_ASSERT_NOT_NULL(userdata);
@@ -352,10 +352,7 @@ static bool on_make_resource_current(void *userdata) {
 }
 
 /// Called by flutter
-static void *proc_resolver(
-    void* userdata,
-    const char* name
-) {
+static void *proc_resolver(void *userdata, const char *name) {
     struct flutterpi *flutterpi;
 
     DEBUG_ASSERT_NOT_NULL(userdata);
@@ -365,12 +362,7 @@ static void *proc_resolver(
     return gl_renderer_get_proc_address(flutterpi->gl_renderer, name);
 }
 
-
-MAYBE_UNUSED static void *on_get_vulkan_proc_address(
-    void* userdata,
-    FlutterVulkanInstanceHandle instance,
-    const char* name
-) {
+MAYBE_UNUSED static void *on_get_vulkan_proc_address(void *userdata, FlutterVulkanInstanceHandle instance, const char *name) {
     DEBUG_ASSERT_NOT_NULL(userdata);
     DEBUG_ASSERT_NOT_NULL(name);
     (void) userdata;
@@ -380,7 +372,7 @@ MAYBE_UNUSED static void *on_get_vulkan_proc_address(
         name = "vkGetInstanceProcAddr";
     }
 
-    return (void*) vkGetInstanceProcAddr((VkInstance) instance, name);
+    return (void *) vkGetInstanceProcAddr((VkInstance) instance, name);
 #else
     (void) userdata;
     (void) instance;
@@ -389,10 +381,7 @@ MAYBE_UNUSED static void *on_get_vulkan_proc_address(
 #endif
 }
 
-MAYBE_UNUSED static FlutterVulkanImage on_get_next_vulkan_image(
-    void *userdata,
-    const FlutterFrameInfo *frameinfo
-) {
+MAYBE_UNUSED static FlutterVulkanImage on_get_next_vulkan_image(void *userdata, const FlutterFrameInfo *frameinfo) {
     struct flutterpi *flutterpi;
 
     DEBUG_ASSERT_NOT_NULL(userdata);
@@ -406,10 +395,7 @@ MAYBE_UNUSED static FlutterVulkanImage on_get_next_vulkan_image(
     UNREACHABLE();
 }
 
-MAYBE_UNUSED static bool on_present_vulkan_image(
-    void *userdata,
-    const FlutterVulkanImage *image
-) {
+MAYBE_UNUSED static bool on_present_vulkan_image(void *userdata, const FlutterVulkanImage *image) {
     struct flutterpi *flutterpi;
 
     DEBUG_ASSERT_NOT_NULL(userdata);
@@ -423,10 +409,7 @@ MAYBE_UNUSED static bool on_present_vulkan_image(
     UNREACHABLE();
 }
 
-static void on_platform_message(
-    const FlutterPlatformMessage* message,
-    void* userdata
-) {
+static void on_platform_message(const FlutterPlatformMessage *message, void *userdata) {
     int ok;
 
     (void) userdata;
@@ -458,11 +441,7 @@ static int on_deferred_begin_frame(void *userdata) {
     DEBUG_ASSERT(flutterpi_runs_platform_tasks_on_current_thread(req->flutterpi));
 
     TRACER_INSTANT(req->flutterpi->tracer, "FlutterEngineOnVsync");
-    engine_result = req->flutterpi->flutter.procs.OnVsync(
-        req->flutterpi->flutter.engine,
-        req->baton,
-        req->vblank_ns, req->next_vblank_ns
-    );
+    engine_result = req->flutterpi->flutter.procs.OnVsync(req->flutterpi->flutter.engine, req->baton, req->vblank_ns, req->next_vblank_ns);
 
     free(req);
 
@@ -485,11 +464,7 @@ MAYBE_UNUSED static void on_begin_frame(void *userdata, uint64_t vblank_ns, uint
     if (flutterpi_runs_platform_tasks_on_current_thread(req->flutterpi)) {
         TRACER_INSTANT(req->flutterpi->tracer, "FlutterEngineOnVsync");
 
-        engine_result = req->flutterpi->flutter.procs.OnVsync(
-            req->flutterpi->flutter.engine,
-            req->baton,
-            vblank_ns, next_vblank_ns
-        );
+        engine_result = req->flutterpi->flutter.procs.OnVsync(req->flutterpi->flutter.engine, req->baton, vblank_ns, next_vblank_ns);
         if (engine_result != kSuccess) {
             LOG_ERROR("Couldn't signal frame begin to flutter engine. FlutterEngineOnVsync: %s\n", FLUTTER_RESULT_TO_STRING(engine_result));
             goto fail_free_req;
@@ -508,17 +483,14 @@ MAYBE_UNUSED static void on_begin_frame(void *userdata, uint64_t vblank_ns, uint
 
     return;
 
-    fail_free_req:
+fail_free_req:
     free(req);
     return;
 }
 
 /// Called on some flutter internal thread to request a frame,
 /// and also get the vblank timestamp of the pageflip preceding that frame.
-MAYBE_UNUSED static void on_frame_request(
-    void* userdata,
-    intptr_t baton
-) {
+MAYBE_UNUSED static void on_frame_request(void *userdata, intptr_t baton) {
     FlutterEngineResult engine_result;
     struct flutterpi *flutterpi;
     struct frame_req *req;
@@ -543,12 +515,8 @@ MAYBE_UNUSED static void on_frame_request(
     if (flutterpi_runs_platform_tasks_on_current_thread(req->flutterpi)) {
         TRACER_INSTANT(req->flutterpi->tracer, "FlutterEngineOnVsync");
 
-        engine_result = req->flutterpi->flutter.procs.OnVsync(
-            req->flutterpi->flutter.engine,
-            req->baton,
-            req->vblank_ns,
-            req->next_vblank_ns
-        );
+        engine_result =
+            req->flutterpi->flutter.procs.OnVsync(req->flutterpi->flutter.engine, req->baton, req->vblank_ns, req->next_vblank_ns);
         if (engine_result != kSuccess) {
             LOG_ERROR("Couldn't signal frame begin to flutter engine. FlutterEngineOnVsync: %s\n", FLUTTER_RESULT_TO_STRING(engine_result));
             goto fail_free_req;
@@ -565,7 +533,7 @@ MAYBE_UNUSED static void on_frame_request(
 
     return;
 
-    fail_free_req:
+fail_free_req:
     free(req);
 }
 
@@ -584,10 +552,7 @@ static FlutterTransformation on_get_transformation(void *userdata) {
 atomic_int_least64_t platform_task_counter = 0;
 
 /// platform tasks
-static int on_execute_platform_task(
-    sd_event_source *s,
-    void *userdata
-) {
+static int on_execute_platform_task(sd_event_source *s, void *userdata) {
     struct platform_task *task;
     int ok;
 
@@ -605,10 +570,7 @@ static int on_execute_platform_task(
     return 0;
 }
 
-int flutterpi_post_platform_task(
-    int (*callback)(void *userdata),
-    void *userdata
-) {
+int flutterpi_post_platform_task(int (*callback)(void *userdata), void *userdata) {
     struct platform_task *task;
     sd_event_source *src;
     int ok;
@@ -625,12 +587,7 @@ int flutterpi_post_platform_task(
         pthread_mutex_lock(&flutterpi->event_loop_mutex);
     }
 
-    ok = sd_event_add_defer(
-        flutterpi->event_loop,
-        &src,
-        on_execute_platform_task,
-        task
-    );
+    ok = sd_event_add_defer(flutterpi->event_loop, &src, on_execute_platform_task, task);
     if (ok < 0) {
         LOG_ERROR("Error posting platform task to main loop. sd_event_add_defer: %s\n", strerror(-ok));
         ok = -ok;
@@ -641,7 +598,7 @@ int flutterpi_post_platform_task(
     sd_event_source_set_priority(src, atomic_fetch_add(&platform_task_counter, 1));
 
     if (pthread_self() != flutterpi->event_loop_thread) {
-        ok = write(flutterpi->wakeup_event_loop_fd, (uint8_t[8]) {0, 0, 0, 0, 0, 0, 0, 1}, 8);
+        ok = write(flutterpi->wakeup_event_loop_fd, (uint8_t[8]){ 0, 0, 0, 0, 0, 0, 0, 1 }, 8);
         if (ok < 0) {
             ok = errno;
             LOG_ERROR("Error arming main loop for platform task. write: %s\n", strerror(ok));
@@ -655,8 +612,7 @@ int flutterpi_post_platform_task(
 
     return 0;
 
-
-    fail_unlock_event_loop:
+fail_unlock_event_loop:
     if (pthread_self() != flutterpi->event_loop_thread) {
         pthread_mutex_unlock(&flutterpi->event_loop_mutex);
     }
@@ -665,11 +621,7 @@ int flutterpi_post_platform_task(
 }
 
 /// timed platform tasks
-static int on_execute_platform_task_with_time(
-    sd_event_source *s,
-    uint64_t usec,
-    void *userdata
-) {
+static int on_execute_platform_task_with_time(sd_event_source *s, uint64_t usec, void *userdata) {
     struct platform_task *task;
     int ok;
 
@@ -689,11 +641,7 @@ static int on_execute_platform_task_with_time(
     return 0;
 }
 
-int flutterpi_post_platform_task_with_time(
-    int (*callback)(void *userdata),
-    void *userdata,
-    uint64_t target_time_usec
-) {
+int flutterpi_post_platform_task_with_time(int (*callback)(void *userdata), void *userdata, uint64_t target_time_usec) {
     struct platform_task *task;
     //sd_event_source *source;
     int ok;
@@ -710,15 +658,7 @@ int flutterpi_post_platform_task_with_time(
         pthread_mutex_lock(&flutterpi->event_loop_mutex);
     }
 
-    ok = sd_event_add_time(
-        flutterpi->event_loop,
-        NULL,
-        CLOCK_MONOTONIC,
-        target_time_usec,
-        1,
-        on_execute_platform_task_with_time,
-        task
-    );
+    ok = sd_event_add_time(flutterpi->event_loop, NULL, CLOCK_MONOTONIC, target_time_usec, 1, on_execute_platform_task_with_time, task);
     if (ok < 0) {
         LOG_ERROR("Error posting platform task to main loop. sd_event_add_time: %s\n", strerror(-ok));
         ok = -ok;
@@ -726,7 +666,7 @@ int flutterpi_post_platform_task_with_time(
     }
 
     if (pthread_self() != flutterpi->event_loop_thread) {
-        ok = write(flutterpi->wakeup_event_loop_fd, (uint8_t[8]) {0, 0, 0, 0, 0, 0, 0, 1}, 8);
+        ok = write(flutterpi->wakeup_event_loop_fd, (uint8_t[8]){ 0, 0, 0, 0, 0, 0, 0, 1 }, 8);
         if (ok < 0) {
             perror("[flutter-pi] Error arming main loop for platform task. write");
             ok = errno;
@@ -740,8 +680,7 @@ int flutterpi_post_platform_task_with_time(
 
     return 0;
 
-
-    fail_unlock_event_loop:
+fail_unlock_event_loop:
     if (pthread_self() != flutterpi->event_loop_thread) {
         pthread_mutex_unlock(&flutterpi->event_loop_mutex);
     }
@@ -749,34 +688,21 @@ int flutterpi_post_platform_task_with_time(
     return ok;
 }
 
-int flutterpi_sd_event_add_io(
-    sd_event_source **source_out,
-    int fd,
-    uint32_t events,
-    sd_event_io_handler_t callback,
-    void *userdata
-) {
+int flutterpi_sd_event_add_io(sd_event_source **source_out, int fd, uint32_t events, sd_event_io_handler_t callback, void *userdata) {
     int ok;
 
     if (pthread_self() != flutterpi->event_loop_thread) {
         pthread_mutex_lock(&flutterpi->event_loop_mutex);
     }
 
-    ok = sd_event_add_io(
-        flutterpi->event_loop,
-        source_out,
-        fd,
-        events,
-        callback,
-        userdata
-    );
+    ok = sd_event_add_io(flutterpi->event_loop, source_out, fd, events, callback, userdata);
     if (ok < 0) {
         LOG_ERROR("Could not add IO callback to event loop. sd_event_add_io: %s\n", strerror(-ok));
         return -ok;
     }
 
     if (pthread_self() != flutterpi->event_loop_thread) {
-        ok = write(flutterpi->wakeup_event_loop_fd, (uint8_t[8]) {0, 0, 0, 0, 0, 0, 0, 1}, 8);
+        ok = write(flutterpi->wakeup_event_loop_fd, (uint8_t[8]){ 0, 0, 0, 0, 0, 0, 0, 1 }, 8);
         if (ok < 0) {
             perror("[flutter-pi] Error arming main loop for io callback. write");
             ok = errno;
@@ -790,8 +716,7 @@ int flutterpi_sd_event_add_io(
 
     return 0;
 
-
-    fail_unlock_event_loop:
+fail_unlock_event_loop:
     if (pthread_self() != flutterpi->event_loop_thread) {
         pthread_mutex_unlock(&flutterpi->event_loop_mutex);
     }
@@ -799,9 +724,7 @@ int flutterpi_sd_event_add_io(
 }
 
 /// flutter tasks
-static int on_execute_flutter_task(
-    void *userdata
-) {
+static int on_execute_flutter_task(void *userdata) {
     FlutterEngineResult result;
     FlutterTask *task;
 
@@ -819,11 +742,7 @@ static int on_execute_flutter_task(
     return 0;
 }
 
-static void on_post_flutter_task(
-    FlutterTask task,
-    uint64_t target_time,
-    void *userdata
-) {
+static void on_post_flutter_task(FlutterTask task, uint64_t target_time, void *userdata) {
     FlutterTask *dup_task;
     int ok;
 
@@ -836,36 +755,31 @@ static void on_post_flutter_task(
 
     *dup_task = task;
 
-    ok = flutterpi_post_platform_task_with_time(
-        on_execute_flutter_task,
-        dup_task,
-        target_time / 1000
-    );
+    ok = flutterpi_post_platform_task_with_time(on_execute_flutter_task, dup_task, target_time / 1000);
     if (ok != 0) {
         free(dup_task);
     }
 }
 
 /// platform messages
-static int on_send_platform_message(
-    void *userdata
-) {
+static int on_send_platform_message(void *userdata) {
     struct platform_message *msg;
     FlutterEngineResult result;
 
     msg = userdata;
 
     if (msg->is_response) {
-        result = flutterpi->flutter.procs.SendPlatformMessageResponse(flutterpi->flutter.engine, msg->target_handle, msg->message, msg->message_size);
+        result = flutterpi->flutter.procs
+                     .SendPlatformMessageResponse(flutterpi->flutter.engine, msg->target_handle, msg->message, msg->message_size);
     } else {
         result = flutterpi->flutter.procs.SendPlatformMessage(
             flutterpi->flutter.engine,
-            &(FlutterPlatformMessage) {
+            &(FlutterPlatformMessage){
                 .struct_size = sizeof(FlutterPlatformMessage),
                 .channel = msg->target_channel,
                 .message = msg->message,
                 .message_size = msg->message_size,
-                .response_handle = msg->response_handle
+                .response_handle = msg->response_handle,
             }
         );
     }
@@ -901,12 +815,12 @@ int flutterpi_send_platform_message(
     if (runs_platform_tasks_on_current_thread(flutterpi)) {
         result = flutterpi->flutter.procs.SendPlatformMessage(
             flutterpi->flutter.engine,
-            &(const FlutterPlatformMessage) {
+            &(const FlutterPlatformMessage){
                 .struct_size = sizeof(FlutterPlatformMessage),
                 .channel = channel,
                 .message = message,
                 .message_size = message_size,
-                .response_handle = responsehandle
+                .response_handle = responsehandle,
             }
         );
         if (result != kSuccess) {
@@ -941,10 +855,7 @@ int flutterpi_send_platform_message(
             msg->message_size = 0;
         }
 
-        ok = flutterpi_post_platform_task(
-            on_send_platform_message,
-            msg
-        );
+        ok = flutterpi_post_platform_task(on_send_platform_message, msg);
         if (ok != 0) {
             if (message && message_size) {
                 free(msg->message);
@@ -968,14 +879,12 @@ int flutterpi_respond_to_platform_message(
     int ok;
 
     if (runs_platform_tasks_on_current_thread(&flutterpi)) {
-        result = flutterpi->flutter.procs.SendPlatformMessageResponse(
-            flutterpi->flutter.engine,
-            handle,
-            message,
-            message_size
-        );
+        result = flutterpi->flutter.procs.SendPlatformMessageResponse(flutterpi->flutter.engine, handle, message, message_size);
         if (result != kSuccess) {
-            LOG_ERROR("Error sending platform message response. FlutterEngineSendPlatformMessageResponse: %s\n", FLUTTER_RESULT_TO_STRING(result));
+            LOG_ERROR(
+                "Error sending platform message response. FlutterEngineSendPlatformMessageResponse: %s\n",
+                FLUTTER_RESULT_TO_STRING(result)
+            );
             return EIO;
         }
     } else {
@@ -998,10 +907,7 @@ int flutterpi_respond_to_platform_message(
             msg->message = 0;
         }
 
-        ok = flutterpi_post_platform_task(
-            on_send_platform_message,
-            msg
-        );
+        ok = flutterpi_post_platform_task(on_send_platform_message, msg);
         if (ok != 0) {
             if (msg->message) {
                 free(msg->message);
@@ -1025,7 +931,8 @@ struct plugin_registry *flutterpi_get_plugin_registry(struct flutterpi *flutterp
     return flutterpi->plugin_registry;
 }
 
-FlutterPlatformMessageResponseHandle *flutterpi_create_platform_message_response_handle(struct flutterpi *flutterpi, FlutterDataCallback data_callback, void *userdata) {
+FlutterPlatformMessageResponseHandle *
+flutterpi_create_platform_message_response_handle(struct flutterpi *flutterpi, FlutterDataCallback data_callback, void *userdata) {
     FlutterPlatformMessageResponseHandle *handle;
     FlutterEngineResult engine_result;
 
@@ -1039,9 +946,13 @@ FlutterPlatformMessageResponseHandle *flutterpi_create_platform_message_response
     //     FlutterPlatformMessageResponseHandle** response_out
     // );
 
-    engine_result = flutterpi->flutter.procs.PlatformMessageCreateResponseHandle(flutterpi->flutter.engine, data_callback, userdata, &handle);
+    engine_result =
+        flutterpi->flutter.procs.PlatformMessageCreateResponseHandle(flutterpi->flutter.engine, data_callback, userdata, &handle);
     if (engine_result != kSuccess) {
-        LOG_ERROR("Couldn't create platform message response handle. FlutterPlatformMessageCreateResponseHandle: %s\n", FLUTTER_RESULT_TO_STRING(engine_result));
+        LOG_ERROR(
+            "Couldn't create platform message response handle. FlutterPlatformMessageCreateResponseHandle: %s\n",
+            FLUTTER_RESULT_TO_STRING(engine_result)
+        );
         return NULL;
     }
 
@@ -1062,7 +973,10 @@ void flutterpi_release_platform_message_response_handle(struct flutterpi *flutte
     engine_result = flutterpi->flutter.procs.PlatformMessageReleaseResponseHandle(flutterpi->flutter.engine, handle);
     if (engine_result != kSuccess) {
         // We can't do anything about it though.
-        LOG_ERROR("Couldn't release platform message response handle. FlutterPlatformMessageReleaseResponseHandle: %s\n", FLUTTER_RESULT_TO_STRING(engine_result));
+        LOG_ERROR(
+            "Couldn't release platform message response handle. FlutterPlatformMessageReleaseResponseHandle: %s\n",
+            FLUTTER_RESULT_TO_STRING(engine_result)
+        );
     }
 }
 
@@ -1070,9 +984,7 @@ struct texture *flutterpi_create_texture(struct flutterpi *flutterpi) {
     return texture_new(flutterpi_get_texture_registry(flutterpi));
 }
 
-const char *flutterpi_get_asset_bundle_path(
-    struct flutterpi *flutterpi
-) {
+const char *flutterpi_get_asset_bundle_path(struct flutterpi *flutterpi) {
     return flutterpi->flutter.paths->asset_bundle_path;
 }
 
@@ -1103,7 +1015,7 @@ void flutterpi_trace_event_end(struct flutterpi *flutterpi, const char *name) {
     flutterpi->flutter.procs.TraceEventDurationEnd(name);
 }
 
-static bool runs_platform_tasks_on_current_thread(void* userdata) {
+static bool runs_platform_tasks_on_current_thread(void *userdata) {
     return flutterpi_runs_platform_tasks_on_current_thread(userdata);
 }
 
@@ -1141,30 +1053,19 @@ static int on_drmdev_ready(sd_event_source *s, int fd, uint32_t revents, void *u
     return drmdev_on_event_fd_ready(drmdev);
 }
 
-static const FlutterLocale* on_compute_platform_resolved_locales(const FlutterLocale **locales, size_t n_locales) {
+static const FlutterLocale *on_compute_platform_resolved_locales(const FlutterLocale **locales, size_t n_locales) {
     return locales_on_compute_platform_resolved_locale(flutterpi->locales, locales, n_locales);
 }
 
-static bool on_gl_external_texture_frame_callback(
-    void* userdata,
-    int64_t texture_id,
-    size_t width,
-    size_t height,
-    FlutterOpenGLTexture *texture_out
-) {
+static bool
+on_gl_external_texture_frame_callback(void *userdata, int64_t texture_id, size_t width, size_t height, FlutterOpenGLTexture *texture_out) {
     struct flutterpi *flutterpi;
 
     DEBUG_ASSERT_NOT_NULL(userdata);
 
     flutterpi = userdata;
 
-    return texture_registry_gl_external_texture_frame_callback(
-        flutterpi->texture_registry,
-        texture_id,
-        width,
-        height,
-        texture_out
-    );
+    return texture_registry_gl_external_texture_frame_callback(flutterpi->texture_registry, texture_id, width, height, texture_out);
 }
 
 /**************************
@@ -1177,33 +1078,21 @@ static void *load_flutter_engine_lib(struct flutter_paths *paths) {
     if (paths->flutter_engine_path != NULL) {
         engine_handle = dlopen(paths->flutter_engine_path, RTLD_LOCAL | RTLD_NOW);
         if (engine_handle == NULL) {
-            LOG_DEBUG(
-                "Info: Could not load flutter engine from app bundle. dlopen(\"%s\"): %s.\n",
-                paths->flutter_engine_path,
-                dlerror()
-            );
+            LOG_DEBUG("Info: Could not load flutter engine from app bundle. dlopen(\"%s\"): %s.\n", paths->flutter_engine_path, dlerror());
         }
     }
 
     if (engine_handle == NULL && paths->flutter_engine_dlopen_name != NULL) {
         engine_handle = dlopen(paths->flutter_engine_dlopen_name, RTLD_LOCAL | RTLD_NOW);
         if (engine_handle == NULL) {
-            LOG_DEBUG(
-                "Info: Could not load flutter engine. dlopen(\"%s\"): %s.\n",
-                paths->flutter_engine_dlopen_name,
-                dlerror()
-            );
+            LOG_DEBUG("Info: Could not load flutter engine. dlopen(\"%s\"): %s.\n", paths->flutter_engine_dlopen_name, dlerror());
         }
     }
 
     if (engine_handle == NULL && paths->flutter_engine_dlopen_name_fallback != NULL) {
         engine_handle = dlopen(paths->flutter_engine_dlopen_name_fallback, RTLD_LOCAL | RTLD_NOW);
         if (engine_handle == NULL) {
-            LOG_DEBUG(
-                "Info: Could not load flutter engine. dlopen(\"%s\"): %s.\n",
-                paths->flutter_engine_dlopen_name_fallback,
-                dlerror()
-            );
+            LOG_DEBUG("Info: Could not load flutter engine. dlopen(\"%s\"): %s.\n", paths->flutter_engine_dlopen_name_fallback, dlerror());
         }
     }
 
@@ -1220,7 +1109,7 @@ static void unload_flutter_engine_lib(void *handle) {
 }
 
 static int get_flutter_engine_procs(void *engine_handle, FlutterEngineProcTable *procs_out) {
-    FlutterEngineResult (*get_proc_addresses)(FlutterEngineProcTable* table);
+    FlutterEngineResult (*get_proc_addresses)(FlutterEngineProcTable *table);
     FlutterEngineResult engine_result;
 
     get_proc_addresses = dlsym(engine_handle, "FlutterEngineGetProcAddresses");
@@ -1232,7 +1121,10 @@ static int get_flutter_engine_procs(void *engine_handle, FlutterEngineProcTable 
     procs_out->struct_size = sizeof(FlutterEngineProcTable);
     engine_result = get_proc_addresses(procs_out);
     if (engine_result != kSuccess) {
-        LOG_ERROR("Could not resolve flutter engine proc addresses. FlutterEngineGetProcAddresses: %s\n", FLUTTER_RESULT_TO_STRING(engine_result));
+        LOG_ERROR(
+            "Could not resolve flutter engine proc addresses. FlutterEngineGetProcAddresses: %s\n",
+            FLUTTER_RESULT_TO_STRING(engine_result)
+        );
         return EINVAL;
     }
 
@@ -1249,7 +1141,10 @@ static int on_register_texture(void *userdata, int64_t texture_identifier) {
 
     engine_result = flutterpi->flutter.procs.RegisterExternalTexture(flutterpi->flutter.engine, texture_identifier);
     if (engine_result != kSuccess) {
-        LOG_ERROR("Error registering external texture to flutter engine. FlutterEngineRegisterExternalTexture: %s\n", FLUTTER_RESULT_TO_STRING(engine_result));
+        LOG_ERROR(
+            "Error registering external texture to flutter engine. FlutterEngineRegisterExternalTexture: %s\n",
+            FLUTTER_RESULT_TO_STRING(engine_result)
+        );
         return EIO;
     }
 
@@ -1266,7 +1161,10 @@ static int on_unregister_texture(void *userdata, int64_t texture_identifier) {
 
     engine_result = flutterpi->flutter.procs.UnregisterExternalTexture(flutterpi->flutter.engine, texture_identifier);
     if (engine_result != kSuccess) {
-        LOG_ERROR("Error unregistering external texture from flutter engine. FlutterEngineUnregisterExternalTexture: %s\n", FLUTTER_RESULT_TO_STRING(engine_result));
+        LOG_ERROR(
+            "Error unregistering external texture from flutter engine. FlutterEngineUnregisterExternalTexture: %s\n",
+            FLUTTER_RESULT_TO_STRING(engine_result)
+        );
         return EIO;
     }
 
@@ -1283,7 +1181,10 @@ static int on_mark_texture_frame_available(void *userdata, int64_t texture_ident
 
     engine_result = flutterpi->flutter.procs.MarkExternalTextureFrameAvailable(flutterpi->flutter.engine, texture_identifier);
     if (engine_result != kSuccess) {
-        LOG_ERROR("Error notifying flutter engine about new external texture frame. FlutterEngineMarkExternalTextureFrameAvailable: %s\n", FLUTTER_RESULT_TO_STRING(engine_result));
+        LOG_ERROR(
+            "Error notifying flutter engine about new external texture frame. FlutterEngineMarkExternalTextureFrameAvailable: %s\n",
+            FLUTTER_RESULT_TO_STRING(engine_result)
+        );
         return EIO;
     }
 
@@ -1330,7 +1231,7 @@ static FlutterEngine create_flutter_engine(
         UNREACHABLE();
 #endif
     } else {
-        renderer_config = (FlutterRendererConfig) {
+        renderer_config = (FlutterRendererConfig){
             .type = kOpenGL,
             .open_gl = {
                 .struct_size = sizeof(FlutterOpenGLRendererConfig),
@@ -1342,19 +1243,19 @@ static FlutterEngine create_flutter_engine(
                 .gl_proc_resolver = proc_resolver,
                 .surface_transformation = on_get_transformation,
                 .gl_external_texture_frame_callback = on_gl_external_texture_frame_callback,
-            }
+            },
         };
     }
 
     COMPILE_ASSERT(sizeof(FlutterProjectArgs) == 144 || sizeof(FlutterProjectArgs) == 280);
 
     // configure the project
-    project_args = (FlutterProjectArgs) {
+    project_args = (FlutterProjectArgs){
         .struct_size = sizeof(FlutterProjectArgs),
         .assets_path = paths->asset_bundle_path,
         .icu_data_path = paths->icudtl_path,
         .command_line_argc = engine_argc,
-        .command_line_argv = (const char * const*) engine_argv,
+        .command_line_argv = (const char *const *) engine_argv,
         .platform_message_callback = on_platform_message,
         .vm_snapshot_data = NULL,
         .vm_snapshot_data_size = 0,
@@ -1369,19 +1270,21 @@ static FlutterEngine create_flutter_engine(
         .update_semantics_custom_action_callback = NULL,
         .persistent_cache_path = paths->asset_bundle_path,
         .is_persistent_cache_read_only = false,
-        .vsync_callback = NULL, // on_frame_request, /* broken since 2.2, kinda */
+        .vsync_callback = NULL,  // on_frame_request, /* broken since 2.2, kinda */
         .custom_dart_entrypoint = NULL,
-        .custom_task_runners = &(FlutterCustomTaskRunners) {
-            .struct_size = sizeof(FlutterCustomTaskRunners),
-            .platform_task_runner = &(FlutterTaskRunnerDescription) {
-                .struct_size = sizeof(FlutterTaskRunnerDescription),
-                .user_data = flutterpi,
-                .runs_task_on_current_thread_callback = runs_platform_tasks_on_current_thread,
-                .post_task_callback = on_post_flutter_task
+        .custom_task_runners =
+            &(FlutterCustomTaskRunners){
+                .struct_size = sizeof(FlutterCustomTaskRunners),
+                .platform_task_runner =
+                    &(FlutterTaskRunnerDescription){
+                        .struct_size = sizeof(FlutterTaskRunnerDescription),
+                        .user_data = flutterpi,
+                        .runs_task_on_current_thread_callback = runs_platform_tasks_on_current_thread,
+                        .post_task_callback = on_post_flutter_task,
+                    },
+                .render_task_runner = NULL,
+                .thread_priority_setter = NULL,
             },
-            .render_task_runner = NULL,
-            .thread_priority_setter = NULL
-        },
         .shutdown_dart_vm_when_done = true,
         .compositor = compositor_get_flutter_compositor(compositor),
         .dart_old_gen_heap_size = -1,
@@ -1391,7 +1294,7 @@ static FlutterEngine create_flutter_engine(
         .dart_entrypoint_argv = NULL,
         .log_message_callback = NULL,
         .log_tag = NULL,
-        .on_pre_engine_restart_callback = NULL
+        .on_pre_engine_restart_callback = NULL,
     };
 
     // spin up the engine
@@ -1462,17 +1365,20 @@ static int flutterpi_run(struct flutterpi *flutterpi) {
     engine_result = procs->NotifyDisplayUpdate(
         engine,
         kFlutterEngineDisplaysUpdateTypeStartup,
-        &(FlutterEngineDisplay) {
+        &(FlutterEngineDisplay){
             .struct_size = sizeof(FlutterEngineDisplay),
             .display_id = 0,
             .single_display = true,
-            .refresh_rate = compositor_get_refresh_rate(flutterpi->compositor)
+            .refresh_rate = compositor_get_refresh_rate(flutterpi->compositor),
         },
         1
     );
     if (engine_result != kSuccess) {
         ok = EINVAL;
-        LOG_ERROR("Could not send display update to flutter engine. FlutterEngineNotifyDisplayUpdate: %s\n", FLUTTER_RESULT_TO_STRING(engine_result));
+        LOG_ERROR(
+            "Could not send display update to flutter engine. FlutterEngineNotifyDisplayUpdate: %s\n",
+            FLUTTER_RESULT_TO_STRING(engine_result)
+        );
         goto fail_shutdown_engine;
     }
 
@@ -1484,7 +1390,7 @@ static int flutterpi_run(struct flutterpi *flutterpi) {
     // update window size
     engine_result = procs->SendWindowMetricsEvent(
         engine,
-        &(FlutterWindowMetricsEvent) {
+        &(FlutterWindowMetricsEvent){
             .struct_size = sizeof(FlutterWindowMetricsEvent),
             .width = geometry.view_size.x,
             .height = geometry.view_size.y,
@@ -1494,11 +1400,14 @@ static int flutterpi_run(struct flutterpi *flutterpi) {
             .physical_view_inset_top = 0,
             .physical_view_inset_right = 0,
             .physical_view_inset_bottom = 0,
-            .physical_view_inset_left = 0
+            .physical_view_inset_left = 0,
         }
     );
     if (engine_result != kSuccess) {
-        LOG_ERROR("Could not send window metrics to flutter engine. FlutterEngineSendWindowMetricsEvent: %s\n", FLUTTER_RESULT_TO_STRING(engine_result));
+        LOG_ERROR(
+            "Could not send window metrics to flutter engine. FlutterEngineSendWindowMetricsEvent: %s\n",
+            FLUTTER_RESULT_TO_STRING(engine_result)
+        );
         goto fail_shutdown_engine;
     }
 
@@ -1576,10 +1485,8 @@ static int flutterpi_run(struct flutterpi *flutterpi) {
                     }
 
                     break;
-                case SD_EVENT_FINISHED:
-                    break;
-                default:
-                    UNREACHABLE();
+                case SD_EVENT_FINISHED: break;
+                default: UNREACHABLE();
             }
         } while (state != SD_EVENT_FINISHED);
 
@@ -1590,12 +1497,11 @@ static int flutterpi_run(struct flutterpi *flutterpi) {
     flutterpi->flutter.engine = NULL;
     return 0;
 
-
-    fail_shutdown_engine:
+fail_shutdown_engine:
     flutterpi->flutter.procs.Shutdown(engine);
     return ok;
 
-    fail_deinitialize_engine:
+fail_deinitialize_engine:
     flutterpi->flutter.procs.Deinitialize(engine);
     return ok;
 }
@@ -1636,13 +1542,12 @@ static void on_flutter_pointer_event(void *userdata, const FlutterPointerEvent *
     /// TODO: make this atomic
     flutterpi->flutter.next_frame_request_is_secondary = true;
 
-    engine_result = flutterpi->flutter.procs.SendPointerEvent(
-        flutterpi->flutter.engine,
-        events,
-        n_events
-    );
+    engine_result = flutterpi->flutter.procs.SendPointerEvent(flutterpi->flutter.engine, events, n_events);
     if (engine_result != kSuccess) {
-        LOG_ERROR("Error sending touchscreen / mouse events to flutter. FlutterEngineSendPointerEvent: %s\n", FLUTTER_RESULT_TO_STRING(engine_result));
+        LOG_ERROR(
+            "Error sending touchscreen / mouse events to flutter. FlutterEngineSendPointerEvent: %s\n",
+            FLUTTER_RESULT_TO_STRING(engine_result)
+        );
         //flutterpi_schedule_exit(flutterpi);
     }
 }
@@ -1680,14 +1585,8 @@ static void on_xkb_keysym(void *userdata, xkb_keysym_t keysym) {
 #endif
 }
 
-static void on_gtk_keyevent(
-    void *userdata,
-    uint32_t unicode_scalar_values,
-    uint32_t key_code,
-    uint32_t scan_code,
-    uint32_t modifiers,
-    bool is_down
-) {
+static void
+on_gtk_keyevent(void *userdata, uint32_t unicode_scalar_values, uint32_t key_code, uint32_t scan_code, uint32_t modifiers, bool is_down) {
     struct flutterpi *flutterpi;
     int ok;
 
@@ -1695,13 +1594,7 @@ static void on_gtk_keyevent(
     (void) flutterpi;
 
 #ifdef BUILD_RAW_KEYBOARD_PLUGIN
-    ok = rawkb_send_gtk_keyevent(
-        unicode_scalar_values,
-        key_code,
-        scan_code,
-        modifiers,
-        is_down
-    );
+    ok = rawkb_send_gtk_keyevent(unicode_scalar_values, key_code, scan_code, modifiers, is_down);
     if (ok != 0) {
         LOG_ERROR("Error handling keyboard event. rawkb_send_gtk_keyevent: %s\n", strerror(ok));
         //flutterpi_schedule_exit(flutterpi);
@@ -1739,11 +1632,7 @@ static void on_set_cursor_enabled(void *userdata, bool enabled) {
     flutterpi = userdata;
     (void) flutterpi;
 
-    compositor_set_cursor(
-        flutterpi->compositor,
-        true, enabled,
-        false, VEC2F(0, 0)
-    );
+    compositor_set_cursor(flutterpi->compositor, true, enabled, false, VEC2F(0, 0));
 }
 
 static void on_move_cursor(void *userdata, struct vec2f delta) {
@@ -1751,11 +1640,7 @@ static void on_move_cursor(void *userdata, struct vec2f delta) {
 
     flutterpi = userdata;
 
-    compositor_set_cursor(
-        flutterpi->compositor,
-        true, true,
-        true, delta
-    );
+    compositor_set_cursor(flutterpi->compositor, true, true, true, delta);
 }
 
 static int on_user_input_open(const char *path, int flags, void *userdata) {
@@ -1907,16 +1792,11 @@ static bool parse_cmd_args(int argc, char **argv, struct cmd_args *result_out) {
     int opt, ok;
 
     struct option long_options[] = {
-        {"release", no_argument, &runtime_mode_int, kRelease},
-        {"profile", no_argument, &runtime_mode_int, kProfile},
-        {"orientation", required_argument, NULL, 'o'},
-        {"rotation", required_argument, NULL, 'r'},
-        {"dimensions", required_argument, NULL, 'd'},
-        {"help", no_argument, 0, 'h'},
-        {"pixelformat", required_argument, NULL, 'p'},
-        {"vulkan", no_argument, &vulkan_int, true},
-        {"videomode", required_argument, NULL, 'v'},
-        {0, 0, 0, 0}
+        { "release", no_argument, &runtime_mode_int, kRelease }, { "profile", no_argument, &runtime_mode_int, kProfile },
+        { "orientation", required_argument, NULL, 'o' },         { "rotation", required_argument, NULL, 'r' },
+        { "dimensions", required_argument, NULL, 'd' },          { "help", no_argument, 0, 'h' },
+        { "pixelformat", required_argument, NULL, 'p' },         { "vulkan", no_argument, &vulkan_int, true },
+        { "videomode", required_argument, NULL, 'v' },           { 0, 0, 0, 0 },
     };
 
     memset(result_out, 0, sizeof *result_out);
@@ -1981,7 +1861,7 @@ static bool parse_cmd_args(int argc, char **argv, struct cmd_args *result_out) {
                 result_out->has_rotation = true;
                 break;
 
-            case 'd': ;
+            case 'd':;
                 unsigned int width_mm, height_mm;
 
                 ok = sscanf(optarg, "%u,%u", &width_mm, &height_mm);
@@ -2007,16 +1887,17 @@ static bool parse_cmd_args(int argc, char **argv, struct cmd_args *result_out) {
 
                 LOG_ERROR(
                     "ERROR: Invalid argument for --pixelformat passed.\n"
-                    "Valid values are: " PIXFMT_LIST(PIXFMT_ARG_NAME) "\n"
-                    "%s",
+                    "Valid values are: " PIXFMT_LIST(PIXFMT_ARG_NAME
+                    ) "\n"
+                      "%s",
                     usage
                 );
                 return false;
 
-                valid_format:
+valid_format:
                 break;
 
-            case 'v': ;
+            case 'v':;
                 char *vmode_dup = strdup(optarg);
                 if (vmode_dup == NULL) {
                     return false;
@@ -2025,24 +1906,16 @@ static bool parse_cmd_args(int argc, char **argv, struct cmd_args *result_out) {
                 result_out->desired_videomode = vmode_dup;
                 break;
 
-            case 'h':
-                printf("%s", usage);
-                return false;
+            case 'h': printf("%s", usage); return false;
 
             case '?':
-            case ':':
-                LOG_ERROR("Invalid option specified.\n%s", usage);
-                return false;
+            case ':': LOG_ERROR("Invalid option specified.\n%s", usage); return false;
 
-            case -1:
-                finished_parsing_options = true;
-                break;
+            case -1: finished_parsing_options = true; break;
 
-            default:
-                break;
+            default: break;
         }
     }
-
 
     if (optind >= argc) {
         LOG_ERROR("ERROR: Expected asset bundle path after options.\n");
@@ -2087,7 +1960,7 @@ static int on_drmdev_open(const char *path, int flags, void **fd_metadata_out, v
         }
 
         device_id = ok;
-        *(intptr_t*) fd_metadata_out = (intptr_t) device_id;
+        *(intptr_t *) fd_metadata_out = (intptr_t) device_id;
         return fd;
     }
 #else
@@ -2103,7 +1976,7 @@ static int on_drmdev_open(const char *path, int flags, void **fd_metadata_out, v
     fd = ok;
     device_id = 0;
 
-    *(intptr_t*) fd_metadata_out = (intptr_t) device_id;
+    *(intptr_t *) fd_metadata_out = (intptr_t) device_id;
     return fd;
 }
 
@@ -2138,10 +2011,7 @@ static void on_drmdev_close(int fd, void *fd_metadata, void *userdata) {
     }
 }
 
-static const struct drmdev_interface drmdev_interface = {
-    .open = on_drmdev_open,
-    .close = on_drmdev_close
-};
+static const struct drmdev_interface drmdev_interface = { .open = on_drmdev_open, .close = on_drmdev_close };
 
 static struct drmdev *find_drmdev(struct libseat *libseat) {
     struct drm_connector *connector;
@@ -2153,7 +2023,7 @@ static struct drmdev *find_drmdev(struct libseat *libseat) {
     DEBUG_ASSERT_EQUALS(libseat, NULL);
 #endif
 
-    ok = drmGetDevices2(0, devices, sizeof(devices)/sizeof(*devices));
+    ok = drmGetDevices2(0, devices, sizeof(devices) / sizeof(*devices));
     if (ok < 0) {
         LOG_ERROR("Could not query DRM device list: %s\n", strerror(-ok));
         return NULL;
@@ -2173,11 +2043,7 @@ static struct drmdev *find_drmdev(struct libseat *libseat) {
             continue;
         }
 
-        drmdev = drmdev_new_from_path(
-            device->nodes[DRM_NODE_PRIMARY],
-            &drmdev_interface,
-            libseat
-        );
+        drmdev = drmdev_new_from_path(device->nodes[DRM_NODE_PRIMARY], &drmdev_interface, libseat);
         if (drmdev == NULL) {
             LOG_ERROR("Could not create drmdev from device at \"%s\". Continuing.\n", device->nodes[DRM_NODE_PRIMARY]);
             continue;
@@ -2192,24 +2058,24 @@ static struct drmdev *find_drmdev(struct libseat *libseat) {
         drmdev_destroy(drmdev);
         continue;
 
-
-        found_connected_connector:
+found_connected_connector:
         break;
     }
 
     drmFreeDevices(devices, n_devices);
 
     if (drmdev == NULL) {
-        LOG_ERROR("flutter-pi couldn't find a usable DRM device.\n"
-                  "Please make sure you've enabled the Fake-KMS driver in raspi-config.\n"
-                  "If you're not using a Raspberry Pi, please make sure there's KMS support for your graphics chip.\n");
+        LOG_ERROR(
+            "flutter-pi couldn't find a usable DRM device.\n"
+            "Please make sure you've enabled the Fake-KMS driver in raspi-config.\n"
+            "If you're not using a Raspberry Pi, please make sure there's KMS support for your graphics chip.\n"
+        );
         goto fail_free_devices;
     }
 
     return drmdev;
 
-
-    fail_free_devices:
+fail_free_devices:
     drmFreeDevices(devices, n_devices);
     return NULL;
 }
@@ -2353,24 +2219,14 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
         goto fail_close_wakeup_fd;
     }
 
-    ok = sd_event_add_io(
-        event_loop,
-        NULL,
-        wakeup_fd,
-        EPOLLIN,
-        on_wakeup_main_loop,
-        NULL
-    );
+    ok = sd_event_add_io(event_loop, NULL, wakeup_fd, EPOLLIN, on_wakeup_main_loop, NULL);
     if (ok < 0) {
         LOG_ERROR("Error adding wakeup callback to main loop. sd_event_add_io: %s\n", strerror(-ok));
         goto fail_unref_event_loop;
     }
 
 #ifdef HAS_LIBSEAT
-    static const struct libseat_seat_listener libseat_interface = {
-        .enable_seat = on_session_enable,
-        .disable_seat = on_session_disable
-    };
+    static const struct libseat_seat_listener libseat_interface = { .enable_seat = on_session_enable, .disable_seat = on_session_disable };
 
     libseat = libseat_open_seat(&libseat_interface, fpi);
     if (libseat == NULL) {
@@ -2380,7 +2236,10 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
     if (libseat != NULL) {
         ok = libseat_get_fd(libseat);
         if (ok < 0) {
-            LOG_ERROR("Couldn't get an event fd from libseat. Flutter-pi will run without session switching support. libseat_get_fd: %s\n", strerror(errno));
+            LOG_ERROR(
+                "Couldn't get an event fd from libseat. Flutter-pi will run without session switching support. libseat_get_fd: %s\n",
+                strerror(errno)
+            );
             libseat_close_seat(libseat);
             libseat = NULL;
         }
@@ -2389,7 +2248,10 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
     if (libseat != NULL) {
         ok = sd_event_add_io(event_loop, NULL, ok, EPOLLIN, on_libseat_fd_ready, fpi);
         if (ok < 0) {
-            LOG_ERROR("Couldn't listen for libseat events. Flutter-pi will run without session switching support. sd_event_add_io: %s\n", strerror(-ok));
+            LOG_ERROR(
+                "Couldn't listen for libseat events. Flutter-pi will run without session switching support. sd_event_add_io: %s\n",
+                strerror(-ok)
+            );
             libseat_close_seat(libseat);
             libseat = NULL;
         }
@@ -2505,14 +2367,7 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
     }
 
     /// TODO: Do we really need the window after this?
-    ok = sd_event_add_io(
-        event_loop,
-        NULL,
-        drmdev_get_event_fd(drmdev),
-        EPOLLIN | EPOLLHUP | EPOLLPRI,
-        on_drmdev_ready,
-        drmdev
-    );
+    ok = sd_event_add_io(event_loop, NULL, drmdev_get_event_fd(drmdev), EPOLLIN | EPOLLHUP | EPOLLPRI, on_drmdev_ready, drmdev);
     if (ok < 0) {
         LOG_ERROR("Could not add DRM pageflip event listener. sd_event_add_io: %s\n", strerror(-ok));
         goto fail_unref_compositor;
@@ -2530,7 +2385,7 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
         .open = on_user_input_open,
         .close = on_user_input_close,
         .on_switch_vt = on_switch_vt,
-        .on_key_event = NULL
+        .on_key_event = NULL,
     };
 
     fpi->libseat = libseat;
@@ -2547,14 +2402,7 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
     if (input == NULL) {
         LOG_ERROR("Couldn't initialize user input. flutter-pi will run without user input.\n");
     } else {
-        ok = sd_event_add_io(
-            event_loop,
-            NULL,
-            user_input_get_fd(input),
-            EPOLLIN | EPOLLRDHUP | EPOLLPRI,
-            on_user_input_fd_ready,
-            input
-        );
+        ok = sd_event_add_io(event_loop, NULL, user_input_get_fd(input), EPOLLIN | EPOLLRDHUP | EPOLLPRI, on_user_input_fd_ready, input);
         if (ok < 0) {
             LOG_ERROR("Couldn't listen for user input. flutter-pi will run without user input. sd_event_add_io: %s\n", strerror(-ok));
             user_input_destroy(input);
@@ -2594,7 +2442,7 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
     const struct texture_registry_interface texture_registry_interface = {
         .register_texture = on_register_texture,
         .unregister_texture = on_unregister_texture,
-        .mark_frame_available = on_mark_texture_frame_available
+        .mark_frame_available = on_mark_texture_frame_available,
     };
 
     texture_registry = texture_registry_new(&texture_registry_interface, fpi);
@@ -2606,9 +2454,11 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
     bool engine_is_aot = fpi->flutter.procs.RunsAOTCompiledDartCode();
     if (engine_is_aot == true && !FLUTTER_RUNTIME_MODE_IS_AOT(runtime_mode)) {
         LOG_ERROR(
-            "The flutter engine was built for release or profile (AOT) mode, but flutter-pi was not started up in release or profile mode.\n"
+            "The flutter engine was built for release or profile (AOT) mode, but flutter-pi was not started up in release or profile "
+            "mode.\n"
             "Either you swap out the libflutter_engine.so with one that was built for debug mode, or you start"
-            "flutter-pi with the --release or --profile flag and make sure a valid \"app.so\" is located inside the asset bundle directory.\n"
+            "flutter-pi with the --release or --profile flag and make sure a valid \"app.so\" is located inside the asset bundle "
+            "directory.\n"
         );
         goto fail_destroy_texture_registry;
     } else if (engine_is_aot == false && FLUTTER_RUNTIME_MODE_IS_AOT(runtime_mode)) {
@@ -2622,10 +2472,7 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
 
     aot_data = NULL;
     if (FLUTTER_RUNTIME_MODE_IS_AOT(runtime_mode)) {
-        FlutterEngineAOTDataSource aot_source = {
-            .elf_path = paths->app_elf_path,
-            .type = kFlutterEngineAOTDataSourceTypeElfPath
-        };
+        FlutterEngineAOTDataSource aot_source = { .elf_path = paths->app_elf_path, .type = kFlutterEngineAOTDataSourceTypeElfPath };
 
         engine_result = fpi->flutter.procs.CreateAOTData(&aot_source, &aot_data);
         if (engine_result != kSuccess) {
@@ -2661,25 +2508,25 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
     fpi->libseat = libseat;
     return fpi;
 
-    fail_destroy_texture_registry:
+fail_destroy_texture_registry:
     texture_registry_destroy(texture_registry);
 
-    fail_destroy_plugin_registry:
+fail_destroy_plugin_registry:
     plugin_registry_destroy(plugin_registry);
 
-    fail_unload_engine:
+fail_unload_engine:
     unload_flutter_engine_lib(engine_handle);
 
-    fail_destroy_user_input:
+fail_destroy_user_input:
     user_input_destroy(input);
 
-    fail_unref_compositor:
+fail_unref_compositor:
     compositor_unref(compositor);
 
-    fail_unref_window:
+fail_unref_window:
     window_unref(window);
 
-    fail_unref_renderer:
+fail_unref_renderer:
     if (gl_renderer) {
         gl_renderer_unref(gl_renderer);
     }
@@ -2689,19 +2536,19 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
     }
 #endif
 
-    fail_unref_scheduler:
+fail_unref_scheduler:
     frame_scheduler_unref(scheduler);
 
-    fail_unref_tracer:
+fail_unref_tracer:
     tracer_unref(tracer);
 
-    fail_destroy_drmdev:
+fail_destroy_drmdev:
     drmdev_unref(drmdev);
 
-    fail_destroy_locales:
+fail_destroy_locales:
     locales_destroy(locales);
 
-    fail_destroy_libseat:
+fail_destroy_libseat:
     if (libseat != NULL) {
 #ifdef HAS_LIBSEAT
         libseat_close_seat(libseat);
@@ -2710,19 +2557,19 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
 #endif
     }
 
-    fail_unref_event_loop:
+fail_unref_event_loop:
     sd_event_unrefp(&event_loop);
 
-    fail_close_wakeup_fd:
+fail_close_wakeup_fd:
     close(wakeup_fd);
 
-    fail_free_paths:
+fail_free_paths:
     flutter_paths_free(paths);
 
-    fail_free_cmd_args:
+fail_free_cmd_args:
     free(cmd_args.bundle_path);
 
-    fail_free_fpi:
+fail_free_fpi:
     free(fpi);
 
     return NULL;

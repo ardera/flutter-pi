@@ -1,14 +1,15 @@
+#include <semaphore.h>
+#include <sys/types.h>
+#include <unistd.h>
+
+#include <sys/eventfd.h>
+
+#include <event_loop.h>
 #include <sys/select.h>
 #include <sys/time.h>
-#include <sys/types.h>
-#include <sys/eventfd.h>
-#include <unistd.h>
-#include <semaphore.h>
-
 #include <systemd/sd-event.h>
 
 #include <collection.h>
-#include <event_loop.h>
 
 struct evloop {
     refcount_t n_refs;
@@ -62,14 +63,7 @@ struct evloop *evloop_new() {
         goto fail_unref_sdloop;
     }
 
-    ok = sd_event_add_io(
-        sdloop,
-        NULL,
-        wakeup_fd,
-        EPOLLIN,
-        on_wakeup_event_loop,
-        NULL
-    );
+    ok = sd_event_add_io(sdloop, NULL, wakeup_fd, EPOLLIN, on_wakeup_event_loop, NULL);
     if (ok < 0) {
         LOG_ERROR("Error adding wakeup callback to main loop. sd_event_add_io: %s\n", strerror(-ok));
         goto fail_unref_sdloop;
@@ -82,11 +76,10 @@ struct evloop *evloop_new() {
     loop->owning_thread = pthread_self();
     return loop;
 
-
-    fail_unref_sdloop:
+fail_unref_sdloop:
     sd_event_unref(sdloop);
 
-    fail_free_loop:
+fail_free_loop:
     free(loop);
     return NULL;
 }
@@ -186,10 +179,8 @@ int evloop_run(struct evloop *loop) {
                     }
 
                     break;
-                case SD_EVENT_FINISHED:
-                    break;
-                default:
-                    UNREACHABLE();
+                case SD_EVENT_FINISHED: break;
+                default: UNREACHABLE();
             }
         } while (state != SD_EVENT_FINISHED);
 
@@ -198,18 +189,17 @@ int evloop_run(struct evloop *loop) {
 
     return 0;
 
-
-    fail_unlock:
+fail_unlock:
     evloop_unlock(loop);
 
-    fail:
+fail:
     return ok;
 }
 
 static int wakeup_sdloop(struct evloop *loop) {
     int ok;
 
-    ok = write(loop->wakeup_fd, (uint8_t[8]) {0, 0, 0, 0, 0, 0, 0, 1}, 8);
+    ok = write(loop->wakeup_fd, (uint8_t[8]){ 0, 0, 0, 0, 0, 0, 0, 1 }, 8);
     if (ok < 0) {
         ok = errno;
         LOG_ERROR("Error waking up event loop. write: %s\n", strerror(ok));
@@ -253,10 +243,7 @@ struct task {
     void *userdata;
 };
 
-static int on_execute_task(
-    sd_event_source *s,
-    void *userdata
-) {
+static int on_execute_task(sd_event_source *s, void *userdata) {
     struct task *task;
     int ok;
 
@@ -288,12 +275,7 @@ int evloop_post_task_locked(struct evloop *loop, void_callback_t callback, void 
     task->callback = callback;
     task->userdata = userdata;
 
-    ok = sd_event_add_defer(
-        loop->sdloop,
-        &src,
-        on_execute_task,
-        task
-    );
+    ok = sd_event_add_defer(loop->sdloop, &src, on_execute_task, task);
     if (ok < 0) {
         LOG_ERROR("Error adding task to event loop. sd_event_add_defer: %s\n", strerror(-ok));
         ok = -ok;
@@ -302,11 +284,10 @@ int evloop_post_task_locked(struct evloop *loop, void_callback_t callback, void 
 
     return 0;
 
-
-    fail_remove_src:
+fail_remove_src:
     sd_event_source_disable_unref(src);
 
-    fail_free_task:
+fail_free_task:
     free(task);
     return ok;
 }
@@ -326,11 +307,7 @@ int evloop_post_task(struct evloop *loop, void_callback_t callback, void *userda
     return ok;
 }
 
-static int on_execute_delayed_task(
-    sd_event_source *s,
-    uint64_t usec,
-    void *userdata
-) {
+static int on_execute_delayed_task(sd_event_source *s, uint64_t usec, void *userdata) {
     struct task *task;
 
     DEBUG_ASSERT_NOT_NULL(userdata);
@@ -344,12 +321,7 @@ static int on_execute_delayed_task(
     return 0;
 }
 
-int evloop_post_delayed_task_locked(
-    struct evloop *loop,
-    void_callback_t callback,
-    void *userdata,
-    uint64_t target_time_usec
-) {
+int evloop_post_delayed_task_locked(struct evloop *loop, void_callback_t callback, void *userdata, uint64_t target_time_usec) {
     sd_event_source *src;
     struct task *task;
     int ok;
@@ -366,15 +338,7 @@ int evloop_post_delayed_task_locked(
     task->callback = callback;
     task->userdata = userdata;
 
-    ok = sd_event_add_time(
-        loop->sdloop,
-        &src,
-        CLOCK_MONOTONIC,
-        target_time_usec,
-        1,
-        on_execute_delayed_task,
-        task
-    );
+    ok = sd_event_add_time(loop->sdloop, &src, CLOCK_MONOTONIC, target_time_usec, 1, on_execute_delayed_task, task);
     if (ok < 0) {
         LOG_ERROR("Error posting platform task to main loop. sd_event_add_time: %s\n", strerror(-ok));
         ok = -ok;
@@ -383,10 +347,10 @@ int evloop_post_delayed_task_locked(
 
     return 0;
 
-    fail_remove_src:
+fail_remove_src:
     sd_event_source_disable_unref(src);
 
-    fail_free_task:
+fail_free_task:
     free(task);
     return ok;
 }
@@ -405,7 +369,6 @@ int evloop_post_delayed_task(struct evloop *loop, void_callback_t callback, void
 
     return ok;
 }
-
 
 struct evsrc {
     struct evloop *loop;
@@ -448,13 +411,7 @@ int on_io_src_ready(sd_event_source *s, int fd, uint32_t revents, void *userdata
     return 0;
 }
 
-struct evsrc *evloop_add_io_locked(
-    struct evloop *loop,
-    int fd,
-    uint32_t events,
-    evloop_io_handler_t callback,
-    void *userdata
-) {
+struct evsrc *evloop_add_io_locked(struct evloop *loop, int fd, uint32_t events, evloop_io_handler_t callback, void *userdata) {
     sd_event_source *src;
     struct evsrc *evsrc;
     int ok;
@@ -470,14 +427,7 @@ struct evsrc *evloop_add_io_locked(
     evsrc->io_callback = callback;
     evsrc->userdata = userdata;
 
-    ok = sd_event_add_io(
-        loop->sdloop,
-        &src,
-        fd,
-        events,
-        on_io_src_ready,
-        evsrc
-    );
+    ok = sd_event_add_io(loop->sdloop, &src, fd, events, on_io_src_ready, evsrc);
     if (ok < 0) {
         LOG_ERROR("Could not add IO callback to event loop. sd_event_add_io: %s\n", strerror(-ok));
         free(evsrc);
@@ -489,13 +439,7 @@ struct evsrc *evloop_add_io_locked(
     return evsrc;
 }
 
-struct evsrc *evloop_add_io(
-    struct evloop *loop,
-    int fd,
-    uint32_t events,
-    evloop_io_handler_t callback,
-    void *userdata
-) {
+struct evsrc *evloop_add_io(struct evloop *loop, int fd, uint32_t events, evloop_io_handler_t callback, void *userdata) {
     struct evsrc *src;
 
     DEBUG_ASSERT_NOT_NULL(loop);
@@ -549,17 +493,17 @@ static void *evthread_entry(void *userdata) {
         sem_post(&args->initialization_done);
         goto init_done;
 
-        // error handling
-        fail_free_evthread:
+// error handling
+fail_free_evthread:
         free(evthread);
 
-        fail_post_semaphore:
+fail_post_semaphore:
         args->initialization_success = false;
         sem_post(&args->initialization_done);
         return NULL;
     }
 
-    init_done:
+init_done:
     evloop_run(evloop);
     sd_event_unrefp(&evthread->loop);
     return NULL;
@@ -616,14 +560,13 @@ struct evthread *evthread_start() {
 
     return evthread;
 
-
-    fail_cancel_thread:
+fail_cancel_thread:
     pthread_cancel(tid);
 
-    fail_deinit_semaphore:
+fail_deinit_semaphore:
     sem_destroy(&args->initialization_done);
 
-    fail_free_args:
+fail_free_args:
     free(args);
     return NULL;
 }

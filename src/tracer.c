@@ -5,7 +5,6 @@
  * Copyright (c) 2022, Hannes Winkler <hanneswinkler2000@web.de>
  */
 
-
 #include <stdlib.h>
 
 #include <flutter_embedder.h>
@@ -45,8 +44,7 @@ struct tracer *tracer_new_with_cbs(
     tracer->logged_discarded_events = false;
     return tracer;
 
-
-    fail_return_null:
+fail_return_null:
     return NULL;
 }
 
@@ -66,8 +64,7 @@ struct tracer *tracer_new_with_stubs() {
     tracer->logged_discarded_events = false;
     return tracer;
 
-
-    fail_return_null:
+fail_return_null:
     return NULL;
 }
 
