@@ -140,7 +140,7 @@ static int _readSize(uint8_t **pbuffer, uint32_t *psize, size_t *remaining) {
 
 	ok = _read_u8(pbuffer, &size8, remaining);
     if (ok != 0) return ok;
-    
+
     if (size8 <= 253) {
         *psize = size8;
 
@@ -190,7 +190,7 @@ int platch_free_value_std(struct std_value *value) {
 }
 int platch_free_json_value(struct json_value *value, bool shallow) {
 	int ok;
-	
+
 	switch (value->type) {
 		case kJsonArray:
 			if (!shallow) {
@@ -289,7 +289,7 @@ int platch_calc_value_size_std(struct std_value* value, size_t* size_out) {
 			break;
 		case kStdInt64Array:
 			element_size = value->size;
-			
+
 			_advance_size_bytes(&size, element_size, NULL);
 			_align  (&size, 8, NULL);
 			_advance(&size, element_size*8, NULL);
@@ -297,7 +297,7 @@ int platch_calc_value_size_std(struct std_value* value, size_t* size_out) {
 			break;
 		case kStdFloat64Array:
 			element_size = value->size;
-			
+
 			_advance_size_bytes(&size, element_size, NULL);
 			_align  (&size, 8, NULL);
 			_advance(&size, element_size*8, NULL);
@@ -386,7 +386,7 @@ int platch_write_value_to_buffer_std(struct std_value* value, uint8_t **pbuffer)
 
 			_writeSize(pbuffer, size, NULL);
 			_align   ((uintptr_t*) pbuffer, 4, NULL);
-			
+
 			for (int i=0; i<size; i++) {
 				_write_i32(pbuffer, value->int32array[i], NULL);
 			}
@@ -555,7 +555,7 @@ int platch_write_value_to_buffer_json(struct json_value* value, uint8_t **pbuffe
 				if (i+1 != value->size) *pbuffer += sprintf((char*) *pbuffer, ",");
 			}
 			*pbuffer += sprintf((char*) *pbuffer, "]");
-			break;	
+			break;
 		case kJsonObject:
 			*pbuffer += sprintf((char*) *pbuffer, "{");
 			for (int i=0; i < value->size; i++) {
@@ -636,7 +636,7 @@ int platch_decode_value_std(uint8_t **pbuffer, size_t *premaining, struct std_va
 		case kStdInt32Array:
 			ok = _readSize(pbuffer, &size, premaining);
 			if (ok != 0) return ok;
-			
+
 			ok = _align((uintptr_t*) pbuffer, 4, premaining);
 			if (ok != 0) return ok;
 
@@ -679,7 +679,7 @@ int platch_decode_value_std(uint8_t **pbuffer, size_t *premaining, struct std_va
 
 			ok = _advance((uintptr_t*) pbuffer, size*8, premaining);
 			if (ok != 0) return ok;
-			
+
 			break;
 		case kStdList:
 			ok = _readSize(pbuffer, &size, premaining);
@@ -708,7 +708,7 @@ int platch_decode_value_std(uint8_t **pbuffer, size_t *premaining, struct std_va
 			for (int i = 0; i < size; i++) {
 				ok = platch_decode_value_std(pbuffer, premaining, &(value_out->keys[i]));
 				if (ok != 0) return ok;
-				
+
 				ok = platch_decode_value_std(pbuffer, premaining, &(value_out->values[i]));
 				if (ok != 0) return ok;
 			}
@@ -723,7 +723,7 @@ int platch_decode_value_std(uint8_t **pbuffer, size_t *premaining, struct std_va
 int platch_decode_value_json(char *message, size_t size, jsmntok_t **pptoken, size_t *ptokensremaining, struct json_value *value_out) {
 	jsmntok_t *ptoken;
 	int result, ok;
-	
+
 	if (!pptoken) {
 		// if we have no token list yet, parse the message & create one.
 
@@ -736,7 +736,7 @@ int platch_decode_value_json(char *message, size_t size, jsmntok_t **pptoken, si
 		jsmn_init(&parser);
 		result = jsmn_parse(&parser, (const char *) message, (const size_t) size, tokens, JSON_DECODE_TOKENLIST_SIZE);
 		if (result < 0) return EBADMSG;
-		
+
 		tokensremaining = (size_t) result;
 		ptoken = tokens;
 
@@ -841,7 +841,7 @@ int platch_decode(uint8_t *buffer, size_t size, enum platch_codec codec, struct 
 		object_out->codec = kNotImplemented;
 		return 0;
 	}
-	
+
 	object_out->codec = codec;
 	switch (codec) {
 		case kStringCodec: ;
@@ -871,7 +871,7 @@ int platch_decode(uint8_t *buffer, size_t size, enum platch_codec codec, struct 
 			if (ok != 0) return ok;
 
 			if (root_jsvalue.type != kJsonObject) return EBADMSG;
-			
+
 			for (int i=0; i < root_jsvalue.size; i++) {
 				if ((strcmp(root_jsvalue.keys[i], "method") == 0) && (root_jsvalue.values[i].type == kJsonString)) {
 					object_out->method = root_jsvalue.values[i].string_value;
@@ -887,7 +887,7 @@ int platch_decode(uint8_t *buffer, size_t size, enum platch_codec codec, struct 
 			ok = platch_decode_value_json((char *) buffer, size, NULL, NULL, &root_jsvalue);
 			if (ok != 0) return ok;
 			if (root_jsvalue.type != kJsonArray) return EBADMSG;
-			
+
 			if (root_jsvalue.size == 1) {
 				object_out->success = true;
 				object_out->json_result = root_jsvalue.array[0];
@@ -895,8 +895,8 @@ int platch_decode(uint8_t *buffer, size_t size, enum platch_codec codec, struct 
 			} else if ((root_jsvalue.size == 3) &&
 					   (root_jsvalue.array[0].type == kJsonString) &&
 					   ((root_jsvalue.array[1].type == kJsonString) || (root_jsvalue.array[1].type == kJsonNull))) {
-				
-				
+
+
 				object_out->success = false;
 				object_out->error_code = root_jsvalue.array[0].string_value;
 				object_out->error_msg = root_jsvalue.array[1].string_value;
@@ -990,7 +990,7 @@ int platch_encode(struct platch_obj *object, uint8_t **buffer_out, size_t *size_
 		case kStandardMethodCall:
 			stdmethod.type = kStdString;
 			stdmethod.string_value = object->method;
-			
+
 			ok = platch_calc_value_size_std(&stdmethod, &size);
 			if (ok != 0) return ok;
 
@@ -1013,7 +1013,7 @@ int platch_encode(struct platch_obj *object, uint8_t **buffer_out, size_t *size_
 					.type = kStdString,
 					.string_value = object->error_msg
 				};
-				
+
 				ok = platch_calc_value_size_std(&stderrcode, &size);
 				if (ok != 0) return ok;
 				ok = platch_calc_value_size_std(&stderrmessage, &size);
@@ -1054,7 +1054,7 @@ int platch_encode(struct platch_obj *object, uint8_t **buffer_out, size_t *size_
 	}
 
 	buffer_cursor = buffer;
-	
+
 	switch (object->codec) {
 		case kStringCodec:
 			memcpy(buffer, object->string_value, size);
@@ -1087,7 +1087,7 @@ int platch_encode(struct platch_obj *object, uint8_t **buffer_out, size_t *size_
 				ok = platch_write_value_to_buffer_std(&(object->std_error_details), &buffer_cursor);
 				if (ok != 0) goto free_buffer_and_return_ok;
 			}
-			
+
 			break;
 		case kJSONMessageCodec:
 			size -= 1;
@@ -1107,7 +1107,7 @@ int platch_encode(struct platch_obj *object, uint8_t **buffer_out, size_t *size_
 				goto free_buffer_and_return_ok;
 			}
 			break;
-		case kJSONMethodCallResponse: 
+		case kJSONMethodCallResponse:
 			if (object->success) {
 				ok = platch_write_value_to_buffer_json(
 					&JSONARRAY1(object->json_result),
@@ -1174,7 +1174,7 @@ int platch_send(char *channel, struct platch_obj *object, enum platch_codec resp
 		if (!handlerdata) {
 			return ENOMEM;
 		}
-		
+
 		handlerdata->codec = response_codec;
 		handlerdata->on_response = on_response;
 		handlerdata->userdata = userdata;
@@ -1204,7 +1204,7 @@ int platch_send(char *channel, struct platch_obj *object, enum platch_codec resp
 	if (object->codec != kBinaryCodec) {
 		free(buffer);
 	}
-	
+
 	return 0;
 
 
@@ -1227,7 +1227,7 @@ int platch_call_std(char *channel, char *method, struct std_value *argument, pla
 		.method = method,
 		.std_arg = *argument
 	};
-	
+
 	return platch_send(channel, &object, kStandardMethodCallResponse, on_response, userdata);
 }
 
@@ -1553,7 +1553,7 @@ bool jsvalue_equals(struct json_value *a, struct json_value *b) {
 			for (int i = 0; i < a->size; i++) {
 				// The key we're searching for in b.
 				char *key = a->keys[i];
-				
+
 				int j = 0;
 				while (j < a->size) {
 					while ((j < a->size) && _keyInBAlsoInA[j])  j++;	// skip all keys with _keyInBAlsoInA set to true.
@@ -1578,7 +1578,7 @@ bool jsvalue_equals(struct json_value *a, struct json_value *b) {
 			return false;
 	}
 
-	return 0;	
+	return 0;
 }
 struct json_value *jsobject_get(struct json_value *object, char *key) {
 	int i;
@@ -1664,7 +1664,7 @@ bool stdvalue_equals(struct std_value *a, struct std_value *b) {
 			for (int i = 0; i < a->size; i++)
 				if (!stdvalue_equals(a->list + i, b->list + i))
 					return false;
-			
+
 			return true;
 		case kStdMap: {
 			// the order is not important here, which makes it a bit difficult to compare
@@ -1680,7 +1680,7 @@ bool stdvalue_equals(struct std_value *a, struct std_value *b) {
 			for (int i = 0; i < a->size; i++) {
 				// The key we're searching for in b.
 				struct std_value *key = a->keys + i;
-				
+
 				int j = 0;
 				while (j < a->size) {
 					while ((j < a->size) && _keyInBAlsoInA[j])  j++;	// skip all keys with _keyInBAlsoInA set to true.
@@ -1730,9 +1730,9 @@ struct std_value *stdmap_get_str(struct std_value *map, char *key) {
 
 /**
  * BEGIN Raw Standard Message Codec Value API.
- * 
+ *
  * New API, for using standard-message-codec encoded buffers directly, without parsing them first.
- * 
+ *
  */
 
 ATTR_PURE enum std_value_type raw_std_value_get_type(const struct raw_std_value *value) {
@@ -1823,7 +1823,7 @@ ATTR_PURE int32_t raw_std_value_as_int32(const struct raw_std_value *value) {
 	DEBUG_ASSERT(raw_std_value_is_int32(value));
 	int32_t result;
 	memcpy(&result, get_value_ptr(value, 0), sizeof(result));
-	
+
 	return result;
 }
 
@@ -1980,7 +1980,7 @@ ATTR_PURE bool raw_std_value_equals(const struct raw_std_value *a, const struct 
 		case kStdInt64Array:
 			alignment = 8;
 			element_size = 8;
-			
+
 			memcmp_arrays:
 			if (raw_std_value_get_size(a) != raw_std_value_get_size(b)) {
 				return false;
@@ -2019,18 +2019,18 @@ ATTR_PURE bool raw_std_value_equals(const struct raw_std_value *a, const struct 
 			}
 
 			return true;
-		case kStdMap: 
+		case kStdMap:
 			if (raw_std_value_get_size(a) != raw_std_value_get_size(b)) {
 				return false;
 			}
 
 			size_t size = raw_std_value_get_size(a);
 
-			// key_from_b_also_in_a[i] == true means that there's a key in a that matches 
+			// key_from_b_also_in_a[i] == true means that there's a key in a that matches
 			// the i-th key in b. So if we're searching for a key from a in b, we can safely ignore / don't need to compare
 			// keys in b that have they're key_from_b_also_in_a set to true.
 			bool *key_from_b_found_in_a = calloc(size, sizeof(bool));
-			
+
 			// for each key in a, look for a matching key in b.
 			// once it's found, mark it as used, so we don't try matching it again.
 			// then, check if the values associated with both keys are equal.
@@ -2046,7 +2046,7 @@ ATTR_PURE bool raw_std_value_equals(const struct raw_std_value *a, const struct 
 					if (!raw_std_value_equals(key_a, key_b)) {
 						continue;
 					}
-					
+
 					key_from_b_found_in_a[index_b] = true;
 
 					// the values associated with both keys must be equal.
@@ -2133,7 +2133,7 @@ ATTR_PURE size_t raw_std_value_get_size(const struct raw_std_value *value) {
 	);
 
 	byteptr = (const uint8_t*) value;
-	
+
 	// skip type byte
 	byteptr++;
 
@@ -2199,7 +2199,7 @@ ATTR_PURE const struct raw_std_value *raw_std_value_after(const struct raw_std_v
 				value = raw_std_value_after(value);
 				value = raw_std_value_after(value);
 			}
-			
+
 			return value;
 		case kStdFloat32Array:
 			return get_array_after_ptr(value, 4, raw_std_value_get_size(value), 4);
@@ -2280,9 +2280,9 @@ ATTR_PURE static bool check_size(const struct raw_std_value *value, size_t buffe
 		if (buffer_size < 2) {
 			return false;
 		}
-		
+
 		// Calculation in @ref get_array_value_ptr assumes an array size 254 <= s < 0x10000 uses 3 size bytes
-		// If we allow a size smaller than 254 here, it would break that calculation. 
+		// If we allow a size smaller than 254 here, it would break that calculation.
 		size = 0;
 		memcpy(&size, byteptr + 1, 2);
 		if (size < 254) {
@@ -2292,7 +2292,7 @@ ATTR_PURE static bool check_size(const struct raw_std_value *value, size_t buffe
 		if (buffer_size < 4) {
 			return false;
 		}
-		
+
 		// See above.
 		size = 0;
 		memcpy(&size, byteptr + 1, 4);
@@ -2307,7 +2307,7 @@ ATTR_PURE static bool check_size(const struct raw_std_value *value, size_t buffe
 ATTR_PURE bool raw_std_value_check(const struct raw_std_value *value, size_t buffer_size) {
 	size_t size;
 	int alignment, element_size;
-	
+
 	if (buffer_size < 1) {
 		return false;
 	}
@@ -2346,7 +2346,7 @@ ATTR_PURE bool raw_std_value_check(const struct raw_std_value *value, size_t buf
 		case kStdFloat32Array:
 			alignment = 4;
 			element_size = 4;
-			
+
 			// common code for checking if the buffer is large enough to contain
 			// a fixed size array.
 			check_arrays:
@@ -2355,14 +2355,14 @@ ATTR_PURE bool raw_std_value_check(const struct raw_std_value *value, size_t buf
 			if (!check_size(value, buffer_size)) {
 				return false;
 			}
-			
+
 			// get the value size.
 			size = raw_std_value_get_size(value);
-			
+
 			// get the offset of the actual array values.
 			int diff = (intptr_t) get_array_value_ptr(value, alignment, size) - (intptr_t) value;
 			DEBUG_ASSERT(diff >= 0);
-			
+
 			if (buffer_size < diff) {
 				return false;
 			}
@@ -2379,7 +2379,7 @@ ATTR_PURE bool raw_std_value_check(const struct raw_std_value *value, size_t buf
 			if (!check_size(value, buffer_size)) {
 				return false;
 			}
-			
+
 			// get the value size.
 			size = raw_std_value_get_size(value);
 
@@ -2395,15 +2395,15 @@ ATTR_PURE bool raw_std_value_check(const struct raw_std_value *value, size_t buf
 			}
 
 			return true;
-		case kStdMap: 
+		case kStdMap:
 			// check if buffer is large enough to contain the value size.
 			if (!check_size(value, buffer_size)) {
 				return false;
 			}
-			
+
 			// get the value size.
 			size = raw_std_value_get_size(value);
-			
+
 			const struct raw_std_value *key = NULL, *map_value;
 			for (int diff, i = 0; i < size; i++) {
 				if (key == NULL) {

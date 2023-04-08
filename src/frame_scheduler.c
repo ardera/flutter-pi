@@ -35,7 +35,7 @@ struct frame_scheduler *frame_scheduler_new(
     void *userdata
 ) {
     struct frame_scheduler *scheduler;
-    
+
     // uses_frame_requests? => vsync_cb != NULL
     DEBUG_ASSERT(!uses_frame_requests || vsync_cb != NULL);
 
@@ -85,7 +85,7 @@ void frame_scheduler_on_fl_vsync_request(struct frame_scheduler *scheduler, intp
     //
 
     /// TODO: Implement
-    /// For now, just unconditionally reply 
+    /// For now, just unconditionally reply
     if (scheduler->present_mode == kTripleBufferedVsync_PresentMode) {
         scheduler->vsync_cb(scheduler->userdata, vsync_baton, 0, 0);
     } else if (scheduler->present_mode == kDoubleBufferedVsync_PresentMode) {
@@ -136,7 +136,7 @@ void frame_scheduler_on_scanout(struct frame_scheduler *scheduler, bool has_time
     (void) scheduler;
     (void) has_timestamp;
     (void) timestamp_ns;
-    
+
     /// TODO: Implement
     UNIMPLEMENTED();
 }

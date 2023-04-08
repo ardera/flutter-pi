@@ -8,7 +8,7 @@
 
 /**
  * @brief Description of a fbdev pixel format.
- * 
+ *
  */
 struct fbdev_pixfmt {
     struct fb_bitfield r, g, b, a;
@@ -31,7 +31,7 @@ struct fbdev_pixfmt {
 /**
  * @brief A specific pixel format. Use @ref get_pixfmt_info to get information
  * about this pixel format.
- * 
+ *
  */
 enum pixfmt {
     kRGB565_FpiPixelFormat,
@@ -93,21 +93,21 @@ static inline enum pixfmt pixfmt_opaque(enum pixfmt format) {
 
 /**
  * @brief Information about a pixel format.
- * 
+ *
  */
 struct pixfmt_info {
     /**
      * @brief A descriptive, human-readable name for this pixel format.
-     * 
+     *
      * Example: RGB 5:6:5
      */
     const char *name;
-    
+
     /**
      * @brief A short, unique name for this pixel format, to use it as a commandline argument for example.
-     * 
+     *
      * Example: RGB565
-     * 
+     *
      */
     const char *arg_name;
 
@@ -123,7 +123,7 @@ struct pixfmt_info {
 
     /**
      * @brief How many bits of the @ref bits_per_pixel are used for color (R / G / B)?
-     * 
+     *
      */
     int bit_depth;
 
@@ -160,7 +160,7 @@ struct pixfmt_info {
 
 /**
  * @brief A list of known pixel-formats, with some details about them.
- * 
+ *
  */
 extern const struct pixfmt_info pixfmt_infos[];
 extern const size_t n_pixfmt_infos;
@@ -171,7 +171,7 @@ void assert_pixfmt_list_valid();
 
 /**
  * @brief Get the pixel format info for a specific pixel format.
- * 
+ *
  */
 static inline const struct pixfmt_info *get_pixfmt_info(enum pixfmt format) {
     DEBUG_ASSERT(format >= 0 && format <= kMax_PixFmt);

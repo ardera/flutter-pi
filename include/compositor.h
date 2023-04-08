@@ -34,7 +34,7 @@ struct compositor {
     /**
      * @brief Contains a struct for each existing platform view, containing the view id
      * and platform view callbacks.
-     * 
+     *
      * @see compositor_set_view_callbacks compositor_remove_view_callbacks
      */
     struct concurrent_pointer_set cbs;
@@ -42,7 +42,7 @@ struct compositor {
     /**
      * @brief Whether the compositor should invoke @ref rendertarget_gbm_new the next time
      * flutter creates a backing store. Otherwise @ref rendertarget_nogbm_new is invoked.
-     * 
+     *
      * It's only possible to have at most one GBM-Surface backed backing store (== @ref rendertarget_gbm). So the first
      * time @ref on_create_backing_store is invoked, a GBM-Surface backed backing store is returned and after that,
      * only backing stores with @ref rendertarget_nogbm.
@@ -61,7 +61,7 @@ struct compositor {
     /**
      * @brief A cache of rendertargets that are not currently in use for
      * any flutter layers and can be reused.
-     * 
+     *
      * Make sure to destroy all stale rendertargets before presentation so all the DRM planes
      * that are reserved by any stale rendertargets get freed.
      */
@@ -77,10 +77,10 @@ struct compositor {
 
     /**
      * If true, @ref on_present_layers will commit blockingly.
-     * 
+     *
      * It will also schedule a simulated page flip event on the main thread
      * afterwards so the frame queue works.
-     * 
+     *
      * If false, @ref on_present_layers will commit nonblocking using page flip events,
      * like usual.
      */

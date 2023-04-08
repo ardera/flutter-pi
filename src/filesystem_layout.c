@@ -154,7 +154,7 @@ static struct flutter_paths *resolve(
         LOG_ERROR("app elf file \"%s\" does not exist, but is necessary for release/profile mode.\n", app_elf_path);
         goto fail_free_app_elf_path;
     }
-    
+
     // Try to find the engine inside the asset bundle. If we don't find it, that's not an error because
     // it could still be inside /usr/lib and we can just dlopen it using the filename.
     ok = asprintf(&engine_path, "%s/%s", app_bundle_path_real, app_engine_subpath);
@@ -215,7 +215,7 @@ static struct flutter_paths *resolve(
 
     fail_free_kernel_blob_path:
     free(kernel_blob_path);
-    
+
     fail_free_asset_bundle_path:
     free(asset_bundle_path);
 

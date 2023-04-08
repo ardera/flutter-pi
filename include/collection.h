@@ -36,7 +36,7 @@ struct concurrent_queue {
 
 struct pointer_set {
 	/**
-	 * @brief The number of non-NULL pointers currently stored in @ref pointers. 
+	 * @brief The number of non-NULL pointers currently stored in @ref pointers.
 	 */
 	size_t count_pointers;
 
@@ -351,7 +351,7 @@ static inline int cpset_remove_locked(
 	struct concurrent_pointer_set *set,
 	const void *pointer
 ) {
-	return pset_remove(&set->set, pointer); 
+	return pset_remove(&set->set, pointer);
 }
 
 static inline int cpset_remove(
@@ -540,7 +540,7 @@ static inline bool refcount_is_zero(refcount_t *refcount) {
 }
 
 /// Get the current reference count, without any memory ordering restrictions.
-/// Not strictly correct, should only be used for debugging. 
+/// Not strictly correct, should only be used for debugging.
 static inline int refcount_get_for_debug(refcount_t *refcount) {
 	return atomic_load_explicit(refcount, memory_order_relaxed);
 }
@@ -749,7 +749,7 @@ typedef void (*void_callback_t)(void *userdata);
 
 /**
  * @brief A 2-dimensional vector with 2 float coordinates.
- * 
+ *
  */
 struct vec2f {
     double x, y;
@@ -762,14 +762,14 @@ ATTR_CONST static inline struct vec2f vec2f_add(struct vec2f a, struct vec2f b) 
 }
 
 struct vec2i {
-	int x, y;	
+	int x, y;
 };
 
 #define VEC2I(_x, _y) ((struct vec2i) {.x = (_x), .y = (_y)})
 
 /**
  * @brief A quadrilateral with 4 2-dimensional float coordinates.
- * 
+ *
  */
 struct quad {
     struct vec2f top_left, top_right, bottom_left, bottom_right;
@@ -852,8 +852,8 @@ struct mat3f {
 
 /**
  * @brief Returns a matrix that is the result of matrix-multiplying a with b.
- * 
- * @param a The first (lhs) input matrix. 
+ *
+ * @param a The first (lhs) input matrix.
  * @param b The second (rhs) input matrix.
  * @return struct mat3f The product of a x b.
  */
@@ -873,7 +873,7 @@ ATTR_CONST static inline struct mat3f multiply_mat3f(const struct mat3f a, const
 
 /**
  * @brief Returns a matrix that is the result of element-wise addition of a and b.
- * 
+ *
  * @param a The lhs input matrix.
  * @param b The rhs input matrix.
  * @return struct mat3f The result of a + b. (element-wise)
@@ -888,7 +888,7 @@ ATTR_CONST static inline struct mat3f add_mat3f(const struct mat3f a, const stru
 
 /**
  * @brief Returns the transponated of a.
- * 
+ *
  * @param a The input matrix.
  * @return struct mat3f a transponated.
  */
@@ -902,7 +902,7 @@ ATTR_CONST static inline struct mat3f transponate_mat3f(const struct mat3f a) {
 
 ATTR_CONST static inline struct vec2f transform_point(const struct mat3f transform, const struct vec2f point) {
     return VEC2F(
-        transform.scaleX*point.x + transform.skewX*point.y + transform.transX, 
+        transform.scaleX*point.x + transform.skewX*point.y + transform.transX,
         transform.skewY*point.x + transform.scaleY*point.y + transform.transY
     );
 }

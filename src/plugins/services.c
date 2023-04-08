@@ -26,7 +26,7 @@ static int on_receive_isolate(char *channel, struct platch_obj *object, FlutterP
     } else {
         memcpy(services.isolate_id, object->binarydata, object->binarydata_size);
     }
-    
+
     return platch_respond_not_implemented(responsehandle);
 }
 
@@ -48,7 +48,7 @@ static int on_receive_platform(char *channel, struct platch_obj *object, Flutter
          *      Returns the data that has the format specified in the argument
          *      from the system clipboard. The only currently supported is "text/plain".
          *      The result is a Map with a single key, "text".
-         */ 
+         */
     } else if (strcmp(object->method, "HapticFeedback.vibrate") == 0) {
         /*
          *  HapticFeedback.vibrate(void)
@@ -66,17 +66,17 @@ static int on_receive_platform(char *channel, struct platch_obj *object, Flutter
          *  SystemChrome.setPreferredOrientations(DeviceOrientation[])
          *      Informs the operating system of the desired orientation of the display. The argument is a [List] of
          *      values which are string representations of values of the [DeviceOrientation] enum.
-         * 
+         *
          *  enum DeviceOrientation {
          *      portraitUp, landscapeLeft, portraitDown, landscapeRight
          *  }
          */
-        
+
         /// TODO: Implement
 
         /*
         value = &object->json_arg;
-        
+
         if ((value->type != kJsonArray) || (value->size == 0)) {
             return platch_respond_illegal_arg_json(
                 responsehandle,
@@ -94,7 +94,7 @@ static int on_receive_platform(char *channel, struct platch_obj *object, Flutter
                     "Expected `arg` to to only contain strings."
                 );
             }
-            
+
             enum device_orientation o = ORIENTATION_FROM_STRING(value->array[i].string_value);
 
             if (o == -1) {
@@ -126,7 +126,7 @@ static int on_receive_platform(char *channel, struct platch_obj *object, Flutter
                 // send updated window metrics to flutter
                 result = flutterpi.flutter.libflutter_engine.FlutterEngineSendWindowMetricsEvent(flutterpi.flutter.engine, &(const FlutterWindowMetricsEvent) {
                     .struct_size = sizeof(FlutterWindowMetricsEvent),
-                    .width = flutterpi.view.width, 
+                    .width = flutterpi.view.width,
                     .height = flutterpi.view.height,
                     .pixel_ratio = flutterpi.display.pixel_ratio
                 });
@@ -155,11 +155,11 @@ static int on_receive_platform(char *channel, struct platch_obj *object, Flutter
          *      and the high eight bits being set, as from Color.value for an opaque color).
          *      The "primaryColor" can also be zero to indicate that the system default should be used.
          */
-        
+
         value = jsobject_get(arg, "label");
         if (value && (value->type == kJsonString))
             snprintf(services.label, sizeof(services.label), "%s", value->string_value);
-        
+
         return platch_respond_success_json(responsehandle, NULL);
     } else if (strcmp(object->method, "SystemChrome.setEnabledSystemUIOverlays") == 0) {
         /*
@@ -167,23 +167,23 @@ static int on_receive_platform(char *channel, struct platch_obj *object, Flutter
          *      Specifies the set of system overlays to have visible when the application
          *      is running. The argument is a List of values which are
          *      string representations of values of the SystemUIOverlay enum.
-         * 
+         *
          *  enum SystemUIOverlay {
          *      top, bottom
          *  }
-         * 
+         *
          */
     } else if (strcmp(object->method, "SystemChrome.restoreSystemUIOverlays") == 0) {
         /*
          * SystemChrome.restoreSystemUIOverlays(void)
          */
     } else if (strcmp(object->method, "SystemChrome.setSystemUIOverlayStyle") == 0) {
-        /*  
+        /*
          *  SystemChrome.setSystemUIOverlayStyle(struct SystemUIOverlayStyle)
-         * 
+         *
          *  enum Brightness:
          *      light, dark
-         * 
+         *
          *  struct SystemUIOverlayStyle:
          *      systemNavigationBarColor: null / uint32
          *      statusBarColor: null / uint32

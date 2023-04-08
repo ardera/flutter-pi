@@ -156,12 +156,12 @@ ATTR_MALLOC struct compositor *compositor_new(
         goto fail_destroy_mutex;
     }
 
-    
+
     compositor->n_refs = REFCOUNT_INIT_1;
     // just so we get an error if the FlutterCompositor struct was updated
     COMPILE_ASSERT(sizeof(FlutterCompositor) == 24 || sizeof(FlutterCompositor) == 48);
     compositor->main_window = window_ref(main_window);
-    compositor->flutter_compositor = (FlutterCompositor){ 
+    compositor->flutter_compositor = (FlutterCompositor){
         .struct_size = sizeof(FlutterCompositor),
         .user_data = compositor,
         .create_backing_store_callback = on_flutter_create_backing_store,
@@ -552,7 +552,7 @@ void compositor_set_cursor(
 
     if (has_enabled) {
         if (enabled && !compositor->cursor_enabled) {
-            // enable cursor            
+            // enable cursor
         } else if (!enabled && compositor->cursor_enabled) {
             // disable cursor
         }
@@ -562,7 +562,7 @@ void compositor_set_cursor(
         if (compositor->cursor_enabled) {
             // move cursor
             compositor->cursor_pos = vec2f_add(compositor->cursor_pos, delta);
-            
+
             struct view_geometry viewgeo = window_get_view_geometry(compositor->main_window);
 
             if (compositor->cursor_pos.x < 0.0f) {

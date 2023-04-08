@@ -10,8 +10,8 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
-#include <ctype.h> 
-#include <stdio.h> 
+#include <ctype.h>
+#include <stdio.h>
 #include <glob.h>
 
 #include <xf86drm.h>
@@ -51,7 +51,7 @@ enum device_orientation {
 	 (o) == kLandscapeLeft ? 90 : \
 	 (o) == kPortraitDown ? 180 : \
 	 (o) == kLandscapeRight ? 270 : 0)
-	
+
 #define ANGLE_BETWEEN_ORIENTATIONS(o_start, o_end) \
 	(ANGLE_FROM_ORIENTATION(o_end) \
 	- ANGLE_FROM_ORIENTATION(o_start) \

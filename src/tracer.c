@@ -31,7 +31,7 @@ struct tracer *tracer_new_with_cbs(
     FlutterEngineTraceEventInstantFnPtr trace_instant
 ) {
     struct tracer *tracer;
-    
+
     tracer = malloc(sizeof *tracer);
     if (tracer == NULL) {
         goto fail_return_null;
@@ -52,7 +52,7 @@ struct tracer *tracer_new_with_cbs(
 
 struct tracer *tracer_new_with_stubs() {
     struct tracer *tracer;
-    
+
     tracer = malloc(sizeof *tracer);
     if (tracer == NULL) {
         goto fail_return_null;

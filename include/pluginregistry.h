@@ -45,7 +45,7 @@ typedef struct _FlutterPlatformMessageResponseHandle
 ///   passed to plugin_registry_set_receiver.
 typedef int (*platch_obj_recv_callback)(
 	char *channel,
-	struct platch_obj *object, 
+	struct platch_obj *object,
 	FlutterPlatformMessageResponseHandle *responsehandle
 );
 

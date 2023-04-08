@@ -92,7 +92,7 @@ struct notifier *value_notifier_new(void *initial_value, void_callback_t value_d
 
 void notifier_deinit(struct notifier *notifier) {
     struct listener *l;
-    
+
     for_each_listener_in_notifier(notifier, l) {
         listener_destroy(l);
     }
@@ -114,7 +114,7 @@ struct listener *notifier_listen(struct notifier *notifier, listener_cb_t notify
     enum listener_return r;
     struct listener *l;
     int ok;
-    
+
     l = listener_new(notify, destroy, userdata);
     if (l == NULL) {
         return NULL;
@@ -209,4 +209,3 @@ static void listener_destroy(struct listener *listener) {
 static enum listener_return listener_notify(struct listener *listener, void *arg) {
     return listener->notify(arg, listener->userdata);
 }
-
