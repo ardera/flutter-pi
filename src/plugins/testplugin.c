@@ -150,7 +150,7 @@ static uint64_t testplugin_time_offset;
 static int on_response_json(struct platch_obj *object, void *userdata) {
     uint64_t dt = flutterpi.flutter.libflutter_engine.FlutterEngineGetCurrentTime() - *((uint64_t*) userdata);
     free(userdata);
-    
+
     if (object->codec == kNotImplemented) {
         printf("channel " TESTPLUGIN_CHANNEL_JSON " not implented on flutter side\n");
         return 0;
@@ -271,7 +271,7 @@ static int on_receive_json(char *channel, struct platch_obj *object, FlutterPlat
            "  method: %s\n"
            "  args: \n", channel, object->method);
     printJSON(&(object->json_arg), 4);
-    
+
     send_json();
 
     return platch_respond(responsehandle, &(struct platch_obj) {
@@ -290,7 +290,7 @@ static int on_receive_std(char *channel, struct platch_obj *object, FlutterPlatf
     printStd(&(object->std_arg), 4);
 
     send_std();
-    
+
     return platch_respond(
         responsehandle,
         &(struct platch_obj) {
@@ -324,7 +324,7 @@ enum plugin_init_result testp_init(struct flutterpi *flutterpi, void **userdata_
     if (ok != 0) {
         goto fail_remove_json_receiver;
     }
-    
+
     ok = plugin_registry_set_receiver(TESTPLUGIN_CHANNEL_PING, kStringCodec, on_receive_ping);
     if (ok != 0) {
         goto fail_remove_std_receiver;

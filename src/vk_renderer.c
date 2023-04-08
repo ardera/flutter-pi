@@ -349,7 +349,7 @@ ATTR_MALLOC struct vk_renderer *vk_renderer_new() {
     for (unsigned i = 0; i < n_physical_devices; i++) {
         VkPhysicalDevice this = physical_devices[i];
         int this_score = score_physical_device(this, required_device_extensions);
-        
+
         if (this_score > score) {
             physical_device = this;
             score = this_score;

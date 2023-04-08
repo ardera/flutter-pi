@@ -89,7 +89,7 @@ DEFINE_STATIC_REF_OPS(locked_fb, n_refs)
 #ifdef DEBUG
 ATTR_PURE struct egl_gbm_render_surface *__checked_cast_egl_gbm_render_surface(void *ptr) {
     struct egl_gbm_render_surface *s;
-    
+
     s = CAST_EGL_GBM_RENDER_SURFACE_UNCHECKED(ptr);
     DEBUG_ASSERT(uuid_equals(s->uuid, uuid));
     return s;
@@ -127,7 +127,7 @@ static int egl_gbm_render_surface_init(
 #ifdef DEBUG
     if (egl_config != EGL_NO_CONFIG_KHR) {
         EGLint value = 0;
-        
+
         egl_ok = eglGetConfigAttrib(egl_display, egl_config, EGL_NATIVE_VISUAL_ID, &value);
         if (egl_ok == EGL_FALSE) {
             LOG_ERROR("Couldn't query pixel format of EGL framebuffer config. eglGetConfigAttrib: 0x%08X\n", eglGetError());
@@ -165,7 +165,7 @@ static int egl_gbm_render_surface_init(
         }
     }
 
-    /// TODO: Think about allowing different tilings / modifiers here  
+    /// TODO: Think about allowing different tilings / modifiers here
     if (egl_config == EGL_NO_CONFIG_KHR) {
         // choose a config
         egl_config = gl_renderer_choose_config_direct(renderer, pixel_format);
@@ -205,7 +205,7 @@ static int egl_gbm_render_surface_init(
         goto fail_destroy_gbm_surface;
     }
 
-    /// TODO: Implement 
+    /// TODO: Implement
     ok = render_surface_init(CAST_RENDER_SURFACE_UNCHECKED(s), tracer, size);
     if (ok != 0) {
         goto fail_destroy_egl_surface;
@@ -234,7 +234,7 @@ static int egl_gbm_render_surface_init(
     fail_destroy_egl_surface:
 #ifdef HAS_EGL
     eglDestroySurface(egl_display, egl_surface);
-    
+
     fail_destroy_gbm_surface:
 #endif
     gbm_surface_destroy(gbm_surface);
@@ -243,14 +243,14 @@ static int egl_gbm_render_surface_init(
 
 /**
  * @brief Create a new gbm_surface based render surface, with an explicit EGL Config for the created EGLSurface.
- * 
+ *
  * @param compositor The compositor that this surface will be registered to when calling surface_register.
  * @param size The size of the surface.
  * @param device The GBM device used to allocate the surface.
  * @param renderer The EGL/OpenGL used to create any GL surfaces.
  * @param pixel_format The pixel format to be used by the framebuffers of the surface.
  * @param egl_config The EGLConfig used for creating the EGLSurface.
- * @return struct egl_gbm_render_surface* 
+ * @return struct egl_gbm_render_surface*
  */
 struct egl_gbm_render_surface *egl_gbm_render_surface_new_with_egl_config(
     struct tracer *tracer,
@@ -264,7 +264,7 @@ struct egl_gbm_render_surface *egl_gbm_render_surface_new_with_egl_config(
 ) {
     struct egl_gbm_render_surface *surface;
     int ok;
-    
+
     surface = malloc(sizeof *surface);
     if (surface == NULL) {
         goto fail_return_null;
@@ -287,7 +287,7 @@ struct egl_gbm_render_surface *egl_gbm_render_surface_new_with_egl_config(
 
 /**
  * @brief Create a new gbm_surface based render surface.
- * 
+ *
  * @param compositor The compositor that this surface will be registered to when calling surface_register.
  * @param size The size of the surface.
  * @param device The GBM device used to allocate the surface.
@@ -331,7 +331,7 @@ struct gbm_bo_meta {
 static void on_destroy_gbm_bo_meta(struct gbm_bo *bo, void *meta_void) {
     struct gbm_bo_meta *meta;
     int ok;
-    
+
     DEBUG_ASSERT_NOT_NULL(bo);
     DEBUG_ASSERT_NOT_NULL(meta_void);
     (void) bo;
@@ -442,20 +442,20 @@ static int egl_gbm_render_surface_present_kms(struct surface *s, const struct fl
             .format = pixel_format,
             .has_modifier = gbm_bo_get_modifier(bo) != DRM_FORMAT_MOD_INVALID,
             .modifier = gbm_bo_get_modifier(bo),
-            
+
             .dst_x = (int32_t) props->aa_rect.offset.x,
             .dst_y = (int32_t) props->aa_rect.offset.y,
             .dst_w = (uint32_t) props->aa_rect.size.x,
             .dst_h = (uint32_t) props->aa_rect.size.y,
-            
+
             .src_x = 0,
             .src_y = 0,
             .src_w = DOUBLE_TO_FP1616_ROUNDED(egl_surface->render_surface.size.x),
             .src_h = DOUBLE_TO_FP1616_ROUNDED(egl_surface->render_surface.size.y),
-            
+
             .has_rotation = false,
             .rotation = PLANE_TRANSFORM_ROTATE_0,
-            
+
             .has_in_fence_fd = false,
             .in_fence_fd = 0
         },
@@ -505,10 +505,10 @@ static int egl_gbm_render_surface_fill(struct render_surface *s, FlutterBackingS
         .type = kFlutterOpenGLTargetTypeFramebuffer,
         .framebuffer = {
             /* for some reason flutter wants this to be GL_BGRA8_EXT, contrary to what the docs say */
-            .target = GL_BGRA8_EXT, 
+            .target = GL_BGRA8_EXT,
 
             /* 0 refers to the window surface, instead of to an FBO */
-            .name = 0, 
+            .name = 0,
 
             /*
              * even though the compositor will call surface_ref too to fill the FlutterBackingStore.user_data,
@@ -527,7 +527,7 @@ static int egl_gbm_render_surface_queue_present(struct render_surface *s, const 
     struct gbm_bo *bo;
     MAYBE_UNUSED EGLBoolean egl_ok;
     int i, ok;
-    
+
     egl_surface = CAST_THIS(s);
     (void) fl_store;
 
@@ -535,7 +535,7 @@ static int egl_gbm_render_surface_queue_present(struct render_surface *s, const 
 
     /// TODO: Handle fl_store->did_update == false here
 
-    // Unref the old front fb so potentially one of the locked_fbs entries gets freed 
+    // Unref the old front fb so potentially one of the locked_fbs entries gets freed
     if (egl_surface->locked_front_fb != NULL) {
         locked_fb_unrefp(&egl_surface->locked_front_fb);
     }
@@ -598,10 +598,10 @@ static int egl_gbm_render_surface_queue_present(struct render_surface *s, const 
 
 /**
  * @brief Get the EGL Surface for rendering into this render surface.
- * 
+ *
  * Flutter doesn't really support backing stores to be EGL Surfaces, so we have to hack around this, kinda.
- * 
- * @param s 
+ *
+ * @param s
  * @return EGLSurface The EGLSurface associated with this render surface. Only valid for the lifetime of this egl_gbm_render_surface.
  */
 ATTR_PURE EGLSurface egl_gbm_render_surface_get_egl_surface(struct egl_gbm_render_surface *s) {
@@ -610,12 +610,12 @@ ATTR_PURE EGLSurface egl_gbm_render_surface_get_egl_surface(struct egl_gbm_rende
 
 /**
  * @brief Get the EGLConfig that was used to create the EGLSurface for this render surface.
- * 
+ *
  * If the display doesn't support EGL_KHR_no_config_context, we need to create the EGL rendering context with
  * the same EGLConfig as every EGLSurface we want to bind to it. So we can just let egl_gbm_render_surface choose a config
  * and let flutter-pi query that config when creating the rendering contexts in that case.
- * 
- * @param s 
+ *
+ * @param s
  * @return EGLConfig The chosen EGLConfig. Valid forever.
  */
 ATTR_PURE EGLConfig egl_gbm_render_surface_get_egl_config(struct egl_gbm_render_surface *s) {

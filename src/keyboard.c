@@ -94,16 +94,16 @@ static char *get_value_allocated(const char *varname, const char *buffer) {
     }
 
     strncpy(allocated, buffer + match.rm_so, match_length);
-    
+
     allocated[match_length] = '\0';
-    
+
     return allocated;
 }
 
 static char *load_file(const char *path) {
     struct stat s;
     int ok, fd;
-    
+
     ok = open(path, O_RDONLY);
     if (ok < 0) {
         goto fail_return_null;
@@ -149,7 +149,7 @@ static char *load_file(const char *path) {
 
 static struct xkb_keymap *load_default_keymap(struct xkb_context *context) {
     struct xkb_keymap *keymap;
-    char *file, *xkbmodel, *xkblayout, *xkbvariant, *xkboptions; 
+    char *file, *xkbmodel, *xkblayout, *xkbvariant, *xkboptions;
 
     file = load_file("/etc/default/keyboard");
     if (file == NULL) {
@@ -209,7 +209,7 @@ static struct xkb_compose_table *load_default_compose_table(struct xkb_context *
     struct xkb_compose_table *tbl;
 
     setlocale(LC_ALL, "");
-    
+
     tbl = xkb_compose_table_new_from_locale(context, setlocale(LC_CTYPE, NULL), XKB_COMPOSE_COMPILE_NO_FLAGS);
     if (tbl == NULL) {
         LOG_ERROR("Could not create compose table from locale.\n");
@@ -224,7 +224,7 @@ struct keyboard_config *keyboard_config_new(void) {
     struct xkb_compose_table *compose_table;
     struct xkb_context *ctx;
     struct xkb_keymap *keymap;
-    
+
     cfg = malloc(sizeof *cfg);
     if (cfg == NULL) {
         errno = ENOMEM;
@@ -367,7 +367,7 @@ int keyboard_state_process_key_event(
         if (feed_result == XKB_COMPOSE_FEED_ACCEPTED && compose_status == XKB_COMPOSE_COMPOSING) {
             keysym = XKB_KEY_NoSymbol;
         }
-        
+
         if (compose_status == XKB_COMPOSE_COMPOSED) {
             keysym = xkb_compose_state_get_one_sym(state->compose_state);
             xkb_compose_state_reset(state->compose_state);

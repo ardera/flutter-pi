@@ -28,7 +28,7 @@ jobs:
         include:
           - enable-vulkan: 'on'
             vulkan-deps: 'libvulkan-dev'
-          
+
           - compiler: 'clang'
             clang-deps: 'clang'
     steps:
@@ -66,7 +66,7 @@ jobs:
       - name: Test
         working-directory: build
         run: ctest -C ${{ matrix.build-type }} --output-on-failure
-    
+
   container:
     name: Build & Test in Container
     runs-on: ubuntu-latest
@@ -91,12 +91,12 @@ jobs:
         include:
           - enable-vulkan: 'on'
             vulkan-deps: 'libvulkan-dev'
-          
+
           - compiler: 'clang'
             clang-deps: 'clang'
     steps:
       # git needs to be installed before checking out, otherwise the checkout will fallback to the REST API,
-      # and the submodule download won't work. 
+      # and the submodule download won't work.
       - name: Install dependencies
         run: |
           apt-get update && apt-get install -y \
@@ -129,4 +129,3 @@ jobs:
       - name: Test
         working-directory: build
         run: ctest -C ${{ matrix.build-type }} --output-on-failure
-  

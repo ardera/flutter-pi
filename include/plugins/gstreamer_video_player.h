@@ -36,7 +36,7 @@ struct buffering_state {
     // The average input / consumption speed in bytes per second.
     int avg_in, avg_out;
 
-    // Time left till buffering finishes, in ms. 
+    // Time left till buffering finishes, in ms.
     // 0 means not buffering right now.
     int64_t time_left_ms;
 
@@ -48,9 +48,9 @@ struct buffering_state {
     int n_ranges;
 
     // Flexible array member.
-    // For example, if n_ranges is 2, just allocate using 
+    // For example, if n_ranges is 2, just allocate using
     // `state = malloc(sizeof(struct buffering_state) + 2*sizeof(struct buffering_range))`
-    // and we can use state->ranges[0] and so on. 
+    // and we can use state->ranges[0] and so on.
     // This is cool because we don't need to allocate two blocks of memory and we can just call
     // `free` once to free the whole thing.
     // More precisely, we don't need to define a new function we can give to value_notifier_init
@@ -184,8 +184,8 @@ int gstplayer_step_forward(struct gstplayer *player);
 
 int gstplayer_step_backward(struct gstplayer *player);
 
-/// @brief Get the value notifier for the video info. 
-/// 
+/// @brief Get the value notifier for the video info.
+///
 /// Gets notified with a value of type `struct video_info*` when the video info changes.
 /// The listeners will be called on an internal gstreamer thread.
 /// So you need to make sure you do the proper rethreading in the listener callback.
@@ -193,7 +193,7 @@ struct notifier *gstplayer_get_video_info_notifier(struct gstplayer *player);
 
 /// @brief Get the value notifier for the buffering state.
 ///
-/// Gets notified with a value of type `struct buffering_state*` when the buffering state changes. 
+/// Gets notified with a value of type `struct buffering_state*` when the buffering state changes.
 /// The listeners will be called on the main flutterpi platform thread.
 struct notifier *gstplayer_get_buffering_state_notifier(struct gstplayer *player);
 

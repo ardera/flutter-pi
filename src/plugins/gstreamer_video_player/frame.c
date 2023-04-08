@@ -80,7 +80,7 @@ static bool query_formats(
     egl_ok = egl_query_dmabuf_formats(display, 0, NULL, &n_formats);
     if (egl_ok != EGL_TRUE) {
         LOG_ERROR("Could not query number of dmabuf formats supported by EGL.\n");
-        goto fail;   
+        goto fail;
     }
 
     formats = malloc(n_formats * sizeof *formats);
@@ -148,7 +148,7 @@ static bool query_formats(
     free(formats);
     free(modifiers);
     free(external_only);
-    
+
     *n_formats_out = n_modified_formats;
     *formats_out = modified_formats;
     return true;
@@ -166,7 +166,7 @@ static bool query_formats(
     fail:
     *n_formats_out = 0;
     *formats_out = NULL;
-    return false;    
+    return false;
 }
 
 struct frame_interface *frame_interface_new(struct gl_renderer *renderer) {
@@ -210,7 +210,7 @@ struct frame_interface *frame_interface_new(struct gl_renderer *renderer) {
     if (context == EGL_NO_CONTEXT) {
         goto fail_free;
     }
-    
+
     PFNEGLCREATEIMAGEKHRPROC create_image = (PFNEGLCREATEIMAGEKHRPROC) gl_renderer_get_proc_address(renderer, "eglCreateImageKHR");
     if (create_image == NULL) {
         LOG_ERROR("Could not resolve eglCreateImageKHR EGL procedure.\n");
@@ -264,7 +264,7 @@ struct frame_interface *frame_interface_new(struct gl_renderer *renderer) {
 
     interface->gbm_device = gbm_device;
     interface->display = display;
-    pthread_mutex_init(&interface->context_lock, NULL); 
+    pthread_mutex_init(&interface->context_lock, NULL);
     interface->context = context;
     interface->eglCreateImageKHR = create_image;
     interface->eglDestroyImageKHR = destroy_image;
@@ -316,9 +316,9 @@ DEFINE_REF_OPS(frame_interface, n_refs)
 
 /**
  * @brief Create a dmabuf fd from the given GstBuffer.
- * 
+ *
  * Calls gst_buffer_map on the buffer, so buffer could have changed after the call.
- * 
+ *
  */
 MAYBE_UNUSED int dup_gst_buffer_range_as_dmabuf(struct gbm_device *gbm_device, GstBuffer *buffer, unsigned int memory_index, int n_memories) {
     struct gbm_bo *bo;
@@ -327,7 +327,7 @@ MAYBE_UNUSED int dup_gst_buffer_range_as_dmabuf(struct gbm_device *gbm_device, G
     gboolean gst_ok;
     void *map, *map_data;
     int fd;
-    
+
     gst_ok = gst_buffer_map_range(buffer, memory_index, n_memories, &map_info, GST_MAP_READ);
     if (gst_ok == FALSE) {
         LOG_ERROR("Couldn't map gstreamer video frame buffer to copy it into a dma buffer.\n");
@@ -357,7 +357,7 @@ MAYBE_UNUSED int dup_gst_buffer_range_as_dmabuf(struct gbm_device *gbm_device, G
         goto fail_destroy_bo;
     }
 
-    /// TODO: Should we dup the fd before we destroy the bo? 
+    /// TODO: Should we dup the fd before we destroy the bo?
     gbm_bo_destroy(bo);
     gst_buffer_unmap(buffer, &map_info);
     return fd;
@@ -372,9 +372,9 @@ MAYBE_UNUSED int dup_gst_buffer_range_as_dmabuf(struct gbm_device *gbm_device, G
 
 /**
  * @brief Create a dmabuf fd from the given GstMemory.
- * 
+ *
  * Calls gst_memory_map on the memory.
- * 
+ *
  */
 MAYBE_UNUSED int dup_gst_memory_as_dmabuf(struct gbm_device *gbm_device, GstMemory *memory) {
     struct gbm_bo *bo;
@@ -413,7 +413,7 @@ MAYBE_UNUSED int dup_gst_memory_as_dmabuf(struct gbm_device *gbm_device, GstMemo
         goto fail_destroy_bo;
     }
 
-    /// TODO: Should we dup the fd before we destroy the bo? 
+    /// TODO: Should we dup the fd before we destroy the bo?
     gbm_bo_destroy(bo);
     gst_memory_unmap(memory, &map_info);
     return fd;
@@ -563,7 +563,7 @@ static int get_plane_infos(
     if (!has_plane_sizes) {
         has_plane_sizes = get_plane_sizes_from_video_info(info, plane_sizes);
     }
-    
+
     if (!has_plane_sizes) {
         has_plane_sizes = true;
         for (int i = 0; i < n_planes; i++) {
@@ -721,7 +721,7 @@ ATTR_CONST GstVideoFormat gst_video_format_from_drm_format(uint32_t drm_format) 
         case DRM_FORMAT_VYUY: return GST_VIDEO_FORMAT_VYUY;
         case DRM_FORMAT_AYUV: return GST_VIDEO_FORMAT_AYUV;
 #if THIS_GSTREAMER_VER >= GSTREAMER_VER(1, 16, 0)
-        // GST_VIDEO_FORMAT_AYUV and _VUYA both map to DRM_FORMAT_AYUV 
+        // GST_VIDEO_FORMAT_AYUV and _VUYA both map to DRM_FORMAT_AYUV
         // case DRM_FORMAT_AYUV: return GST_VIDEO_FORMAT_VUYA;
 #endif
         case DRM_FORMAT_NV12: return GST_VIDEO_FORMAT_NV12;
@@ -886,7 +886,7 @@ struct video_frame *frame_new(
     // check the chroma siting
     egl_horizontal_chroma_siting = egl_horizontal_chroma_siting_from_gst_info(info);
     egl_vertical_chroma_siting = egl_vertical_chroma_siting_from_gst_info(info);
-    
+
     frame = malloc(sizeof *frame);
     if (frame == NULL) {
         return NULL;
@@ -925,7 +925,7 @@ struct video_frame *frame_new(
     if (egl_vertical_chroma_siting != EGL_NONE) {
         PUT_ATTR(EGL_YUV_CHROMA_VERTICAL_SITING_HINT_EXT, egl_vertical_chroma_siting);
     }
-    
+
     // add plane 1
     PUT_ATTR(EGL_DMA_BUF_PLANE0_FD_EXT, planes[0].fd);
     PUT_ATTR(EGL_DMA_BUF_PLANE0_OFFSET_EXT, planes[0].offset);
@@ -1021,7 +1021,7 @@ struct video_frame *frame_new(
     }
 
     glBindTexture(target, texture);
-    
+
     interface->glEGLImageTargetTexture2DOES(target, egl_image);
     gl_error = glGetError();
     if (gl_error != GL_NO_ERROR) {
@@ -1055,7 +1055,7 @@ struct video_frame *frame_new(
     frame->gl_frame.width = 0;
     frame->gl_frame.height = 0;
     return frame;
-    
+
     fail_unbind_texture:
     glBindTexture(texture, 0);
 
@@ -1072,7 +1072,7 @@ struct video_frame *frame_new(
     fail_release_planes:
     for (int i = 0; i < n_planes; i++)
         close(planes[i].fd);
-    
+
     fail_free_frame:
     free(frame);
     return NULL;
@@ -1090,7 +1090,7 @@ void frame_destroy(struct video_frame *frame) {
     egl_ok = eglMakeCurrent(frame->interface->display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
     DEBUG_ASSERT_EGL_TRUE(egl_ok);
     frame_interface_unlock(frame->interface);
-    
+
     egl_ok = frame->interface->eglDestroyImageKHR(frame->interface->display, frame->image);
     DEBUG_ASSERT_EGL_TRUE(egl_ok);
     frame_interface_unref(frame->interface);

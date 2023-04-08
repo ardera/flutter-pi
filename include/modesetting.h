@@ -324,10 +324,10 @@ struct drm_plane {
 
     /**
      * @brief Bitmap of the indexes of the CRTCs that this plane can be scanned out on.
-     * 
+     *
      * i.e. if bit 0 is set, this plane can be scanned out on the CRTC with index 0.
      * if bit 0 is not set, this plane can not be scanned out on that CRTC.
-     * 
+     *
      */
     uint32_t possible_crtcs;
 

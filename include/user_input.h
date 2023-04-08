@@ -122,7 +122,7 @@ struct user_input;
  * and create a udev-backed libinput instance.
  */
 struct user_input *user_input_new(
-    const struct user_input_interface *interface, 
+    const struct user_input_interface *interface,
     void *userdata,
     const struct mat3f *display_to_view_transform,
     const struct mat3f *view_to_display_transform,
@@ -140,7 +140,7 @@ void user_input_destroy(struct user_input *input);
  * @brief Set a 3x3 matrix and display width / height so user_input can transform any device coordinates into
  * proper flutter view coordinates. (For example to account for a rotated display)
  * Will also transform absolute & relative mouse movements.
- * 
+ *
  * @param display_to_view_transform will be copied internally.
  */
 void user_input_set_transform(

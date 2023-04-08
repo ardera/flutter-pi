@@ -103,7 +103,7 @@ DEFINE_REF_OPS(evloop, n_refs)
 int evloop_get_fd_locked(struct evloop *loop) {
     DEBUG_ASSERT_NOT_NULL(loop);
     DEBUG_ASSERT_MUTEX_LOCKED(loop->mutex);
-    return sd_event_get_fd(loop->sdloop);    
+    return sd_event_get_fd(loop->sdloop);
 }
 
 int evloop_get_fd(struct evloop *loop) {
@@ -544,11 +544,11 @@ static void *evthread_entry(void *userdata) {
 
         evthread->loop = evloop;
         evthread->thread = pthread_self();
-        
+
         args->initialization_success = true;
         sem_post(&args->initialization_done);
         goto init_done;
-        
+
         // error handling
         fail_free_evthread:
         free(evthread);
@@ -609,11 +609,11 @@ struct evthread *evthread_start() {
     }
 
     sem_destroy(&args->initialization_done);
-    
+
     DEBUG_ASSERT_NOT_NULL(args->evthread);
     evthread = args->evthread;
     free(args);
-    
+
     return evthread;
 
 

@@ -144,7 +144,7 @@ static struct cursor_buffer *cursor_buffer_new(struct drmdev *drmdev, enum curso
 	if (map_void == NULL) {
 		goto fail_destroy_dumb_buffer;
 	}
-	
+
 	icon = cursors + size;
 	DEBUG_ASSERT_EQUALS(pixel_size, icon->width);
 	DEBUG_ASSERT_EQUALS(pixel_size, icon->height);
@@ -652,7 +652,7 @@ static void fill_platform_view_params(
 	 * ```
 	 */
 
-	
+
 
 	struct quad quad = transform_aa_rect(
 		FLUTTER_TRANSFORM_AS_MAT3F(display_to_view_transform),
@@ -860,7 +860,7 @@ static bool on_present_layers(
 		if (layers[i]->type == kFlutterLayerContentTypeBackingStore) {
 			struct flutterpi_backing_store *store = layers[i]->backing_store->user_data;
 			struct rendertarget *target = store->target;
-			
+
 			ok = target->present(target, builder);
 			if (ok != 0) {
 				LOG_ERROR("Could not present backing store. rendertarget->present: %s\n", strerror(ok));

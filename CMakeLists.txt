@@ -201,7 +201,7 @@ target_compile_definitions(flutterpi_module PRIVATE
   LIBINPUT_VERSION_PATCH=${LIBINPUT_VERSION_PATCH}
 )
 
-# TODO: Just unconditionally define those, make them optional later 
+# TODO: Just unconditionally define those, make them optional later
 target_compile_definitions(flutterpi_module PRIVATE HAS_KMS HAS_GBM HAS_FBDEV)
 
 pkg_check_modules(EGL IMPORTED_TARGET egl)
@@ -259,7 +259,7 @@ else()
   if(NOT ogl_registry_POPULATED)
     FetchContent_Populate(ogl_registry)
   endif()
-  
+
   target_include_directories(flutterpi_module PRIVATE ${ogl_registry_SOURCE_DIR}/api/)
 endif()
 
@@ -485,7 +485,7 @@ if(LTO AND (CMAKE_BUILD_TYPE STREQUAL Release OR CMAKE_BUILD_TYPE STREQUAL RelWi
   if (NOT IPO_SUPPORTED)
     message(WARNING "IPO/LTO was requested in the configure options, but is not supported by the toolchain. Check CMakeFiles/CMakeError.log for details.")
   endif()
-  
+
   # Try to enable IPO with gold and lld.
   # Needs CMP0138.
   # (untested because CMP0138 required CMake 3.24, that's why it's commented out)
@@ -493,7 +493,7 @@ if(LTO AND (CMAKE_BUILD_TYPE STREQUAL Release OR CMAKE_BUILD_TYPE STREQUAL RelWi
   #   check_linker_flag(C "-fuse-ld=gold" SUPPORTS_GOLD)
   #   if (SUPPORTS_GOLD)
   #     set(OLD_CMAKE_C_FLAGS "${CMAKE_C_FLAGS}")
-  #     
+  #
   #     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fuse-ld=gold")
   #     try_compile()
   #     check_ipo_supported(RESULT IPO_SUPPORTED_WITH_GOLD OUTPUT IPO_SUPPORT_OUTPUT)
@@ -501,21 +501,21 @@ if(LTO AND (CMAKE_BUILD_TYPE STREQUAL Release OR CMAKE_BUILD_TYPE STREQUAL RelWi
   #       set(IPO_SUPPORTED ON)
   #       set(NEEDS_GOLD ON)
   #     endif()
-  #     
+  #
   #     set(CMAKE_C_FLAGS "${OLD_CMAKE_C_FLAGS}")
   #   endif()
   #
   #   check_linker_flag(C "-fuse-ld=lld" SUPPORTS_LLD)
   #   if (SUPPORTS_LLD)
   #     set(OLD_CMAKE_C_FLAGS "${CMAKE_C_FLAGS}")
-  #     
+  #
   #     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fuse-ld=lld")
   #     check_ipo_supported(RESULT IPO_SUPPORTED_WITH_LLD OUTPUT IPO_SUPPORT_OUTPUT)
   #     if (IPO_SUPPORTED_WITH_LLD)
   #       set(IPO_SUPPORTED ON)
   #       set(NEEDS_LLD ON)
   #     endif()
-  #     
+  #
   #     set(CMAKE_C_FLAGS "${OLD_CMAKE_C_FLAGS}")
   #   endif()
   # endif()
@@ -528,7 +528,7 @@ if(LTO AND (CMAKE_BUILD_TYPE STREQUAL Release OR CMAKE_BUILD_TYPE STREQUAL RelWi
       set(IPO_SUPPORTED OFF)
     endif()
   endif()
-  
+
   if (IPO_SUPPORTED)
     set(USE_LTO ON)
   endif()

@@ -14,11 +14,11 @@
  * But from a performance POV, this doesn't make sense. number arrays in StandardMessageCodec
  * are 4 or 8 -byte aligned for faster access. We don't have to copy them, StdMsgCodecValue.int64array (as an example)
  * is just a pointer to that portion of the buffer, where the array is located.
- * 
+ *
  * However, JSON and thus JSON Message Handlers have no idea what a int64array is, they just know of JSON arrays.
  * This means we'd have to implicitly convert the int64array into a JSON array when we want to unify the two message value types,
  * and this costs all the performance we (more precisely, the flutter engineers) gained by memory-aligning the arrays in StdMsgCodecValue.
- * 
+ *
  * Let's just hope the flutter team doesn't randomly switch codecs of platform channels. Receive Handlers would
  * need to be rewritten every time they do. The handlers not needing to be rewritten would probably be the only advantage
  * of using a unified message value type.
@@ -29,7 +29,7 @@ enum json_value_type {
     kJsonFalse,
     kJsonNumber,
     kJsonString,
-    kJsonArray, 
+    kJsonArray,
     kJsonObject
 };
 struct json_value {
@@ -699,7 +699,7 @@ typedef int (*platch_msg_resp_callback)(struct platch_obj *object, void *userdat
 /// and puts the result into object_out.
 /// This method will (in some cases) dynamically allocate memory,
 /// so you should always call PlatformChannel_free(object_out) when you don't need it anymore.
-/// 
+///
 /// Additionally, PlatformChannel_decode currently "borrows" from the buffer, so if the buffer
 /// is freed by flutter, the contents of object_out will in many cases be bogus.
 /// If you'd like object_out to be persistent and not depend on the lifetime of the buffer,
@@ -825,7 +825,7 @@ int platch_respond_native_error_pigeon(
 );
 
 /// Sends a success event with value `event_value` to an event channel
-/// that uses the standard method codec.                                 
+/// that uses the standard method codec.
 int platch_send_success_event_std(char *channel,
                                   struct std_value *event_value);
 

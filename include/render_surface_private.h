@@ -31,5 +31,3 @@ int render_surface_init(struct render_surface *surface, struct tracer *tracer, s
 void render_surface_deinit(struct surface *s);
 
 #endif // _FLUTTERPI_INCLUDE_BACKING_STORE_PRIVATE_H
-
-

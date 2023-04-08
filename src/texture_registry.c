@@ -61,7 +61,7 @@ struct texture {
     /**
      * @brief True if next_frame was not yet fetched by the engine. So if @ref texture_push_frame is called,
      * we can just replace @ref next_frame with the new frame and don't need to call mark frame available again.
-     * 
+     *
      */
     bool dirty;
 };
@@ -83,7 +83,7 @@ struct texture_registry *texture_registry_new(
     memcpy(&reg->interface, interface, sizeof(*interface));
     reg->userdata = userdata;
     reg->next_unused_id = 1;
-    
+
     ok = cpset_init(&reg->textures, CPSET_DEFAULT_MAX_SIZE);
     if (ok != 0) {
         free(reg);
@@ -193,7 +193,7 @@ struct texture *texture_new(struct texture_registry *reg) {
     }
 
     id = texture_registry_allocate_id(reg);
-    
+
     pthread_mutex_init(&texture->lock, NULL);
     texture->registry = reg;
     texture->id = id;
@@ -235,7 +235,7 @@ static int push_frame(struct texture *texture, bool is_resolved, const struct te
     texture_lock(texture);
 
     counted_texture_frame_swap_ptrs(&texture->next_frame, counted_frame);
-    
+
     if (texture->dirty == false) {
         ok = texture->registry->interface.mark_frame_available(texture->registry->userdata, texture->id);
         if (ok != 0) {
@@ -307,7 +307,7 @@ static bool texture_gl_external_texture_frame_callback(
     DEBUG_ASSERT_NOT_NULL(texture_out);
 
     texture_lock(texture);
-    
+
     if (texture->next_frame != NULL) {
         /// TODO: If acquiring the texture frame fails, flutter will destroy the texture frame two times.
         /// So we'll probably have a segfault if that happens.
@@ -315,7 +315,7 @@ static bool texture_gl_external_texture_frame_callback(
     } else {
         frame = NULL;
     }
-    
+
     /// flutter has now fetched the texture, so if we want to present a new frame
     /// we need to call @ref texture_registry_engine_notify_frame_available again.
     texture->dirty = false;
@@ -332,7 +332,7 @@ static bool texture_gl_external_texture_frame_callback(
         frame->unresolved_frame.destroy(frame->unresolved_frame.userdata);
         frame->is_resolved = true;
     }
-    
+
     texture_unlock(texture);
 
     // only actually fill out the frame info when we have a frame.
