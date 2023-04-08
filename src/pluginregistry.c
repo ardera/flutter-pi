@@ -19,10 +19,10 @@ FILE_DESCR("plugin registry")
 
 /**
  * @brief details of a plugin for flutter-pi.
- * 
+ *
  * All plugins are initialized (by calling their "init" callback)
  * when @ref plugin_registry_ensure_plugins_initialized is called by flutter-pi.
- * 
+ *
  * In the init callback, you probably want to do stuff like
  * register callbacks for some method channels your plugin uses
  * or dynamically allocate memory for your plugin if you need to.
@@ -118,7 +118,7 @@ struct plugin_registry *plugin_registry_new(struct flutterpi *flutterpi) {
 
 	fail_deinit_plugins_cpset:
 	cpset_deinit(&reg->plugins);
-	
+
 	fail_free_registry:
 	free(reg);
 
@@ -287,7 +287,7 @@ int plugin_registry_set_receiver(
 	registry = flutterpi_get_plugin_registry(flutterpi);
 
 	cpset_lock(&registry->callbacks);
-	
+
 	channel_dup = strdup(channel);
 	if (channel_dup == NULL) {
 		ok = ENOMEM;
@@ -316,13 +316,13 @@ int plugin_registry_set_receiver(
 	data->callback = callback;
 	data->userdata = NULL;
 	cpset_unlock(&registry->callbacks);
-	
+
 	return 0;
-	
+
 
 	fail_free_data:
 	free(data);
-	
+
 	fail_free_channel_dup:
 	free(channel_dup);
 

@@ -178,7 +178,7 @@ static int fetch_connector(int drm_fd, uint32_t connector_id, struct drm_connect
     }
 
     crtc_id = DRM_ID_NONE;
-    for (int i = 0; i < props->count_props; i++) {       
+    for (int i = 0; i < props->count_props; i++) {
         prop_info = drmModeGetProperty(drm_fd, props->props[i]);
         if (prop_info == NULL) {
             ok = errno;
@@ -224,7 +224,7 @@ static int fetch_connector(int drm_fd, uint32_t connector_id, struct drm_connect
     connector_out->ids = ids;
     connector_out->n_encoders = connector->count_encoders;
     DEBUG_ASSERT(connector->count_encoders <= 32);
-    memcpy(connector_out->encoders, connector->encoders, connector->count_encoders * sizeof(uint32_t)); 
+    memcpy(connector_out->encoders, connector->encoders, connector->count_encoders * sizeof(uint32_t));
     connector_out->variable_state.connection_state = (enum drm_connection_state) connector->connection;
     connector_out->variable_state.subpixel_layout = (enum drm_subpixel_layout) connector->subpixel;
     connector_out->variable_state.width_mm = connector->mmWidth;
@@ -713,7 +713,7 @@ static int fetch_plane(int drm_fd, uint32_t plane_id, struct drm_plane *plane_ou
 #define CHECK_ASSIGN_PROPERTY_ID(_name_str, _name) \
         if (strncmp(info->name, _name_str, ARRAY_SIZE(info->name)) == 0) { \
             ids._name = info->prop_id; \
-        } else 
+        } else
 
         DRM_PLANE_PROPERTIES(CHECK_ASSIGN_PROPERTY_ID)
         {
@@ -1113,7 +1113,7 @@ int drmdev_create_dumb_buffer(struct drmdev *drmdev, int width, int height, int 
     DEBUG_ASSERT_NOT_NULL(gem_handle_out);
     DEBUG_ASSERT_NOT_NULL(pitch_out);
     DEBUG_ASSERT_NOT_NULL(size_out);
-    
+
     memset(&create_req, 0, sizeof create_req);
     create_req.width = width;
 	create_req.height = height;
@@ -1549,7 +1549,7 @@ int drmdev_resume(struct drmdev *drmdev) {
     DEBUG_ASSERT_NOT_NULL(drmdev);
 
     drmdev_lock(drmdev);
-    
+
     if (drmdev->master_fd > 0) {
         ok = EINVAL;
         LOG_ERROR("drmdev_resume was called, but drmdev is already resumed\n");
@@ -1567,7 +1567,7 @@ int drmdev_resume(struct drmdev *drmdev) {
     if (ok < 0) {
         ok = -ok;
         LOG_ERROR("Couldn't open DRM device.\n");
-        goto fail_free_device;   
+        goto fail_free_device;
     }
 
     master_fd = ok;
@@ -2264,7 +2264,7 @@ static int kms_req_commit_common(
     }
 
     // only change the mode if the new mode differs from the old one
-       
+
     /// TOOD: If this is not a standard mode reported by connector/CRTC,
     /// is there a way to verify if it is valid? (maybe use DRM_MODE_ATOMIC_TEST)
 
@@ -2281,7 +2281,7 @@ static int kms_req_commit_common(
             upload_mode = true;
         }
     }
-    
+
     if (upload_mode) {
         update_mode = true;
         mode_blob = drm_mode_blob_new(builder->drmdev->fd, &builder->mode);
@@ -2434,7 +2434,7 @@ void set_vblank_ns(struct drmdev *drmdev, uint64_t vblank_ns, void *userdata) {
     DEBUG_ASSERT_NOT_NULL(userdata);
     vblank_ns_out = userdata;
     (void) drmdev;
-    
+
     *vblank_ns_out = vblank_ns;
 }
 

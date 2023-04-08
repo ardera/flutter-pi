@@ -29,7 +29,7 @@ static const uuid_t uuid = CONST_UUID(0xce, 0x35, 0x87, 0x0c, 0x82, 0x08, 0x46, 
 #ifdef DEBUG
 ATTR_PURE struct surface *__checked_cast_surface(void *ptr) {
     struct surface *s;
-    
+
     s = CAST_SURFACE_UNCHECKED(ptr);
     DEBUG_ASSERT(uuid_equals(s->uuid, uuid));
     return s;
@@ -55,7 +55,7 @@ void surface_deinit(struct surface *s) {
 struct surface *surface_new(struct tracer *tracer) {
     struct surface *s;
     int ok;
-    
+
     s = malloc(sizeof *s);
     if (s == NULL) {
         return NULL;
@@ -66,7 +66,7 @@ struct surface *surface_new(struct tracer *tracer) {
         free(s);
         return NULL;
     }
-    
+
     return s;
 }
 
@@ -97,10 +97,10 @@ int surface_present_kms(
     DEBUG_ASSERT_NOT_NULL(builder);
     DEBUG_ASSERT_NOT_NULL(s->present_kms);
 
-    TRACER_BEGIN(s->tracer, "surface_present_kms");    
+    TRACER_BEGIN(s->tracer, "surface_present_kms");
     ok = s->present_kms(s, props, builder);
     TRACER_END(s->tracer, "surface_present_kms");
-    
+
     return ok;
 }
 

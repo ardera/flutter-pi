@@ -37,21 +37,21 @@ DECLARE_REF_OPS(window)
 
 /**
  * @brief Creates a new KMS window.
- * 
- * @param tracer 
- * @param scheduler 
- * @param render_surface_interface 
- * @param has_rotation 
- * @param rotation 
- * @param has_orientation 
- * @param orientation 
- * @param has_explicit_dimensions 
- * @param width_mm 
- * @param height_mm 
- * @param has_forced_pixel_format 
- * @param forced_pixel_format 
- * @param drmdev 
- * @param desired_videomode 
+ *
+ * @param tracer
+ * @param scheduler
+ * @param render_surface_interface
+ * @param has_rotation
+ * @param rotation
+ * @param has_orientation
+ * @param orientation
+ * @param has_explicit_dimensions
+ * @param width_mm
+ * @param height_mm
+ * @param has_forced_pixel_format
+ * @param forced_pixel_format
+ * @param drmdev
+ * @param desired_videomode
  * @return struct window* The new KMS window.
  */
 ATTR_MALLOC struct window *kms_window_new(
@@ -72,7 +72,7 @@ ATTR_MALLOC struct window *kms_window_new(
 
 /**
  * @brief Push a new flutter composition to the window, outputting a new frame.
- * 
+ *
  * @param window The window instance.
  * @param composition The composition that should be presented.
  * @return int Zero if successful, errno-code otherwise.
@@ -81,15 +81,15 @@ int window_push_composition(struct window *window, struct fl_layer_composition *
 
 /**
  * @brief Get the current view geometry of this window.
- * 
+ *
  * @param window The window instance.
- * @return struct view_geometry 
+ * @return struct view_geometry
  */
 struct view_geometry window_get_view_geometry(struct window *window);
 
 /**
  * @brief Returns the vertical refresh rate of the chosen mode & display.
- * 
+ *
  * @param window The window instance.
  * @return double The refresh rate.
  */
@@ -97,7 +97,7 @@ ATTR_PURE double window_get_refresh_rate(struct window *window);
 
 /**
  * @brief Returns the timestamp of the next vblank signal in @param next_vblank_ns_out.
- * 
+ *
  * @param window The window instance.
  * @param next_vblank_ns_out Next vblank timestamp will be stored here. Must be non-null.
  * @return int Zero if successful, errno-code otherwise.
@@ -110,9 +110,9 @@ EGLSurface window_get_egl_surface(struct window *window);
 
 /**
  * @brief Gets a render surface, used as the backing store for an engine layer.
- * 
+ *
  * This only makes sense if there's a single UI (engine) layer. If there's multiple ones, lifetimes become weird.
- * 
+ *
  */
 struct render_surface *window_get_render_surface(struct window *window, struct vec2i size);
 

@@ -87,7 +87,7 @@ int render_surface_queue_present(struct render_surface *surface, const FlutterBa
 #ifdef DEBUG
 ATTR_PURE struct render_surface *__checked_cast_render_surface(void *ptr) {
     struct render_surface *surface;
-    
+
     surface = CAST_RENDER_SURFACE_UNCHECKED(ptr);
     DEBUG_ASSERT(uuid_equals(surface->uuid, uuid));
     return surface;

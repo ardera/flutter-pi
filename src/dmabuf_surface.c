@@ -5,7 +5,7 @@
  * A surface:
  * - that plugins can push linux dmabufs into (for example, for video playback)
  * - that'll expose both a texture and a platform view
- * 
+ *
  * the exposed flutter texture: (cold path)
  * - is an imported EGL Image, which is created from the dmabuf using the EGL_EXT_image_dma_buf_import extension (if supported)
  * - if that extension is not supported, copy the dmabuf contents into the texture (glTexImage2D)
@@ -13,18 +13,18 @@
  * - (because with a texture, texture contents must be converted into the right pixel format and composited into a single framebuffer,
  *   before the frame can be scanned out => additional memory copy, but with hardware overlay that will be done in realtime, on-the-fly,
  *   while the picture is being scanned out)
- * 
+ *
  * the platform view: (hot path)
  * - on KMS present, will add a hardware overlay plane to scanout that fb, if that's possible
  *   (if the rectangle is axis-aligned and pixel format, alpha value etc is supported by KMS)
  * - otherwise, fall back to the cold path (textures)
  * - this needs integration from the dart side, because only the dart side can decide whether to use
  *   texture or platform view
- * 
+ *
  * The surface should have a specific counterpart on the dart side, which will decide whether to use
  * texture or platform view. That decision is hard to make consistent, i.e. when dart-side decides on
  * platform view, it's not 100% guaranteed this surface will actually succeed in adding the hw overlay plane.
- * 
+ *
  * So best we can do is guess. Not sure how to implement the switching between hot path / cold path though.
  * Maybe, if we fail in adding the hw overlay plane, we could signal that somehow to the
  * dart-side and make it use a texture for the next frame. But also, it could be adding the overlay plane succeeds,
@@ -90,7 +90,7 @@ static const uuid_t uuid = CONST_UUID(0x68, 0xed, 0xe5, 0x8a, 0x4a, 0x2b, 0x40, 
 #ifdef DEBUG
 ATTR_PURE struct dmabuf_surface *__checked_cast_dmabuf_surface(void *ptr) {
     struct dmabuf_surface *s;
-    
+
     s = CAST_DMABUF_SURFACE_UNCHECKED(ptr);
     DEBUG_ASSERT(uuid_equals(s->uuid, uuid));
     return s;
@@ -132,13 +132,13 @@ static void dmabuf_surface_deinit(struct surface *s) {
 
 /**
  * @brief Create a new dmabuf surface.
- * 
- * @return struct dmabuf_surface* 
+ *
+ * @return struct dmabuf_surface*
  */
 ATTR_MALLOC struct dmabuf_surface *dmabuf_surface_new(struct tracer *tracer, struct texture_registry *texture_registry) {
     struct dmabuf_surface *s;
     int ok;
-    
+
     s = malloc(sizeof *s);
     if (s == NULL) {
         goto fail_return_null;
@@ -200,7 +200,7 @@ int dmabuf_surface_push_dmabuf(struct dmabuf_surface *s, const struct dmabuf *bu
     b->drm_fb_id = DRM_ID_NONE;
 
     surface_lock(CAST_SURFACE_UNCHECKED(s));
-    
+
     ok = texture_push_unresolved_frame(
         s->texture,
         &(const struct unresolved_texture_frame) {
@@ -243,7 +243,7 @@ static int dmabuf_surface_present_kms(struct surface *_s, const struct fl_layer_
     surface_lock(_s);
 
     DEBUG_ASSERT_NOT_NULL_MSG(s->next_buf, "dmabuf_surface_present_kms was called, but no dmabuf is queued to be presented.");
-    
+
     if (DRM_ID_IS_VALID(s->next_buf->drm_fb_id)) {
         DEBUG_ASSERT_EQUALS_MSG(s->next_buf->drmdev, kms_req_builder_get_drmdev(builder), "Only 1 KMS instance per dmabuf supported right now.");
         fb_id = s->next_buf->drm_fb_id;
@@ -272,20 +272,20 @@ static int dmabuf_surface_present_kms(struct surface *_s, const struct fl_layer_
         &(struct kms_fb_layer) {
             .drm_fb_id = fb_id,
             .format = s->next_buf->buf.format,
-            
+
             .has_modifier = s->next_buf->buf.has_modifiers,
             .modifier = s->next_buf->buf.modifiers[0],
-            
+
             .src_x = 0,
             .src_y = 0,
             .src_w = DOUBLE_TO_FP1616_ROUNDED(s->next_buf->buf.width),
             .src_h = DOUBLE_TO_FP1616_ROUNDED(s->next_buf->buf.height),
-            
+
             .dst_x = props->aa_rect.offset.x,
             .dst_y = props->aa_rect.offset.y,
             .dst_w = props->aa_rect.size.x,
             .dst_h = props->aa_rect.size.y,
-            
+
             .has_rotation = false, .rotation = PLANE_TRANSFORM_ROTATE_0,
             .has_in_fence_fd = false, .in_fence_fd = 0,
         },

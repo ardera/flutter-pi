@@ -24,12 +24,12 @@ struct compositor;
 struct drm_connector_config {
     uint32_t connector_type;
     uint32_t connector_type_id;
-    
+
     bool disable, primary;
-    
+
     bool has_mode_size;
     int mode_width, mode_height;
-    
+
     bool has_mode_refreshrate;
     int mode_refreshrate_n, mode_refreshrate_d;
 
@@ -45,7 +45,7 @@ struct drm_device_config {
     const char *path;
 
     size_t n_connector_configs;
-    struct drm_connector_config *connector_configs;    
+    struct drm_connector_config *connector_configs;
 };
 
 struct fbdev_device_config {
@@ -78,7 +78,7 @@ struct clip_rect {
     bool is_aa;
 
     struct aa_rect aa_rect;
-    
+
     bool is_rounded;
     struct vec2f upper_left_corner_radius;
     struct vec2f upper_right_corner_radius;
@@ -91,7 +91,7 @@ struct fl_layer_props {
      * @brief True if the presentation quadrangle (the quadrangle on the target window into which the
      * layer should be rendered) is an axis-aligned rectangle. For example, allows us to use a plain
      * hardware overlay layer for this layer.
-     * 
+     *
      * This should always be true for backing stores, but might be false for platform views.
      */
     bool is_aa_rect;
@@ -100,7 +100,7 @@ struct fl_layer_props {
      * @brief The coords of the axis aligned rectangle if @ref is_aa_rect is true.
      */
     struct aa_rect aa_rect;
-    
+
     /**
      * @brief The quadrangle on the target window into which the layer should be rendered.
      */
@@ -115,7 +115,7 @@ struct fl_layer_props {
      * @brief Rotation of the buffer in degrees clockwise, normalized to a range 0 - 360.
      */
     double rotation;
-    
+
     /**
      * @brief The number of clip rectangles in the @ref clip_rects array.
      */

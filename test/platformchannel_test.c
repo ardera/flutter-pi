@@ -135,7 +135,7 @@ void test_raw_std_string_equals() {
 
     TEST_ASSERT_TRUE(raw_std_string_equals(AS_RAW_STD_VALUE(buffer), "The quick brown fox jumps over the lazy dog."));
     TEST_ASSERT_FALSE(raw_std_string_equals(AS_RAW_STD_VALUE(buffer), "The quick brown fox jumps over the lazy dog"));
-    
+
     buffer[1] = 0;
     TEST_ASSERT_TRUE(raw_std_string_equals(AS_RAW_STD_VALUE(buffer), ""));
     TEST_ASSERT_FALSE(raw_std_string_equals(AS_RAW_STD_VALUE(buffer), "anything"));
@@ -286,7 +286,7 @@ void test_raw_std_list_get_size() {
     TEST_ASSERT_EQUAL_size_t(0, raw_std_list_get_size(AS_RAW_STD_VALUE(buffer)));
 
     uint32_t size = 0xDEAD;
-    
+
     buffer[1] = 254;
     memcpy(buffer + 2, &size, 2);
 
@@ -321,7 +321,7 @@ void test_raw_std_map_get_size() {
     TEST_ASSERT_EQUAL_size_t(0, raw_std_map_get_size(AS_RAW_STD_VALUE(buffer)));
 
     uint32_t size = 0xDEAD;
-    
+
     buffer[1] = 254;
     memcpy(buffer + 2, &size, 2);
 
@@ -385,7 +385,7 @@ void test_raw_std_value_equals() {
         };
 
         TEST_ASSERT_TRUE(raw_std_value_equals(AS_RAW_STD_VALUE(lhs), AS_RAW_STD_VALUE(rhs)));
-        
+
         rhs[4] = 0;
         TEST_ASSERT_FALSE(raw_std_value_equals(AS_RAW_STD_VALUE(lhs), AS_RAW_STD_VALUE(rhs)));
     }
@@ -403,7 +403,7 @@ void test_raw_std_value_equals() {
         };
 
         TEST_ASSERT_TRUE(raw_std_value_equals(AS_RAW_STD_VALUE(lhs), AS_RAW_STD_VALUE(rhs)));
-        
+
         rhs[8] = 0;
         TEST_ASSERT_FALSE(raw_std_value_equals(AS_RAW_STD_VALUE(lhs), AS_RAW_STD_VALUE(rhs)));
     }
@@ -434,7 +434,7 @@ void test_raw_std_value_equals() {
         memcpy(rhs + 8, &f, sizeof(f));
 
         TEST_ASSERT_TRUE(raw_std_value_equals(AS_RAW_STD_VALUE(lhs), AS_RAW_STD_VALUE(rhs)));
-        
+
         f = NAN;
         memcpy(rhs + 8, &f, sizeof(f));
 
@@ -465,7 +465,7 @@ void test_raw_std_value_equals() {
         rhs[1] = strlen(str) - 1;
 
         TEST_ASSERT_FALSE(raw_std_value_equals(AS_RAW_STD_VALUE(lhs), AS_RAW_STD_VALUE(rhs)));
-        
+
         const char *str2 = "The quick brown fox jumps over the lazy DOG ";
         TEST_ASSERT_EQUAL_size_t(strlen(str), strlen(str2));
         rhs[1] = strlen(str2);
@@ -676,7 +676,7 @@ void test_raw_std_value_equals() {
         memcpy(rhs + 4, str, strlen(str));
 
         TEST_ASSERT_TRUE(raw_std_value_equals(AS_RAW_STD_VALUE(lhs), AS_RAW_STD_VALUE(rhs)));
-        
+
         rhs[1] = 0;
         TEST_ASSERT_FALSE(raw_std_value_equals(AS_RAW_STD_VALUE(lhs), AS_RAW_STD_VALUE(rhs)));
 
@@ -731,7 +731,7 @@ void test_raw_std_value_equals() {
         memcpy(rhs + 4, floats, sizeof(floats));
 
         TEST_ASSERT_TRUE(raw_std_value_equals(AS_RAW_STD_VALUE(lhs), AS_RAW_STD_VALUE(rhs)));
-        
+
         rhs[1] = 0;
         TEST_ASSERT_FALSE(raw_std_value_equals(AS_RAW_STD_VALUE(lhs), AS_RAW_STD_VALUE(rhs)));
 
@@ -828,7 +828,7 @@ void test_raw_std_value_as_int() {
     TEST_ASSERT_EQUAL_INT64(INT64_MAX, raw_std_value_as_int(AS_RAW_STD_VALUE(buffer)));
 
     buffer[0] = kStdInt32;
-    TEST_ASSERT_NOT_EQUAL_INT64(INT64_MAX, raw_std_value_as_int(AS_RAW_STD_VALUE(buffer)));    
+    TEST_ASSERT_NOT_EQUAL_INT64(INT64_MAX, raw_std_value_as_int(AS_RAW_STD_VALUE(buffer)));
 
     int32_t int32 = INT32_MIN;
     buffer[0] = kStdInt32;
@@ -854,7 +854,7 @@ void test_raw_std_value_get_size() {
     TEST_ASSERT_EQUAL_size_t(0, raw_std_value_get_size(AS_RAW_STD_VALUE(buffer)));
 
     uint32_t size = 0xDEAD;
-    
+
     buffer[1] = 254;
     memcpy(buffer + 2, &size, 2);
     memcpy(buffer + 4, &size, 2);
@@ -898,7 +898,7 @@ void test_raw_std_value_after() {
 
         TEST_ASSERT_EQUAL_PTR(buffer + 1, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
     }
-    
+
     // int32
     {
         alignas(16) uint8_t buffer[] = {
@@ -948,7 +948,7 @@ void test_raw_std_value_after() {
         TEST_ASSERT_LESS_OR_EQUAL_size_t(253, strlen(str));
 
         TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + strlen(str), raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
-        
+
         buffer[1] = 0;
         TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
 
@@ -972,7 +972,7 @@ void test_raw_std_value_after() {
             4,
             1, 2, 3, 4
         };
-        
+
         TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 4, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
 
         buffer[1] = 0;
@@ -1103,7 +1103,7 @@ void test_raw_std_value_after() {
         TEST_ASSERT_LESS_OR_EQUAL_size_t(253, strlen(str));
 
         TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 1 + 1 + strlen(str) + 1, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
-        
+
         buffer[1] = 0;
         TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
 
@@ -1185,7 +1185,7 @@ void test_raw_std_list_get_first_element() {
     TEST_ASSERT_LESS_OR_EQUAL_size_t(253, strlen(str));
 
     TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1, raw_std_list_get_first_element(AS_RAW_STD_VALUE(buffer)));
-    
+
     TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 1 + 1 + strlen(str), raw_std_value_after(raw_std_list_get_first_element(AS_RAW_STD_VALUE(buffer))));
 }
 
@@ -1205,7 +1205,7 @@ void test_raw_std_list_get_nth_element() {
     TEST_ASSERT_LESS_OR_EQUAL_size_t(253, strlen(str));
 
     TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1, raw_std_list_get_nth_element(AS_RAW_STD_VALUE(buffer), 0));
-    
+
     TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 1 + 1 + strlen(str), raw_std_value_after(raw_std_list_get_first_element(AS_RAW_STD_VALUE(buffer))));
 }
 

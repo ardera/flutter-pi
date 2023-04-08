@@ -405,7 +405,7 @@ ATTR_CONST static uint64_t physical_key_for_evdev_keycode(uint16_t evdev_keycode
     }
 
     return physical;
-}   
+}
 
 ATTR_CONST static uint64_t physical_key_for_xkb_keycode(xkb_keycode_t xkb_keycode) {
     DEBUG_ASSERT(xkb_keycode >= 8);
@@ -659,7 +659,7 @@ int rawkb_send_android_keyevent(
      */
 
     (void) plain_code_point;
-    
+
     return platch_send(
         KEY_EVENT_CHANNEL,
         &(struct platch_obj) {
@@ -821,7 +821,7 @@ int rawkb_on_key_event(
     if (ok != 0) {
         return ok;
     }
-    
+
     ok = rawkb_send_gtk_keyevent(
         plain_codepoint,
         xkb_keysym,
@@ -907,7 +907,7 @@ static void assert_key_modifiers_work() {
     DEBUG_ASSERT_EQUALS(mods.numlock, true);
     DEBUG_ASSERT_EQUALS(mods.__pad, 0);
     DEBUG_ASSERT_EQUALS(mods.meta, false);
-    
+
     (void) mods;
 }
 

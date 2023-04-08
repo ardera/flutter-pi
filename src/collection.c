@@ -51,7 +51,7 @@ int queue_enqueue(
 
 		if (new_size < queue->max_queue_size) {
 			void *new_elements = realloc(queue->elements, new_size * queue->element_size);
-			
+
 			if (new_elements == NULL) {
 				return ENOMEM;
 			}
@@ -129,7 +129,7 @@ int cqueue_init(
     size_t max_queue_size
 ) {
     int ok;
-    
+
     memset(queue, 0, sizeof(*queue));
 
 	ok = queue_init(&queue->queue, element_size, max_queue_size);
@@ -164,7 +164,7 @@ int cqueue_enqueue_locked(
 	const void *p_element
 ) {
     int ok;
-    
+
     while (ok = queue_enqueue(&queue->queue, p_element), ok == ENOSPC) {
         ok = pthread_cond_wait(&queue->is_enqueueable, &queue->mutex);
         if (ok != 0) {
@@ -222,7 +222,7 @@ int cqueue_try_dequeue_locked(
 	void *element_out
 ) {
     int ok;
-    
+
     ok = queue_dequeue(&queue->queue, element_out);
     if (ok == 0) {
         pthread_cond_signal(&queue->is_enqueueable);
@@ -236,7 +236,7 @@ int cqueue_dequeue_locked(
 	void *element_out
 ) {
     int ok;
-    
+
     while (ok = queue_dequeue(&queue->queue, element_out), ok == EAGAIN) {
         pthread_cond_wait(&queue->is_dequeueable, &queue->mutex);
     }
@@ -355,13 +355,13 @@ int pset_put(
 			return 0;
 		}
 	}
-	
+
 	if (index != -1) {
 		set->pointers[index] = pointer;
 		set->count_pointers++;
 		return 0;
 	}
-	
+
 	if (set->is_static) {
 		return ENOSPC;
 	} else {
@@ -383,7 +383,7 @@ int pset_put(
 		} else {
 			return ENOSPC;
 		}
-	} 
+	}
 
 	return 0;
 }
@@ -409,7 +409,7 @@ int pset_remove(
 		if ((set->pointers[i] != NULL) && (set->pointers[i] == pointer)) {
 			set->pointers[i] = NULL;
 			set->count_pointers--;
-			
+
 			return 0;
 		}
 	}

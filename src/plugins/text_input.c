@@ -109,7 +109,7 @@ static int on_set_client(
      *      [TextInputConfiguration.toJSON]. This method must be invoked before any
      *      others (except `TextInput.hide`). See [TextInput.attach].
      */
-    
+
     if ((object->json_arg.type != kJsonArray) || (object->json_arg.size != 2)) {
         return platch_respond_illegal_arg_json(
             responsehandle,
@@ -143,7 +143,7 @@ static int on_set_client(
     } else {
         autocorrect = temp->type == kJsonTrue;
     }
-    
+
     // INPUT ACTION
     temp = jsobject_get(config, "inputAction");
     if (temp == NULL || temp->type != kJsonString) {
@@ -152,7 +152,7 @@ static int on_set_client(
             "Expected `arg[1]['inputAction']` to be a string-ification of `TextInputAction`."
         );
     }
-    
+
     if STREQ("TextInputAction.none", temp->string_value)
         input_action = kTextInputActionNone;
     else if STREQ("TextInputAction.unspecified", temp->string_value)
@@ -288,7 +288,7 @@ static int on_hide(
      *  TextInput.hide()
      *      Hide the keyboard. Unlike the other methods, this can be called
      *      at any time. See [TextInputConnection.close].
-     * 
+     *
      */
 
     (void) object;
@@ -308,12 +308,12 @@ static int on_clear_client(
     struct platch_obj *object,
     FlutterPlatformMessageResponseHandle *responsehandle
 ) {
-    /* 
+    /*
      *  TextInput.clearClient()
      *      End the current transaction. The next method called must be
      *      `TextInput.setClient` (or `TextInput.hide`).
      *      See [TextInputConnection.close].
-     * 
+     *
      */
 
     (void) object;
@@ -345,7 +345,7 @@ static int on_set_editing_state(
      *      [String] with a JSON-encoded object with seven keys, as
      *      obtained from [TextEditingValue.toJSON].
      *      See [TextInputConnection.setEditingState].
-     *  
+     *
      */
 
     state = &object->json_arg;
@@ -461,7 +461,7 @@ static int on_show(
     /*
      *  TextInput.show()
      *      Show the keyboard. See [TextInputConnection.show].
-     * 
+     *
      */
 
     (void) object;
@@ -778,7 +778,7 @@ static bool model_add_utf8_char(uint8_t *c) {
 static bool model_backspace(void) {
     if (text_input.selection_base != text_input.selection_extent)
         return model_delete_selected();
-    
+
     if (text_input.selection_base != 0) {
         int base = text_input.selection_base - 1;
         text_input.selection_base = model_erase(base, base);
@@ -792,7 +792,7 @@ static bool model_backspace(void) {
 static bool model_delete(void) {
     if (text_input.selection_base != text_input.selection_extent)
         return model_delete_selected();
-    
+
     if (selection_start() < strlen(text_input.text)) {
         text_input.selection_base = model_erase(selection_start(), selection_end());
         text_input.selection_extent = text_input.selection_base;
@@ -842,7 +842,7 @@ MAYBE_UNUSED static bool model_move_cursor_forward(void) {
 MAYBE_UNUSED static bool model_move_cursor_back(void) {
     if (text_input.selection_base != text_input.selection_extent) {
         text_input.selection_extent = text_input.selection_base;
-        return true; 
+        return true;
     }
 
     if (text_input.selection_base > 0) {
@@ -908,7 +908,7 @@ int textin_on_xkb_keysym(xkb_keysym_t keysym) {
         case XKB_KEY_ISO_Enter:
             if (text_input.input_type == kInputTypeMultiline)
                 needs_sync = model_add_utf8_char((uint8_t*) "\n");
-            
+
             perform_action = true;
             break;
         case XKB_KEY_Home:

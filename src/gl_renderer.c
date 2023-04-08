@@ -36,7 +36,7 @@ struct gl_renderer {
      * @brief If EGL doesn't support EGL_KHR_no_config_context, we need to specify an EGLConfig (basically the framebuffer format)
      * for the context. And since all shared contexts need to have the same EGL Config, we basically have to choose a single global config
      * for the display.
-     * 
+     *
      * If this field is not EGL_NO_CONFIG_KHR, all contexts we create need to have exactly this EGL Config.
      */
     EGLConfig forced_egl_config;
@@ -56,7 +56,7 @@ static ATTR_PURE EGLConfig choose_config_with_pixel_format(EGLDisplay display, c
     DEBUG_ASSERT(display != EGL_NO_DISPLAY);
 
     LOG_DEBUG("Choosing EGL config with pixel format %s...\n", get_pixfmt_info(pixel_format)->name);
-   
+
     n_matched = 0;
     egl_ok = eglChooseConfig(display, attrib_list, NULL, 0, &n_matched);
     if (egl_ok != EGL_TRUE) {
@@ -103,7 +103,7 @@ struct gl_renderer *gl_renderer_new_from_gbm_device(
     EGLConfig forced_egl_config;
     EGLint major, minor;
     int ok;
-    
+
     renderer = malloc(sizeof *renderer);
     if (renderer == NULL) {
         goto fail_return_null;
@@ -119,13 +119,13 @@ struct gl_renderer *gl_renderer_new_from_gbm_device(
     if (egl_display == EGL_NO_DISPLAY) {
         LOG_ERROR("Could not get EGL display from GBM device. eglGetPlatformDisplay: 0x%08X\n", eglGetError());
         goto fail_free_renderer;
-    } 
+    }
 
     egl_ok = eglInitialize(egl_display, &major, &minor);
     if (egl_ok != EGL_TRUE) {
         LOG_ERROR("Failed to initialize EGL! eglInitialize: 0x%08X\n", eglGetError());
         goto fail_free_renderer;
-    }   
+    }
 
     egl_display_exts = eglQueryString(egl_display, EGL_EXTENSIONS);
     if (egl_display_exts == NULL) {
@@ -162,7 +162,7 @@ struct gl_renderer *gl_renderer_new_from_gbm_device(
             has_forced_pixel_format = true;
             pixel_format = kARGB8888_FpiPixelFormat;
         }
-        
+
         forced_egl_config = choose_config_with_pixel_format(egl_display, config_attribs, pixel_format);
         if (forced_egl_config == EGL_NO_CONFIG_KHR) {
             LOG_ERROR("No fitting EGL framebuffer configuration found.\n");
@@ -276,7 +276,7 @@ struct gl_renderer *gl_renderer_new_from_gbm_device(
     renderer->egl_display_exts = egl_display_exts;
     renderer->gl_renderer = gl_renderer;
     renderer->gl_exts = gl_exts;
-    
+
     return renderer;
 
 
@@ -300,7 +300,7 @@ struct gl_renderer *gl_renderer_new_from_gbm_device(
 
     fail_free_renderer:
     free(renderer);
-    
+
     fail_return_null:
     return NULL;
 }
@@ -345,7 +345,7 @@ struct gbm_device *gl_renderer_get_gbm_device(struct gl_renderer *renderer) {
 
 int gl_renderer_make_flutter_setup_context_current(struct gl_renderer *renderer) {
     EGLBoolean egl_ok;
-    
+
     DEBUG_ASSERT_NOT_NULL(renderer);
 
     TRACER_BEGIN(renderer->tracer, "gl_renderer_make_flutter_rendering_context_current");
@@ -366,7 +366,7 @@ int gl_renderer_make_flutter_setup_context_current(struct gl_renderer *renderer)
 
 int gl_renderer_make_flutter_rendering_context_current(struct gl_renderer *renderer, EGLSurface surface) {
     EGLBoolean egl_ok;
-    
+
     DEBUG_ASSERT_NOT_NULL(renderer);
     /// NOTE: Allow this for now
     /// DEBUG_ASSERT(surface != EGL_NO_SURFACE);
@@ -389,7 +389,7 @@ int gl_renderer_make_flutter_rendering_context_current(struct gl_renderer *rende
 
 int gl_renderer_make_flutter_resource_uploading_context_current(struct gl_renderer *renderer) {
     EGLBoolean egl_ok;
-    
+
     DEBUG_ASSERT_NOT_NULL(renderer);
 
     TRACER_BEGIN(renderer->tracer, "gl_renderer_make_flutter_resource_uploading_context_current");
@@ -416,7 +416,7 @@ int gl_renderer_clear_current(struct gl_renderer *renderer) {
     TRACER_BEGIN(renderer->tracer, "gl_renderer_clear_current");
     egl_ok = eglMakeCurrent(renderer->egl_display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
     TRACER_END(renderer->tracer, "gl_renderer_clear_current");
-    
+
     if (egl_ok != EGL_TRUE) {
         LOG_ERROR("Could not clear the flutter EGL context. eglMakeCurrent: 0x%08X\n", eglGetError());
         return EIO;
@@ -437,7 +437,7 @@ void *gl_renderer_get_proc_address(MAYBE_UNUSED struct gl_renderer *renderer, co
     if (address) {
         return address;
     }
-    
+
     LOG_ERROR("Could not resolve EGL/GL symbol \"%s\"\n", name);
     return NULL;
 }
@@ -449,7 +449,7 @@ EGLDisplay gl_renderer_get_egl_display(struct gl_renderer *renderer) {
 
 EGLContext gl_renderer_create_context(struct gl_renderer *renderer) {
     EGLContext context;
-    
+
     DEBUG_ASSERT_NOT_NULL(renderer);
 
     pthread_mutex_lock(&renderer->root_context_lock);
@@ -483,7 +483,7 @@ static __thread bool is_render_thread = false;
 int gl_renderer_make_this_a_render_thread(struct gl_renderer *renderer) {
     EGLContext context;
     EGLBoolean egl_ok;
-    
+
     DEBUG_ASSERT_NOT_NULL(renderer);
     DEBUG_ASSERT(is_render_thread == false);
 
@@ -513,7 +513,7 @@ void gl_renderer_cleanup_this_render_thread() {
     EGLDisplay display;
     EGLContext context;
     EGLBoolean egl_ok;
-    
+
     DEBUG_ASSERT(is_render_thread);
 
     context = eglGetCurrentContext();

@@ -63,10 +63,10 @@ enum playback_direction {
 
 struct gstplayer {
     pthread_mutex_t lock;
-    
+
     struct flutterpi *flutterpi;
     void *userdata;
-    
+
     char *video_uri;
     char *pipeline_description;
 
@@ -74,37 +74,37 @@ struct gstplayer {
 
     /**
      * @brief The desired playback rate that should be used when @ref playpause_state is kPlayingForward. (should be > 0)
-     * 
+     *
      */
     double playback_rate_forward;
 
     /**
      * @brief The desired playback rate that should be used when @ref playpause_state is kPlayingBackward. (should be < 0)
-     * 
+     *
      */
     double playback_rate_backward;
 
     /**
      * @brief True if the video should seemlessly start from the beginning once the end is reached.
-     * 
+     *
      */
     atomic_bool looping;
 
     /**
      * @brief The desired playback state. Either paused, playing, or single-frame stepping.
-     * 
+     *
      */
     enum playpause_state playpause_state;
-    
+
     /**
      * @brief The desired playback direction.
-     * 
+     *
      */
     enum playback_direction direction;
-    
+
     /**
-     * @brief The actual, currently used playback rate. 
-     * 
+     * @brief The actual, currently used playback rate.
+     *
      */
     double current_playback_rate;
 
@@ -117,28 +117,28 @@ struct gstplayer {
 
     /**
      * @brief True if there's a position that apply_playback_state should seek to.
-     * 
+     *
      */
     bool has_desired_position;
 
     /**
      * @brief True if gstplayer should seek to the nearest keyframe instead, which is a bit faster.
-     * 
+     *
      */
     bool do_fast_seeking;
 
     /**
      * @brief The position, if any, that apply_playback_state should seek to.
-     * 
+     *
      */
     int64_t desired_position_ms;
 
     struct notifier video_info_notifier, buffering_state_notifier, error_notifier;
-    
+
     bool is_initialized;
     bool has_sent_info;
     struct incomplete_video_info info;
-    
+
     bool has_gst_info;
     GstVideoInfo gst_info;
 
@@ -395,11 +395,11 @@ static int apply_playback_state(struct gstplayer *player) {
         /// TODO: Implement properly
 
         LOG_DEBUG("apply_playback_state(playing: %s): async state change in progress, setting state to %s\n", PLAYPAUSE_STATE_AS_STRING(player->playpause_state), gst_element_state_get_name(desired_state));
-        
+
         DEBUG_TRACE_BEGIN(player, "gst_element_set_state");
         ok = gst_element_set_state(player->pipeline, desired_state);
         DEBUG_TRACE_END(player, "gst_element_set_state");
-        
+
         if (ok == GST_STATE_CHANGE_FAILURE) {
             LOG_GST_SET_STATE_ERROR(player->pipeline);
             DEBUG_TRACE_END(player, "apply_playback_state");
@@ -439,7 +439,7 @@ static void on_bus_message(struct gstplayer *player, GstMessage *msg) {
             g_clear_error(&error);
             g_free(debug_info);
             break;
-        
+
         case GST_MESSAGE_BUFFERING:
             {
                 GstBufferingMode mode;
@@ -494,7 +494,7 @@ static void on_bus_message(struct gstplayer *player, GstMessage *msg) {
                 }
             }
             break;
-        
+
         case GST_MESSAGE_ASYNC_DONE:
             break;
 
@@ -556,9 +556,9 @@ static int on_bus_fd_ready(sd_event_source *s, int fd, uint32_t revents, void *u
     (void) s;
     (void) fd;
     (void) revents;
-    
+
     player = userdata;
-    
+
     DEBUG_TRACE_BEGIN(player, "on_bus_fd_ready");
 
     msg = gst_bus_pop(player->bus);
@@ -589,7 +589,7 @@ static GstPadProbeReturn on_query_appsink(GstPad *pad, GstPadProbeInfo *info, vo
     }
 
     gst_query_add_allocation_meta(query, GST_VIDEO_META_API_TYPE, NULL);
-    
+
     return GST_PAD_PROBE_HANDLED;
 }
 
@@ -635,7 +635,7 @@ static GstPadProbeReturn on_probe_pad(GstPad *pad, GstPadProbeInfo *info, void *
         LOG_ERROR("gstreamer: caps event with invalid video caps\n");
         return GST_PAD_PROBE_OK;
     }
-    
+
     player->has_gst_info = true;
 
     LOG_DEBUG(
@@ -776,7 +776,7 @@ static void on_appsink_cbs_destroy(void *userdata) {
 
 void on_source_setup(GstElement *bin, GstElement *source, gpointer userdata) {
     (void) bin;
-    
+
     if (g_object_class_find_property(G_OBJECT_GET_CLASS(source), "extra-headers") != NULL) {
         g_object_set(source, "extra-headers", (GstStructure*) userdata, NULL);
     } else {
@@ -793,9 +793,9 @@ static int init(struct gstplayer *player, bool force_sw_decoders) {
     GPollFD fd;
     GError *error = NULL;
     int ok;
-    
+
     static const char *default_pipeline_descr = "uridecodebin name=\"src\" ! video/x-raw ! appsink sync=true name=\"sink\"";
-    
+
     const char *pipeline_descr;
     if (player->pipeline_description != NULL) {
         pipeline_descr = player->pipeline_description;
@@ -822,7 +822,7 @@ static int init(struct gstplayer *player, bool force_sw_decoders) {
         ok = EINVAL;
         goto fail_unref_sink;
     }
-    
+
     gst_pad_add_probe(
         pad,
         GST_PAD_PROBE_TYPE_QUERY_DOWNSTREAM,
@@ -840,7 +840,7 @@ static int init(struct gstplayer *player, bool force_sw_decoders) {
             LOG_ERROR("Couldn't find \"src\" element to configure Video URI.\n");
         }
     }
-    
+
     if (force_sw_decoders) {
         if (src != NULL) {
             g_object_set(G_OBJECT(src), "force-sw-decoders", force_sw_decoders, NULL);
@@ -872,7 +872,7 @@ static int init(struct gstplayer *player, bool force_sw_decoders) {
         if (gst_format == GST_VIDEO_FORMAT_UNKNOWN) {
             continue;
         }
-        
+
         gst_caps_append(
             caps,
             gst_caps_new_simple(
@@ -904,7 +904,7 @@ static int init(struct gstplayer *player, bool force_sw_decoders) {
         player,
         NULL
     );
-    
+
     /// FIXME: Make this work for custom pipelines as well.
     if (src != NULL) {
         g_signal_connect(src, "element-added", G_CALLBACK(on_element_added), player);
@@ -996,7 +996,7 @@ static struct gstplayer *gstplayer_new(struct flutterpi *flutterpi, const char *
 
     texture = flutterpi_create_texture(flutterpi);
     if (texture == NULL) goto fail_free_player;
-    
+
     frame_interface = frame_interface_new(flutterpi_get_gl_renderer(flutterpi));
     if (frame_interface == NULL) goto fail_destroy_texture;
 
@@ -1023,7 +1023,7 @@ static struct gstplayer *gstplayer_new(struct flutterpi *flutterpi, const char *
 
     ok = value_notifier_init(&player->video_info_notifier, NULL, free /* free(NULL) is a no-op, I checked */);
     if (ok != 0) goto fail_destroy_mutex;
-    
+
     ok = value_notifier_init(&player->buffering_state_notifier, NULL, free);
     if (ok != 0) goto fail_deinit_video_info_notifier;
 
@@ -1066,7 +1066,7 @@ static struct gstplayer *gstplayer_new(struct flutterpi *flutterpi, const char *
 
     fail_deinit_buffering_state_notifier:
     notifier_deinit(&player->buffering_state_notifier);
-    
+
     fail_deinit_video_info_notifier:
     notifier_deinit(&player->video_info_notifier);
 
@@ -1137,7 +1137,7 @@ struct gstplayer *gstplayer_new_from_content_uri(
     void *userdata
 ) {
     return gstplayer_new(flutterpi, uri, NULL, userdata);
-}   
+}
 
 struct gstplayer *gstplayer_new_from_pipeline(
     struct flutterpi *flutterpi,
@@ -1216,8 +1216,8 @@ int64_t gstplayer_get_position(struct gstplayer *player) {
     GstState current, pending;
     gboolean ok;
     int64_t position;
-  
-    GstStateChangeReturn statechange = gst_element_get_state(GST_ELEMENT(player->pipeline), &current, &pending, 0); 
+
+    GstStateChangeReturn statechange = gst_element_get_state(GST_ELEMENT(player->pipeline), &current, &pending, 0);
     if (statechange == GST_STATE_CHANGE_FAILURE) {
         LOG_GST_GET_STATE_ERROR(player->pipeline);
         return -1;

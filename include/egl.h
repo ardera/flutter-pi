@@ -36,7 +36,7 @@ static inline bool check_egl_extension(const char *client_ext_string, const char
             return true;
         }
     }
-    
+
     if (display_ext_string != NULL) {
         const char *result = strstr(display_ext_string, extension);
         if (result != NULL && (result[len] == ' ' || result[len] == '\0')) {
