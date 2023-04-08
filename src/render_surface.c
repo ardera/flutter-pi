@@ -7,16 +7,15 @@
  * Copyright (c) 2022, Hannes Winkler <hanneswinkler2000@web.de>
  */
 
-
-#include <stdlib.h>
 #include <stdatomic.h>
 #include <stdint.h>
+#include <stdlib.h>
 
 #include <collection.h>
-#include <surface.h>
+#include <compositor_ng.h>
 #include <render_surface.h>
 #include <render_surface_private.h>
-#include <compositor_ng.h>
+#include <surface.h>
 #include <tracer.h>
 
 FILE_DESCR("flutter render surface")

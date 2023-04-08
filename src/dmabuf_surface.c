@@ -33,20 +33,15 @@
  * Copyright (c) 2022, Hannes Winkler <hanneswinkler2000@web.de>
  */
 
-
-#include <stdlib.h>
-
-#include <collection.h>
-
-#include <stdlib.h>
 #include <stdatomic.h>
 #include <stdint.h>
+#include <stdlib.h>
 
 #include <collection.h>
+#include <compositor_ng.h>
+#include <dmabuf_surface.h>
 #include <surface.h>
 #include <surface_private.h>
-#include <dmabuf_surface.h>
-#include <compositor_ng.h>
 #include <texture_registry.h>
 
 FILE_DESCR("dmabuf surface")
@@ -151,11 +146,10 @@ ATTR_MALLOC struct dmabuf_surface *dmabuf_surface_new(struct tracer *tracer, str
 
     return s;
 
-
-    fail_free_surface:
+fail_free_surface:
     free(s);
 
-    fail_return_null:
+fail_return_null:
     return NULL;
 }
 
@@ -203,7 +197,7 @@ int dmabuf_surface_push_dmabuf(struct dmabuf_surface *s, const struct dmabuf *bu
 
     ok = texture_push_unresolved_frame(
         s->texture,
-        &(const struct unresolved_texture_frame) {
+        &(const struct unresolved_texture_frame){
             .resolve = on_resolve_texture_frame,
             .destroy = surface_unref_void,
             .userdata = surface_ref(CAST_SURFACE_UNCHECKED(s)),
@@ -245,7 +239,11 @@ static int dmabuf_surface_present_kms(struct surface *_s, const struct fl_layer_
     DEBUG_ASSERT_NOT_NULL_MSG(s->next_buf, "dmabuf_surface_present_kms was called, but no dmabuf is queued to be presented.");
 
     if (DRM_ID_IS_VALID(s->next_buf->drm_fb_id)) {
-        DEBUG_ASSERT_EQUALS_MSG(s->next_buf->drmdev, kms_req_builder_get_drmdev(builder), "Only 1 KMS instance per dmabuf supported right now.");
+        DEBUG_ASSERT_EQUALS_MSG(
+            s->next_buf->drmdev,
+            kms_req_builder_get_drmdev(builder),
+            "Only 1 KMS instance per dmabuf supported right now."
+        );
         fb_id = s->next_buf->drm_fb_id;
     } else {
         fb_id = drmdev_add_fb_from_dmabuf(
@@ -269,7 +267,7 @@ static int dmabuf_surface_present_kms(struct surface *_s, const struct fl_layer_
 
     ok = kms_req_builder_push_fb_layer(
         builder,
-        &(struct kms_fb_layer) {
+        &(struct kms_fb_layer){
             .drm_fb_id = fb_id,
             .format = s->next_buf->buf.format,
 
@@ -286,8 +284,10 @@ static int dmabuf_surface_present_kms(struct surface *_s, const struct fl_layer_
             .dst_w = props->aa_rect.size.x,
             .dst_h = props->aa_rect.size.y,
 
-            .has_rotation = false, .rotation = PLANE_TRANSFORM_ROTATE_0,
-            .has_in_fence_fd = false, .in_fence_fd = 0,
+            .has_rotation = false,
+            .rotation = PLANE_TRANSFORM_ROTATE_0,
+            .has_in_fence_fd = false,
+            .in_fence_fd = 0,
         },
         refcounted_dmabuf_unref_void,
         NULL,

@@ -8,22 +8,21 @@
  * Copyright (c) 2022, Hannes Winkler <hanneswinkler2000@web.de>
  */
 
+#include <stdatomic.h>
 #include <stdlib.h>
+
 #include <unistd.h>
 
-#include <collection.h>
-#include <stdatomic.h>
-
-#include <tracer.h>
-#include <surface.h>
-#include <surface_private.h>
-#include <render_surface.h>
-#include <render_surface_private.h>
-
-#include <vk_renderer.h>
 #include <vulkan.h>
 
+#include <collection.h>
+#include <render_surface.h>
+#include <render_surface_private.h>
+#include <surface.h>
+#include <surface_private.h>
+#include <tracer.h>
 #include <vk_gbm_render_surface.h>
+#include <vk_renderer.h>
 
 FILE_DESCR("gbm/vulkan render surface")
 
@@ -186,7 +185,8 @@ static VkFormat srgb_to_unorm_format(VkFormat vk_format) {
     }
 }
 
-static int fb_init(struct fb *fb, struct gbm_device *gbm_device, struct vk_renderer *renderer, int width, int height, enum pixfmt pixel_format) {
+static int
+fb_init(struct fb *fb, struct gbm_device *gbm_device, struct vk_renderer *renderer, int width, int height, enum pixfmt pixel_format) {
     PFN_vkGetMemoryFdPropertiesKHR get_memory_fd_props;
     VkSubresourceLayout layout;
     VkDeviceMemory img_device_memory;
@@ -197,7 +197,10 @@ static int fb_init(struct fb *fb, struct gbm_device *gbm_device, struct vk_rende
     VkImage vkimg;
     int fd;
 
-    DEBUG_ASSERT_MSG(get_pixfmt_info(pixel_format)->vk_format != VK_FORMAT_UNDEFINED, "Given pixel format is not compatible with any vulkan sRGB format.");
+    DEBUG_ASSERT_MSG(
+        get_pixfmt_info(pixel_format)->vk_format != VK_FORMAT_UNDEFINED,
+        "Given pixel format is not compatible with any vulkan sRGB format."
+    );
 
     device = vk_renderer_get_device(renderer);
 
@@ -212,12 +215,7 @@ static int fb_init(struct fb *fb, struct gbm_device *gbm_device, struct vk_rende
         vk_format = srgb_to_unorm_format(vk_format);
     }
 
-    bo = gbm_bo_create(
-        gbm_device,
-        width, height,
-        get_pixfmt_info(pixel_format)->gbm_format,
-        GBM_BO_USE_RENDERING | GBM_BO_USE_SCANOUT
-    );
+    bo = gbm_bo_create(gbm_device, width, height, get_pixfmt_info(pixel_format)->gbm_format, GBM_BO_USE_RENDERING | GBM_BO_USE_SCANOUT);
     if (bo == NULL) {
         LOG_ERROR("Could not create GBM BO. gbm_bo_create: %s\n", strerror(errno));
         return EIO;
@@ -320,27 +318,20 @@ static int fb_init(struct fb *fb, struct gbm_device *gbm_device, struct vk_rende
         goto fail_close_fd;
     }
 
-    ok = get_memory_fd_props(
-        device,
-        VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT,
-        fd,
-        &fd_memory_props
-    );
+    ok = get_memory_fd_props(device, VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT, fd, &fd_memory_props);
     if (ok != VK_SUCCESS) {
         LOG_VK_ERROR(ok, "Couldn't get dmabuf memory properties. vkGetMemoryFdPropertiesKHR");
         goto fail_close_fd;
     }
 
     // Find out the memory requirements for our image (the supported memory types for import)
-    VkMemoryRequirements2 image_memory_reqs = {
-        .sType = VK_STRUCTURE_TYPE_MEMORY_REQUIREMENTS_2,
-        .memoryRequirements = { 0 },
-        .pNext = NULL
-    };
+    VkMemoryRequirements2 image_memory_reqs = { .sType = VK_STRUCTURE_TYPE_MEMORY_REQUIREMENTS_2,
+                                                .memoryRequirements = { 0 },
+                                                .pNext = NULL };
 
     vkGetImageMemoryRequirements2(
         device,
-        &(VkImageMemoryRequirementsInfo2) {
+        &(VkImageMemoryRequirementsInfo2){
             .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_REQUIREMENTS_INFO_2,
             .image = vkimg,
             .pNext = NULL,
@@ -349,11 +340,7 @@ static int fb_init(struct fb *fb, struct gbm_device *gbm_device, struct vk_rende
     );
 
     // Find a memory type that fits both to the dmabuf and the image
-    int mem = vk_renderer_find_mem_type(
-        renderer,
-        0,
-        image_memory_reqs.memoryRequirements.memoryTypeBits & fd_memory_props.memoryTypeBits
-    );
+    int mem = vk_renderer_find_mem_type(renderer, 0, image_memory_reqs.memoryRequirements.memoryTypeBits & fd_memory_props.memoryTypeBits);
     if (mem < 0) {
         LOG_ERROR("Couldn't find a memory type that's both supported by the image and the dmabuffer.\n");
         goto fail_close_fd;
@@ -364,21 +351,23 @@ static int fb_init(struct fb *fb, struct gbm_device *gbm_device, struct vk_rende
     // and we don't need to close it.
     ok = vkAllocateMemory(
         device,
-        &(VkMemoryAllocateInfo) {
+        &(VkMemoryAllocateInfo){
             .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
             .allocationSize = layout.size,
             .memoryTypeIndex = mem,
-            .pNext = &(VkImportMemoryFdInfoKHR) {
-                .sType = VK_STRUCTURE_TYPE_IMPORT_MEMORY_FD_INFO_KHR,
-                .handleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT,
-                .fd = fd,
-                .pNext = &(VkMemoryDedicatedAllocateInfo) {
-                    .sType = VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO,
-                    .image = vkimg,
-                    .buffer = VK_NULL_HANDLE,
-                    .pNext = NULL,
+            .pNext =
+                &(VkImportMemoryFdInfoKHR){
+                    .sType = VK_STRUCTURE_TYPE_IMPORT_MEMORY_FD_INFO_KHR,
+                    .handleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT,
+                    .fd = fd,
+                    .pNext =
+                        &(VkMemoryDedicatedAllocateInfo){
+                            .sType = VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO,
+                            .image = vkimg,
+                            .buffer = VK_NULL_HANDLE,
+                            .pNext = NULL,
+                        },
                 },
-            },
         },
         NULL,
         &img_device_memory
@@ -409,7 +398,7 @@ static int fb_init(struct fb *fb, struct gbm_device *gbm_device, struct vk_rende
     fb->image = vkimg;
 
     COMPILE_ASSERT(sizeof(FlutterVulkanImage) == 24);
-    fb->fl_image = (FlutterVulkanImage) {
+    fb->fl_image = (FlutterVulkanImage){
         .struct_size = sizeof(FlutterVulkanImage),
         .image = (FlutterVulkanImageHandle) fb->image,
         .format = vk_format,
@@ -417,18 +406,17 @@ static int fb_init(struct fb *fb, struct gbm_device *gbm_device, struct vk_rende
 
     return 0;
 
-
-    fail_free_device_memory:
+fail_free_device_memory:
     vkFreeMemory(device, img_device_memory, NULL);
     goto fail_destroy_bo;
 
-    fail_close_fd:
+fail_close_fd:
     close(fd);
 
-    fail_destroy_image:
+fail_destroy_image:
     vkDestroyImage(device, vkimg, NULL);
 
-    fail_destroy_bo:
+fail_destroy_bo:
     gbm_bo_destroy(bo);
     return EIO;
 }
@@ -465,8 +453,7 @@ int vk_gbm_render_surface_init(
 
         continue;
 
-
-        fail_deinit_previous_fbs:
+fail_deinit_previous_fbs:
         for (int j = 0; j < i; j++) {
             fb_deinit(surface->fbs + j, vk_renderer_get_device(renderer));
         }
@@ -497,8 +484,7 @@ int vk_gbm_render_surface_init(
 #endif
     return 0;
 
-
-    fail_deinit_render_surface:
+fail_deinit_render_surface:
     render_surface_deinit(CAST_SURFACE_UNCHECKED(surface));
     return EIO;
 }
@@ -525,11 +511,10 @@ struct vk_gbm_render_surface *vk_gbm_render_surface_new(
 
     return surface;
 
-
-    fail_free_surface:
+fail_free_surface:
     free(surface);
 
-    fail_return_null:
+fail_return_null:
     return NULL;
 }
 
@@ -601,7 +586,10 @@ static int vk_gbm_render_surface_present_kms(struct surface *s, const struct fl_
 
     surface_lock(s);
 
-    DEBUG_ASSERT_NOT_NULL_MSG(vk_surface->front_fb, "There's no framebuffer available for scanout right now. Make sure you called render_surface_queue_present() before presenting.");
+    DEBUG_ASSERT_NOT_NULL_MSG(
+        vk_surface->front_fb,
+        "There's no framebuffer available for scanout right now. Make sure you called render_surface_queue_present() before presenting."
+    );
 
     bo = vk_surface->front_fb->fb->bo;
     meta = gbm_bo_get_user_data(bo);
@@ -624,7 +612,8 @@ static int vk_gbm_render_surface_present_kms(struct surface *s, const struct fl_
             gbm_bo_get_handle(bo).u32,
             gbm_bo_get_stride(bo),
             gbm_bo_get_offset(bo, 0),
-            true, gbm_bo_get_modifier(bo)
+            true,
+            gbm_bo_get_modifier(bo)
         );
         TRACER_END(vk_surface->surface.tracer, "drmdev_add_fb (non-opaque)");
 
@@ -639,7 +628,11 @@ static int vk_gbm_render_surface_present_kms(struct surface *s, const struct fl_
         gbm_bo_set_user_data(bo, meta, on_destroy_gbm_bo_meta);
     } else {
         // We can only add this GBM BO to a single KMS device as an fb right now.
-        DEBUG_ASSERT_EQUALS_MSG(meta->drmdev, kms_req_builder_get_drmdev(builder), "Currently GBM BOs can only be scanned out on a single KMS device for their whole lifetime.");
+        DEBUG_ASSERT_EQUALS_MSG(
+            meta->drmdev,
+            kms_req_builder_get_drmdev(builder),
+            "Currently GBM BOs can only be scanned out on a single KMS device for their whole lifetime."
+        );
     }
 
     /*
@@ -669,28 +662,26 @@ static int vk_gbm_render_surface_present_kms(struct surface *s, const struct fl_
     TRACER_BEGIN(vk_surface->surface.tracer, "kms_req_builder_push_fb_layer");
     ok = kms_req_builder_push_fb_layer(
         builder,
-        &(const struct kms_fb_layer) {
-            .drm_fb_id = fb_id,
-            .format = pixel_format,
-            .has_modifier = true,
-            .modifier = gbm_bo_get_modifier(bo),
+        &(const struct kms_fb_layer){ .drm_fb_id = fb_id,
+                                      .format = pixel_format,
+                                      .has_modifier = true,
+                                      .modifier = gbm_bo_get_modifier(bo),
 
-            .dst_x = (int32_t) props->aa_rect.offset.x,
-            .dst_y = (int32_t) props->aa_rect.offset.y,
-            .dst_w = (uint32_t) props->aa_rect.size.x,
-            .dst_h = (uint32_t) props->aa_rect.size.y,
+                                      .dst_x = (int32_t) props->aa_rect.offset.x,
+                                      .dst_y = (int32_t) props->aa_rect.offset.y,
+                                      .dst_w = (uint32_t) props->aa_rect.size.x,
+                                      .dst_h = (uint32_t) props->aa_rect.size.y,
 
-            .src_x = 0,
-            .src_y = 0,
-            .src_w = DOUBLE_TO_FP1616_ROUNDED(vk_surface->render_surface.size.x),
-            .src_h = DOUBLE_TO_FP1616_ROUNDED(vk_surface->render_surface.size.y),
+                                      .src_x = 0,
+                                      .src_y = 0,
+                                      .src_w = DOUBLE_TO_FP1616_ROUNDED(vk_surface->render_surface.size.x),
+                                      .src_h = DOUBLE_TO_FP1616_ROUNDED(vk_surface->render_surface.size.y),
 
-            .has_rotation = false,
-            .rotation = PLANE_TRANSFORM_ROTATE_0,
+                                      .has_rotation = false,
+                                      .rotation = PLANE_TRANSFORM_ROTATE_0,
 
-            .has_in_fence_fd = false,
-            .in_fence_fd = 0
-        },
+                                      .has_in_fence_fd = false,
+                                      .in_fence_fd = 0 },
         on_release_layer,
         NULL,
         locked_fb_ref(vk_surface->front_fb)
@@ -700,24 +691,23 @@ static int vk_gbm_render_surface_present_kms(struct surface *s, const struct fl_
         goto fail_unref_locked_fb;
     }
 
-
     surface_unlock(s);
     return ok;
 
-
-    fail_unref_locked_fb:
+fail_unref_locked_fb:
     locked_fb_unref(vk_surface->front_fb);
     goto fail_unlock;
 
-    fail_free_meta:
+fail_free_meta:
     free(meta);
 
-    fail_unlock:
+fail_unlock:
     surface_unlock(s);
     return ok;
 }
 
-static int vk_gbm_render_surface_present_fbdev(struct surface *s, const struct fl_layer_props *props, struct fbdev_commit_builder *builder) {
+static int
+vk_gbm_render_surface_present_fbdev(struct surface *s, const struct fl_layer_props *props, struct fbdev_commit_builder *builder) {
     struct vk_gbm_render_surface *render_surface;
 
     /// TODO: Implement by mmapping the current front bo, copy it into the fbdev
@@ -756,8 +746,8 @@ static int vk_gbm_render_surface_fill(struct render_surface *s, FlutterBackingSt
     ok = EIO;
     goto fail_unlock;
 
-    locked: ;
-    /// TODO: Remove this once we're using triple buffering
+locked:;
+/// TODO: Remove this once we're using triple buffering
 #ifdef DEBUG
     atomic_fetch_add(&render_surface->n_locked_fbs, 1);
     log_locked_fbs(CAST_THIS_UNCHECKED(s), "fill");
@@ -768,7 +758,7 @@ static int vk_gbm_render_surface_fill(struct render_surface *s, FlutterBackingSt
 
     COMPILE_ASSERT(sizeof(FlutterVulkanBackingStore) == 16 || sizeof(FlutterVulkanBackingStore) == 32);
     fl_store->type = kFlutterBackingStoreTypeVulkan;
-    fl_store->vulkan = (FlutterVulkanBackingStore) {
+    fl_store->vulkan = (FlutterVulkanBackingStore){
         .struct_size = sizeof(FlutterVulkanBackingStore),
         .image = &render_surface->locked_fbs[i].fb->fl_image,
         .user_data = surface_ref(CAST_SURFACE_UNCHECKED(render_surface)),
@@ -779,8 +769,7 @@ static int vk_gbm_render_surface_fill(struct render_surface *s, FlutterBackingSt
 
     return 0;
 
-
-    fail_unlock:
+fail_unlock:
     surface_unlock(CAST_SURFACE_UNCHECKED(s));
     return ok;
 }

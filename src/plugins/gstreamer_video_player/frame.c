@@ -1,24 +1,25 @@
+#include <inttypes.h>
+#include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
-#include <stdbool.h>
-#include <inttypes.h>
+
 #include <unistd.h>
 
 #include <drm_fourcc.h>
 #include <gbm.h>
-#include <gst/video/video.h>
 #include <gst/allocators/allocators.h>
+#include <gst/video/video.h>
 
 #include <flutter-pi.h>
-#include <texture_registry.h>
 #include <gl_renderer.h>
 #include <plugins/gstreamer_video_player.h>
+#include <texture_registry.h>
 
 FILE_DESCR("gstreamer video_player")
 
 #define MAX_N_PLANES 4
 
-#define GSTREAMER_VER(major, minor, patch) ((((major) & 0xFF) << 16) | (((minor) & 0xFF) << 8) | ((patch) & 0xFF))
+#define GSTREAMER_VER(major, minor, patch) ((((major) &0xFF) << 16) | (((minor) &0xFF) << 8) | ((patch) &0xFF))
 #define THIS_GSTREAMER_VER GSTREAMER_VER(LIBGSTREAMER_VERSION_MAJOR, LIBGSTREAMER_VERSION_MINOR, LIBGSTREAMER_VERSION_PATCH)
 
 #define DRM_FOURCC_FORMAT "c%c%c%c"
@@ -153,17 +154,16 @@ static bool query_formats(
     *formats_out = modified_formats;
     return true;
 
-
-    fail_free_modifiers:
+fail_free_modifiers:
     free(modifiers);
 
-    fail_free_modified_formats:
+fail_free_modified_formats:
     free(modified_formats);
 
-    fail_free_formats:
+fail_free_formats:
     free(formats);
 
-    fail:
+fail:
     *n_formats_out = 0;
     *formats_out = NULL;
     return false;
@@ -223,7 +223,8 @@ struct frame_interface *frame_interface_new(struct gl_renderer *renderer) {
         goto fail_destroy_context;
     }
 
-    PFNGLEGLIMAGETARGETTEXTURE2DOESPROC gl_egl_image_target_texture2d = (PFNGLEGLIMAGETARGETTEXTURE2DOESPROC) gl_renderer_get_proc_address(renderer, "glEGLImageTargetTexture2DOES");
+    PFNGLEGLIMAGETARGETTEXTURE2DOESPROC gl_egl_image_target_texture2d = (PFNGLEGLIMAGETARGETTEXTURE2DOESPROC
+    ) gl_renderer_get_proc_address(renderer, "glEGLImageTargetTexture2DOES");
     if (gl_egl_image_target_texture2d == NULL) {
         LOG_ERROR("Could not resolve glEGLImageTargetTexture2DOES EGL procedure.\n");
         goto fail_destroy_context;
@@ -231,13 +232,15 @@ struct frame_interface *frame_interface_new(struct gl_renderer *renderer) {
 
     // These two are optional.
     // Might be useful in the future.
-    PFNEGLQUERYDMABUFFORMATSEXTPROC egl_query_dmabuf_formats = (PFNEGLQUERYDMABUFFORMATSEXTPROC) gl_renderer_get_proc_address(renderer, "eglQueryDmaBufFormatsEXT");
+    PFNEGLQUERYDMABUFFORMATSEXTPROC egl_query_dmabuf_formats = (PFNEGLQUERYDMABUFFORMATSEXTPROC
+    ) gl_renderer_get_proc_address(renderer, "eglQueryDmaBufFormatsEXT");
     if (egl_query_dmabuf_formats == NULL && supports_extended_imports) {
         LOG_ERROR("Could not resolve eglQueryDmaBufFormatsEXT egl procedure, even though it is listed as supported.\n");
         supports_extended_imports = false;
     }
 
-    PFNEGLQUERYDMABUFMODIFIERSEXTPROC egl_query_dmabuf_modifiers = (PFNEGLQUERYDMABUFMODIFIERSEXTPROC) gl_renderer_get_proc_address(renderer, "eglQueryDmaBufModifiersEXT");
+    PFNEGLQUERYDMABUFMODIFIERSEXTPROC egl_query_dmabuf_modifiers = (PFNEGLQUERYDMABUFMODIFIERSEXTPROC
+    ) gl_renderer_get_proc_address(renderer, "eglQueryDmaBufModifiersEXT");
     if (egl_query_dmabuf_modifiers == NULL && supports_extended_imports) {
         LOG_ERROR("Could not resolve eglQueryDmaBufModifiersEXT egl procedure, even though it is listed as supported.\n");
         supports_extended_imports = false;
@@ -250,13 +253,7 @@ struct frame_interface *frame_interface_new(struct gl_renderer *renderer) {
     }
 
     if (supports_extended_imports) {
-        query_formats(
-            display,
-            egl_query_dmabuf_formats,
-            egl_query_dmabuf_modifiers,
-            &n_formats,
-            &formats
-        );
+        query_formats(display, egl_query_dmabuf_formats, egl_query_dmabuf_modifiers, &n_formats, &formats);
     } else {
         n_formats = 0;
         formats = NULL;
@@ -278,13 +275,12 @@ struct frame_interface *frame_interface_new(struct gl_renderer *renderer) {
     interface->n_refs = REFCOUNT_INIT_1;
     return interface;
 
-
-    fail_destroy_context:
+fail_destroy_context:
     egl_ok = eglDestroyContext(display, context);
     DEBUG_ASSERT_EGL_TRUE(egl_ok);
     (void) egl_ok;
 
-    fail_free:
+fail_free:
     free(interface);
     return NULL;
 }
@@ -294,7 +290,8 @@ void frame_interface_destroy(struct frame_interface *interface) {
 
     pthread_mutex_destroy(&interface->context_lock);
     egl_ok = eglDestroyContext(interface->display, interface->context);
-    DEBUG_ASSERT_EGL_TRUE(egl_ok); (void) egl_ok;
+    DEBUG_ASSERT_EGL_TRUE(egl_ok);
+    (void) egl_ok;
     if (interface->formats != NULL) {
         free(interface->formats);
     }
@@ -320,7 +317,8 @@ DEFINE_REF_OPS(frame_interface, n_refs)
  * Calls gst_buffer_map on the buffer, so buffer could have changed after the call.
  *
  */
-MAYBE_UNUSED int dup_gst_buffer_range_as_dmabuf(struct gbm_device *gbm_device, GstBuffer *buffer, unsigned int memory_index, int n_memories) {
+MAYBE_UNUSED int
+dup_gst_buffer_range_as_dmabuf(struct gbm_device *gbm_device, GstBuffer *buffer, unsigned int memory_index, int n_memories) {
     struct gbm_bo *bo;
     GstMapInfo map_info;
     uint32_t stride;
@@ -362,10 +360,10 @@ MAYBE_UNUSED int dup_gst_buffer_range_as_dmabuf(struct gbm_device *gbm_device, G
     gst_buffer_unmap(buffer, &map_info);
     return fd;
 
-    fail_destroy_bo:
+fail_destroy_bo:
     gbm_bo_destroy(bo);
 
-    fail_unmap_buffer:
+fail_unmap_buffer:
     gst_buffer_unmap(buffer, &map_info);
     return -1;
 }
@@ -418,10 +416,10 @@ MAYBE_UNUSED int dup_gst_memory_as_dmabuf(struct gbm_device *gbm_device, GstMemo
     gst_memory_unmap(memory, &map_info);
     return fd;
 
-    fail_destroy_bo:
+fail_destroy_bo:
     gbm_bo_destroy(bo);
 
-    fail_unmap_buffer:
+fail_unmap_buffer:
     gst_memory_unmap(memory, &map_info);
     return -1;
 }
@@ -435,7 +433,7 @@ struct plane_info {
 };
 
 #if THIS_GSTREAMER_VER < GSTREAMER_VER(1, 14, 0)
-#   error "Unsupported gstreamer version."
+    #error "Unsupported gstreamer version."
 #endif
 
 #if THIS_GSTREAMER_VER >= GSTREAMER_VER(1, 18, 0)
@@ -443,13 +441,13 @@ static bool get_plane_sizes_from_meta(const GstVideoMeta *meta, size_t plane_siz
     GstVideoMeta *meta_non_const;
     gboolean gst_ok;
 
-#ifdef DEBUG
+    #ifdef DEBUG
     GstVideoMeta _meta_non_const;
     meta_non_const = &_meta_non_const;
     memcpy(meta_non_const, meta, sizeof *meta);
-#else
-    meta_non_const = (GstVideoMeta*) meta;
-#endif
+    #else
+    meta_non_const = (GstVideoMeta *) meta;
+    #endif
 
     gst_ok = gst_video_meta_get_plane_size(meta_non_const, plane_sizes_out);
     if (gst_ok != TRUE) {
@@ -467,11 +465,11 @@ static bool get_plane_sizes_from_video_info(const GstVideoInfo *info, size_t pla
 
     gst_video_alignment_reset(&alignment);
 
-#ifdef DEBUG
+    #ifdef DEBUG
     info_non_const = gst_video_info_copy(info);
-#else
-    info_non_const = (GstVideoInfo*) info;
-#endif
+    #else
+    info_non_const = (GstVideoInfo *) info;
+    #endif
 
     gst_ok = gst_video_info_align_full(info_non_const, &alignment, plane_sizes_out);
     if (gst_ok != TRUE) {
@@ -479,39 +477,31 @@ static bool get_plane_sizes_from_video_info(const GstVideoInfo *info, size_t pla
         return false;
     }
 
-#ifdef DEBUG
+    #ifdef DEBUG
     DEBUG_ASSERT(gst_video_info_is_equal(info, info_non_const));
     gst_video_info_free(info_non_const);
-#endif
+    #endif
 
     return true;
 }
 
-static bool calculate_plane_size(
-    const GstVideoInfo *info,
-    int plane_index,
-    size_t *plane_size_out
-) {
+static bool calculate_plane_size(const GstVideoInfo *info, int plane_index, size_t *plane_size_out) {
     // Taken from: https://github.com/GStreamer/gstreamer/blob/621604aa3e4caa8db27637f63fa55fac2f7721e5/subprojects/gst-plugins-base/gst-libs/gst/video/video-info.c#L1278-L1301
 
-#if THIS_GSTREAMER_VER >= GSTREAMER_VER(1, 21, 3)
+    #if THIS_GSTREAMER_VER >= GSTREAMER_VER(1, 21, 3)
     if (GST_VIDEO_FORMAT_INFO_IS_TILED(info->finfo)) {
         guint x_tiles = GST_VIDEO_TILE_X_TILES(info->stride[i]);
         guint y_tiles = GST_VIDEO_TILE_Y_TILES(info->stride[i]);
         return x_tiles * y_tiles * GST_VIDEO_FORMAT_INFO_TILE_SIZE(info->finfo, i);
     }
-#endif
+    #endif
 
     gint comp[GST_VIDEO_MAX_COMPONENTS];
     guint plane_height;
 
     /* Convert plane index to component index */
-    gst_video_format_info_component (info->finfo, plane_index, comp);
-    plane_height = GST_VIDEO_FORMAT_INFO_SCALE_HEIGHT(
-        info->finfo,
-        comp[0],
-        GST_VIDEO_INFO_FIELD_HEIGHT(info)
-    );
+    gst_video_format_info_component(info->finfo, plane_index, comp);
+    plane_height = GST_VIDEO_FORMAT_INFO_SCALE_HEIGHT(info->finfo, comp[0], GST_VIDEO_INFO_FIELD_HEIGHT(info));
 
     *plane_size_out = plane_height * GST_VIDEO_INFO_PLANE_STRIDE(info, plane_index);
     return true;
@@ -524,25 +514,17 @@ static bool get_plane_sizes_from_meta(MAYBE_UNUSED const GstVideoMeta *meta, MAY
 static bool get_plane_sizes_from_video_info(MAYBE_UNUSED const GstVideoInfo *info, MAYBE_UNUSED size_t plane_sizes_out[4]) {
     return false;
 }
-static bool calculate_plane_size(
-    MAYBE_UNUSED const GstVideoInfo *info,
-    MAYBE_UNUSED int plane_index,
-    MAYBE_UNUSED size_t *plane_size_out
-) {
+static bool calculate_plane_size(MAYBE_UNUSED const GstVideoInfo *info, MAYBE_UNUSED int plane_index, MAYBE_UNUSED size_t *plane_size_out) {
     return false;
 }
 #endif
 
-static int get_plane_infos(
-    GstBuffer *buffer,
-    const GstVideoInfo *info,
-    struct gbm_device *gbm_device,
-    struct plane_info plane_infos[MAX_N_PLANES]
-) {
+static int
+get_plane_infos(GstBuffer *buffer, const GstVideoInfo *info, struct gbm_device *gbm_device, struct plane_info plane_infos[MAX_N_PLANES]) {
     GstVideoMeta *meta;
     GstMemory *memory;
     gboolean gst_ok;
-    size_t plane_sizes[4] = {0};
+    size_t plane_sizes[4] = { 0 };
     bool has_plane_sizes;
     int n_planes;
 
@@ -575,7 +557,10 @@ static int get_plane_infos(
         // We couldn't determine the plane sizes.
         // We can still continue if we have only one plane.
         if (n_planes != 1) {
-            LOG_ERROR("Couldn't determine video frame plane sizes. Without plane sizes, only planar framebuffer formats are supported, but the supplied format was not planar.\n");
+            LOG_ERROR(
+                "Couldn't determine video frame plane sizes. Without plane sizes, only planar framebuffer formats are supported, but the "
+                "supplied format was not planar.\n"
+            );
             return EINVAL;
         }
 
@@ -599,14 +584,7 @@ static int get_plane_infos(
             stride = GST_VIDEO_INFO_PLANE_STRIDE(info, i);
         }
 
-        gst_ok = gst_buffer_find_memory(
-            buffer,
-            offset_in_buffer,
-            plane_sizes[i],
-            &memory_index,
-            &n_memories,
-            &offset_in_memory
-        );
+        gst_ok = gst_buffer_find_memory(buffer, offset_in_buffer, plane_sizes[i], &memory_index, &n_memories, &offset_in_memory);
         if (gst_ok != TRUE) {
             LOG_ERROR("Could not find video frame memory for plane.\n");
             ok = EIO;
@@ -666,8 +644,7 @@ static int get_plane_infos(
         plane_infos[i].modifier = DRM_FORMAT_MOD_LINEAR;
         continue;
 
-
-        fail_close_fds:
+fail_close_fds:
         for (int j = i - 1; j > 0; j--) {
             close(plane_infos[i].fd);
         }
@@ -679,37 +656,37 @@ static int get_plane_infos(
 
 static uint32_t drm_format_from_gst_info(const GstVideoInfo *info) {
     switch (GST_VIDEO_INFO_FORMAT(info)) {
-        case GST_VIDEO_FORMAT_YUY2:  return DRM_FORMAT_YUYV;
-        case GST_VIDEO_FORMAT_YVYU:  return DRM_FORMAT_YVYU;
-        case GST_VIDEO_FORMAT_UYVY:  return DRM_FORMAT_UYVY;
-        case GST_VIDEO_FORMAT_VYUY:  return DRM_FORMAT_VYUY;
-        case GST_VIDEO_FORMAT_AYUV:  return DRM_FORMAT_AYUV;
+        case GST_VIDEO_FORMAT_YUY2: return DRM_FORMAT_YUYV;
+        case GST_VIDEO_FORMAT_YVYU: return DRM_FORMAT_YVYU;
+        case GST_VIDEO_FORMAT_UYVY: return DRM_FORMAT_UYVY;
+        case GST_VIDEO_FORMAT_VYUY: return DRM_FORMAT_VYUY;
+        case GST_VIDEO_FORMAT_AYUV: return DRM_FORMAT_AYUV;
 #if THIS_GSTREAMER_VER >= GSTREAMER_VER(1, 16, 0)
-        case GST_VIDEO_FORMAT_VUYA:  return DRM_FORMAT_AYUV;
+        case GST_VIDEO_FORMAT_VUYA: return DRM_FORMAT_AYUV;
 #endif
-        case GST_VIDEO_FORMAT_NV12:  return DRM_FORMAT_NV12;
-        case GST_VIDEO_FORMAT_NV21:  return DRM_FORMAT_NV21;
-        case GST_VIDEO_FORMAT_NV16:  return DRM_FORMAT_NV16;
-        case GST_VIDEO_FORMAT_NV61:  return DRM_FORMAT_NV61;
-        case GST_VIDEO_FORMAT_NV24:  return DRM_FORMAT_NV24;
-        case GST_VIDEO_FORMAT_YUV9:  return DRM_FORMAT_YUV410;
-        case GST_VIDEO_FORMAT_YVU9:  return DRM_FORMAT_YVU410;
-        case GST_VIDEO_FORMAT_Y41B:  return DRM_FORMAT_YUV411;
-        case GST_VIDEO_FORMAT_I420:  return DRM_FORMAT_YUV420;
-        case GST_VIDEO_FORMAT_YV12:  return DRM_FORMAT_YVU420;
-        case GST_VIDEO_FORMAT_Y42B:  return DRM_FORMAT_YUV422;
-        case GST_VIDEO_FORMAT_Y444:  return DRM_FORMAT_YUV444;
+        case GST_VIDEO_FORMAT_NV12: return DRM_FORMAT_NV12;
+        case GST_VIDEO_FORMAT_NV21: return DRM_FORMAT_NV21;
+        case GST_VIDEO_FORMAT_NV16: return DRM_FORMAT_NV16;
+        case GST_VIDEO_FORMAT_NV61: return DRM_FORMAT_NV61;
+        case GST_VIDEO_FORMAT_NV24: return DRM_FORMAT_NV24;
+        case GST_VIDEO_FORMAT_YUV9: return DRM_FORMAT_YUV410;
+        case GST_VIDEO_FORMAT_YVU9: return DRM_FORMAT_YVU410;
+        case GST_VIDEO_FORMAT_Y41B: return DRM_FORMAT_YUV411;
+        case GST_VIDEO_FORMAT_I420: return DRM_FORMAT_YUV420;
+        case GST_VIDEO_FORMAT_YV12: return DRM_FORMAT_YVU420;
+        case GST_VIDEO_FORMAT_Y42B: return DRM_FORMAT_YUV422;
+        case GST_VIDEO_FORMAT_Y444: return DRM_FORMAT_YUV444;
         case GST_VIDEO_FORMAT_RGB16: return DRM_FORMAT_RGB565;
         case GST_VIDEO_FORMAT_BGR16: return DRM_FORMAT_BGR565;
-        case GST_VIDEO_FORMAT_RGBA:  return DRM_FORMAT_ABGR8888;
-        case GST_VIDEO_FORMAT_RGBx:  return DRM_FORMAT_XBGR8888;
-        case GST_VIDEO_FORMAT_BGRA:  return DRM_FORMAT_ARGB8888;
-        case GST_VIDEO_FORMAT_BGRx:  return DRM_FORMAT_XRGB8888;
-        case GST_VIDEO_FORMAT_ARGB:  return DRM_FORMAT_BGRA8888;
-        case GST_VIDEO_FORMAT_xRGB:  return DRM_FORMAT_BGRX8888;
-        case GST_VIDEO_FORMAT_ABGR:  return DRM_FORMAT_RGBA8888;
-        case GST_VIDEO_FORMAT_xBGR:  return DRM_FORMAT_RGBX8888;
-        default:                     return DRM_FORMAT_INVALID;
+        case GST_VIDEO_FORMAT_RGBA: return DRM_FORMAT_ABGR8888;
+        case GST_VIDEO_FORMAT_RGBx: return DRM_FORMAT_XBGR8888;
+        case GST_VIDEO_FORMAT_BGRA: return DRM_FORMAT_ARGB8888;
+        case GST_VIDEO_FORMAT_BGRx: return DRM_FORMAT_XRGB8888;
+        case GST_VIDEO_FORMAT_ARGB: return DRM_FORMAT_BGRA8888;
+        case GST_VIDEO_FORMAT_xRGB: return DRM_FORMAT_BGRX8888;
+        case GST_VIDEO_FORMAT_ABGR: return DRM_FORMAT_RGBA8888;
+        case GST_VIDEO_FORMAT_xBGR: return DRM_FORMAT_RGBX8888;
+        default: return DRM_FORMAT_INVALID;
     }
 }
 
@@ -721,8 +698,8 @@ ATTR_CONST GstVideoFormat gst_video_format_from_drm_format(uint32_t drm_format) 
         case DRM_FORMAT_VYUY: return GST_VIDEO_FORMAT_VYUY;
         case DRM_FORMAT_AYUV: return GST_VIDEO_FORMAT_AYUV;
 #if THIS_GSTREAMER_VER >= GSTREAMER_VER(1, 16, 0)
-        // GST_VIDEO_FORMAT_AYUV and _VUYA both map to DRM_FORMAT_AYUV
-        // case DRM_FORMAT_AYUV: return GST_VIDEO_FORMAT_VUYA;
+            // GST_VIDEO_FORMAT_AYUV and _VUYA both map to DRM_FORMAT_AYUV
+            // case DRM_FORMAT_AYUV: return GST_VIDEO_FORMAT_VUYA;
 #endif
         case DRM_FORMAT_NV12: return GST_VIDEO_FORMAT_NV12;
         case DRM_FORMAT_NV21: return GST_VIDEO_FORMAT_NV21;
@@ -797,17 +774,13 @@ static EGLint egl_vertical_chroma_siting_from_gst_info(const GstVideoInfo *info)
     }
 }
 
-struct video_frame *frame_new(
-    struct frame_interface *interface,
-    GstSample *sample,
-    const GstVideoInfo *info
-) {
-#   define PUT_ATTR(_key, _value) \
-        do { \
-            DEBUG_ASSERT(attr_index + 2 <= ARRAY_SIZE(attributes)); \
-            attributes[attr_index++] = (_key); \
-            attributes[attr_index++] = (_value); \
-        } while (false)
+struct video_frame *frame_new(struct frame_interface *interface, GstSample *sample, const GstVideoInfo *info) {
+#define PUT_ATTR(_key, _value)                                  \
+    do {                                                        \
+        DEBUG_ASSERT(attr_index + 2 <= ARRAY_SIZE(attributes)); \
+        attributes[attr_index++] = (_key);                      \
+        attributes[attr_index++] = (_value);                    \
+    } while (false)
     struct video_frame *frame;
     struct plane_info planes[MAX_N_PLANES];
     GstVideoInfo _info;
@@ -820,7 +793,7 @@ struct video_frame *frame_new(
     GLuint texture;
     GLenum gl_error;
     EGLint egl_error;
-    EGLint attributes[2*7 + MAX_N_PLANES*2*5 + 1];
+    EGLint attributes[2 * 7 + MAX_N_PLANES * 2 * 5 + 1];
     EGLint egl_color_space, egl_sample_range_hint, egl_horizontal_chroma_siting, egl_vertical_chroma_siting;
     int ok, width, height, n_planes, attr_index;
 
@@ -869,13 +842,13 @@ struct video_frame *frame_new(
     }
 
     LOG_ERROR(
-        "Video format is not supported by EGL: %" DRM_FOURCC_FORMAT " (modifier: %"PRIu64").\n",
+        "Video format is not supported by EGL: %" DRM_FOURCC_FORMAT " (modifier: %" PRIu64 ").\n",
         DRM_FOURCC_ARGS(drm_format),
         (uint64_t) DRM_FORMAT_MOD_LINEAR
     );
     return NULL;
 
-    format_supported:
+format_supported:
 
     // query the color space for this sample
     egl_color_space = egl_color_space_from_gst_info(info);
@@ -935,7 +908,9 @@ struct video_frame *frame_new(
             PUT_ATTR(EGL_DMA_BUF_PLANE0_MODIFIER_LO_EXT, uint32_to_int32(planes[0].modifier & 0xFFFFFFFFlu));
             PUT_ATTR(EGL_DMA_BUF_PLANE0_MODIFIER_HI_EXT, uint32_to_int32(planes[0].modifier >> 32));
         } else {
-            LOG_ERROR("video frame buffer uses modified format but EGL doesn't support the EGL_EXT_image_dma_buf_import_modifiers extension.\n");
+            LOG_ERROR(
+                "video frame buffer uses modified format but EGL doesn't support the EGL_EXT_image_dma_buf_import_modifiers extension.\n"
+            );
             goto fail_release_planes;
         }
     }
@@ -950,7 +925,10 @@ struct video_frame *frame_new(
                 PUT_ATTR(EGL_DMA_BUF_PLANE1_MODIFIER_LO_EXT, uint32_to_int32(planes[1].modifier & 0xFFFFFFFFlu));
                 PUT_ATTR(EGL_DMA_BUF_PLANE1_MODIFIER_HI_EXT, uint32_to_int32(planes[1].modifier >> 32));
             } else {
-                LOG_ERROR("video frame buffer uses modified format but EGL doesn't support the EGL_EXT_image_dma_buf_import_modifiers extension.\n");
+                LOG_ERROR(
+                    "video frame buffer uses modified format but EGL doesn't support the EGL_EXT_image_dma_buf_import_modifiers "
+                    "extension.\n"
+                );
                 goto fail_release_planes;
             }
         }
@@ -966,7 +944,10 @@ struct video_frame *frame_new(
                 PUT_ATTR(EGL_DMA_BUF_PLANE2_MODIFIER_LO_EXT, uint32_to_int32(planes[2].modifier & 0xFFFFFFFFlu));
                 PUT_ATTR(EGL_DMA_BUF_PLANE2_MODIFIER_HI_EXT, uint32_to_int32(planes[2].modifier >> 32));
             } else {
-                LOG_ERROR("video frame buffer uses modified format but EGL doesn't support the EGL_EXT_image_dma_buf_import_modifiers extension.\n");
+                LOG_ERROR(
+                    "video frame buffer uses modified format but EGL doesn't support the EGL_EXT_image_dma_buf_import_modifiers "
+                    "extension.\n"
+                );
                 goto fail_release_planes;
             }
         }
@@ -975,7 +956,10 @@ struct video_frame *frame_new(
     // add plane 4 (if present)
     if (n_planes >= 4) {
         if (!interface->supports_extended_imports) {
-            LOG_ERROR("The video frame has more than 3 planes but that can't be imported as a GL texture if EGL doesn't support the EGL_EXT_image_dma_buf_import_modifiers extension.\n");
+            LOG_ERROR(
+                "The video frame has more than 3 planes but that can't be imported as a GL texture if EGL doesn't support the "
+                "EGL_EXT_image_dma_buf_import_modifiers extension.\n"
+            );
             goto fail_release_planes;
         }
 
@@ -1056,24 +1040,24 @@ struct video_frame *frame_new(
     frame->gl_frame.height = 0;
     return frame;
 
-    fail_unbind_texture:
+fail_unbind_texture:
     glBindTexture(texture, 0);
 
-    fail_delete_texture:
+fail_delete_texture:
     glDeleteTextures(1, &texture);
 
-    fail_clear_context:
+fail_clear_context:
     eglMakeCurrent(interface->display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
 
-    fail_unlock_interface:
+fail_unlock_interface:
     frame_interface_unlock(interface);
     interface->eglDestroyImageKHR(interface->display, egl_image);
 
-    fail_release_planes:
+fail_release_planes:
     for (int i = 0; i < n_planes; i++)
         close(planes[i].fd);
 
-    fail_free_frame:
+fail_free_frame:
     free(frame);
     return NULL;
 }
@@ -1084,7 +1068,8 @@ void frame_destroy(struct video_frame *frame) {
 
     frame_interface_lock(frame->interface);
     egl_ok = eglMakeCurrent(frame->interface->display, EGL_NO_SURFACE, EGL_NO_SURFACE, frame->interface->context);
-    DEBUG_ASSERT_EGL_TRUE(egl_ok); (void) egl_ok;
+    DEBUG_ASSERT_EGL_TRUE(egl_ok);
+    (void) egl_ok;
     glDeleteTextures(1, &frame->gl_frame.name);
     DEBUG_ASSERT(GL_NO_ERROR == glGetError());
     egl_ok = eglMakeCurrent(frame->interface->display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
@@ -1096,7 +1081,8 @@ void frame_destroy(struct video_frame *frame) {
     frame_interface_unref(frame->interface);
     for (int i = 0; i < frame->n_dmabuf_fds; i++) {
         ok = close(frame->dmabuf_fds[i]);
-        DEBUG_ASSERT(ok == 0); (void) ok;
+        DEBUG_ASSERT(ok == 0);
+        (void) ok;
     }
 
     gst_sample_unref(frame->sample);

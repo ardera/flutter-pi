@@ -5,7 +5,6 @@
  * Copyright (c) 2022, Hannes Winkler <hanneswinkler2000@web.de>
  */
 
-
 #ifndef _FLUTTERPI_INCLUDE_EGL_H
 #define _FLUTTERPI_INCLUDE_EGL_H
 
@@ -14,16 +13,16 @@
 
 #ifdef HAS_EGL
 
-#   include <EGL/egl.h>
-#   include <EGL/eglext.h>
+    #include <EGL/egl.h>
+    #include <EGL/eglext.h>
 
 #else
 
-// If the system doesn't have EGL installed, we'll clone the official EGL headers and include them,
-// but don't declare the function prototypes so we don't accidentally use one.
-#   define EGL_EGL_PROTOTYPES 0
-#   include <EGL/egl.h>
-#   include <EGL/eglext.h>
+    // If the system doesn't have EGL installed, we'll clone the official EGL headers and include them,
+    // but don't declare the function prototypes so we don't accidentally use one.
+    #define EGL_EGL_PROTOTYPES 0
+    #include <EGL/egl.h>
+    #include <EGL/eglext.h>
 
 #endif
 
@@ -70,5 +69,4 @@ static inline const char *egl_strerror(EGLenum result) {
 
 #define LOG_EGL_ERROR(result, fmt, ...) LOG_ERROR(fmt ": %s\n", __VA_ARGS__ egl_strerror(result))
 
-
-#endif // _FLUTTERPI_INCLUDE_EGL_H
+#endif  // _FLUTTERPI_INCLUDE_EGL_H

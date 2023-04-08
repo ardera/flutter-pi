@@ -1,18 +1,17 @@
 #include <ctype.h>
 #include <errno.h>
-#include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
-
-#include <flutter-pi.h>
-#include <pluginregistry.h>
-#include <keyboard.h>
-#include <ctype.h>
+#include <string.h>
 
 #include <linux/input.h>
-#include <xkbcommon/xkbcommon.h>
-#include <xkbcommon/xkbcommon-keysyms.h>
 
+#include <xkbcommon/xkbcommon-keysyms.h>
+#include <xkbcommon/xkbcommon.h>
+
+#include <flutter-pi.h>
+#include <keyboard.h>
+#include <pluginregistry.h>
 #include <plugins/raw_keyboard.h>
 
 ATTR_CONST static uint64_t apply_key_plane(uint64_t keycode, uint64_t plane) {
@@ -662,58 +661,46 @@ int rawkb_send_android_keyevent(
 
     return platch_send(
         KEY_EVENT_CHANNEL,
-        &(struct platch_obj) {
-            .codec = kJSONMessageCodec,
-            .json_value = {
-                .type = kJsonObject,
-                .size = 14,
-                .keys = (char*[14]) {
-                    "keymap",
-                    "flags",
-                    "codePoint",
-                    "keyCode",
-                    "plainCodePoint",
-                    "scanCode",
-                    "metaState",
-                    "source",
-                    "vendorId",
-                    "productId",
-                    "deviceId",
-                    "repeatCount",
-                    "type",
-                    "character"
-                },
-                .values = (struct json_value[14]) {
-                    /* keymap */            {.type = kJsonString, .string_value = "android"},
-                    /* flags */             {.type = kJsonNumber, .number_value = flags},
-                    /* codePoint */         {.type = kJsonNumber, .number_value = code_point},
-                    /* keyCode */           {.type = kJsonNumber, .number_value = key_code},
-                    /* plainCodePoint */    {.type = kJsonNumber, .number_value = code_point},
-                    /* scanCode */          {.type = kJsonNumber, .number_value = scan_code},
-                    /* metaState */         {.type = kJsonNumber, .number_value = meta_state},
-                    /* source */            {.type = kJsonNumber, .number_value = source},
-                    /* vendorId */          {.type = kJsonNumber, .number_value = vendor_id},
-                    /* productId */         {.type = kJsonNumber, .number_value = product_id},
-                    /* deviceId */          {.type = kJsonNumber, .number_value = device_id},
-                    /* repeatCount */       {.type = kJsonNumber, .number_value = repeat_count},
-                    /* type */              {.type = kJsonString, .string_value = is_down? "keydown" : "keyup"},
-                    /* character */         {.type = character? kJsonString : kJsonNull, .string_value = character}
-                }
-            }
-        },
+        &(struct platch_obj
+        ){ .codec = kJSONMessageCodec,
+           .json_value = { .type = kJsonObject,
+                           .size = 14,
+                           .keys = (char *[14]){ "keymap",
+                                                 "flags",
+                                                 "codePoint",
+                                                 "keyCode",
+                                                 "plainCodePoint",
+                                                 "scanCode",
+                                                 "metaState",
+                                                 "source",
+                                                 "vendorId",
+                                                 "productId",
+                                                 "deviceId",
+                                                 "repeatCount",
+                                                 "type",
+                                                 "character" },
+                           .values = (struct json_value[14]
+                           ){ /* keymap */ { .type = kJsonString, .string_value = "android" },
+                              /* flags */ { .type = kJsonNumber, .number_value = flags },
+                              /* codePoint */ { .type = kJsonNumber, .number_value = code_point },
+                              /* keyCode */ { .type = kJsonNumber, .number_value = key_code },
+                              /* plainCodePoint */ { .type = kJsonNumber, .number_value = code_point },
+                              /* scanCode */ { .type = kJsonNumber, .number_value = scan_code },
+                              /* metaState */ { .type = kJsonNumber, .number_value = meta_state },
+                              /* source */ { .type = kJsonNumber, .number_value = source },
+                              /* vendorId */ { .type = kJsonNumber, .number_value = vendor_id },
+                              /* productId */ { .type = kJsonNumber, .number_value = product_id },
+                              /* deviceId */ { .type = kJsonNumber, .number_value = device_id },
+                              /* repeatCount */ { .type = kJsonNumber, .number_value = repeat_count },
+                              /* type */ { .type = kJsonString, .string_value = is_down ? "keydown" : "keyup" },
+                              /* character */ { .type = character ? kJsonString : kJsonNull, .string_value = character } } } },
         kJSONMessageCodec,
         NULL,
         NULL
     );
 }
 
-int rawkb_send_gtk_keyevent(
-    uint32_t unicode_scalar_values,
-    uint32_t key_code,
-    uint32_t scan_code,
-    uint32_t modifiers,
-    bool is_down
-) {
+int rawkb_send_gtk_keyevent(uint32_t unicode_scalar_values, uint32_t key_code, uint32_t scan_code, uint32_t modifiers, bool is_down) {
     /**
      * keymap: linux
      * toolkit: glfw
@@ -726,31 +713,19 @@ int rawkb_send_gtk_keyevent(
 
     return platch_send(
         KEY_EVENT_CHANNEL,
-        &(struct platch_obj) {
-            .codec = kJSONMessageCodec,
-            .json_value = {
-                .type = kJsonObject,
-                .size = 7,
-                .keys = (char*[7]) {
-                    "keymap",
-                    "toolkit",
-                    "unicodeScalarValues",
-                    "keyCode",
-                    "scanCode",
-                    "modifiers",
-                    "type"
-                },
-                .values = (struct json_value[7]) {
-                    /* keymap */                {.type = kJsonString, .string_value = "linux"},
-                    /* toolkit */               {.type = kJsonString, .string_value = "gtk"},
-                    /* unicodeScalarValues */   {.type = kJsonNumber, .number_value = unicode_scalar_values},
-                    /* keyCode */               {.type = kJsonNumber, .number_value = key_code},
-                    /* scanCode */              {.type = kJsonNumber, .number_value = scan_code},
-                    /* modifiers */             {.type = kJsonNumber, .number_value = modifiers},
-                    /* type */                  {.type = kJsonString, .string_value = is_down? "keydown" : "keyup"}
-                }
-            }
-        },
+        &(struct platch_obj
+        ){ .codec = kJSONMessageCodec,
+           .json_value = { .type = kJsonObject,
+                           .size = 7,
+                           .keys = (char *[7]){ "keymap", "toolkit", "unicodeScalarValues", "keyCode", "scanCode", "modifiers", "type" },
+                           .values = (struct json_value[7]
+                           ){ /* keymap */ { .type = kJsonString, .string_value = "linux" },
+                              /* toolkit */ { .type = kJsonString, .string_value = "gtk" },
+                              /* unicodeScalarValues */ { .type = kJsonNumber, .number_value = unicode_scalar_values },
+                              /* keyCode */ { .type = kJsonNumber, .number_value = key_code },
+                              /* scanCode */ { .type = kJsonNumber, .number_value = scan_code },
+                              /* modifiers */ { .type = kJsonNumber, .number_value = modifiers },
+                              /* type */ { .type = kJsonString, .string_value = is_down ? "keydown" : "keyup" } } } },
         kJSONMessageCodec,
         NULL,
         NULL
@@ -769,7 +744,7 @@ int rawkb_send_flutter_keyevent(
     COMPILE_ASSERT(sizeof(FlutterKeyEvent) == 48 || sizeof(FlutterKeyEvent) == 56);
     rawkb->interface.send_key_event(
         rawkb->userdata,
-        &(FlutterKeyEvent) {
+        &(FlutterKeyEvent){
             .struct_size = sizeof(FlutterKeyEvent),
             .timestamp = timestamp_us,
             .type = type,
@@ -809,26 +784,12 @@ int rawkb_on_key_event(
         type = kFlutterKeyEventTypeUp;
     }
 
-    ok = rawkb_send_flutter_keyevent(
-        rawkb,
-        (double) timestamp_us,
-        type,
-        physical,
-        logical,
-        text,
-        false
-    );
+    ok = rawkb_send_flutter_keyevent(rawkb, (double) timestamp_us, type, physical, logical, text, false);
     if (ok != 0) {
         return ok;
     }
 
-    ok = rawkb_send_gtk_keyevent(
-        plain_codepoint,
-        xkb_keysym,
-        xkb_keycode,
-        modifiers.u32,
-        is_down
-    );
+    ok = rawkb_send_gtk_keyevent(plain_codepoint, xkb_keysym, xkb_keycode, modifiers.u32, is_down);
     if (ok != 0) {
         return ok;
     }
@@ -925,9 +886,4 @@ void rawkb_deinit(struct flutterpi *flutterpi, void *userdata) {
     (void) userdata;
 }
 
-FLUTTERPI_PLUGIN(
-    "raw keyboard plugin",
-    rawkb,
-    rawkb_init,
-    rawkb_deinit
-)
+FLUTTERPI_PLUGIN("raw keyboard plugin", rawkb, rawkb_init, rawkb_deinit)

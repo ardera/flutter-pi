@@ -7,13 +7,12 @@
  * Copyright (c) 2022, Hannes Winkler <hanneswinkler2000@web.de>
  */
 
-
 #ifndef _FLUTTERPI_INCLUDE_WINDOW_H
 #define _FLUTTERPI_INCLUDE_WINDOW_H
 
-#include <pixel_format.h>
-#include <modesetting.h>
 #include <compositor_ng.h>
+#include <modesetting.h>
+#include <pixel_format.h>
 
 struct surface;
 struct window;
@@ -24,14 +23,11 @@ struct fl_layer_composition;
 struct view_geometry {
     struct vec2f view_size, display_size;
     struct mat3f display_to_view_transform;
-	struct mat3f view_to_display_transform;
-	double device_pixel_ratio;
+    struct mat3f view_to_display_transform;
+    double device_pixel_ratio;
 };
 
-enum renderer_type {
-    kOpenGL_RendererType,
-    kVulkan_RendererType
-};
+enum renderer_type { kOpenGL_RendererType, kVulkan_RendererType };
 
 DECLARE_REF_OPS(window)
 
@@ -118,10 +114,6 @@ struct render_surface *window_get_render_surface(struct window *window, struct v
 
 bool window_is_cursor_enabled(struct window *window);
 
-int window_set_cursor(
-    struct window *window,
-    bool has_enabled, bool enabled,
-    bool has_pos, struct vec2i pos
-);
+int window_set_cursor(struct window *window, bool has_enabled, bool enabled, bool has_pos, struct vec2i pos);
 
-#endif // _FLUTTERPI_INCLUDE_WINDOW_H
+#endif  // _FLUTTERPI_INCLUDE_WINDOW_H

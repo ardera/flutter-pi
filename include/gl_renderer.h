@@ -11,13 +11,12 @@
  * Copyright (c) 2022, Hannes Winkler <hanneswinkler2000@web.de>
  */
 
-
 #ifndef _FLUTTERPI_INCLUDE_EGL_GL_RENDERER_H
 #define _FLUTTERPI_INCLUDE_EGL_GL_RENDERER_H
 
 #include <collection.h>
-#include <pixel_format.h>
 #include <egl.h>
+#include <pixel_format.h>
 
 struct tracer;
 
@@ -31,7 +30,6 @@ struct gl_renderer *gl_renderer_new_from_gbm_device(
 void gl_renderer_destroy(struct gl_renderer *renderer);
 
 DECLARE_REF_OPS(gl_renderer)
-
 
 bool gl_renderer_has_forced_pixel_format(struct gl_renderer *renderer);
 
@@ -53,7 +51,7 @@ int gl_renderer_clear_current(struct gl_renderer *renderer);
 
 EGLContext gl_renderer_create_context(struct gl_renderer *renderer);
 
-void *gl_renderer_get_proc_address(struct gl_renderer *renderer, const char* name);
+void *gl_renderer_get_proc_address(struct gl_renderer *renderer, const char *name);
 
 EGLDisplay gl_renderer_get_egl_display(struct gl_renderer *renderer);
 
@@ -71,4 +69,4 @@ ATTR_PURE EGLConfig gl_renderer_choose_config(struct gl_renderer *renderer, bool
 
 ATTR_PURE EGLConfig gl_renderer_choose_config_direct(struct gl_renderer *renderer, enum pixfmt pixel_format);
 
-#endif // _FLUTTERPI_INCLUDE_EGL_GL_RENDERER_H
+#endif  // _FLUTTERPI_INCLUDE_EGL_GL_RENDERER_H

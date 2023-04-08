@@ -5,20 +5,9 @@
 #include <egl.h>
 #include <gles.h>
 
-enum format_hint {
-    kNoFormatHint,
-    kMpegDash_FormatHint,
-    kHLS_FormatHint,
-    kSS_FormatHint,
-    kOther_FormatHint
-};
+enum format_hint { kNoFormatHint, kMpegDash_FormatHint, kHLS_FormatHint, kSS_FormatHint, kOther_FormatHint };
 
-enum buffering_mode {
-    kStream,
-    kDownload,
-    kTimeshift,
-    kLive
-};
+enum buffering_mode { kStream, kDownload, kTimeshift, kLive };
 
 struct buffering_range {
     int64_t start_ms;
@@ -58,7 +47,7 @@ struct buffering_state {
     struct buffering_range ranges[];
 };
 
-#define BUFFERING_STATE_SIZE(n_ranges) (sizeof(struct buffering_state) + (n_ranges)*sizeof(struct buffering_range))
+#define BUFFERING_STATE_SIZE(n_ranges) (sizeof(struct buffering_state) + (n_ranges) * sizeof(struct buffering_range))
 
 struct video_info;
 struct gstplayer;
@@ -68,41 +57,23 @@ struct flutterpi;
 ///     @arg asset_path     The path of the asset inside the asset bundle.
 ///     @arg package_name   The name of the package containing the asset
 ///     @arg userdata       The userdata associated with this player
-struct gstplayer *gstplayer_new_from_asset(
-    struct flutterpi *flutterpi,
-    const char *asset_path,
-    const char *package_name,
-    void *userdata
-);
+struct gstplayer *gstplayer_new_from_asset(struct flutterpi *flutterpi, const char *asset_path, const char *package_name, void *userdata);
 
 /// Create a gstreamer video player that loads the video from a network URI.
 ///     @arg uri          The URI to the video. (for example, http://, https://, rtmp://, rtsp://)
 ///     @arg format_hint  A hint to the format of the video. kNoFormatHint means there's no hint.
 ///     @arg userdata     The userdata associated with this player.
-struct gstplayer *gstplayer_new_from_network(
-    struct flutterpi *flutterpi,
-    const char *uri,
-    enum format_hint format_hint,
-    void *userdata
-);
+struct gstplayer *gstplayer_new_from_network(struct flutterpi *flutterpi, const char *uri, enum format_hint format_hint, void *userdata);
 
 /// Create a gstreamer video player that loads the video from a file URI.
 ///     @arg uri        The file:// URI to the video.
 ///     @arg userdata   The userdata associated with this player.
-struct gstplayer *gstplayer_new_from_file(
-    struct flutterpi *flutterpi,
-    const char *uri,
-    void *userdata
-);
+struct gstplayer *gstplayer_new_from_file(struct flutterpi *flutterpi, const char *uri, void *userdata);
 
 /// Create a gstreamer video player with a custom gstreamer pipeline.
 ///     @arg pipeline  The description of the custom pipeline that should be used. Should contain an appsink called "sink".
 ///     @arg userdata  The userdata associated with this player.
-struct gstplayer *gstplayer_new_from_pipeline(
-    struct flutterpi *flutterpi,
-    const char *pipeline,
-    void *userdata
-);
+struct gstplayer *gstplayer_new_from_pipeline(struct flutterpi *flutterpi, const char *pipeline, void *userdata);
 
 /// Destroy this gstreamer player instance and the resources
 /// associated with it. (texture, gstreamer pipeline, etc)
@@ -219,18 +190,11 @@ ATTR_PURE int frame_interface_get_n_formats(struct frame_interface *interface);
 
 ATTR_PURE const struct egl_modified_format *frame_interface_get_format(struct frame_interface *interface, int index);
 
-#define for_each_format_in_frame_interface(index, format, interface) \
-	for ( \
-		const struct egl_modified_format *format = frame_interface_get_format((interface), 0), *guard = NULL; \
-		guard == NULL; \
-		guard = (void*) 1 \
-	) \
-		for ( \
-			size_t index = 0; \
-			index < frame_interface_get_n_formats(interface); \
-			index++, \
-				format = (index) < frame_interface_get_n_formats(interface) ? frame_interface_get_format((interface), (index)) : NULL \
-        )
+#define for_each_format_in_frame_interface(index, format, interface)                                                          \
+    for (const struct egl_modified_format *format = frame_interface_get_format((interface), 0), *guard = NULL; guard == NULL; \
+         guard = (void *) 1)                                                                                                  \
+        for (size_t index = 0; index < frame_interface_get_n_formats(interface); index++,                                     \
+                    format = (index) < frame_interface_get_n_formats(interface) ? frame_interface_get_format((interface), (index)) : NULL)
 
 DECLARE_LOCK_OPS(frame_interface)
 
@@ -257,11 +221,7 @@ struct _GstSample;
 
 ATTR_CONST GstVideoFormat gst_video_format_from_drm_format(uint32_t drm_format);
 
-struct video_frame *frame_new(
-    struct frame_interface *interface,
-    GstSample *sample,
-    const GstVideoInfo *info
-);
+struct video_frame *frame_new(struct frame_interface *interface, GstSample *sample, const GstVideoInfo *info);
 
 void frame_destroy(struct video_frame *frame);
 

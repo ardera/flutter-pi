@@ -42,11 +42,7 @@ struct text_input_configuration {
     enum text_input_action input_action;
 };
 
-enum floating_cursor_drag_state {
-    kFloatingCursorDragStateStart,
-    kFloatingCursorDragStateUpdate,
-    kFloatingCursorDragStateEnd
-};
+enum floating_cursor_drag_state { kFloatingCursorDragStateStart, kFloatingCursorDragStateUpdate, kFloatingCursorDragStateEnd };
 
 // parses the input string as linux terminal input and calls the TextInput model functions
 // accordingly.

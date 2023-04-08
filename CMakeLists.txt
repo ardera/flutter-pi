@@ -176,8 +176,8 @@ target_include_directories(flutterpi_module PUBLIC
 
 target_compile_options(flutterpi_module PRIVATE
   $<$<CONFIG:Debug>:-O0 -Wall -Wextra -Wno-sign-compare -Werror -ggdb -U_FORTIFY_SOURCE -DDEBUG>
-  $<$<CONFIG:RelWithDebInfo>:-O3 -Wall -Wextra -Wno-sign-compare -ggdb>
-  $<$<CONFIG:Release>:-O3 -Wall -Wextra -Wno-sign-compare>
+  $<$<CONFIG:RelWithDebInfo>:-O3 -Wall -Wextra -Wno-sign-compare -ggdb -DNDEBUG>
+  $<$<CONFIG:Release>:-O3 -Wall -Wextra -Wno-sign-compare -DNDEBUG>
 )
 
 # GCC prior to 11.3 reports false positives for missing-field-initializers warning.
@@ -186,6 +186,39 @@ if (CMAKE_C_COMPILER_ID STREQUAL "GNU")
     target_compile_options(flutterpi_module PRIVATE -Wno-missing-field-initializers)
   endif()
 endif()
+
+# # Check for GCC style builtins
+# foreach b : ['bswap32', 'bswap64', 'clz', 'clzll', 'ctz', 'expect', 'ffs',
+#              'ffsll', 'popcount', 'popcountll', 'unreachable', 'types_compatible_p']
+#   if cc.has_function(b)
+#     pre_args += '-DHAVE___BUILTIN_@0@'.format(b.to_upper())
+#   endif
+# endforeach
+#
+# # check for GCC __attribute__
+# _attributes = [
+#   'const', 'flatten', 'malloc', 'pure', 'unused', 'warn_unused_result',
+#   'weak', 'format', 'packed', 'returns_nonnull', 'alias', 'noreturn',
+# ]
+# foreach a : cc.get_supported_function_attributes(_attributes)
+#   pre_args += '-DHAVE_FUNC_ATTRIBUTE_@0@'.format(a.to_upper())
+# endforeach
+# if cc.has_function_attribute('visibility:hidden')
+#   pre_args += '-DHAVE_FUNC_ATTRIBUTE_VISIBILITY'
+# endif
+# if cc.compiles('__uint128_t foo(void) { return 0; }',
+#                name : '__uint128_t')
+#   pre_args += '-DHAVE_UINT128'
+# endif
+#
+# if cc.has_function('reallocarray')
+#    pre_args += '-DHAVE_REALLOCARRAY'
+# endif
+# if cc.has_function('fmemopen')
+#    pre_args += '-DHAVE_FMEMOPEN'
+# endif
+
+
 
 # libinput stuff
 # There's no other way to query the libinput version (in code) somehow.
@@ -204,6 +237,7 @@ target_compile_definitions(flutterpi_module PRIVATE
 # TODO: Just unconditionally define those, make them optional later
 target_compile_definitions(flutterpi_module PRIVATE HAS_KMS HAS_GBM HAS_FBDEV)
 
+# OpenGL
 pkg_check_modules(EGL IMPORTED_TARGET egl)
 pkg_check_modules(GLESV2 IMPORTED_TARGET glesv2)
 

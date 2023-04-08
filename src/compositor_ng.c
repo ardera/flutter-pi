@@ -17,30 +17,29 @@
 #include <semaphore.h>
 
 #ifdef HAS_GBM
-#    include <gbm.h>
+    #include <gbm.h>
 #endif
 #include <flutter_embedder.h>
 #include <systemd/sd-event.h>
 
-#include <render_surface.h>
 #include <collection.h>
 #include <compositor_ng.h>
 #include <egl.h>
-#include <flutter-pi.h>
 #include <egl_gbm_render_surface.h>
-#include <vk_gbm_render_surface.h>
+#include <flutter-pi.h>
+#include <frame_scheduler.h>
 #include <gl_renderer.h>
-#include <vk_renderer.h>
 #include <modesetting.h>
 #include <notifier_listener.h>
 #include <pixel_format.h>
+#include <render_surface.h>
 #include <surface.h>
 #include <tracer.h>
+#include <vk_gbm_render_surface.h>
+#include <vk_renderer.h>
 #include <window.h>
-#include <frame_scheduler.h>
 
 FILE_DESCR("compositor-ng")
-
 
 /**
  * @brief A nicer, ref-counted version of the FlutterLayer's passed by the engine to the present layer callback.
@@ -126,18 +125,12 @@ struct platform_view_with_id {
 
 static bool on_flutter_present_layers(const FlutterLayer **layers, size_t layers_count, void *userdata);
 
-static bool on_flutter_create_backing_store(
-    const FlutterBackingStoreConfig *config,
-    FlutterBackingStore *backing_store_out,
-    void *userdata
-);
+static bool
+on_flutter_create_backing_store(const FlutterBackingStoreConfig *config, FlutterBackingStore *backing_store_out, void *userdata);
 
 static bool on_flutter_collect_backing_store(const FlutterBackingStore *fl_store, void *userdata);
 
-ATTR_MALLOC struct compositor *compositor_new(
-    struct tracer *tracer,
-    struct window *main_window
-) {
+ATTR_MALLOC struct compositor *compositor_new(struct tracer *tracer, struct window *main_window) {
     struct compositor *compositor;
     int ok;
 
@@ -155,7 +148,6 @@ ATTR_MALLOC struct compositor *compositor_new(
     if (ok != 0) {
         goto fail_destroy_mutex;
     }
-
 
     compositor->n_refs = REFCOUNT_INIT_1;
     // just so we get an error if the FlutterCompositor struct was updated
@@ -335,8 +327,7 @@ static int compositor_push_fl_layers(struct compositor *compositor, size_t n_fl_
             render_surface_queue_present(CAST_RENDER_SURFACE(layer->surface), fl_layer->backing_store);
 
             layer->props.is_aa_rect = true;
-            layer->props.aa_rect =
-                AA_RECT_FROM_COORDS(fl_layer->offset.y, fl_layer->offset.y, fl_layer->size.width, fl_layer->size.height);
+            layer->props.aa_rect = AA_RECT_FROM_COORDS(fl_layer->offset.y, fl_layer->offset.y, fl_layer->size.width, fl_layer->size.height);
             layer->props.quad = get_quad(layer->props.aa_rect);
             layer->props.opacity = 1.0;
             layer->props.rotation = 0.0;
@@ -350,8 +341,7 @@ static int compositor_push_fl_layers(struct compositor *compositor, size_t n_fl_
             // if we're in debug mode, we actually check if the ID is a valid,
             // registered ID.
             /// TODO: Implement
-            layer->surface =
-                surface_ref(compositor_get_view_by_id_locked(compositor, fl_layer->platform_view->identifier));
+            layer->surface = surface_ref(compositor_get_view_by_id_locked(compositor, fl_layer->platform_view->identifier));
 #else
             // in release mode, we just assume the id is valid.
             // Since the surface constructs the ID by just casting the surface pointer to an int64_t,
@@ -477,11 +467,8 @@ EGLSurface compositor_get_egl_surface(struct compositor *compositor) {
     return window_get_egl_surface(compositor->main_window);
 }
 
-static bool on_flutter_create_backing_store(
-    const FlutterBackingStoreConfig *config,
-    FlutterBackingStore *backing_store_out,
-    void *userdata
-) {
+static bool
+on_flutter_create_backing_store(const FlutterBackingStoreConfig *config, FlutterBackingStore *backing_store_out, void *userdata) {
     struct render_surface *s;
     struct compositor *compositor;
     int ok;
@@ -539,11 +526,7 @@ const FlutterCompositor *compositor_get_flutter_compositor(struct compositor *co
     return &compositor->flutter_compositor;
 }
 
-void compositor_set_cursor(
-    struct compositor *compositor,
-    bool has_enabled, bool enabled,
-    bool has_delta, struct vec2f delta
-) {
+void compositor_set_cursor(struct compositor *compositor, bool has_enabled, bool enabled, bool has_delta, struct vec2f delta) {
     if (!has_enabled && !has_delta) {
         return;
     }
@@ -585,8 +568,10 @@ void compositor_set_cursor(
 
     window_set_cursor(
         compositor->main_window,
-        has_enabled, enabled,
-        has_delta, VEC2I((int) round(compositor->cursor_pos.x), (int) round(compositor->cursor_pos.y))
+        has_enabled,
+        enabled,
+        has_delta,
+        VEC2I((int) round(compositor->cursor_pos.x), (int) round(compositor->cursor_pos.y))
     );
 
     compositor_unlock(compositor);
