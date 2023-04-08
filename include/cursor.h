@@ -4,10 +4,10 @@
 #include <stdint.h>
 
 struct cursor_icon {
-	int rotation;
-	int hot_x, hot_y;
-	int width, height;
-	uint32_t *data;
+    int rotation;
+    int hot_x, hot_y;
+    int width, height;
+    uint32_t *data;
 };
 
 extern const struct cursor_icon cursors[5];

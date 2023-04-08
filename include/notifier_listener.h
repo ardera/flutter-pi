@@ -3,10 +3,7 @@
 
 #include <collection.h>
 
-enum listener_return {
-    kNoAction,
-    kUnlisten
-};
+enum listener_return { kNoAction, kUnlisten };
 
 typedef enum listener_return (*listener_cb_t)(void *arg, void *userdata);
 
@@ -131,4 +128,4 @@ int notifier_unlisten(struct notifier *notifier, struct listener *listener);
  */
 void notifier_notify(struct notifier *notifier, void *arg);
 
-#endif // _FLUTTERPI_INCLUDE_NOTIFIER_LISTENER_H
+#endif  // _FLUTTERPI_INCLUDE_NOTIFIER_LISTENER_H

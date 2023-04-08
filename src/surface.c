@@ -85,11 +85,7 @@ int64_t surface_get_revision(struct surface *s) {
     return s->revision;
 }
 
-int surface_present_kms(
-    struct surface *s,
-    const struct fl_layer_props *props,
-    struct kms_req_builder *builder
-) {
+int surface_present_kms(struct surface *s, const struct fl_layer_props *props, struct kms_req_builder *builder) {
     int ok;
 
     DEBUG_ASSERT_NOT_NULL(s);
@@ -104,11 +100,7 @@ int surface_present_kms(
     return ok;
 }
 
-int surface_present_fbdev(
-    struct surface *s,
-    const struct fl_layer_props *props,
-    struct fbdev_commit_builder *builder
-) {
+int surface_present_fbdev(struct surface *s, const struct fl_layer_props *props, struct fbdev_commit_builder *builder) {
     int ok;
 
     DEBUG_ASSERT_NOT_NULL(s);

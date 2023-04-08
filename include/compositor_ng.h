@@ -7,17 +7,17 @@
  * Copyright (c) 2022, Hannes Winkler <hanneswinkler2000@web.de>
  */
 
-
 #ifndef _FLUTTERPI_INCLUDE_COMPOSITOR_NG_H
 #define _FLUTTERPI_INCLUDE_COMPOSITOR_NG_H
 
 #include <flutter_embedder.h>
+
 #include <collection.h>
-#include <pixel_format.h>
-#include <modesetting.h>
-#include <flutter-pi.h>
 #include <egl.h>
+#include <flutter-pi.h>
 #include <frame_scheduler.h>
+#include <modesetting.h>
+#include <pixel_format.h>
 
 struct compositor;
 
@@ -147,10 +147,7 @@ struct tracer;
 
 typedef void (*compositor_frame_begin_cb_t)(void *userdata, uint64_t vblank_ns, uint64_t next_vblank_ns);
 
-ATTR_MALLOC struct compositor *compositor_new(
-    struct tracer *tracer,
-    struct window *main_window
-);
+ATTR_MALLOC struct compositor *compositor_new(struct tracer *tracer, struct window *main_window);
 
 void compositor_destroy(struct compositor *compositor);
 
@@ -178,14 +175,9 @@ int compositor_get_event_fd(struct compositor *compositor);
 
 int compositor_on_event_fd_ready(struct compositor *compositor);
 
-void compositor_set_cursor(
-    struct compositor *compositor,
-    bool has_enabled, bool enabled,
-    bool has_delta, struct vec2f delta
-);
+void compositor_set_cursor(struct compositor *compositor, bool has_enabled, bool enabled, bool has_delta, struct vec2f delta);
 
 ATTR_PURE EGLConfig egl_choose_config_with_pixel_format(EGLDisplay egl_display, const EGLint *config_attribs, enum pixfmt pixel_format);
-
 
 struct fl_layer_composition;
 
@@ -196,4 +188,4 @@ DECLARE_REF_OPS(fl_layer_composition)
 size_t fl_layer_composition_get_n_layers(struct fl_layer_composition *composition);
 struct fl_layer *fl_layer_composition_peek_layer(struct fl_layer_composition *composition, int layer);
 
-#endif // _FLUTTERPI_INCLUDE_COMPOSITOR_NG_H
+#endif  // _FLUTTERPI_INCLUDE_COMPOSITOR_NG_H

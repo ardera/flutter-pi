@@ -8,25 +8,24 @@
  * Copyright (c) 2022, Hannes Winkler <hanneswinkler2000@web.de>
  */
 
-
 #include <stdlib.h>
 
 #include <collection.h>
-#include <pixel_format.h>
-#include <modesetting.h>
 #include <egl.h>
+#include <egl_gbm_render_surface.h>
+#include <gl_renderer.h>
 #include <gles.h>
-#include <surface.h>
+#include <modesetting.h>
+#include <pixel_format.h>
 #include <render_surface.h>
 #include <render_surface_private.h>
-#include <egl_gbm_render_surface.h>
+#include <surface.h>
 #include <tracer.h>
-#include <gl_renderer.h>
 
 FILE_DESCR("EGL/GBM render surface")
 
 #ifndef HAS_EGL
-#   error "EGL is needed for EGL/GBM render surface."
+    #error "EGL is needed for EGL/GBM render surface."
 #endif
 
 struct egl_gbm_render_surface;
@@ -98,7 +97,8 @@ ATTR_PURE struct egl_gbm_render_surface *__checked_cast_egl_gbm_render_surface(v
 
 void egl_gbm_render_surface_deinit(struct surface *s);
 static int egl_gbm_render_surface_present_kms(struct surface *s, const struct fl_layer_props *props, struct kms_req_builder *builder);
-static int egl_gbm_render_surface_present_fbdev(struct surface *s, const struct fl_layer_props *props, struct fbdev_commit_builder *builder);
+static int
+egl_gbm_render_surface_present_fbdev(struct surface *s, const struct fl_layer_props *props, struct fbdev_commit_builder *builder);
 static int egl_gbm_render_surface_fill(struct render_surface *s, FlutterBackingStore *fl_store);
 static int egl_gbm_render_surface_queue_present(struct render_surface *s, const FlutterBackingStore *fl_store);
 
@@ -134,14 +134,19 @@ static int egl_gbm_render_surface_init(
             return EIO;
         }
 
-        DEBUG_ASSERT_EQUALS_MSG(value, get_pixfmt_info(pixel_format)->gbm_format, "EGL framebuffer config pixel format doesn't match the argument pixel format.");
+        DEBUG_ASSERT_EQUALS_MSG(
+            value,
+            get_pixfmt_info(pixel_format)->gbm_format,
+            "EGL framebuffer config pixel format doesn't match the argument pixel format."
+        );
     }
 #endif
 
     if (allowed_modifiers != NULL) {
         gbm_surface = gbm_surface_create_with_modifiers(
             gbm_device,
-            size.x, size.y,
+            size.x,
+            size.y,
             get_pixfmt_info(pixel_format)->gbm_format,
             allowed_modifiers,
             n_allowed_modifiers
@@ -154,7 +159,8 @@ static int egl_gbm_render_surface_init(
     } else {
         gbm_surface = gbm_surface_create(
             gbm_device,
-            size.x, size.y,
+            size.x,
+            size.y,
             get_pixfmt_info(pixel_format)->gbm_format,
             GBM_BO_USE_RENDERING | GBM_BO_USE_SCANOUT
         );
@@ -170,18 +176,20 @@ static int egl_gbm_render_surface_init(
         // choose a config
         egl_config = gl_renderer_choose_config_direct(renderer, pixel_format);
         if (egl_config == EGL_NO_CONFIG_KHR) {
-            LOG_ERROR("EGL doesn't supported the specified pixel format %s. Try a different one (ARGB8888 should always work).\n", get_pixfmt_info(pixel_format)->name);
+            LOG_ERROR(
+                "EGL doesn't supported the specified pixel format %s. Try a different one (ARGB8888 should always work).\n",
+                get_pixfmt_info(pixel_format)->name
+            );
             ok = EINVAL;
             goto fail_destroy_gbm_surface;
         }
     }
 
-    static const EGLAttrib surface_attribs[] = {
-        /* EGL_GL_COLORSPACE, GL_LINEAR / GL_SRGB */
-        /* EGL_RENDER_BUFFER, EGL_BACK_BUFFER / EGL_SINGLE_BUFFER */
-        /* EGL_VG_ALPHA_FORMAT, EGL_VG_ALPHA_FORMAT_NONPRE / EGL_VG_ALPHA_FORMAT_PRE */
-        /* EGL_VG_COLORSPACE, EGL_VG_COLORSPACE_sRGB / EGL_VG_COLORSPACE_LINEAR */
-        EGL_NONE
+    static const EGLAttrib surface_attribs[] = { /* EGL_GL_COLORSPACE, GL_LINEAR / GL_SRGB */
+                                                 /* EGL_RENDER_BUFFER, EGL_BACK_BUFFER / EGL_SINGLE_BUFFER */
+                                                 /* EGL_VG_ALPHA_FORMAT, EGL_VG_ALPHA_FORMAT_NONPRE / EGL_VG_ALPHA_FORMAT_PRE */
+                                                 /* EGL_VG_COLORSPACE, EGL_VG_COLORSPACE_sRGB / EGL_VG_COLORSPACE_LINEAR */
+                                                 EGL_NONE
     };
 
     (void) surface_attribs;
@@ -193,12 +201,7 @@ static int egl_gbm_render_surface_init(
         goto fail_destroy_gbm_surface;
     }
 
-    egl_surface = eglCreatePlatformWindowSurface(
-        egl_display,
-        egl_config,
-        gbm_surface,
-        NULL
-    );
+    egl_surface = eglCreatePlatformWindowSurface(egl_display, egl_config, gbm_surface, NULL);
     if (egl_surface == EGL_NO_SURFACE) {
         LOG_ERROR("Could not create EGL rendering surface. eglCreatePlatformWindowSurface: 0x%08X\n", eglGetError());
         ok = EIO;
@@ -230,12 +233,11 @@ static int egl_gbm_render_surface_init(
     s->locked_front_fb = NULL;
     return 0;
 
-
-    fail_destroy_egl_surface:
+fail_destroy_egl_surface:
 #ifdef HAS_EGL
     eglDestroySurface(egl_display, egl_surface);
 
-    fail_destroy_gbm_surface:
+fail_destroy_gbm_surface:
 #endif
     gbm_surface_destroy(gbm_surface);
     return ok;
@@ -270,18 +272,27 @@ struct egl_gbm_render_surface *egl_gbm_render_surface_new_with_egl_config(
         goto fail_return_null;
     }
 
-    ok = egl_gbm_render_surface_init(surface, tracer, size, device, renderer, pixel_format, egl_config, allowed_modifiers, n_allowed_modifiers);
+    ok = egl_gbm_render_surface_init(
+        surface,
+        tracer,
+        size,
+        device,
+        renderer,
+        pixel_format,
+        egl_config,
+        allowed_modifiers,
+        n_allowed_modifiers
+    );
     if (ok != 0) {
         goto fail_free_surface;
     }
 
     return surface;
 
-
-    fail_free_surface:
+fail_free_surface:
     free(surface);
 
-    fail_return_null:
+fail_return_null:
     return NULL;
 }
 
@@ -302,16 +313,7 @@ struct egl_gbm_render_surface *egl_gbm_render_surface_new(
     struct gl_renderer *renderer,
     enum pixfmt pixel_format
 ) {
-    return egl_gbm_render_surface_new_with_egl_config(
-        tracer,
-        size,
-        device,
-        renderer,
-        pixel_format,
-        EGL_NO_CONFIG_KHR,
-        NULL,
-        0
-    );
+    return egl_gbm_render_surface_new_with_egl_config(tracer, size, device, renderer, pixel_format, EGL_NO_CONFIG_KHR, NULL, 0);
 }
 
 void egl_gbm_render_surface_deinit(struct surface *s) {
@@ -371,7 +373,10 @@ static int egl_gbm_render_surface_present_kms(struct surface *s, const struct fl
 
     surface_lock(s);
 
-    DEBUG_ASSERT_NOT_NULL_MSG(egl_surface->locked_front_fb, "There's no framebuffer available for scanout right now. Make sure you called render_surface_queue_present() before presenting.");
+    DEBUG_ASSERT_NOT_NULL_MSG(
+        egl_surface->locked_front_fb,
+        "There's no framebuffer available for scanout right now. Make sure you called render_surface_queue_present() before presenting."
+    );
 
     bo = egl_surface->locked_front_fb->bo;
     meta = gbm_bo_get_user_data(bo);
@@ -394,7 +399,8 @@ static int egl_gbm_render_surface_present_kms(struct surface *s, const struct fl
             gbm_bo_get_handle(bo).u32,
             gbm_bo_get_stride(bo),
             gbm_bo_get_offset(bo, 0),
-            true, gbm_bo_get_modifier(bo)
+            true,
+            gbm_bo_get_modifier(bo)
         );
         TRACER_END(egl_surface->surface.tracer, "drmdev_add_fb (non-opaque)");
 
@@ -409,7 +415,11 @@ static int egl_gbm_render_surface_present_kms(struct surface *s, const struct fl
         gbm_bo_set_user_data(bo, meta, on_destroy_gbm_bo_meta);
     } else {
         // We can only add this GBM BO to a single KMS device as an fb right now.
-        DEBUG_ASSERT_EQUALS_MSG(meta->drmdev, kms_req_builder_get_drmdev(builder), "Currently GBM BOs can only be scanned out on a single KMS device for their whole lifetime.");
+        DEBUG_ASSERT_EQUALS_MSG(
+            meta->drmdev,
+            kms_req_builder_get_drmdev(builder),
+            "Currently GBM BOs can only be scanned out on a single KMS device for their whole lifetime."
+        );
     }
 
     /*
@@ -437,28 +447,26 @@ static int egl_gbm_render_surface_present_kms(struct surface *s, const struct fl
     TRACER_BEGIN(egl_surface->surface.tracer, "kms_req_builder_push_fb_layer");
     ok = kms_req_builder_push_fb_layer(
         builder,
-        &(const struct kms_fb_layer) {
-            .drm_fb_id = fb_id,
-            .format = pixel_format,
-            .has_modifier = gbm_bo_get_modifier(bo) != DRM_FORMAT_MOD_INVALID,
-            .modifier = gbm_bo_get_modifier(bo),
+        &(const struct kms_fb_layer){ .drm_fb_id = fb_id,
+                                      .format = pixel_format,
+                                      .has_modifier = gbm_bo_get_modifier(bo) != DRM_FORMAT_MOD_INVALID,
+                                      .modifier = gbm_bo_get_modifier(bo),
 
-            .dst_x = (int32_t) props->aa_rect.offset.x,
-            .dst_y = (int32_t) props->aa_rect.offset.y,
-            .dst_w = (uint32_t) props->aa_rect.size.x,
-            .dst_h = (uint32_t) props->aa_rect.size.y,
+                                      .dst_x = (int32_t) props->aa_rect.offset.x,
+                                      .dst_y = (int32_t) props->aa_rect.offset.y,
+                                      .dst_w = (uint32_t) props->aa_rect.size.x,
+                                      .dst_h = (uint32_t) props->aa_rect.size.y,
 
-            .src_x = 0,
-            .src_y = 0,
-            .src_w = DOUBLE_TO_FP1616_ROUNDED(egl_surface->render_surface.size.x),
-            .src_h = DOUBLE_TO_FP1616_ROUNDED(egl_surface->render_surface.size.y),
+                                      .src_x = 0,
+                                      .src_y = 0,
+                                      .src_w = DOUBLE_TO_FP1616_ROUNDED(egl_surface->render_surface.size.x),
+                                      .src_h = DOUBLE_TO_FP1616_ROUNDED(egl_surface->render_surface.size.y),
 
-            .has_rotation = false,
-            .rotation = PLANE_TRANSFORM_ROTATE_0,
+                                      .has_rotation = false,
+                                      .rotation = PLANE_TRANSFORM_ROTATE_0,
 
-            .has_in_fence_fd = false,
-            .in_fence_fd = 0
-        },
+                                      .has_in_fence_fd = false,
+                                      .in_fence_fd = 0 },
         on_release_layer,
         NULL,
         locked_fb_ref(egl_surface->locked_front_fb)
@@ -471,19 +479,20 @@ static int egl_gbm_render_surface_present_kms(struct surface *s, const struct fl
     surface_unlock(s);
     return ok;
 
-    fail_unref_locked_fb:
+fail_unref_locked_fb:
     locked_fb_unref(egl_surface->locked_front_fb);
     goto fail_unlock;
 
-    fail_free_meta:
+fail_free_meta:
     free(meta);
 
-    fail_unlock:
+fail_unlock:
     surface_unlock(s);
     return ok;
 }
 
-static int egl_gbm_render_surface_present_fbdev(struct surface *s, const struct fl_layer_props *props, struct fbdev_commit_builder *builder) {
+static int
+egl_gbm_render_surface_present_fbdev(struct surface *s, const struct fl_layer_props *props, struct fbdev_commit_builder *builder) {
     struct egl_gbm_render_surface *egl_surface;
 
     /// TODO: Implement by mmapping the current front bo, copy it into the fbdev
@@ -501,24 +510,21 @@ static int egl_gbm_render_surface_present_fbdev(struct surface *s, const struct 
 
 static int egl_gbm_render_surface_fill(struct render_surface *s, FlutterBackingStore *fl_store) {
     fl_store->type = kFlutterBackingStoreTypeOpenGL;
-    fl_store->open_gl = (FlutterOpenGLBackingStore) {
-        .type = kFlutterOpenGLTargetTypeFramebuffer,
-        .framebuffer = {
-            /* for some reason flutter wants this to be GL_BGRA8_EXT, contrary to what the docs say */
-            .target = GL_BGRA8_EXT,
+    fl_store->open_gl = (FlutterOpenGLBackingStore
+    ){ .type = kFlutterOpenGLTargetTypeFramebuffer,
+       .framebuffer = { /* for some reason flutter wants this to be GL_BGRA8_EXT, contrary to what the docs say */
+                        .target = GL_BGRA8_EXT,
 
-            /* 0 refers to the window surface, instead of to an FBO */
-            .name = 0,
+                        /* 0 refers to the window surface, instead of to an FBO */
+                        .name = 0,
 
-            /*
+                        /*
              * even though the compositor will call surface_ref too to fill the FlutterBackingStore.user_data,
              * we need to ref two times because flutter will call both this destruction callback and the
              * compositor collect callback
              */
-            .user_data = surface_ref(CAST_SURFACE_UNCHECKED(s)),
-            .destruction_callback = surface_unref_void
-        }
-    };
+                        .user_data = surface_ref(CAST_SURFACE_UNCHECKED(s)),
+                        .destruction_callback = surface_unref_void } };
     return 0;
 }
 
@@ -577,7 +583,7 @@ static int egl_gbm_render_surface_queue_present(struct render_surface *s, const 
     ok = EIO;
     goto fail_release_bo;
 
-    locked:
+locked:
     /// TODO: Remove this once we're using triple buffering
     //DEBUG_ASSERT_MSG(atomic_fetch_add(&render_surface->n_locked_fbs, 1) <= 1, "sanity check failed: too many locked fbs for double-buffered vsync");
     egl_surface->locked_fbs[i].bo = bo;
@@ -587,11 +593,10 @@ static int egl_gbm_render_surface_queue_present(struct render_surface *s, const 
     surface_unlock(CAST_SURFACE(s));
     return 0;
 
-
-    fail_release_bo:
+fail_release_bo:
     gbm_surface_release_buffer(egl_surface->gbm_surface, bo);
 
-    fail_unlock:
+fail_unlock:
     surface_unlock(CAST_SURFACE(s));
     return ok;
 }

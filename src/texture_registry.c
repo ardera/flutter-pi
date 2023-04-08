@@ -1,14 +1,14 @@
-#include <stdint.h>
-#include <stdbool.h>
-#include <stdlib.h>
 #include <errno.h>
-#include <stdio.h>
 #include <inttypes.h>
+#include <stdbool.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
 
 #include <flutter_embedder.h>
 
-#include <texture_registry.h>
 #include <flutter-pi.h>
+#include <texture_registry.h>
 
 FILE_DESCR("texture registry")
 
@@ -33,12 +33,9 @@ struct counted_texture_frame {
 void counted_texture_frame_destroy(struct counted_texture_frame *frame) {
     if (frame->is_resolved) {
         if (frame->frame.destroy != NULL) {
-            frame->frame.destroy(
-                &frame->frame,
-                frame->frame.userdata
-            );
+            frame->frame.destroy(&frame->frame, frame->frame.userdata);
         }
-    } else if (frame->unresolved_frame.destroy != NULL){
+    } else if (frame->unresolved_frame.destroy != NULL) {
         frame->unresolved_frame.destroy(frame->unresolved_frame.userdata);
     }
     free(frame);
@@ -66,10 +63,7 @@ struct texture {
     bool dirty;
 };
 
-struct texture_registry *texture_registry_new(
-    const struct texture_registry_interface *interface,
-    void *userdata
-) {
+struct texture_registry *texture_registry_new(const struct texture_registry_interface *interface, void *userdata) {
     struct texture_registry *reg;
     int ok;
 
@@ -138,11 +132,8 @@ static void texture_registry_unregister_texture(struct texture_registry *reg, st
     cpset_remove(&reg->textures, texture);
 }
 
-static bool texture_gl_external_texture_frame_callback(
-    struct texture *texture,
-    size_t width, size_t height,
-    FlutterOpenGLTexture *texture_out
-);
+static bool
+texture_gl_external_texture_frame_callback(struct texture *texture, size_t width, size_t height, FlutterOpenGLTexture *texture_out);
 
 bool texture_registry_gl_external_texture_frame_callback(
     struct texture_registry *reg,
@@ -179,7 +170,6 @@ bool texture_registry_gl_external_texture_frame_callback(
     return result;
 }
 
-
 DEFINE_INLINE_LOCK_OPS(texture, lock)
 
 struct texture *texture_new(struct texture_registry *reg) {
@@ -213,7 +203,12 @@ int64_t texture_get_id(struct texture *texture) {
     return texture->id;
 }
 
-static int push_frame(struct texture *texture, bool is_resolved, const struct texture_frame *frame, const struct unresolved_texture_frame *unresolved_frame) {
+static int push_frame(
+    struct texture *texture,
+    bool is_resolved,
+    const struct texture_frame *frame,
+    const struct unresolved_texture_frame *unresolved_frame
+) {
     struct counted_texture_frame *counted_frame;
     int ok;
 
@@ -255,21 +250,11 @@ static int push_frame(struct texture *texture, bool is_resolved, const struct te
 }
 
 int texture_push_frame(struct texture *texture, const struct texture_frame *frame) {
-    return push_frame(
-        texture,
-        true,
-        frame,
-        NULL
-    );
+    return push_frame(texture, true, frame, NULL);
 }
 
 int texture_push_unresolved_frame(struct texture *texture, const struct unresolved_texture_frame *frame) {
-    return push_frame(
-        texture,
-        false,
-        NULL,
-        frame
-    );
+    return push_frame(texture, false, NULL, frame);
 }
 
 void texture_destroy(struct texture *texture) {
@@ -291,12 +276,8 @@ static void on_flutter_acquired_frame_destroy(void *userdata) {
     counted_texture_frame_unref(frame);
 }
 
-static bool texture_gl_external_texture_frame_callback(
-    struct texture *texture,
-    size_t width,
-    size_t height,
-    FlutterOpenGLTexture *texture_out
-) {
+static bool
+texture_gl_external_texture_frame_callback(struct texture *texture, size_t width, size_t height, FlutterOpenGLTexture *texture_out) {
     struct counted_texture_frame *frame;
     int ok;
 

@@ -1,13 +1,14 @@
 #define _GNU_SOURCE
 #include <locale.h>
 #include <stdio.h>
-#include <string.h>
-#include <collection.h>
-#include <string.h>
-#include <locales.h>
-#include <flutter_embedder.h>
 #include <stdlib.h>
+#include <string.h>
+
+#include <flutter_embedder.h>
+
+#include <collection.h>
 #include <flutter-pi.h>
+#include <locales.h>
 
 #define LOG_LOCALES_ERROR(...) fprintf(stderr, "[locales] " __VA_ARGS__);
 
@@ -117,20 +118,19 @@ struct locale *locale_new(const char *language, const char *territory, const cha
 
     return locale;
 
-
-    fail_free_codeset_dup:
+fail_free_codeset_dup:
     free(codeset_dup);
 
-    fail_free_territory_dup:
+fail_free_territory_dup:
     free(territory_dup);
 
-    fail_free_language_dup:
+fail_free_language_dup:
     free(language_dup);
 
-    fail_free_fl_locale:
+fail_free_fl_locale:
     free(fl_locale);
 
-    fail_free_locale:
+fail_free_locale:
     free(locale);
 
     return NULL;
@@ -143,9 +143,12 @@ const FlutterLocale *locale_get_fl_locale(struct locale *locale) {
 
 void locale_destroy(struct locale *locale) {
     free(locale->language);
-    if (locale->territory) free(locale->territory);
-    if (locale->codeset) free(locale->codeset);
-    if (locale->modifier) free(locale->modifier);
+    if (locale->territory)
+        free(locale->territory);
+    if (locale->codeset)
+        free(locale->codeset);
+    if (locale->modifier)
+        free(locale->modifier);
     free(locale->flutter_locale);
     free(locale);
 }
@@ -243,25 +246,30 @@ static int add_locale_variants(struct concurrent_pointer_set *locales, const cha
     }
 
     free(language);
-    if (territory) free(territory);
-    if (codeset) free(codeset);
-    if (modifier) free(modifier);
+    if (territory)
+        free(territory);
+    if (codeset)
+        free(codeset);
+    if (modifier)
+        free(modifier);
     return 0;
 
-
-    fail_free_language:
+fail_free_language:
     free(language);
 
-    fail_free_territory:
-    if (territory) free(territory);
+fail_free_territory:
+    if (territory)
+        free(territory);
 
-    fail_free_codeset:
-    if (codeset) free(codeset);
+fail_free_codeset:
+    if (codeset)
+        free(codeset);
 
-    fail_free_modifier:
-    if (modifier) free(modifier);
+fail_free_modifier:
+    if (modifier)
+        free(modifier);
 
-    fail_return_ok:
+fail_return_ok:
     return ok;
 }
 
@@ -314,7 +322,8 @@ struct locales *locales_new(void) {
     }
 
     if (strcmp(fl_locales[0]->language_code, "C") == 0) {
-        LOG_LOCALES_ERROR("Warning: The system has no configured locale. The default \"C\" locale may or may not be supported by the app.\n");
+        LOG_LOCALES_ERROR("Warning: The system has no configured locale. The default \"C\" locale may or may not be supported by the app.\n"
+        );
     }
 
     locales->flutter_locales = fl_locales;
@@ -324,19 +333,18 @@ struct locales *locales_new(void) {
 
     return locales;
 
-
-    fail_free_allocated_locales:
+fail_free_allocated_locales:
     for_each_pointer_in_cpset(&locales->locales, locale) {
         locale_destroy(locale);
     }
 
-    fail_deinit_cpset:
+fail_deinit_cpset:
     cpset_deinit(&locales->locales);
 
-    fail_free_locales:
+fail_free_locales:
     free(locales);
 
-    fail_return_null:
+fail_return_null:
     return NULL;
 }
 
@@ -390,14 +398,18 @@ int locales_add_to_fl_engine(struct locales *locales, FlutterEngine engine, Flut
 
     engine_result = update_locales(engine, locales->flutter_locales, locales->n_locales);
     if (engine_result != kSuccess) {
-        LOG_LOCALES_ERROR("Couldn't update flutter engine locales. FlutterEngineUpdateLocales: %s\n", FLUTTER_RESULT_TO_STRING(engine_result));
+        LOG_LOCALES_ERROR(
+            "Couldn't update flutter engine locales. FlutterEngineUpdateLocales: %s\n",
+            FLUTTER_RESULT_TO_STRING(engine_result)
+        );
         return EINVAL;
     }
 
     return 0;
 }
 
-const FlutterLocale *locales_on_compute_platform_resolved_locale(struct locales *locales, const FlutterLocale **fl_locales, size_t n_fl_locales) {
+const FlutterLocale *
+locales_on_compute_platform_resolved_locale(struct locales *locales, const FlutterLocale **fl_locales, size_t n_fl_locales) {
     DEBUG_ASSERT(locales != NULL);
     DEBUG_ASSERT(fl_locales != NULL);
     DEBUG_ASSERT(n_fl_locales > 0);

@@ -1,8 +1,9 @@
 #ifndef _TEXTURE_REGISTRY_H
 #define _TEXTURE_REGISTRY_H
 
-#include <gles.h>
 #include <flutter_embedder.h>
+
+#include <gles.h>
 
 struct flutter_external_texture_interface {
     FlutterEngineRegisterExternalTextureFnPtr register_external_texture;
@@ -50,7 +51,8 @@ void texture_registry_destroy(struct texture_registry *reg);
 bool texture_registry_gl_external_texture_frame_callback(
     struct texture_registry *reg,
     int64_t texture_id,
-    size_t width, size_t height,
+    size_t width,
+    size_t height,
     FlutterOpenGLTexture *texture_out
 );
 

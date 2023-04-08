@@ -5,20 +5,19 @@
  * Copyright (c) 2022, Hannes Winkler <hanneswinkler2000@web.de>
  */
 
-
 #ifndef _FLUTTERPI_INCLUDE_VULKAN_H
 #define _FLUTTERPI_INCLUDE_VULKAN_H
 
 #ifdef HAS_VULKAN
 
-#   include <vulkan/vulkan.h>
+    #include <vulkan/vulkan.h>
 
 #else
 
-// If the system doesn't have vulkan installed, we'll clone the official vulkan headers,
-// but don't declare the function prototypes, so we don't accidentally use one.
-#   define VK_NO_PROTOTYPES 1
-#   include <vulkan/vulkan.h>
+    // If the system doesn't have vulkan installed, we'll clone the official vulkan headers,
+    // but don't declare the function prototypes, so we don't accidentally use one.
+    #define VK_NO_PROTOTYPES 1
+    #include <vulkan/vulkan.h>
 
 #endif
 
@@ -93,4 +92,4 @@ static inline const char *vk_strerror(VkResult result) {
 
 #define LOG_VK_ERROR(result, fmt, ...) LOG_ERROR(fmt ": %s\n", __VA_ARGS__ vk_strerror(result))
 
-#endif // _FLUTTERPI_INCLUDE_VULKAN_H
+#endif  // _FLUTTERPI_INCLUDE_VULKAN_H

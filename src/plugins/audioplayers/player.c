@@ -211,7 +211,7 @@ void audio_player_set_playback(struct audio_player *self, int64_t seekTo, double
 }
 void audio_player_on_media_error(struct audio_player *self, GError *error, gchar *debug) {
     (void) debug;
-    char error_message[256] = {0};
+    char error_message[256] = { 0 };
     snprintf(error_message, sizeof(error_message), "Error: %d; message=%s", error->code, error->message);
     if (self->channel) {
         // clang-format off

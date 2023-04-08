@@ -434,7 +434,15 @@ struct _drmModeModeInfo;
 int drmdev_get_fd(struct drmdev *drmdev);
 int drmdev_get_event_fd(struct drmdev *drmdev);
 bool drmdev_supports_dumb_buffers(struct drmdev *drmdev);
-int drmdev_create_dumb_buffer(struct drmdev *drmdev, int width, int height, int bpp, uint32_t *gem_handle_out, uint32_t *pitch_out, size_t *size_out);
+int drmdev_create_dumb_buffer(
+    struct drmdev *drmdev,
+    int width,
+    int height,
+    int bpp,
+    uint32_t *gem_handle_out,
+    uint32_t *pitch_out,
+    size_t *size_out
+);
 void drmdev_destroy_dumb_buffer(struct drmdev *drmdev, uint32_t gem_handle);
 void *drmdev_map_dumb_buffer(struct drmdev *drmdev, uint32_t gem_handle, size_t size);
 void drmdev_unmap_dumb_buffer(struct drmdev *drmdev, void *map, size_t size);
@@ -586,16 +594,13 @@ drmModeModeInfo *__next_mode(const struct drm_connector *connector, const drmMod
 #define for_each_encoder_in_drmdev(drmdev, encoder) \
     for (encoder = __next_encoder(drmdev, NULL); encoder != NULL; encoder = __next_encoder(drmdev, encoder))
 
-#define for_each_crtc_in_drmdev(drmdev, crtc) \
-    for (crtc = __next_crtc(drmdev, NULL); crtc != NULL; crtc = __next_crtc(drmdev, crtc))
+#define for_each_crtc_in_drmdev(drmdev, crtc) for (crtc = __next_crtc(drmdev, NULL); crtc != NULL; crtc = __next_crtc(drmdev, crtc))
 
-#define for_each_plane_in_drmdev(drmdev, plane) \
-    for (plane = __next_plane(drmdev, NULL); plane != NULL; plane = __next_plane(drmdev, plane))
+#define for_each_plane_in_drmdev(drmdev, plane) for (plane = __next_plane(drmdev, NULL); plane != NULL; plane = __next_plane(drmdev, plane))
 
 #define for_each_mode_in_connector(connector, mode) \
     for (mode = __next_mode(connector, NULL); mode != NULL; mode = __next_mode(connector, mode))
 
-#define for_each_unreserved_plane_in_atomic_req(atomic_req, plane) \
-    for_each_pointer_in_pset(&(atomic_req)->available_planes, plane)
+#define for_each_unreserved_plane_in_atomic_req(atomic_req, plane) for_each_pointer_in_pset(&(atomic_req)->available_planes, plane)
 
 #endif  // _FLUTTERPI_INCLUDE_MODESETTING_H

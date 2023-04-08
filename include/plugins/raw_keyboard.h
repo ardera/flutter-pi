@@ -2,6 +2,7 @@
 #define _KEY_EVENT_H
 
 #include <stdint.h>
+
 #include <linux/input-event-codes.h>
 
 typedef struct {
@@ -18,7 +19,6 @@ typedef struct {
         uint32_t u32;
     };
 } key_modifiers_t;
-
 
 struct key_event_interface {
     void (*send_key_event)(void *userdata, const FlutterKeyEvent *event);
@@ -44,13 +44,7 @@ int rawkb_send_android_keyevent(
     char *character
 );
 
-int rawkb_send_gtk_keyevent(
-    uint32_t unicode_scalar_values,
-    uint32_t key_code,
-    uint32_t scan_code,
-    uint32_t modifiers,
-    bool is_down
-);
+int rawkb_send_gtk_keyevent(uint32_t unicode_scalar_values, uint32_t key_code, uint32_t scan_code, uint32_t modifiers, bool is_down);
 
 int rawkb_on_key_event(
     struct rawkb *rawkb,

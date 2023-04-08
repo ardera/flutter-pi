@@ -1,22 +1,23 @@
 #define _GNU_SOURCE
-#include <stdlib.h>
-#include <stdio.h>
-#include <unistd.h>
 #include <errno.h>
-#include <string.h>
-#include <stdint.h>
 #include <locale.h>
-#include <regex.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
 #include <fcntl.h>
-#include <sys/types.h>
+#include <regex.h>
 #include <sys/stat.h>
+#include <sys/types.h>
+#include <unistd.h>
 
 #include <linux/input.h>
-#include <linux/keyboard.h>
 #include <linux/kd.h>
+#include <linux/keyboard.h>
 
-#include <xkbcommon/xkbcommon.h>
 #include <xkbcommon/xkbcommon-compose.h>
+#include <xkbcommon/xkbcommon.h>
 
 #include <collection.h>
 #include <keyboard.h>
@@ -57,13 +58,13 @@ static int find_var_offset_in_string(const char *varname, const char *buffer, re
 
     return 0;
 
-    fail_free_regex:
+fail_free_regex:
     regfree(&regex);
 
-    fail_free_pattern:
+fail_free_pattern:
     free(pattern);
 
-    fail_set_match:
+fail_set_match:
     if (match != NULL) {
         match->rm_so = -1;
         match->rm_eo = -1;
@@ -139,11 +140,10 @@ static char *load_file(const char *path) {
 
     return buffer;
 
-
-    fail_close:
+fail_close:
     close(fd);
 
-    fail_return_null:
+fail_return_null:
     return NULL;
 }
 
@@ -153,7 +153,10 @@ static struct xkb_keymap *load_default_keymap(struct xkb_context *context) {
 
     file = load_file("/etc/default/keyboard");
     if (file == NULL) {
-        LOG_ERROR("Could not load keyboard configuration from \"/etc/default/keyboard\". Default keyboard config will be used. load_file: %s\n", strerror(errno));
+        LOG_ERROR(
+            "Could not load keyboard configuration from \"/etc/default/keyboard\". Default keyboard config will be used. load_file: %s\n",
+            strerror(errno)
+        );
         xkbmodel = NULL;
         xkblayout = NULL;
         xkbvariant = NULL;
@@ -183,20 +186,18 @@ static struct xkb_keymap *load_default_keymap(struct xkb_context *context) {
         free(file);
     }
 
-    struct xkb_rule_names names = {
-        .rules = NULL,
-        .model = xkbmodel,
-        .layout = xkblayout,
-        .variant = xkbvariant,
-        .options = xkboptions
-    };
+    struct xkb_rule_names names = { .rules = NULL, .model = xkbmodel, .layout = xkblayout, .variant = xkbvariant, .options = xkboptions };
 
     keymap = xkb_keymap_new_from_names(context, &names, XKB_KEYMAP_COMPILE_NO_FLAGS);
 
-    if (xkbmodel != NULL) free(xkbmodel);
-    if (xkblayout != NULL) free(xkblayout);
-    if (xkbvariant != NULL) free(xkbvariant);
-    if (xkboptions != NULL) free(xkboptions);
+    if (xkbmodel != NULL)
+        free(xkbmodel);
+    if (xkblayout != NULL)
+        free(xkblayout);
+    if (xkbvariant != NULL)
+        free(xkbvariant);
+    if (xkboptions != NULL)
+        free(xkboptions);
 
     if (keymap == NULL) {
         LOG_ERROR("Could not create xkb keymap.");
@@ -217,7 +218,6 @@ static struct xkb_compose_table *load_default_compose_table(struct xkb_context *
 
     return tbl;
 }
-
 
 struct keyboard_config *keyboard_config_new(void) {
     struct keyboard_config *cfg;
@@ -253,16 +253,16 @@ struct keyboard_config *keyboard_config_new(void) {
 
     return cfg;
 
-    fail_free_compose_table:
+fail_free_compose_table:
     xkb_compose_table_unref(compose_table);
 
-    fail_free_context:
+fail_free_context:
     xkb_context_unref(ctx);
 
-    fail_free_cfg:
+fail_free_cfg:
     free(cfg);
 
-    fail_return_null:
+fail_return_null:
     return NULL;
 }
 
@@ -273,12 +273,8 @@ void keyboard_config_destroy(struct keyboard_config *config) {
     free(config);
 }
 
-
-struct keyboard_state *keyboard_state_new(
-    struct keyboard_config *config,
-    struct xkb_keymap *keymap_override,
-    struct xkb_compose_table *compose_table_override
-) {
+struct keyboard_state *
+keyboard_state_new(struct keyboard_config *config, struct xkb_keymap *keymap_override, struct xkb_compose_table *compose_table_override) {
     struct keyboard_state *state;
     struct xkb_compose_state *compose_state;
     struct xkb_state *xkb_state, *plain_xkb_state;
@@ -301,7 +297,10 @@ struct keyboard_state *keyboard_state_new(
         goto fail_free_xkb_state;
     }
 
-    compose_state = xkb_compose_state_new(compose_table_override != NULL ? compose_table_override : config->default_compose_table, XKB_COMPOSE_STATE_NO_FLAGS);
+    compose_state = xkb_compose_state_new(
+        compose_table_override != NULL ? compose_table_override : config->default_compose_table,
+        XKB_COMPOSE_STATE_NO_FLAGS
+    );
     if (compose_state == NULL) {
         LOG_ERROR("Could not create new XKB compose state.\n");
         goto fail_free_plain_xkb_state;
@@ -314,22 +313,20 @@ struct keyboard_state *keyboard_state_new(
 
     return state;
 
-    fail_free_plain_xkb_state:
+fail_free_plain_xkb_state:
     xkb_state_unref(plain_xkb_state);
 
-    fail_free_xkb_state:
+fail_free_xkb_state:
     xkb_state_unref(xkb_state);
 
-    fail_free_state:
+fail_free_state:
     free(state);
 
-    fail_return_null:
+fail_return_null:
     return NULL;
 }
 
-void keyboard_state_destroy(
-    struct keyboard_state *state
-) {
+void keyboard_state_destroy(struct keyboard_state *state) {
     xkb_compose_state_unref(state->compose_state);
     xkb_state_unref(state->plain_state);
     xkb_state_unref(state->state);
@@ -380,17 +377,15 @@ int keyboard_state_process_key_event(
 
     xkb_state_update_key(state->state, xkb_keycode, (enum xkb_key_direction) evdev_value);
 
-    if (keysym_out) *keysym_out = keysym;
-    if (codepoint_out) *codepoint_out = codepoint;
+    if (keysym_out)
+        *keysym_out = keysym;
+    if (codepoint_out)
+        *codepoint_out = codepoint;
 
     return 0;
 }
 
-uint32_t keyboard_state_get_plain_codepoint(
-    struct keyboard_state *state,
-    uint16_t evdev_keycode,
-    int32_t evdev_value
-) {
+uint32_t keyboard_state_get_plain_codepoint(struct keyboard_state *state, uint16_t evdev_keycode, int32_t evdev_value) {
     xkb_keycode_t xkb_keycode = evdev_keycode + 8;
 
     if (evdev_value) {

@@ -10,11 +10,13 @@
 
 #define _GNU_SOURCE
 #include <stdlib.h>
-#include <unistd.h>
+
 #include <fcntl.h>
+#include <unistd.h>
+
+#include <filesystem_layout.h>
 
 #include <collection.h>
-#include <filesystem_layout.h>
 #include <flutter-pi.h>
 
 FILE_DESCR("fs layout")
@@ -49,12 +51,18 @@ static struct flutter_paths *resolve(
 
     DEBUG_ASSERT_NOT_NULL(app_bundle_path);
     DEBUG_ASSERT(icudtl_subpath || icudtl_system_path || icudtl_system_path_fallback);
-    DEBUG_ASSERT_MSG(!icudtl_system_path_fallback || icudtl_system_path, "icudtl.dat fallback system path is given, but no non-fallback system path.");
+    DEBUG_ASSERT_MSG(
+        !icudtl_system_path_fallback || icudtl_system_path,
+        "icudtl.dat fallback system path is given, but no non-fallback system path."
+    );
     DEBUG_ASSERT_NOT_NULL(asset_bundle_subpath);
     DEBUG_ASSERT_NOT_NULL(kernel_blob_subpath);
     DEBUG_ASSERT_NOT_NULL(app_elf_subpath);
     DEBUG_ASSERT(app_engine_subpath || engine_dlopen_name || engine_dlopen_name_fallback);
-    DEBUG_ASSERT_MSG(!engine_dlopen_name_fallback || engine_dlopen_name, "flutter engine fallback dlopen name is given, but no non-fallback dlopen name.");
+    DEBUG_ASSERT_MSG(
+        !engine_dlopen_name_fallback || engine_dlopen_name,
+        "flutter engine fallback dlopen name is given, but no non-fallback dlopen name."
+    );
 
     paths = malloc(sizeof *paths);
     if (paths == NULL) {
@@ -190,7 +198,6 @@ static struct flutter_paths *resolve(
         dlopen_name_fallback_duped = NULL;
     }
 
-
     paths->app_bundle_path = app_bundle_path_real;
     paths->asset_bundle_path = asset_bundle_path;
     paths->icudtl_path = icudtl_path;
@@ -201,28 +208,27 @@ static struct flutter_paths *resolve(
     paths->flutter_engine_dlopen_name_fallback = dlopen_name_fallback_duped;
     return paths;
 
-
-    fail_free_dlopen_name_duped:
+fail_free_dlopen_name_duped:
     free(dlopen_name_duped);
 
-    fail_maybe_free_engine_path:
+fail_maybe_free_engine_path:
     if (engine_path != NULL) {
         free(engine_path);
     }
 
-    fail_free_app_elf_path:
+fail_free_app_elf_path:
     free(app_elf_path);
 
-    fail_free_kernel_blob_path:
+fail_free_kernel_blob_path:
     free(kernel_blob_path);
 
-    fail_free_asset_bundle_path:
+fail_free_asset_bundle_path:
     free(asset_bundle_path);
 
-    fail_free_app_bundle_path_real:
+fail_free_app_bundle_path_real:
     free(app_bundle_path_real);
 
-    fail_free_paths:
+fail_free_paths:
     free(paths);
     return NULL;
 }
@@ -256,9 +262,9 @@ struct flutter_paths *fs_layout_flutterpi_resolve(const char *app_bundle_path, e
         /*         kernel blob subpath */ "kernel_blob.bin",
         /*             app elf subpath */ "app.so",
         /*      flutter engine subpath */ "libflutter_engine.so",
-        /*          engine dlopen name */ runtime_mode == kDebug   ? "libflutter_engine.so.debug" :
-                                          runtime_mode == kProfile ? "libflutter_engine.so.profile" :
-                                                                     "libflutter_engine.so.release",
+        /*          engine dlopen name */ runtime_mode == kDebug ? "libflutter_engine.so.debug" :
+        runtime_mode == kProfile                                 ? "libflutter_engine.so.profile" :
+                                                                   "libflutter_engine.so.release",
         /* engine dlopen name fallback */ "libflutter_engine.so"
     );
 }
