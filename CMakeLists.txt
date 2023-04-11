@@ -187,39 +187,6 @@ if (CMAKE_C_COMPILER_ID STREQUAL "GNU")
   endif()
 endif()
 
-# # Check for GCC style builtins
-# foreach b : ['bswap32', 'bswap64', 'clz', 'clzll', 'ctz', 'expect', 'ffs',
-#              'ffsll', 'popcount', 'popcountll', 'unreachable', 'types_compatible_p']
-#   if cc.has_function(b)
-#     pre_args += '-DHAVE___BUILTIN_@0@'.format(b.to_upper())
-#   endif
-# endforeach
-#
-# # check for GCC __attribute__
-# _attributes = [
-#   'const', 'flatten', 'malloc', 'pure', 'unused', 'warn_unused_result',
-#   'weak', 'format', 'packed', 'returns_nonnull', 'alias', 'noreturn',
-# ]
-# foreach a : cc.get_supported_function_attributes(_attributes)
-#   pre_args += '-DHAVE_FUNC_ATTRIBUTE_@0@'.format(a.to_upper())
-# endforeach
-# if cc.has_function_attribute('visibility:hidden')
-#   pre_args += '-DHAVE_FUNC_ATTRIBUTE_VISIBILITY'
-# endif
-# if cc.compiles('__uint128_t foo(void) { return 0; }',
-#                name : '__uint128_t')
-#   pre_args += '-DHAVE_UINT128'
-# endif
-#
-# if cc.has_function('reallocarray')
-#    pre_args += '-DHAVE_REALLOCARRAY'
-# endif
-# if cc.has_function('fmemopen')
-#    pre_args += '-DHAVE_FMEMOPEN'
-# endif
-
-
-
 # libinput stuff
 # There's no other way to query the libinput version (in code) somehow.
 # So we need to roll our own libinput version macro

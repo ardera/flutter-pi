@@ -57,7 +57,7 @@ static inline uint8_t *symbol_at(unsigned int symbol_index) {
     return symbol_index ? NULL : cursor;
 }
 
-MAYBE_UNUSED static inline int to_byte_index(unsigned int symbol_index) {
+UNUSED static inline int to_byte_index(unsigned int symbol_index) {
     char *cursor = text_input.text;
 
     while ((*cursor) && (symbol_index--))
@@ -409,7 +409,7 @@ static int on_request_autofill(struct platch_obj *object, FlutterPlatformMessage
     );
 }
 
-MAYBE_UNUSED static int
+UNUSED static int
 on_set_editable_size_and_transform(struct platch_obj *object, FlutterPlatformMessageResponseHandle *responsehandle) {
     (void) object;
     return platch_respond(
@@ -683,7 +683,7 @@ static bool model_move_cursor_to_end(void) {
     return false;
 }
 
-MAYBE_UNUSED static bool model_move_cursor_forward(void) {
+UNUSED static bool model_move_cursor_forward(void) {
     if (text_input.selection_base != text_input.selection_extent) {
         text_input.selection_base = text_input.selection_extent;
         return true;
@@ -698,7 +698,7 @@ MAYBE_UNUSED static bool model_move_cursor_forward(void) {
     return false;
 }
 
-MAYBE_UNUSED static bool model_move_cursor_back(void) {
+UNUSED static bool model_move_cursor_back(void) {
     if (text_input.selection_base != text_input.selection_extent) {
         text_input.selection_extent = text_input.selection_base;
         return true;

@@ -409,7 +409,7 @@ int gl_renderer_clear_current(struct gl_renderer *renderer) {
     return 0;
 }
 
-void *gl_renderer_get_proc_address(MAYBE_UNUSED struct gl_renderer *renderer, const char *name) {
+void *gl_renderer_get_proc_address(UNUSED struct gl_renderer *renderer, const char *name) {
     void *address;
 
     address = eglGetProcAddress(name);
