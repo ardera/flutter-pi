@@ -82,6 +82,9 @@
 #if __has_builtin(__builtin_types_compatible_p)
     #define HAVE___BUILTIN_TYPES_COMPATIBLE_P
 #endif
+#if __has_builtin(__builtin_trap)
+    #define HAVE___BUILTIN_TRAP
+#endif
 
 #if __has_attribute(const)
     #define HAVE_FUNC_ATTRIBUTE_CONST
@@ -563,6 +566,24 @@ typedef int lock_cap_t;
     #define PRAGMA_POISON(X) DO_PRAGMA(clang poison X)
 #else
     #define PRAGMA_POISON
+#endif
+
+#ifdef HAVE___BUILTIN_TRAP
+    #define TRAP() __builtin_trap()
+#else
+    #define TRAP() abort()
+#endif
+
+#define UNIMPLEMENTED() \
+    do { \
+        fprintf(stderr, "%s%s:%u: Unimplemented\n", __FILE__, __func__, __LINE__); \
+        TRAP(); \
+    } while (0)
+
+#ifdef HAVE___BUILTIN_POPCOUNT
+    #define HWEIGHT(x) __builtin_popcount(x)
+#else
+    #define HWEIGHT(x) UNIMPLEMENTED()
 #endif
 
 #endif /* UTIL_MACROS_H */
