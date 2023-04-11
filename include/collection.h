@@ -350,24 +350,6 @@ static inline uint64_t get_monotonic_time(void) {
 #define COMPILE_ASSERT_MSG(expression, msg) _Static_assert(expression, msg)
 #define COMPILE_ASSERT(expression) COMPILE_ASSERT_MSG(expression, "Expression evaluates to false")
 
-#define UNIMPLEMENTED() assert(0 && "Unimplemented")
-
-#ifndef __has_builtin
-    #define __has_builtin(x) 0
-#endif
-
-#if defined(__GNUC__) || __has_builtin(__builtin_unreachable)
-    #define UNREACHABLE() __builtin_unreachable()
-#else
-    #define UNREACHABLE() assert(0 && "Unreachable")
-#endif
-
-#if defined(__GNUC__) || __has_builtin(__builtin_popcount)
-    #define HWEIGHT(x) __builtin_popcount(x)
-#else
-    #define HWEIGHT(x) UNIMPLEMENTED()
-#endif
-
 static inline int refcount_inc_n(refcount_t *refcount, int n) {
     return atomic_fetch_add_explicit(refcount, n, memory_order_relaxed);
 }
