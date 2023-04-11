@@ -529,9 +529,9 @@ static int egl_gbm_render_surface_fill(struct render_surface *s, FlutterBackingS
 }
 
 static int egl_gbm_render_surface_queue_present(struct render_surface *s, const FlutterBackingStore *fl_store) {
-    MAYBE_UNUSED struct egl_gbm_render_surface *egl_surface;
+    UNUSED struct egl_gbm_render_surface *egl_surface;
     struct gbm_bo *bo;
-    MAYBE_UNUSED EGLBoolean egl_ok;
+    UNUSED EGLBoolean egl_ok;
     int i, ok;
 
     egl_surface = CAST_THIS(s);

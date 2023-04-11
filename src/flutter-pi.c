@@ -362,7 +362,7 @@ static void *proc_resolver(void *userdata, const char *name) {
     return gl_renderer_get_proc_address(flutterpi->gl_renderer, name);
 }
 
-MAYBE_UNUSED static void *on_get_vulkan_proc_address(void *userdata, FlutterVulkanInstanceHandle instance, const char *name) {
+UNUSED static void *on_get_vulkan_proc_address(void *userdata, FlutterVulkanInstanceHandle instance, const char *name) {
     DEBUG_ASSERT_NOT_NULL(userdata);
     DEBUG_ASSERT_NOT_NULL(name);
     (void) userdata;
@@ -381,7 +381,7 @@ MAYBE_UNUSED static void *on_get_vulkan_proc_address(void *userdata, FlutterVulk
 #endif
 }
 
-MAYBE_UNUSED static FlutterVulkanImage on_get_next_vulkan_image(void *userdata, const FlutterFrameInfo *frameinfo) {
+UNUSED static FlutterVulkanImage on_get_next_vulkan_image(void *userdata, const FlutterFrameInfo *frameinfo) {
     struct flutterpi *flutterpi;
 
     DEBUG_ASSERT_NOT_NULL(userdata);
@@ -395,7 +395,7 @@ MAYBE_UNUSED static FlutterVulkanImage on_get_next_vulkan_image(void *userdata, 
     UNREACHABLE();
 }
 
-MAYBE_UNUSED static bool on_present_vulkan_image(void *userdata, const FlutterVulkanImage *image) {
+UNUSED static bool on_present_vulkan_image(void *userdata, const FlutterVulkanImage *image) {
     struct flutterpi *flutterpi;
 
     DEBUG_ASSERT_NOT_NULL(userdata);
@@ -453,7 +453,7 @@ static int on_deferred_begin_frame(void *userdata) {
     return 0;
 }
 
-MAYBE_UNUSED static void on_begin_frame(void *userdata, uint64_t vblank_ns, uint64_t next_vblank_ns) {
+UNUSED static void on_begin_frame(void *userdata, uint64_t vblank_ns, uint64_t next_vblank_ns) {
     FlutterEngineResult engine_result;
     struct frame_req *req;
     int ok;
@@ -490,7 +490,7 @@ fail_free_req:
 
 /// Called on some flutter internal thread to request a frame,
 /// and also get the vblank timestamp of the pageflip preceding that frame.
-MAYBE_UNUSED static void on_frame_request(void *userdata, intptr_t baton) {
+UNUSED static void on_frame_request(void *userdata, intptr_t baton) {
     FlutterEngineResult engine_result;
     struct flutterpi *flutterpi;
     struct frame_req *req;

@@ -1602,7 +1602,7 @@ static void drmdev_set_scanout_callback_locked(
     drmdev->per_crtc_state[crtc->index].userdata = userdata;
 }
 
-MAYBE_UNUSED static struct drm_plane *get_plane_by_id(struct drmdev *drmdev, uint32_t plane_id) {
+UNUSED static struct drm_plane *get_plane_by_id(struct drmdev *drmdev, uint32_t plane_id) {
     struct drm_plane *plane;
 
     plane = NULL;
@@ -2199,19 +2199,19 @@ struct kms_req *kms_req_builder_build(struct kms_req_builder *builder) {
     return (struct kms_req *) kms_req_builder_ref(builder);
 }
 
-MAYBE_UNUSED struct kms_req *kms_req_ref(struct kms_req *req) {
+UNUSED struct kms_req *kms_req_ref(struct kms_req *req) {
     return (struct kms_req *) kms_req_builder_ref((struct kms_req_builder *) req);
 }
 
-MAYBE_UNUSED void kms_req_unref(struct kms_req *req) {
+UNUSED void kms_req_unref(struct kms_req *req) {
     return kms_req_builder_unref((struct kms_req_builder *) req);
 }
 
-MAYBE_UNUSED void kms_req_unrefp(struct kms_req **req) {
+UNUSED void kms_req_unrefp(struct kms_req **req) {
     return kms_req_builder_unrefp((struct kms_req_builder **) req);
 }
 
-MAYBE_UNUSED void kms_req_swap_ptrs(struct kms_req **oldp, struct kms_req *new) {
+UNUSED void kms_req_swap_ptrs(struct kms_req **oldp, struct kms_req *new) {
     return kms_req_builder_swap_ptrs((struct kms_req_builder **) oldp, (struct kms_req_builder *) new);
 }
 

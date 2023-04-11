@@ -50,7 +50,7 @@ DECLARE_REF_OPS(window)
  * @param desired_videomode
  * @return struct window* The new KMS window.
  */
-ATTR_MALLOC struct window *kms_window_new(
+struct window *kms_window_new(
     // clang-format off
     struct tracer *tracer,
     struct frame_scheduler *scheduler,

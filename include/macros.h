@@ -83,6 +83,43 @@
     #define HAVE___BUILTIN_TYPES_COMPATIBLE_P
 #endif
 
+#if __has_attribute(const)
+    #define HAVE_FUNC_ATTRIBUTE_CONST
+#endif
+#if __has_attribute(flatten)
+    #define HAVE_FUNC_ATTRIBUTE_FLATTEN
+#endif
+#if __has_attribute(malloc)
+    #define HAVE_FUNC_ATTRIBUTE_MALLOC
+#endif
+#if __has_attribute(pure)
+    #define HAVE_FUNC_ATTRIBUTE_PURE
+#endif
+#if __has_attribute(unused)
+    #define HAVE_FUNC_ATTRIBUTE_UNUSED
+#endif
+#if __has_attribute(warn_unused_result)
+    #define HAVE_FUNC_ATTRIBUTE_WARN_UNUSED_RESULT
+#endif
+#if __has_attribute(weak)
+    #define HAVE_FUNC_ATTRIBUTE_WEAK
+#endif
+#if __has_attribute(format)
+    #define HAVE_FUNC_ATTRIBUTE_FORMAT
+#endif
+#if __has_attribute(packed)
+    #define HAVE_FUNC_ATTRIBUTE_PACKED
+#endif
+#if __has_attribute(returns_nonnull)
+    #define HAVE_FUNC_ATTRIBUTE_RETURNS_NONNULL
+#endif
+#if __has_attribute(alias)
+    #define HAVE_FUNC_ATTRIBUTE_ALIAS
+#endif
+#if __has_attribute(noreturn)
+    #define HAVE_FUNC_ATTRIBUTE_NORETURN
+#endif
+
 /**
  * __builtin_expect macros
  */
@@ -90,13 +127,13 @@
     #define __builtin_expect(x, y) (x)
 #endif
 
-#ifndef likely
+#ifndef LIKELY
     #ifdef HAVE___BUILTIN_EXPECT
-        #define likely(x) __builtin_expect(!!(x), 1)
-        #define unlikely(x) __builtin_expect(!!(x), 0)
+        #define LIKELY(x) __builtin_expect(!!(x), 1)
+        #define UNLIKELY(x) __builtin_expect(!!(x), 0)
     #else
-        #define likely(x) (x)
-        #define unlikely(x) (x)
+        #define LIKELY(x) (x)
+        #define UNLIKELY(x) (x)
     #endif
 #endif
 
@@ -151,19 +188,22 @@
  * function" warnings.
  */
 #if defined(HAVE___BUILTIN_UNREACHABLE) || __has_builtin(__builtin_unreachable)
-    #define unreachable(str)         \
+    #define UNREACHABLE_MSG(str)         \
         do {                         \
             assert(!str);            \
             __builtin_unreachable(); \
         } while (0)
+    #define UNREACHABLE() __builtin_unreachable()
 #elif defined(_MSC_VER)
-    #define unreachable(str) \
+    #define UNREACHABLE_MSG(str) \
         do {                 \
             assert(!str);    \
             __assume(0);     \
         } while (0)
+    #define UNREACHABLE() __assume(0)
 #else
-    #define unreachable(str) assert(!str)
+    #define UNREACHABLE_MSG(str) assert(!str)
+    #define UNREACHABLE() assert(0)
 #endif
 
 /**
@@ -171,17 +211,17 @@
  * typically for purposes of silencing warnings.
  */
 #if __has_builtin(__builtin_assume)
-    #define assume(expr)            \
+    #define ASSUME(expr)            \
         do {                        \
             assert(expr);           \
             __builtin_assume(expr); \
         } while (0)
 #elif defined HAVE___BUILTIN_UNREACHABLE
-    #define assume(expr) ((expr) ? ((void) 0) : (assert(!"assumption failed"), __builtin_unreachable()))
+    #define ASSUME(expr) ((expr) ? ((void) 0) : (assert(!"assumption failed"), __builtin_unreachable()))
 #elif defined(_MSC_VER)
-    #define assume(expr) __assume(expr)
+    #define ASSUME(expr) __assume(expr)
 #else
-    #define assume(expr) assert(expr)
+    #define ASSUME(expr) assert(expr)
 #endif
 
 /* Attribute const is used for functions that have no effects other than their
@@ -190,9 +230,9 @@
  * pointed to by the arguments is not allowed for const functions.
  */
 #if !defined(__clang__) && defined(HAVE_FUNC_ATTRIBUTE_CONST)
-    #define ATTRIBUTE_CONST __attribute__((__const__))
+    #define ATTR_CONST __attribute__((__const__))
 #else
-    #define ATTRIBUTE_CONST
+    #define ATTR_CONST
 #endif
 
 #ifdef HAVE_FUNC_ATTRIBUTE_FLATTEN
@@ -242,15 +282,15 @@
  * return value.  As a result, calls to it can be dead code eliminated.
  */
 #ifdef HAVE_FUNC_ATTRIBUTE_PURE
-    #define ATTRIBUTE_PURE __attribute__((__pure__))
+    #define ATTR_PURE __attribute__((__pure__))
 #else
-    #define ATTRIBUTE_PURE
+    #define ATTR_PURE
 #endif
 
 #ifdef HAVE_FUNC_ATTRIBUTE_RETURNS_NONNULL
-    #define ATTRIBUTE_RETURNS_NONNULL __attribute__((__returns_nonnull__))
+    #define ATTR_RETURNS_NONNUL __attribute__((__returns_nonnull__))
 #else
-    #define ATTRIBUTE_RETURNS_NONNULL
+    #define ATTR_RETURNS_NONNUL
 #endif
 
 #ifndef NORETURN
@@ -347,11 +387,11 @@
 #endif
 
 #if defined(__GNUC__)
-    #define ATTRIBUTE_NOINLINE __attribute__((noinline))
+    #define ATTR_NOINLINE __attribute__((noinline))
 #elif defined(_MSC_VER)
-    #define ATTRIBUTE_NOINLINE __declspec(noinline)
+    #define ATTR_NOINLINE __declspec(noinline)
 #else
-    #define ATTRIBUTE_NOINLINE
+    #define ATTR_NOINLINE
 #endif
 
 /**
@@ -372,8 +412,14 @@
 /** Compute ceiling of integer quotient of A divided by B. */
 #define DIV_ROUND_UP(A, B) (((A) + (B) -1) / (B))
 
-/** Clamp X to [MIN,MAX].  Turn NaN into MIN, arbitrarily. */
-#define CLAMP(X, MIN, MAX) ((X) > (MIN) ? ((X) > (MAX) ? (MAX) : (X)) : (MIN))
+/** 
+ * Clamp X to [MIN,MAX].  Turn NaN into MIN, arbitrarily.
+ * 
+ * glib defines this as well. So check we don't redefine it.  
+ */
+#ifndef CLAMP
+#   define CLAMP(X, MIN, MAX) ((X) > (MIN) ? ((X) > (MAX) ? (MAX) : (X)) : (MIN))
+#endif
 
 /* Syntax sugar occuring frequently in graphics code */
 #define SATURATE(X) CLAMP(X, 0.0f, 1.0f)
@@ -461,23 +507,23 @@ static inline uint64_t u_uintN_max(unsigned bit_size) {
 #if __has_attribute(capability)
 typedef int __attribute__((capability("mutex"))) lock_cap_t;
 
-    #define guarded_by(l) __attribute__((guarded_by(l)))
-    #define acquire_cap(l) __attribute((acquire_capability(l), no_thread_safety_analysis))
-    #define release_cap(l) __attribute((release_capability(l), no_thread_safety_analysis))
-    #define assert_cap(l) __attribute((assert_capability(l), no_thread_safety_analysis))
-    #define requires_cap(l) __attribute((requires_capability(l)))
-    #define disable_thread_safety_analysis __attribute((no_thread_safety_analysis))
+    #define GUARDED_BY(l) __attribute__((guarded_by(l)))
+    #define ACQUIRE_CAP(l) __attribute((acquire_capability(l), no_thread_safety_analysis))
+    #define RELEASE_CAP(l) __attribute((release_capability(l), no_thread_safety_analysis))
+    #define ASSERT_CAP(l) __attribute((assert_capability(l), no_thread_safety_analysis))
+    #define REQUIRES_CAP(l) __attribute((requires_capability(l)))
+    #define DISABLE_THREAD_SAFETY_ANALYSIS __attribute((no_thread_safety_analysis))
 
 #else
 
 typedef int lock_cap_t;
 
-    #define guarded_by(l)
-    #define acquire_cap(l)
-    #define release_cap(l)
-    #define assert_cap(l)
-    #define requires_cap(l)
-    #define disable_thread_safety_analysis
+    #define GUARDED_BY(l)
+    #define ACQUIRE_CAP(l)
+    #define RELEASE_CAP(l)
+    #define ASSERT_CAP(l)
+    #define REQUIRES_CAP(l)
+    #define DISABLE_THREAD_SAFETY_ANALYSIS
 
 #endif
 

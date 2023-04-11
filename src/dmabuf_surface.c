@@ -130,7 +130,7 @@ static void dmabuf_surface_deinit(struct surface *s) {
  *
  * @return struct dmabuf_surface*
  */
-ATTR_MALLOC struct dmabuf_surface *dmabuf_surface_new(struct tracer *tracer, struct texture_registry *texture_registry) {
+MUST_CHECK struct dmabuf_surface *dmabuf_surface_new(struct tracer *tracer, struct texture_registry *texture_registry) {
     struct dmabuf_surface *s;
     int ok;
 

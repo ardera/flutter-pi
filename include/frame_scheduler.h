@@ -43,7 +43,7 @@ enum present_mode { kDoubleBufferedVsync_PresentMode, kTripleBufferedVsync_Prese
  * @param userdata            userdata that will be passed to vsync_cb.
  * @return struct frame_scheduler* The new frame scheduler.
  */
-ATTR_MALLOC struct frame_scheduler *
+struct frame_scheduler *
 frame_scheduler_new(bool uses_frame_requests, enum present_mode present_mode, fl_vsync_callback_t vsync_cb, void *userdata);
 
 void frame_scheduler_destroy(struct frame_scheduler *scheduler);

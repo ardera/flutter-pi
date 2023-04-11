@@ -228,7 +228,7 @@ static int send_initialized_event(struct gstplayer_meta *meta, bool is_stream, i
     );
 }
 
-MAYBE_UNUSED static int send_completed_event(struct gstplayer_meta *meta) {
+UNUSED static int send_completed_event(struct gstplayer_meta *meta) {
     return platch_send_success_event_std(meta->event_channel_name, &STDMAP1(STDSTRING("event"), STDSTRING("completed")));
 }
 

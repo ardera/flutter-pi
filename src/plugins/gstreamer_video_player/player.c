@@ -167,23 +167,23 @@ struct gstplayer {
 #define MAX_N_PLANES 4
 #define MAX_N_EGL_DMABUF_IMAGE_ATTRIBUTES 6 + 6 * MAX_N_PLANES + 1
 
-MAYBE_UNUSED static inline void lock(struct gstplayer *player) {
+UNUSED static inline void lock(struct gstplayer *player) {
     pthread_mutex_lock(&player->lock);
 }
 
-MAYBE_UNUSED static inline void unlock(struct gstplayer *player) {
+UNUSED static inline void unlock(struct gstplayer *player) {
     pthread_mutex_unlock(&player->lock);
 }
 
-MAYBE_UNUSED static inline void trace_instant(struct gstplayer *player, const char *name) {
+UNUSED static inline void trace_instant(struct gstplayer *player, const char *name) {
     return flutterpi_trace_event_instant(player->flutterpi, name);
 }
 
-MAYBE_UNUSED static inline void trace_begin(struct gstplayer *player, const char *name) {
+UNUSED static inline void trace_begin(struct gstplayer *player, const char *name) {
     return flutterpi_trace_event_begin(player->flutterpi, name);
 }
 
-MAYBE_UNUSED static inline void trace_end(struct gstplayer *player, const char *name) {
+UNUSED static inline void trace_end(struct gstplayer *player, const char *name) {
     return flutterpi_trace_event_end(player->flutterpi, name);
 }
 

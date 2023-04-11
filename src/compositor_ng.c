@@ -130,7 +130,7 @@ on_flutter_create_backing_store(const FlutterBackingStoreConfig *config, Flutter
 
 static bool on_flutter_collect_backing_store(const FlutterBackingStore *fl_store, void *userdata);
 
-ATTR_MALLOC struct compositor *compositor_new(struct tracer *tracer, struct window *main_window) {
+MUST_CHECK struct compositor *compositor_new(struct tracer *tracer, struct window *main_window) {
     struct compositor *compositor;
     int ok;
 

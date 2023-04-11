@@ -317,7 +317,7 @@ DEFINE_REF_OPS(frame_interface, n_refs)
  * Calls gst_buffer_map on the buffer, so buffer could have changed after the call.
  *
  */
-MAYBE_UNUSED int
+UNUSED int
 dup_gst_buffer_range_as_dmabuf(struct gbm_device *gbm_device, GstBuffer *buffer, unsigned int memory_index, int n_memories) {
     struct gbm_bo *bo;
     GstMapInfo map_info;
@@ -374,7 +374,7 @@ fail_unmap_buffer:
  * Calls gst_memory_map on the memory.
  *
  */
-MAYBE_UNUSED int dup_gst_memory_as_dmabuf(struct gbm_device *gbm_device, GstMemory *memory) {
+UNUSED int dup_gst_memory_as_dmabuf(struct gbm_device *gbm_device, GstMemory *memory) {
     struct gbm_bo *bo;
     GstMapInfo map_info;
     uint32_t stride;
@@ -508,13 +508,13 @@ static bool calculate_plane_size(const GstVideoInfo *info, int plane_index, size
 }
 
 #else
-static bool get_plane_sizes_from_meta(MAYBE_UNUSED const GstVideoMeta *meta, MAYBE_UNUSED size_t plane_sizes_out[4]) {
+static bool get_plane_sizes_from_meta(UNUSED const GstVideoMeta *meta, UNUSED size_t plane_sizes_out[4]) {
     return false;
 }
-static bool get_plane_sizes_from_video_info(MAYBE_UNUSED const GstVideoInfo *info, MAYBE_UNUSED size_t plane_sizes_out[4]) {
+static bool get_plane_sizes_from_video_info(UNUSED const GstVideoInfo *info, UNUSED size_t plane_sizes_out[4]) {
     return false;
 }
-static bool calculate_plane_size(MAYBE_UNUSED const GstVideoInfo *info, MAYBE_UNUSED int plane_index, MAYBE_UNUSED size_t *plane_size_out) {
+static bool calculate_plane_size(UNUSED const GstVideoInfo *info, UNUSED int plane_index, UNUSED size_t *plane_size_out) {
     return false;
 }
 #endif
