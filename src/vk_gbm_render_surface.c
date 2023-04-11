@@ -117,7 +117,7 @@ static void locked_fb_destroy(struct locked_fb *fb) {
 
 DEFINE_STATIC_REF_OPS(locked_fb, n_refs)
 
-MAYBE_UNUSED static bool atomic_flag_test(atomic_flag *flag) {
+UNUSED static bool atomic_flag_test(atomic_flag *flag) {
     bool before = atomic_flag_test_and_set(flag);
     if (before == false) {
         atomic_flag_clear(flag);

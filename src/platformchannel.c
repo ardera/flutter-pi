@@ -94,10 +94,10 @@ static int _advance_size_bytes(uintptr_t *value, size_t size, size_t *remaining)
 }
 
 #define DEFINE_READ_WRITE_FUNC(suffix, value_type)                                                    \
-    MAYBE_UNUSED static int _write_##suffix(uint8_t **pbuffer, value_type value, size_t *remaining) { \
+    UNUSED static int _write_##suffix(uint8_t **pbuffer, value_type value, size_t *remaining) { \
         return _write(pbuffer, &value, sizeof value, remaining);                                      \
     }                                                                                                 \
-    MAYBE_UNUSED static int _read_##suffix(uint8_t **pbuffer, value_type *value, size_t *remaining) { \
+    UNUSED static int _read_##suffix(uint8_t **pbuffer, value_type *value, size_t *remaining) { \
         return _read(pbuffer, value, sizeof *value, remaining);                                       \
     }
 
@@ -1710,7 +1710,7 @@ ATTR_CONST static const void *get_value_ptr(const struct raw_std_value *value, i
     return (const void *) addr;
 }
 
-ATTR_CONST MAYBE_UNUSED static const void *get_after_ptr(const struct raw_std_value *value, int alignment, int value_size) {
+ATTR_CONST UNUSED static const void *get_after_ptr(const struct raw_std_value *value, int alignment, int value_size) {
     return ((const uint8_t *) get_value_ptr(value, alignment)) + value_size;
 }
 
@@ -1803,7 +1803,7 @@ ATTR_PURE bool raw_std_value_is_string(const struct raw_std_value *value) {
     return raw_std_value_get_type(value) == kStdString;
 }
 
-ATTR_MALLOC char *raw_std_string_dup(const struct raw_std_value *value) {
+MALLOCLIKE MUST_CHECK char *raw_std_string_dup(const struct raw_std_value *value) {
     DEBUG_ASSERT(raw_std_value_is_string(value));
 
     size_t size = raw_std_value_get_size(value);
@@ -2435,7 +2435,7 @@ ATTR_PURE const struct raw_std_value *raw_std_method_call_get_method(const struc
     return value;
 }
 
-ATTR_MALLOC char *raw_std_method_call_get_method_dup(const struct raw_std_value *value) {
+MALLOCLIKE MUST_CHECK char *raw_std_method_call_get_method_dup(const struct raw_std_value *value) {
     DEBUG_ASSERT(raw_std_value_is_string(value));
     return raw_std_string_dup(value);
 }

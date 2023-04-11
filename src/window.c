@@ -542,7 +542,7 @@ static const int pixel_size_for_cursor_size
 
 COMPILE_ASSERT(ARRAY_SIZE(pixel_size_for_cursor_size) == kCount_CursorSize);
 
-MAYBE_UNUSED static enum cursor_size cursor_size_from_pixel_ratio(double device_pixel_ratio) {
+UNUSED static enum cursor_size cursor_size_from_pixel_ratio(double device_pixel_ratio) {
     double last_diff = INFINITY;
     enum cursor_size size;
 
@@ -558,7 +558,7 @@ MAYBE_UNUSED static enum cursor_size cursor_size_from_pixel_ratio(double device_
     return size;
 }
 
-MAYBE_UNUSED static struct cursor_buffer *cursor_buffer_new(struct drmdev *drmdev, enum cursor_size size, drm_plane_transform_t rotation) {
+UNUSED static struct cursor_buffer *cursor_buffer_new(struct drmdev *drmdev, enum cursor_size size, drm_plane_transform_t rotation) {
     const struct cursor_icon *icon;
     struct cursor_buffer *b;
     uint32_t gem_handle, pitch;
@@ -833,7 +833,7 @@ static int kms_window_enable_cursor_locked(struct window *window, struct vec2i p
 static int kms_window_disable_cursor_locked(struct window *window);
 static int kms_window_move_cursor_locked(struct window *window, struct vec2i pos);
 
-ATTR_MALLOC struct window *kms_window_new(
+MUST_CHECK struct window *kms_window_new(
     // clang-format off
     struct tracer *tracer,
     struct frame_scheduler *scheduler,
@@ -1015,7 +1015,7 @@ struct frame {
     bool unset_should_apply_mode_on_commit;
 };
 
-MAYBE_UNUSED static void on_scanout(struct drmdev *drmdev, uint64_t vblank_ns, void *userdata) {
+UNUSED static void on_scanout(struct drmdev *drmdev, uint64_t vblank_ns, void *userdata) {
     DEBUG_ASSERT_NOT_NULL(drmdev);
     (void) drmdev;
     (void) vblank_ns;

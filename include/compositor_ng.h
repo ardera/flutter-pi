@@ -147,7 +147,7 @@ struct tracer;
 
 typedef void (*compositor_frame_begin_cb_t)(void *userdata, uint64_t vblank_ns, uint64_t next_vblank_ns);
 
-ATTR_MALLOC struct compositor *compositor_new(struct tracer *tracer, struct window *main_window);
+struct compositor *compositor_new(struct tracer *tracer, struct window *main_window);
 
 void compositor_destroy(struct compositor *compositor);
 

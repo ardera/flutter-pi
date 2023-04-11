@@ -17,7 +17,7 @@
 
 FILE_DESCR("vulkan renderer")
 
-MAYBE_UNUSED static VkLayerProperties *get_layer_props(int n_layers, VkLayerProperties *layers, const char *layer_name) {
+UNUSED static VkLayerProperties *get_layer_props(int n_layers, VkLayerProperties *layers, const char *layer_name) {
     for (int i = 0; i < n_layers; i++) {
         if (strcmp(layers[i].layerName, layer_name) == 0) {
             return layers + i;
@@ -26,7 +26,7 @@ MAYBE_UNUSED static VkLayerProperties *get_layer_props(int n_layers, VkLayerProp
     return NULL;
 }
 
-MAYBE_UNUSED static bool supports_layer(int n_layers, VkLayerProperties *layers, const char *layer_name) {
+UNUSED static bool supports_layer(int n_layers, VkLayerProperties *layers, const char *layer_name) {
     return get_layer_props(n_layers, layers, layer_name) != NULL;
 }
 
@@ -39,15 +39,15 @@ static VkExtensionProperties *get_extension_props(int n_extensions, VkExtensionP
     return NULL;
 }
 
-MAYBE_UNUSED static bool supports_extension(int n_extensions, VkExtensionProperties *extensions, const char *extension_name) {
+UNUSED static bool supports_extension(int n_extensions, VkExtensionProperties *extensions, const char *extension_name) {
     return get_extension_props(n_extensions, extensions, extension_name) != NULL;
 }
 
 static VkBool32 on_debug_utils_message(
-    MAYBE_UNUSED VkDebugUtilsMessageSeverityFlagBitsEXT severity,
-    MAYBE_UNUSED VkDebugUtilsMessageTypeFlagsEXT types,
-    MAYBE_UNUSED const VkDebugUtilsMessengerCallbackDataEXT *data,
-    MAYBE_UNUSED void *userdata
+    UNUSED VkDebugUtilsMessageSeverityFlagBitsEXT severity,
+    UNUSED VkDebugUtilsMessageTypeFlagsEXT types,
+    UNUSED const VkDebugUtilsMessengerCallbackDataEXT *data,
+    UNUSED void *userdata
 ) {
     LOG_DEBUG(
         "[%s] (%d, %s) %s (queues: %d, cmdbufs: %d, objects: %d)\n",
@@ -158,7 +158,7 @@ struct vk_renderer {
     const char **enabled_device_extensions;
 };
 
-ATTR_MALLOC struct vk_renderer *vk_renderer_new() {
+MUST_CHECK struct vk_renderer *vk_renderer_new() {
     PFN_vkDestroyDebugUtilsMessengerEXT destroy_debug_utils_messenger;
     PFN_vkCreateDebugUtilsMessengerEXT create_debug_utils_messenger;
     VkDebugUtilsMessengerEXT debug_utils_messenger;
@@ -532,7 +532,7 @@ void vk_renderer_destroy(struct vk_renderer *renderer) {
 
 DEFINE_REF_OPS(vk_renderer, n_refs)
 
-ATTR_CONST uint32_t vk_renderer_get_vk_version(struct vk_renderer MAYBE_UNUSED *renderer) {
+ATTR_CONST uint32_t vk_renderer_get_vk_version(ASSERTED struct vk_renderer *renderer) {
     DEBUG_ASSERT_NOT_NULL(renderer);
     return VK_MAKE_VERSION(1, 1, 0);
 }

@@ -18,6 +18,8 @@
 
 #include <features.h>
 
+#include <macros.h>
+
 struct queue {
     size_t start_index;
     size_t length;
@@ -366,21 +368,6 @@ static inline uint64_t get_monotonic_time(void) {
     #define HWEIGHT(x) UNIMPLEMENTED()
 #endif
 
-#if defined(__GNUC__) || defined(__clang__)
-    #define MAYBE_UNUSED __attribute__((unused))
-    #define ATTR_MALLOC __attribute__((malloc))
-    #define NONNULL(...) __attribute__((nonnull(__VA_ARGS__)))
-    #define ATTR_PURE __attribute__((pure))
-    #define ATTR_CONST __attribute__((const))
-    #define MUST_CHECK __attribute__((warn_unused_result))
-#else
-    #define MAYBE_UNUSED
-    #define ATTR_MALLOC
-    #define NONNULL(...)
-    #define ATTR_PURE
-    #define ATTR_CONST
-#endif
-
 static inline int refcount_inc_n(refcount_t *refcount, int n) {
     return atomic_fetch_add_explicit(refcount, n, memory_order_relaxed);
 }
@@ -421,27 +408,27 @@ static inline int refcount_get_for_debug(refcount_t *refcount) {
 #define REFCOUNT_INIT_N(n) (n)
 
 #define DECLARE_REF_OPS(obj_name)                                                         \
-    MAYBE_UNUSED struct obj_name *obj_name##_ref(struct obj_name *obj);                   \
-    MAYBE_UNUSED void obj_name##_unref(struct obj_name *obj);                             \
-    MAYBE_UNUSED void obj_name##_unrefp(struct obj_name **obj);                           \
-    MAYBE_UNUSED void obj_name##_swap_ptrs(struct obj_name **objp, struct obj_name *obj); \
-    MAYBE_UNUSED void obj_name##_unref_void(void *obj);
+    UNUSED struct obj_name *obj_name##_ref(struct obj_name *obj);                   \
+    UNUSED void obj_name##_unref(struct obj_name *obj);                             \
+    UNUSED void obj_name##_unrefp(struct obj_name **obj);                           \
+    UNUSED void obj_name##_swap_ptrs(struct obj_name **objp, struct obj_name *obj); \
+    UNUSED void obj_name##_unref_void(void *obj);
 
 #define DEFINE_REF_OPS(obj_name, refcount_member_name)                                     \
-    MAYBE_UNUSED struct obj_name *obj_name##_ref(struct obj_name *obj) {                   \
+    UNUSED struct obj_name *obj_name##_ref(struct obj_name *obj) {                   \
         refcount_inc(&obj->refcount_member_name);                                          \
         return obj;                                                                        \
     }                                                                                      \
-    MAYBE_UNUSED void obj_name##_unref(struct obj_name *obj) {                             \
+    UNUSED void obj_name##_unref(struct obj_name *obj) {                             \
         if (refcount_dec(&obj->refcount_member_name) == false) {                           \
             obj_name##_destroy(obj);                                                       \
         }                                                                                  \
     }                                                                                      \
-    MAYBE_UNUSED void obj_name##_unrefp(struct obj_name **obj) {                           \
+    UNUSED void obj_name##_unrefp(struct obj_name **obj) {                           \
         obj_name##_unref(*obj);                                                            \
         *obj = NULL;                                                                       \
     }                                                                                      \
-    MAYBE_UNUSED void obj_name##_swap_ptrs(struct obj_name **objp, struct obj_name *obj) { \
+    UNUSED void obj_name##_swap_ptrs(struct obj_name **objp, struct obj_name *obj) { \
         if (obj != NULL) {                                                                 \
             obj_name##_ref(obj);                                                           \
         }                                                                                  \
@@ -450,25 +437,25 @@ static inline int refcount_get_for_debug(refcount_t *refcount) {
         }                                                                                  \
         *objp = obj;                                                                       \
     }                                                                                      \
-    MAYBE_UNUSED void obj_name##_unref_void(void *obj) {                                   \
+    UNUSED void obj_name##_unref_void(void *obj) {                                   \
         obj_name##_unref((struct obj_name *) obj);                                         \
     }
 
 #define DEFINE_STATIC_REF_OPS(obj_name, refcount_member_name)                                     \
-    MAYBE_UNUSED static struct obj_name *obj_name##_ref(struct obj_name *obj) {                   \
+    UNUSED static struct obj_name *obj_name##_ref(struct obj_name *obj) {                   \
         refcount_inc(&obj->refcount_member_name);                                                 \
         return obj;                                                                               \
     }                                                                                             \
-    MAYBE_UNUSED static void obj_name##_unref(struct obj_name *obj) {                             \
+    UNUSED static void obj_name##_unref(struct obj_name *obj) {                             \
         if (refcount_dec(&obj->refcount_member_name) == false) {                                  \
             obj_name##_destroy(obj);                                                              \
         }                                                                                         \
     }                                                                                             \
-    MAYBE_UNUSED static void obj_name##_unrefp(struct obj_name **obj) {                           \
+    UNUSED static void obj_name##_unrefp(struct obj_name **obj) {                           \
         obj_name##_unref(*obj);                                                                   \
         *obj = NULL;                                                                              \
     }                                                                                             \
-    MAYBE_UNUSED static void obj_name##_swap_ptrs(struct obj_name **objp, struct obj_name *obj) { \
+    UNUSED static void obj_name##_swap_ptrs(struct obj_name **objp, struct obj_name *obj) { \
         if (obj != NULL) {                                                                        \
             obj_name##_ref(obj);                                                                  \
         }                                                                                         \
@@ -477,22 +464,22 @@ static inline int refcount_get_for_debug(refcount_t *refcount) {
         }                                                                                         \
         *objp = obj;                                                                              \
     }                                                                                             \
-    MAYBE_UNUSED static void obj_name##_unref_void(void *obj) {                                   \
+    UNUSED static void obj_name##_unref_void(void *obj) {                                   \
         obj_name##_unref((struct obj_name *) obj);                                                \
     }
 
 #define DECLARE_LOCK_OPS(obj_name)                           \
-    MAYBE_UNUSED void obj_name##_lock(struct obj_name *obj); \
-    MAYBE_UNUSED void obj_name##_unlock(struct obj_name *obj);
+    UNUSED void obj_name##_lock(struct obj_name *obj); \
+    UNUSED void obj_name##_unlock(struct obj_name *obj);
 
 #define DEFINE_LOCK_OPS(obj_name, mutex_member_name)              \
-    MAYBE_UNUSED void obj_name##_lock(struct obj_name *obj) {     \
+    UNUSED void obj_name##_lock(struct obj_name *obj) {     \
         int ok;                                                   \
         ok = pthread_mutex_lock(&obj->mutex_member_name);         \
         DEBUG_ASSERT_EQUALS_MSG(ok, 0, "Error locking mutex.");   \
         (void) ok;                                                \
     }                                                             \
-    MAYBE_UNUSED void obj_name##_unlock(struct obj_name *obj) {   \
+    UNUSED void obj_name##_unlock(struct obj_name *obj) {   \
         int ok;                                                   \
         ok = pthread_mutex_unlock(&obj->mutex_member_name);       \
         DEBUG_ASSERT_EQUALS_MSG(ok, 0, "Error unlocking mutex."); \
@@ -500,13 +487,13 @@ static inline int refcount_get_for_debug(refcount_t *refcount) {
     }
 
 #define DEFINE_STATIC_LOCK_OPS(obj_name, mutex_member_name)            \
-    MAYBE_UNUSED static void obj_name##_lock(struct obj_name *obj) {   \
+    UNUSED static void obj_name##_lock(struct obj_name *obj) {   \
         int ok;                                                        \
         ok = pthread_mutex_lock(&obj->mutex_member_name);              \
         DEBUG_ASSERT_EQUALS_MSG(ok, 0, "Error locking mutex.");        \
         (void) ok;                                                     \
     }                                                                  \
-    MAYBE_UNUSED static void obj_name##_unlock(struct obj_name *obj) { \
+    UNUSED static void obj_name##_unlock(struct obj_name *obj) { \
         int ok;                                                        \
         ok = pthread_mutex_unlock(&obj->mutex_member_name);            \
         DEBUG_ASSERT_EQUALS_MSG(ok, 0, "Error unlocking mutex.");      \
@@ -514,13 +501,13 @@ static inline int refcount_get_for_debug(refcount_t *refcount) {
     }
 
 #define DEFINE_INLINE_LOCK_OPS(obj_name, mutex_member_name)                   \
-    MAYBE_UNUSED static inline void obj_name##_lock(struct obj_name *obj) {   \
+    UNUSED static inline void obj_name##_lock(struct obj_name *obj) {   \
         int ok;                                                               \
         ok = pthread_mutex_lock(&obj->mutex_member_name);                     \
         DEBUG_ASSERT_EQUALS_MSG(ok, 0, "Error locking mutex.");               \
         (void) ok;                                                            \
     }                                                                         \
-    MAYBE_UNUSED static inline void obj_name##_unlock(struct obj_name *obj) { \
+    UNUSED static inline void obj_name##_unlock(struct obj_name *obj) { \
         int ok;                                                               \
         ok = pthread_mutex_unlock(&obj->mutex_member_name);                   \
         DEBUG_ASSERT_EQUALS_MSG(ok, 0, "Error unlocking mutex.");             \
@@ -615,8 +602,6 @@ static inline void uuid_copy(uuid_t *dst, const uuid_t src) {
 
 #define DOUBLE_TO_FP1616(v) ((uint32_t) ((v) *65536))
 #define DOUBLE_TO_FP1616_ROUNDED(v) (((uint32_t) (v)) << 16)
-
-#define ARRAY_SIZE(a) (sizeof(a) / sizeof((a)[0]))
 
 typedef void (*void_callback_t)(void *userdata);
 
