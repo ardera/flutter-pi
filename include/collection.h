@@ -389,111 +389,111 @@ static inline int refcount_get_for_debug(refcount_t *refcount) {
 #define REFCOUNT_INIT_1 (1)
 #define REFCOUNT_INIT_N(n) (n)
 
-#define DECLARE_REF_OPS(obj_name)                                                         \
+#define DECLARE_REF_OPS(obj_name)                                                   \
     UNUSED struct obj_name *obj_name##_ref(struct obj_name *obj);                   \
     UNUSED void obj_name##_unref(struct obj_name *obj);                             \
     UNUSED void obj_name##_unrefp(struct obj_name **obj);                           \
     UNUSED void obj_name##_swap_ptrs(struct obj_name **objp, struct obj_name *obj); \
     UNUSED void obj_name##_unref_void(void *obj);
 
-#define DEFINE_REF_OPS(obj_name, refcount_member_name)                                     \
+#define DEFINE_REF_OPS(obj_name, refcount_member_name)                               \
     UNUSED struct obj_name *obj_name##_ref(struct obj_name *obj) {                   \
-        refcount_inc(&obj->refcount_member_name);                                          \
-        return obj;                                                                        \
-    }                                                                                      \
+        refcount_inc(&obj->refcount_member_name);                                    \
+        return obj;                                                                  \
+    }                                                                                \
     UNUSED void obj_name##_unref(struct obj_name *obj) {                             \
-        if (refcount_dec(&obj->refcount_member_name) == false) {                           \
-            obj_name##_destroy(obj);                                                       \
-        }                                                                                  \
-    }                                                                                      \
+        if (refcount_dec(&obj->refcount_member_name) == false) {                     \
+            obj_name##_destroy(obj);                                                 \
+        }                                                                            \
+    }                                                                                \
     UNUSED void obj_name##_unrefp(struct obj_name **obj) {                           \
-        obj_name##_unref(*obj);                                                            \
-        *obj = NULL;                                                                       \
-    }                                                                                      \
+        obj_name##_unref(*obj);                                                      \
+        *obj = NULL;                                                                 \
+    }                                                                                \
     UNUSED void obj_name##_swap_ptrs(struct obj_name **objp, struct obj_name *obj) { \
-        if (obj != NULL) {                                                                 \
-            obj_name##_ref(obj);                                                           \
-        }                                                                                  \
-        if (*objp != NULL) {                                                               \
-            obj_name##_unrefp(objp);                                                       \
-        }                                                                                  \
-        *objp = obj;                                                                       \
-    }                                                                                      \
+        if (obj != NULL) {                                                           \
+            obj_name##_ref(obj);                                                     \
+        }                                                                            \
+        if (*objp != NULL) {                                                         \
+            obj_name##_unrefp(objp);                                                 \
+        }                                                                            \
+        *objp = obj;                                                                 \
+    }                                                                                \
     UNUSED void obj_name##_unref_void(void *obj) {                                   \
-        obj_name##_unref((struct obj_name *) obj);                                         \
+        obj_name##_unref((struct obj_name *) obj);                                   \
     }
 
-#define DEFINE_STATIC_REF_OPS(obj_name, refcount_member_name)                                     \
+#define DEFINE_STATIC_REF_OPS(obj_name, refcount_member_name)                               \
     UNUSED static struct obj_name *obj_name##_ref(struct obj_name *obj) {                   \
-        refcount_inc(&obj->refcount_member_name);                                                 \
-        return obj;                                                                               \
-    }                                                                                             \
+        refcount_inc(&obj->refcount_member_name);                                           \
+        return obj;                                                                         \
+    }                                                                                       \
     UNUSED static void obj_name##_unref(struct obj_name *obj) {                             \
-        if (refcount_dec(&obj->refcount_member_name) == false) {                                  \
-            obj_name##_destroy(obj);                                                              \
-        }                                                                                         \
-    }                                                                                             \
+        if (refcount_dec(&obj->refcount_member_name) == false) {                            \
+            obj_name##_destroy(obj);                                                        \
+        }                                                                                   \
+    }                                                                                       \
     UNUSED static void obj_name##_unrefp(struct obj_name **obj) {                           \
-        obj_name##_unref(*obj);                                                                   \
-        *obj = NULL;                                                                              \
-    }                                                                                             \
+        obj_name##_unref(*obj);                                                             \
+        *obj = NULL;                                                                        \
+    }                                                                                       \
     UNUSED static void obj_name##_swap_ptrs(struct obj_name **objp, struct obj_name *obj) { \
-        if (obj != NULL) {                                                                        \
-            obj_name##_ref(obj);                                                                  \
-        }                                                                                         \
-        if (*objp != NULL) {                                                                      \
-            obj_name##_unrefp(objp);                                                              \
-        }                                                                                         \
-        *objp = obj;                                                                              \
-    }                                                                                             \
+        if (obj != NULL) {                                                                  \
+            obj_name##_ref(obj);                                                            \
+        }                                                                                   \
+        if (*objp != NULL) {                                                                \
+            obj_name##_unrefp(objp);                                                        \
+        }                                                                                   \
+        *objp = obj;                                                                        \
+    }                                                                                       \
     UNUSED static void obj_name##_unref_void(void *obj) {                                   \
-        obj_name##_unref((struct obj_name *) obj);                                                \
+        obj_name##_unref((struct obj_name *) obj);                                          \
     }
 
-#define DECLARE_LOCK_OPS(obj_name)                           \
+#define DECLARE_LOCK_OPS(obj_name)                     \
     UNUSED void obj_name##_lock(struct obj_name *obj); \
     UNUSED void obj_name##_unlock(struct obj_name *obj);
 
 #define DEFINE_LOCK_OPS(obj_name, mutex_member_name)              \
-    UNUSED void obj_name##_lock(struct obj_name *obj) {     \
+    UNUSED void obj_name##_lock(struct obj_name *obj) {           \
         int ok;                                                   \
         ok = pthread_mutex_lock(&obj->mutex_member_name);         \
         DEBUG_ASSERT_EQUALS_MSG(ok, 0, "Error locking mutex.");   \
         (void) ok;                                                \
     }                                                             \
-    UNUSED void obj_name##_unlock(struct obj_name *obj) {   \
+    UNUSED void obj_name##_unlock(struct obj_name *obj) {         \
         int ok;                                                   \
         ok = pthread_mutex_unlock(&obj->mutex_member_name);       \
         DEBUG_ASSERT_EQUALS_MSG(ok, 0, "Error unlocking mutex."); \
         (void) ok;                                                \
     }
 
-#define DEFINE_STATIC_LOCK_OPS(obj_name, mutex_member_name)            \
-    UNUSED static void obj_name##_lock(struct obj_name *obj) {   \
-        int ok;                                                        \
-        ok = pthread_mutex_lock(&obj->mutex_member_name);              \
-        DEBUG_ASSERT_EQUALS_MSG(ok, 0, "Error locking mutex.");        \
-        (void) ok;                                                     \
-    }                                                                  \
-    UNUSED static void obj_name##_unlock(struct obj_name *obj) { \
-        int ok;                                                        \
-        ok = pthread_mutex_unlock(&obj->mutex_member_name);            \
-        DEBUG_ASSERT_EQUALS_MSG(ok, 0, "Error unlocking mutex.");      \
-        (void) ok;                                                     \
+#define DEFINE_STATIC_LOCK_OPS(obj_name, mutex_member_name)       \
+    UNUSED static void obj_name##_lock(struct obj_name *obj) {    \
+        int ok;                                                   \
+        ok = pthread_mutex_lock(&obj->mutex_member_name);         \
+        DEBUG_ASSERT_EQUALS_MSG(ok, 0, "Error locking mutex.");   \
+        (void) ok;                                                \
+    }                                                             \
+    UNUSED static void obj_name##_unlock(struct obj_name *obj) {  \
+        int ok;                                                   \
+        ok = pthread_mutex_unlock(&obj->mutex_member_name);       \
+        DEBUG_ASSERT_EQUALS_MSG(ok, 0, "Error unlocking mutex."); \
+        (void) ok;                                                \
     }
 
-#define DEFINE_INLINE_LOCK_OPS(obj_name, mutex_member_name)                   \
+#define DEFINE_INLINE_LOCK_OPS(obj_name, mutex_member_name)             \
     UNUSED static inline void obj_name##_lock(struct obj_name *obj) {   \
-        int ok;                                                               \
-        ok = pthread_mutex_lock(&obj->mutex_member_name);                     \
-        DEBUG_ASSERT_EQUALS_MSG(ok, 0, "Error locking mutex.");               \
-        (void) ok;                                                            \
-    }                                                                         \
+        int ok;                                                         \
+        ok = pthread_mutex_lock(&obj->mutex_member_name);               \
+        DEBUG_ASSERT_EQUALS_MSG(ok, 0, "Error locking mutex.");         \
+        (void) ok;                                                      \
+    }                                                                   \
     UNUSED static inline void obj_name##_unlock(struct obj_name *obj) { \
-        int ok;                                                               \
-        ok = pthread_mutex_unlock(&obj->mutex_member_name);                   \
-        DEBUG_ASSERT_EQUALS_MSG(ok, 0, "Error unlocking mutex.");             \
-        (void) ok;                                                            \
+        int ok;                                                         \
+        ok = pthread_mutex_unlock(&obj->mutex_member_name);             \
+        DEBUG_ASSERT_EQUALS_MSG(ok, 0, "Error unlocking mutex.");       \
+        (void) ok;                                                      \
     }
 
 #define BITCAST(to_type, value) (*((const to_type *) (&(value))))

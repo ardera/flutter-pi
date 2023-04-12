@@ -409,8 +409,7 @@ static int on_request_autofill(struct platch_obj *object, FlutterPlatformMessage
     );
 }
 
-UNUSED static int
-on_set_editable_size_and_transform(struct platch_obj *object, FlutterPlatformMessageResponseHandle *responsehandle) {
+UNUSED static int on_set_editable_size_and_transform(struct platch_obj *object, FlutterPlatformMessageResponseHandle *responsehandle) {
     (void) object;
     return platch_respond(
         responsehandle,
