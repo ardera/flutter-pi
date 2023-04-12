@@ -191,7 +191,7 @@
  * function" warnings.
  */
 #if defined(HAVE___BUILTIN_UNREACHABLE) || __has_builtin(__builtin_unreachable)
-    #define UNREACHABLE_MSG(str)         \
+    #define UNREACHABLE_MSG(str)     \
         do {                         \
             assert(!str);            \
             __builtin_unreachable(); \
@@ -199,9 +199,9 @@
     #define UNREACHABLE() __builtin_unreachable()
 #elif defined(_MSC_VER)
     #define UNREACHABLE_MSG(str) \
-        do {                 \
-            assert(!str);    \
-            __assume(0);     \
+        do {                     \
+            assert(!str);        \
+            __assume(0);         \
         } while (0)
     #define UNREACHABLE() __assume(0)
 #else
@@ -415,13 +415,13 @@
 /** Compute ceiling of integer quotient of A divided by B. */
 #define DIV_ROUND_UP(A, B) (((A) + (B) -1) / (B))
 
-/** 
+/**
  * Clamp X to [MIN,MAX].  Turn NaN into MIN, arbitrarily.
- * 
- * glib defines this as well. So check we don't redefine it.  
+ *
+ * glib defines this as well. So check we don't redefine it.
  */
 #ifndef CLAMP
-#   define CLAMP(X, MIN, MAX) ((X) > (MIN) ? ((X) > (MAX) ? (MAX) : (X)) : (MIN))
+    #define CLAMP(X, MIN, MAX) ((X) > (MIN) ? ((X) > (MAX) ? (MAX) : (X)) : (MIN))
 #endif
 
 /* Syntax sugar occuring frequently in graphics code */
@@ -574,27 +574,27 @@ typedef int lock_cap_t;
     #define TRAP() abort()
 #endif
 
-#define UNIMPLEMENTED() \
-    do { \
+#define UNIMPLEMENTED()                                                            \
+    do {                                                                           \
         fprintf(stderr, "%s%s:%u: Unimplemented\n", __FILE__, __func__, __LINE__); \
-        TRAP(); \
+        TRAP();                                                                    \
     } while (0)
 
 #ifdef HAVE___BUILTIN_POPCOUNT
     #define HWEIGHT(x) __builtin_popcount(x)
 #else
 static inline int hamming_weight(uint64_t x) {
-    //put count of each 2 bits into those 2 bits
+    // put count of each 2 bits into those 2 bits
     x -= (x >> 1) & 0x5555555555555555;
-    
+
     // put count of each 4 bits into those 4 bits
-    x = (x & 0x3333333333333333) + ((x >> 2) & 0x3333333333333333);  
-    
+    x = (x & 0x3333333333333333) + ((x >> 2) & 0x3333333333333333);
+
     // put count of each 8 bits into those 8 bits
     x = (x + (x >> 4)) & 0x0f0f0f0f0f0f0f0f;
 
-    // returns left 8 bits of x + (x<<8) + (x<<16) + (x<<24) + ...         
-    return (x * 0x0101010101010101) >> 56;   
+    // returns left 8 bits of x + (x<<8) + (x<<16) + (x<<24) + ...
+    return (x * 0x0101010101010101) >> 56;
 }
     #define HWEIGHT(x) hamming_weight(x)
 #endif
