@@ -133,3 +133,7 @@ jobs:
   required:
     name: required checks
     needs: [pi4, container]
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          echo 'all required checks passed.'
