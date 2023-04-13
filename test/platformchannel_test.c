@@ -1,11 +1,11 @@
 #define _GNU_SOURCE
+#include "platformchannel.h"
+
 #include <limits.h>
 #include <math.h>
 #include <stdalign.h>
 
 #include <unity.h>
-
-#include <platformchannel.h>
 
 #define RAW_STD_BUF(...) (const struct raw_std_value *) ((const uint8_t[]){ __VA_ARGS__ })
 #define AS_RAW_STD_VALUE(_value) ((const struct raw_std_value *) (_value))

@@ -1,10 +1,10 @@
 #include <ctype.h>
 #include <errno.h>
 
-#include <flutter-pi.h>
-#include <pluginregistry.h>
+#include "flutter-pi.h"
+#include "pluginregistry.h"
 //#include <compositor.h>
-#include <plugins/services.h>
+#include "plugins/services.h"
 
 static struct {
     char label[256];

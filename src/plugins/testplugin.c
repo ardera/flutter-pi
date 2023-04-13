@@ -1,11 +1,12 @@
+#include "plugins/testplugin.h"
+
 #include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-#include <flutter-pi.h>
-#include <pluginregistry.h>
-#include <plugins/testplugin.h>
+#include "flutter-pi.h"
+#include "pluginregistry.h"
 
 #define INDENT_STRING "                    "
 

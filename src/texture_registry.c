@@ -1,3 +1,5 @@
+#include "texture_registry.h"
+
 #include <errno.h>
 #include <inttypes.h>
 #include <stdbool.h>
@@ -7,8 +9,7 @@
 
 #include <flutter_embedder.h>
 
-#include <flutter-pi.h>
-#include <texture_registry.h>
+#include "flutter-pi.h"
 
 FILE_DESCR("texture registry")
 

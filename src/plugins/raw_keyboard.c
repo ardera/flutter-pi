@@ -1,3 +1,5 @@
+#include "raw_keyboard.h"
+
 #include <ctype.h>
 #include <errno.h>
 #include <stdio.h>
@@ -5,14 +7,12 @@
 #include <string.h>
 
 #include <linux/input.h>
-
 #include <xkbcommon/xkbcommon-keysyms.h>
 #include <xkbcommon/xkbcommon.h>
 
-#include <flutter-pi.h>
-#include <keyboard.h>
-#include <pluginregistry.h>
-#include <plugins/raw_keyboard.h>
+#include "flutter-pi.h"
+#include "keyboard.h"
+#include "pluginregistry.h"
 
 ATTR_CONST static uint64_t apply_key_plane(uint64_t keycode, uint64_t plane) {
     return (keycode & 0x000FFFFFFFF) | plane;

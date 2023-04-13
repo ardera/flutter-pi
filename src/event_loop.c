@@ -1,15 +1,15 @@
+#include "event_loop.h"
+
 #include <semaphore.h>
+#include <sys/select.h>
 #include <sys/types.h>
 #include <unistd.h>
 
 #include <sys/eventfd.h>
-
-#include <event_loop.h>
-#include <sys/select.h>
 #include <sys/time.h>
 #include <systemd/sd-event.h>
 
-#include <collection.h>
+#include "util/collection.h"
 
 struct evloop {
     refcount_t n_refs;

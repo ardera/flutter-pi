@@ -8,19 +8,20 @@
  * Copyright (c) 2022, Hannes Winkler <hanneswinkler2000@web.de>
  */
 
+#include "egl_gbm_render_surface.h"
+
 #include <stdlib.h>
 
-#include <collection.h>
-#include <egl.h>
-#include <egl_gbm_render_surface.h>
-#include <gl_renderer.h>
-#include <gles.h>
-#include <modesetting.h>
-#include <pixel_format.h>
-#include <render_surface.h>
-#include <render_surface_private.h>
-#include <surface.h>
-#include <tracer.h>
+#include "egl.h"
+#include "gl_renderer.h"
+#include "gles.h"
+#include "modesetting.h"
+#include "pixel_format.h"
+#include "render_surface.h"
+#include "render_surface_private.h"
+#include "surface.h"
+#include "tracer.h"
+#include "util/collection.h"
 
 FILE_DESCR("EGL/GBM render surface")
 

@@ -1,6 +1,6 @@
-#include <vulkan.h>
+#include "pixel_format.h"
 
-#include <pixel_format.h>
+#include <vulkan.h>
 
 #ifdef HAS_FBDEV
     #define FBDEV_FORMAT_FIELD_INITIALIZER(r_length, r_offset, g_length, g_offset, b_length, b_offset, a_length, a_offset) \

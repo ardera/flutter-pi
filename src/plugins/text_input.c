@@ -1,3 +1,5 @@
+#include "plugins/text_input.h"
+
 #include <ctype.h>
 #include <errno.h>
 #include <stdio.h>
@@ -6,9 +8,8 @@
 
 #include <xkbcommon/xkbcommon-keysyms.h>
 
-#include <flutter-pi.h>
-#include <pluginregistry.h>
-#include <plugins/text_input.h>
+#include "flutter-pi.h"
+#include "pluginregistry.h"
 
 struct text_input {
     int64_t connection_id;
@@ -571,11 +572,11 @@ int client_show_autocorrection_prompt_rect(double connection_id, double start, d
  * Text Input Model functions.
  */
 static inline int selection_start(void) {
-    return min(text_input.selection_base, text_input.selection_extent);
+    return MIN2(text_input.selection_base, text_input.selection_extent);
 }
 
 static inline int selection_end(void) {
-    return max(text_input.selection_base, text_input.selection_extent);
+    return MAX2(text_input.selection_base, text_input.selection_extent);
 }
 
 /**

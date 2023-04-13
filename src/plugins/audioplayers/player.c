@@ -1,13 +1,13 @@
 #include <stdio.h>
 
-#include "gst/gst.h"
-#include "gst/gstelementfactory.h"
-#include "gst/gstmessage.h"
-#include "gst/gstsegment.h"
-#include "platformchannel.h"
+#include <gst/gst.h>
+#include <gst/gstelementfactory.h>
+#include <gst/gstmessage.h>
+#include <gst/gstsegment.h>
 
-#include <flutter-pi.h>
-#include <plugins/audioplayers.h>
+#include "flutter-pi.h"
+#include "platformchannel.h"
+#include "plugins/audioplayers.h"
 
 FILE_DESCR("audioplayers player")
 

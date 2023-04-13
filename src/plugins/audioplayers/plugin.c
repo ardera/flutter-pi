@@ -1,11 +1,10 @@
 #define _GNU_SOURCE
 
+#include "flutter-pi.h"
+#include "platformchannel.h"
+#include "pluginregistry.h"
 #include "plugins/audioplayers.h"
-
-#include <collection.h>
-#include <flutter-pi.h>
-#include <platformchannel.h>
-#include <pluginregistry.h>
+#include "util/collection.h"
 
 FILE_DESCR("audioplayers plugin")
 

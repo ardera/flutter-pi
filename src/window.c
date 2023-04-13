@@ -8,26 +8,27 @@
  */
 
 #define _GNU_SOURCE
+#include "window.h"
+
 #include <stdlib.h>
 
 #include <pthread.h>
 
 #include <flutter_embedder.h>
 
-#include <collection.h>
-#include <compositor_ng.h>
-#include <cursor.h>
-#include <egl_gbm_render_surface.h>
-#include <flutter-pi.h>
-#include <frame_scheduler.h>
-#include <gl_renderer.h>
-#include <modesetting.h>
-#include <render_surface.h>
-#include <surface.h>
-#include <tracer.h>
-#include <vk_gbm_render_surface.h>
-#include <vk_renderer.h>
-#include <window.h>
+#include "compositor_ng.h"
+#include "cursor.h"
+#include "egl_gbm_render_surface.h"
+#include "flutter-pi.h"
+#include "frame_scheduler.h"
+#include "gl_renderer.h"
+#include "modesetting.h"
+#include "render_surface.h"
+#include "surface.h"
+#include "tracer.h"
+#include "util/collection.h"
+#include "vk_gbm_render_surface.h"
+#include "vk_renderer.h"
 
 FILE_DESCR("native windows")
 
