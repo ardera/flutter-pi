@@ -1,6 +1,8 @@
 #ifndef KEYBOARD_H
 #define KEYBOARD_H
 
+#include <stdbool.h>
+
 #include <xkbcommon/xkbcommon.h>
 
 struct keyboard_config {
@@ -81,13 +83,15 @@ static inline bool keyboard_state_is_scrolllock_active(struct keyboard_state *st
 }
 
 static inline struct keyboard_modifier_state keyboard_state_get_meta_state(struct keyboard_state *state) {
-    return (struct keyboard_modifier_state){ .ctrl = keyboard_state_is_ctrl_active(state),
-                                             .shift = keyboard_state_is_shift_active(state),
-                                             .alt = keyboard_state_is_alt_active(state),
-                                             .meta = keyboard_state_is_meta_active(state),
-                                             .capslock = keyboard_state_is_capslock_active(state),
-                                             .numlock = keyboard_state_is_numlock_active(state),
-                                             .scrolllock = keyboard_state_is_scrolllock_active(state) };
+    return (struct keyboard_modifier_state){
+        .ctrl = keyboard_state_is_ctrl_active(state),
+        .shift = keyboard_state_is_shift_active(state),
+        .alt = keyboard_state_is_alt_active(state),
+        .meta = keyboard_state_is_meta_active(state),
+        .capslock = keyboard_state_is_capslock_active(state),
+        .numlock = keyboard_state_is_numlock_active(state),
+        .scrolllock = keyboard_state_is_scrolllock_active(state),
+    };
 }
 
 #endif

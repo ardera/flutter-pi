@@ -1,9 +1,12 @@
 #ifndef _KEY_EVENT_H
 #define _KEY_EVENT_H
 
+#include <stdbool.h>
 #include <stdint.h>
 
+#include <flutter_embedder.h>
 #include <linux/input-event-codes.h>
+#include <xkbcommon/xkbcommon.h>
 
 typedef struct {
     union {

@@ -1,6 +1,8 @@
 #ifndef _TEXT_INPUT_H
 #define _TEXT_INPUT_H
 
+#include <stdbool.h>
+
 #include <xkbcommon/xkbcommon.h>
 
 #define TEXT_INPUT_CHANNEL "flutter/textinput"
