@@ -137,7 +137,8 @@ add_library(
   src/pluginregistry.c
   src/texture_registry.c
   src/modesetting.c
-  src/collection.c
+  src/util/collection.c
+  src/util/bitscan.c
   src/cursor.c
   src/keyboard.c
   src/user_input.c
@@ -171,7 +172,7 @@ target_link_libraries(flutterpi_module PUBLIC
 
 target_include_directories(flutterpi_module PUBLIC
   ${CMAKE_BINARY_DIR}
-  ${CMAKE_SOURCE_DIR}/include
+  ${CMAKE_SOURCE_DIR}/src
 )
 
 target_compile_options(flutterpi_module PRIVATE

@@ -18,9 +18,9 @@
 #include <flutter_embedder.h>
 #include <GLES2/gl2ext.h>
 
-#include <collection.h>
-#include <cursor.h>
-#include <flutter-pi.h>
+#include "cursor.h"
+#include "flutter-pi.h"
+#include "util/collection.h"
 
 FILE_DESCR("compositor")
 

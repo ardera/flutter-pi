@@ -1,3 +1,5 @@
+#include "platformchannel.h"
+
 #include <assert.h>
 #include <ctype.h>
 #include <errno.h>
@@ -9,9 +11,8 @@
 
 #include <flutter_embedder.h>
 
-#include <flutter-pi.h>
-#include <jsmn.h>
-#include <platformchannel.h>
+#include "flutter-pi.h"
+#include "jsmn.h"
 
 FILE_DESCR("platform messages")
 

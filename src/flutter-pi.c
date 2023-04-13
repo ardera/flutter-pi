@@ -23,47 +23,45 @@
 #include <sys/types.h>
 #include <unistd.h>
 
+#include <drm_fourcc.h>
 #include <elf.h>
 #include <features.h>
+#include <gbm.h>
 #include <getopt.h>
 #include <langinfo.h>
-
-#include <linux/input.h>
-#include <sys/eventfd.h>
-
-#include <drm_fourcc.h>
-#include <gbm.h>
 #include <libinput.h>
 #include <libudev.h>
+#include <linux/input.h>
+#include <sys/eventfd.h>
 #include <systemd/sd-event.h>
 #include <xf86drm.h>
 #include <xf86drmMode.h>
 
-#include <egl.h>
-#include <gles.h>
 #ifdef HAS_LIBSEAT
     #include <libseat.h>
 #endif
-#include <filesystem_layout.h>
 #include <flutter_embedder.h>
 
-#include <compositor_ng.h>
-#include <flutter-pi.h>
-#include <frame_scheduler.h>
-#include <gl_renderer.h>
-#include <keyboard.h>
-#include <locales.h>
-#include <modesetting.h>
-#include <pixel_format.h>
-#include <platformchannel.h>
-#include <pluginregistry.h>
-#include <plugins/raw_keyboard.h>
-#include <plugins/text_input.h>
-#include <texture_registry.h>
-#include <tracer.h>
-#include <user_input.h>
-#include <vk_renderer.h>
-#include <window.h>
+#include "compositor_ng.h"
+#include "egl.h"
+#include "filesystem_layout.h"
+#include "flutter-pi.h"
+#include "frame_scheduler.h"
+#include "gl_renderer.h"
+#include "gles.h"
+#include "keyboard.h"
+#include "locales.h"
+#include "modesetting.h"
+#include "pixel_format.h"
+#include "platformchannel.h"
+#include "pluginregistry.h"
+#include "plugins/raw_keyboard.h"
+#include "plugins/text_input.h"
+#include "texture_registry.h"
+#include "tracer.h"
+#include "user_input.h"
+#include "vk_renderer.h"
+#include "window.h"
 
 #ifdef ENABLE_MTRACE
     #include <mcheck.h>
@@ -1109,7 +1107,10 @@ static void unload_flutter_engine_lib(void *handle) {
 }
 
 static int get_flutter_engine_procs(void *engine_handle, FlutterEngineProcTable *procs_out) {
+    // clang-format off
     FlutterEngineResult (*get_proc_addresses)(FlutterEngineProcTable *table);
+    // clang-format on
+
     FlutterEngineResult engine_result;
 
     get_proc_addresses = dlsym(engine_handle, "FlutterEngineGetProcAddresses");

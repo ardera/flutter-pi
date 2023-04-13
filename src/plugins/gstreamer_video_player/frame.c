@@ -10,10 +10,10 @@
 #include <gst/allocators/allocators.h>
 #include <gst/video/video.h>
 
-#include <flutter-pi.h>
-#include <gl_renderer.h>
-#include <plugins/gstreamer_video_player.h>
-#include <texture_registry.h>
+#include "flutter-pi.h"
+#include "gl_renderer.h"
+#include "plugins/gstreamer_video_player.h"
+#include "texture_registry.h"
 
 FILE_DESCR("gstreamer video_player")
 
@@ -317,8 +317,7 @@ DEFINE_REF_OPS(frame_interface, n_refs)
  * Calls gst_buffer_map on the buffer, so buffer could have changed after the call.
  *
  */
-UNUSED int
-dup_gst_buffer_range_as_dmabuf(struct gbm_device *gbm_device, GstBuffer *buffer, unsigned int memory_index, int n_memories) {
+UNUSED int dup_gst_buffer_range_as_dmabuf(struct gbm_device *gbm_device, GstBuffer *buffer, unsigned int memory_index, int n_memories) {
     struct gbm_bo *bo;
     GstMapInfo map_info;
     uint32_t stride;

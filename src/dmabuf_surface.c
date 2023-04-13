@@ -33,16 +33,17 @@
  * Copyright (c) 2022, Hannes Winkler <hanneswinkler2000@web.de>
  */
 
+#include "dmabuf_surface.h"
+
 #include <stdatomic.h>
 #include <stdint.h>
 #include <stdlib.h>
 
-#include <collection.h>
-#include <compositor_ng.h>
-#include <dmabuf_surface.h>
-#include <surface.h>
-#include <surface_private.h>
-#include <texture_registry.h>
+#include "compositor_ng.h"
+#include "surface.h"
+#include "surface_private.h"
+#include "texture_registry.h"
+#include "util/collection.h"
 
 FILE_DESCR("dmabuf surface")
 

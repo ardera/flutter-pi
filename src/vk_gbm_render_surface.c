@@ -8,6 +8,8 @@
  * Copyright (c) 2022, Hannes Winkler <hanneswinkler2000@web.de>
  */
 
+#include "vk_gbm_render_surface.h"
+
 #include <stdatomic.h>
 #include <stdlib.h>
 
@@ -15,14 +17,13 @@
 
 #include <vulkan.h>
 
-#include <collection.h>
-#include <render_surface.h>
-#include <render_surface_private.h>
-#include <surface.h>
-#include <surface_private.h>
-#include <tracer.h>
-#include <vk_gbm_render_surface.h>
-#include <vk_renderer.h>
+#include "render_surface.h"
+#include "render_surface_private.h"
+#include "surface.h"
+#include "surface_private.h"
+#include "tracer.h"
+#include "util/collection.h"
+#include "vk_renderer.h"
 
 FILE_DESCR("gbm/vulkan render surface")
 

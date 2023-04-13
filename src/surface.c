@@ -11,14 +11,15 @@
  * Copyright (c) 2022, Hannes Winkler <hanneswinkler2000@web.de>
  */
 
+#include "surface.h"
+
 #include <stddef.h>
 #include <stdlib.h>
 
-#include <collection.h>
-#include <compositor_ng.h>
-#include <surface.h>
-#include <surface_private.h>
-#include <tracer.h>
+#include "compositor_ng.h"
+#include "surface_private.h"
+#include "tracer.h"
+#include "util/collection.h"
 
 FILE_DESCR("rendering surfaces")
 

@@ -6,17 +6,18 @@
  */
 
 #define _GNU_SOURCE
+#include "gl_renderer.h"
+
 #include <stdlib.h>
 
 #include <dlfcn.h>
 #include <pthread.h>
 
-#include <collection.h>
-#include <egl.h>
-#include <gl_renderer.h>
-#include <gles.h>
-#include <pixel_format.h>
-#include <tracer.h>
+#include "egl.h"
+#include "gles.h"
+#include "pixel_format.h"
+#include "tracer.h"
+#include "util/collection.h"
 
 FILE_DESCR("EGL/GL renderer")
 

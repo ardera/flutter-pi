@@ -1,4 +1,6 @@
 #define _GNU_SOURCE
+#include "locales.h"
+
 #include <locale.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -6,9 +8,8 @@
 
 #include <flutter_embedder.h>
 
-#include <collection.h>
-#include <flutter-pi.h>
-#include <locales.h>
+#include "flutter-pi.h"
+#include "util/collection.h"
 
 #define LOG_LOCALES_ERROR(...) fprintf(stderr, "[locales] " __VA_ARGS__);
 
