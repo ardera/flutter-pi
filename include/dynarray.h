@@ -114,7 +114,7 @@ MUST_CHECK static inline void *util_dynarray_ensure_cap(struct util_dynarray *bu
 
 /* use util_dynarray_trim to reduce the allocated storage */
 MUST_CHECK static inline void *util_dynarray_resize_bytes(struct util_dynarray *buf, unsigned nelts, size_t eltsize) {
-    if (unlikely(nelts > UINT_MAX / eltsize))
+    if (UNLIKELY(nelts > UINT_MAX / eltsize))
         return NULL;
 
     unsigned newsize = nelts * eltsize;
@@ -137,7 +137,7 @@ static inline void util_dynarray_clone(struct util_dynarray *buf, void *mem_ctx,
 MUST_CHECK static inline void *util_dynarray_grow_bytes(struct util_dynarray *buf, unsigned ngrow, size_t eltsize) {
     unsigned growbytes = ngrow * eltsize;
 
-    if (unlikely(ngrow > (UINT_MAX / eltsize) || growbytes > UINT_MAX - buf->size))
+    if (UNLIKELY(ngrow > (UINT_MAX / eltsize) || growbytes > UINT_MAX - buf->size))
         return NULL;
 
     unsigned newsize = buf->size + growbytes;
