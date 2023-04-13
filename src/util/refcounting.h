@@ -4,6 +4,8 @@
 #include <stdatomic.h>
 #include <stdbool.h>
 
+#include "macros.h"
+
 typedef _Atomic(int) refcount_t;
 
 static inline int refcount_inc_n(refcount_t *refcount, int n) {
