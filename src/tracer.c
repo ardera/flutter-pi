@@ -5,12 +5,13 @@
  * Copyright (c) 2022, Hannes Winkler <hanneswinkler2000@web.de>
  */
 
+#include "tracer.h"
+
 #include <stdlib.h>
 
 #include <flutter_embedder.h>
 
-#include <collection.h>
-#include <tracer.h>
+#include "util/collection.h"
 
 FILE_DESCR("tracing")
 

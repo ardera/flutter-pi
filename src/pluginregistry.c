@@ -4,18 +4,19 @@
     #define _POSIX_C_SOURCE 200809L
 #endif
 
+#include "pluginregistry.h"
+
 #include <stdatomic.h>
 #include <string.h>
 
+#include <sys/select.h>
 #include <unistd.h>
 
 #include <alloca.h>
-#include <sys/select.h>
 
-#include <collection.h>
-#include <flutter-pi.h>
-#include <platformchannel.h>
-#include <pluginregistry.h>
+#include "flutter-pi.h"
+#include "platformchannel.h"
+#include "util/collection.h"
 
 FILE_DESCR("plugin registry")
 

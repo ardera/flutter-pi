@@ -7,11 +7,12 @@
  * Copyright (c) 2022, Hannes Winkler <hanneswinkler2000@web.de>
  */
 
+#include "frame_scheduler.h"
+
 #include <stdlib.h>
 
-#include <collection.h>
-#include <compositor_ng.h>
-#include <frame_scheduler.h>
+#include "compositor_ng.h"
+#include "util/collection.h"
 
 struct frame_scheduler {
     refcount_t n_refs;

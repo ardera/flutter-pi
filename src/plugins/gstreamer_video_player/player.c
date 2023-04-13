@@ -6,8 +6,6 @@
 
 #include <pthread.h>
 
-#include <sys/eventfd.h>
-
 #include <drm_fourcc.h>
 #include <gst/allocators/gstdmabuf.h>
 #include <gst/app/gstappsink.h>
@@ -15,14 +13,15 @@
 #include <gst/gstmemory.h>
 #include <gst/gstpad.h>
 #include <gst/video/gstvideometa.h>
+#include <sys/eventfd.h>
 
-#include <collection.h>
-#include <flutter-pi.h>
-#include <notifier_listener.h>
-#include <platformchannel.h>
-#include <pluginregistry.h>
-#include <plugins/gstreamer_video_player.h>
-#include <texture_registry.h>
+#include "flutter-pi.h"
+#include "notifier_listener.h"
+#include "platformchannel.h"
+#include "pluginregistry.h"
+#include "plugins/gstreamer_video_player.h"
+#include "texture_registry.h"
+#include "util/collection.h"
 
 FILE_DESCR("gstreamer video_player")
 

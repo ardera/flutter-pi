@@ -1,5 +1,6 @@
-#include <collection.h>
-#include <cursor.h>
+#include "cursor.h"
+
+#include "util/collection.h"
 
 const unsigned char cursor_32x32_data[32 * 32 * 4 + 1] =
     "\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000"

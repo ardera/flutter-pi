@@ -10,13 +10,13 @@
 #include <gst/gst.h>
 #include <gst/video/video-info.h>
 
-#include <collection.h>
-#include <flutter-pi.h>
-#include <notifier_listener.h>
-#include <platformchannel.h>
-#include <pluginregistry.h>
-#include <plugins/gstreamer_video_player.h>
-#include <texture_registry.h>
+#include "flutter-pi.h"
+#include "notifier_listener.h"
+#include "platformchannel.h"
+#include "pluginregistry.h"
+#include "plugins/gstreamer_video_player.h"
+#include "texture_registry.h"
+#include "util/collection.h"
 
 FILE_DESCR("gstreamer video_player plugin")
 

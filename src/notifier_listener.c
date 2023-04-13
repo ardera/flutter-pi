@@ -1,7 +1,7 @@
+#include "notifier_listener.h"
+
 #include <stdatomic.h>
 #include <stdbool.h>
-
-#include <notifier_listener.h>
 
 struct listener {
     listener_cb_t notify;

@@ -1,4 +1,6 @@
 #define _GNU_SOURCE
+#include "keyboard.h"
+
 #include <errno.h>
 #include <locale.h>
 #include <stdint.h>
@@ -15,12 +17,10 @@
 #include <linux/input.h>
 #include <linux/kd.h>
 #include <linux/keyboard.h>
-
 #include <xkbcommon/xkbcommon-compose.h>
 #include <xkbcommon/xkbcommon.h>
 
-#include <collection.h>
-#include <keyboard.h>
+#include "util/collection.h"
 
 FILE_DESCR("keyboard")
 

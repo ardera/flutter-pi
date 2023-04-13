@@ -1,3 +1,5 @@
+#include "user_input.h"
+
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -7,17 +9,15 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-#include <linux/input-event-codes.h>
-
 #include <libinput.h>
+#include <linux/input-event-codes.h>
 #include <memory.h>
 #include <systemd/sd-event.h>
 
-#include <collection.h>
-#include <compositor_ng.h>
-#include <flutter-pi.h>
-#include <keyboard.h>
-#include <user_input.h>
+#include "compositor_ng.h"
+#include "flutter-pi.h"
+#include "keyboard.h"
+#include "util/collection.h"
 
 FILE_DESCR("user input")
 
@@ -274,7 +274,7 @@ static void emit_pointer_events(struct user_input *input, const FlutterPointerEv
         }
 
         // how many pointer events we can copy into the internal pointer event buffer?
-        to_copy = min(n_events, MAX_COLLECTED_FLUTTER_POINTER_EVENTS - input->n_collected_flutter_pointer_events);
+        to_copy = MIN2(n_events, MAX_COLLECTED_FLUTTER_POINTER_EVENTS - input->n_collected_flutter_pointer_events);
 
         // copy into the internal pointer event buffer
         memcpy(

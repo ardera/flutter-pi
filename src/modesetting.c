@@ -1,3 +1,5 @@
+#include "modesetting.h"
+
 #include <errno.h>
 #include <inttypes.h>
 #include <stdint.h>
@@ -14,8 +16,8 @@
 #include <xf86drm.h>
 #include <xf86drmMode.h>
 
-#include <modesetting.h>
-#include <pixel_format.h>
+#include "pixel_format.h"
+#include "util/bitset.h"
 
 FILE_DESCR("modesetting")
 
@@ -45,7 +47,7 @@ struct kms_req_builder {
     struct drm_connector *connector;
     struct drm_crtc *crtc;
 
-    BMAP_DECLARATION(planes, 32);
+    BITSET_DECLARE(available_planes, 32);
     drmModeAtomicReq *req;
     int64_t next_zpos;
 
@@ -56,6 +58,8 @@ struct kms_req_builder {
     bool has_mode;
     drmModeModeInfo mode;
 };
+
+COMPILE_ASSERT(BITSET_SIZE(((struct kms_req_builder *) 0)->available_planes) == 32);
 
 struct drmdev {
     int fd;
@@ -1773,10 +1777,10 @@ static struct drm_plane *allocate_plane(
     bool has_id_range, uint32_t id_lower_limit
     // clang-format on
 ) {
-    for (int i = 0; i < BMAP_SIZE(builder->planes); i++) {
+    for (int i = 0; i < BITSET_SIZE(builder->available_planes); i++) {
         struct drm_plane *plane = builder->drmdev->planes + i;
 
-        if (BMAP_IS_SET(builder->planes, i)) {
+        if (BITSET_TEST(builder->available_planes, i)) {
             // find out if the plane matches our criteria
             bool qualifies = plane_qualifies(
                 plane,
@@ -1801,7 +1805,7 @@ static struct drm_plane *allocate_plane(
             }
 
             // we found one, mark it as used and return it
-            BMAP_CLEAR(builder->planes, i);
+            BITSET_CLEAR(builder->available_planes, i);
             return plane;
         }
     }
@@ -1827,8 +1831,8 @@ static void release_plane(struct kms_req_builder *builder, uint32_t plane_id) {
         return;
     }
 
-    DEBUG_ASSERT(!BMAP_IS_SET(builder->planes, index));
-    BMAP_SET(builder->planes, index);
+    DEBUG_ASSERT(!BITSET_TEST(builder->available_planes, index));
+    BITSET_SET(builder->available_planes, index);
 }
 
 struct kms_req_builder *drmdev_create_request_builder(struct drmdev *drmdev, uint32_t crtc_id) {
@@ -1874,12 +1878,12 @@ struct kms_req_builder *drmdev_create_request_builder(struct drmdev *drmdev, uin
     }
 
     min_zpos = INT64_MAX;
-    BMAP_ZERO(builder->planes);
+    BITSET_ZERO(builder->available_planes);
     for (int i = 0; i < drmdev->n_planes; i++) {
         struct drm_plane *plane = drmdev->planes + i;
 
         if (plane->possible_crtcs & crtc->bitmask) {
-            BMAP_SET(builder->planes, i);
+            BITSET_SET(builder->available_planes, i);
             if (plane->has_zpos && plane->min_zpos < min_zpos) {
                 min_zpos = plane->min_zpos;
             }

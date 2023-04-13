@@ -5,13 +5,14 @@
  * Copyright (c) 2022, Hannes Winkler <hanneswinkler2000@web.de>
  */
 
+#include "vk_renderer.h"
+
 #include <stdlib.h>
 
 #include <alloca.h>
 #include <vulkan.h>
 
-#include <collection.h>
-#include <vk_renderer.h>
+#include "util/collection.h"
 
 #define VALIDATION_LAYER_NAME "VK_LAYER_KHRONOS_validation"
 

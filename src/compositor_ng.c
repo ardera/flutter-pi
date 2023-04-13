@@ -22,22 +22,22 @@
 #include <flutter_embedder.h>
 #include <systemd/sd-event.h>
 
-#include <collection.h>
-#include <compositor_ng.h>
-#include <egl.h>
-#include <egl_gbm_render_surface.h>
-#include <flutter-pi.h>
-#include <frame_scheduler.h>
-#include <gl_renderer.h>
-#include <modesetting.h>
-#include <notifier_listener.h>
-#include <pixel_format.h>
-#include <render_surface.h>
-#include <surface.h>
-#include <tracer.h>
-#include <vk_gbm_render_surface.h>
-#include <vk_renderer.h>
-#include <window.h>
+#include "compositor_ng.h"
+#include "egl.h"
+#include "egl_gbm_render_surface.h"
+#include "flutter-pi.h"
+#include "frame_scheduler.h"
+#include "gl_renderer.h"
+#include "modesetting.h"
+#include "notifier_listener.h"
+#include "pixel_format.h"
+#include "render_surface.h"
+#include "surface.h"
+#include "tracer.h"
+#include "util/collection.h"
+#include "vk_gbm_render_surface.h"
+#include "vk_renderer.h"
+#include "window.h"
 
 FILE_DESCR("compositor-ng")
 
