@@ -17,7 +17,6 @@
 #include <pthread.h>
 
 #include <features.h>
-
 #include <macros.h>
 
 struct queue {
