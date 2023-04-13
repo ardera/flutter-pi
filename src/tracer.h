@@ -10,6 +10,8 @@
 
 #include <flutter_embedder.h>
 
+#include "util/refcounting.h"
+
 struct tracer;
 
 struct tracer *tracer_new_with_cbs(
