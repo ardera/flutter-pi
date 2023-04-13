@@ -36,6 +36,7 @@ struct dmabuf {
 typedef void (*dmabuf_release_cb_t)(struct dmabuf *buf);
 
 struct texture_registry;
+struct tracer;
 
 MUST_CHECK struct dmabuf_surface *dmabuf_surface_new(struct tracer *tracer, struct texture_registry *texture_registry);
 
