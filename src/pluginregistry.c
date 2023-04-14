@@ -48,10 +48,8 @@ struct platch_obj_cb_data {
 struct plugin_registry {
     pthread_mutex_t lock;
     struct flutterpi *flutterpi;
-    struct util_dynarray plugins2;
-    struct util_dynarray callbacks2;
-    struct concurrent_pointer_set plugins;
-    struct concurrent_pointer_set callbacks;
+    struct util_dynarray plugins;
+    struct util_dynarray callbacks;
 };
 
 DEFINE_STATIC_LOCK_OPS(plugin_registry, lock)
@@ -60,7 +58,7 @@ static pthread_mutex_t static_plugins_lock = PTHREAD_MUTEX_INITIALIZER;
 static struct util_dynarray static_plugins = { 0 };
 
 static struct plugin_instance *get_plugin_by_name_locked(struct plugin_registry *registry, const char *plugin_name) {
-    util_dynarray_foreach(&registry->plugins2, struct plugin_instance, instance) {
+    util_dynarray_foreach(&registry->plugins, struct plugin_instance, instance) {
         if (streq(instance->plugin->name, plugin_name)) {
             return instance;
         }
@@ -72,17 +70,17 @@ static struct plugin_instance *get_plugin_by_name_locked(struct plugin_registry 
 static struct plugin_instance *get_plugin_by_name(struct plugin_registry *registry, const char *plugin_name) {
     struct plugin_instance *instance;
 
-    cpset_lock(&registry->plugins);
+    plugin_registry_lock(registry);
 
     instance = get_plugin_by_name_locked(registry, plugin_name);
 
-    cpset_unlock(&registry->plugins);
+    plugin_registry_unlock(registry);
 
     return instance;
 }
 
 static struct platch_obj_cb_data *get_cb_data_by_channel_locked(struct plugin_registry *registry, const char *channel) {
-    util_dynarray_foreach(&registry->callbacks2, struct platch_obj_cb_data, data) {
+    util_dynarray_foreach(&registry->callbacks, struct platch_obj_cb_data, data) {
         if (streq(data->channel, channel)) {
             return data;
         }
@@ -103,8 +101,8 @@ struct plugin_registry *plugin_registry_new(struct flutterpi *flutterpi) {
     ok = pthread_mutex_init(&reg->lock, get_default_mutex_attrs());
     ASSERT_ZERO(ok);
 
-    util_dynarray_init(&reg->plugins2);
-    util_dynarray_init(&reg->callbacks2);
+    util_dynarray_init(&reg->plugins);
+    util_dynarray_init(&reg->callbacks);
 
     reg->flutterpi = flutterpi;
     return reg;
@@ -114,8 +112,8 @@ struct plugin_registry *plugin_registry_new(struct flutterpi *flutterpi) {
 
 void plugin_registry_destroy(struct plugin_registry *registry) {
     plugin_registry_ensure_plugins_deinitialized(registry);
-    util_dynarray_fini(&registry->plugins2);
-    util_dynarray_fini(&registry->callbacks2);
+    util_dynarray_fini(&registry->plugins);
+    util_dynarray_fini(&registry->callbacks);
     free(registry);
 }
 
@@ -183,7 +181,7 @@ void plugin_registry_add_plugin_locked(struct plugin_registry *registry, const s
         .userdata = NULL,
     };
 
-    util_dynarray_append(&registry->plugins2, struct plugin_instance, instance);
+    util_dynarray_append(&registry->plugins, struct plugin_instance, instance);
 }
 
 void plugin_registry_add_plugin(struct plugin_registry *registry, const struct flutterpi_plugin_v2 *plugin) {
@@ -213,7 +211,7 @@ int plugin_registry_ensure_plugins_initialized(struct plugin_registry *registry)
 
     plugin_registry_lock(registry);
 
-    util_dynarray_foreach(&registry->plugins2, struct plugin_instance, instance) {
+    util_dynarray_foreach(&registry->plugins, struct plugin_instance, instance) {
         if (instance->initialized == false) {
             result = instance->plugin->init(registry->flutterpi, &instance->userdata);
             if (result == kError_PluginInitResult) {
@@ -231,7 +229,7 @@ int plugin_registry_ensure_plugins_initialized(struct plugin_registry *registry)
     }
 
     LOG_DEBUG("Initialized plugins: ");
-    util_dynarray_foreach(&registry->plugins2, struct plugin_instance, instance) {
+    util_dynarray_foreach(&registry->plugins, struct plugin_instance, instance) {
         if (instance->initialized) {
             LOG_DEBUG_UNPREFIXED("%s, ", instance->plugin->name);
         }
@@ -242,7 +240,7 @@ int plugin_registry_ensure_plugins_initialized(struct plugin_registry *registry)
     return 0;
 
 fail_deinit_all_initialized:
-    util_dynarray_foreach(&registry->plugins2, struct plugin_instance, instance) {
+    util_dynarray_foreach(&registry->plugins, struct plugin_instance, instance) {
         if (instance->initialized) {
             instance->plugin->deinit(registry->flutterpi, instance->userdata);
             instance->initialized = false;
@@ -255,7 +253,7 @@ fail_deinit_all_initialized:
 void plugin_registry_ensure_plugins_deinitialized(struct plugin_registry *registry) {
     plugin_registry_lock(registry);
 
-    util_dynarray_foreach(&registry->plugins2, struct plugin_instance, instance) {
+    util_dynarray_foreach(&registry->plugins, struct plugin_instance, instance) {
         if (instance->initialized == true) {
             instance->plugin->deinit(registry->flutterpi, instance->userdata);
             instance->initialized = false;
@@ -295,7 +293,7 @@ static int set_receiver_locked(
             .userdata = userdata,
         };
 
-        util_dynarray_append(&registry->callbacks2, struct platch_obj_cb_data, data);
+        util_dynarray_append(&registry->callbacks, struct platch_obj_cb_data, data);
     } else {
         data_ptr->codec = codec;
         data_ptr->callback = callback;
@@ -365,7 +363,7 @@ int plugin_registry_remove_receiver_v2_locked(struct plugin_registry *registry, 
 
     free(data->channel);
 
-    util_dynarray_delete_single_where_unordered(&registry->callbacks2, struct platch_obj_cb_data, cb_data_channel_equals, channel);
+    util_dynarray_delete_single_where_unordered(&registry->callbacks, struct platch_obj_cb_data, cb_data_channel_equals, channel);
 
     return 0;
 }
