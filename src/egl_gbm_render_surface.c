@@ -91,7 +91,7 @@ ATTR_PURE struct egl_gbm_render_surface *__checked_cast_egl_gbm_render_surface(v
     struct egl_gbm_render_surface *s;
 
     s = CAST_EGL_GBM_RENDER_SURFACE_UNCHECKED(ptr);
-    DEBUG_ASSERT(uuid_equals(s->uuid, uuid));
+    assert(uuid_equals(s->uuid, uuid));
     return s;
 }
 #endif
@@ -120,10 +120,10 @@ static int egl_gbm_render_surface_init(
     EGLBoolean egl_ok;
     int ok;
 
-    DEBUG_ASSERT_NOT_NULL(renderer);
-    DEBUG_ASSERT_PIXFMT_VALID(pixel_format);
+    ASSERT_NOT_NULL(renderer);
+    ASSERT_PIXFMT_VALID(pixel_format);
     egl_display = gl_renderer_get_egl_display(renderer);
-    DEBUG_ASSERT_NOT_NULL(egl_display);
+    ASSERT_NOT_NULL(egl_display);
 
 #ifdef DEBUG
     if (egl_config != EGL_NO_CONFIG_KHR) {
@@ -135,7 +135,7 @@ static int egl_gbm_render_surface_init(
             return EIO;
         }
 
-        DEBUG_ASSERT_EQUALS_MSG(
+        ASSERT_EQUALS_MSG(
             value,
             get_pixfmt_info(pixel_format)->gbm_format,
             "EGL framebuffer config pixel format doesn't match the argument pixel format."
@@ -335,8 +335,8 @@ static void on_destroy_gbm_bo_meta(struct gbm_bo *bo, void *meta_void) {
     struct gbm_bo_meta *meta;
     int ok;
 
-    DEBUG_ASSERT_NOT_NULL(bo);
-    DEBUG_ASSERT_NOT_NULL(meta_void);
+    ASSERT_NOT_NULL(bo);
+    ASSERT_NOT_NULL(meta_void);
     (void) bo;
     meta = meta_void;
 
@@ -352,7 +352,7 @@ static void on_destroy_gbm_bo_meta(struct gbm_bo *bo, void *meta_void) {
 static void on_release_layer(void *userdata) {
     struct locked_fb *fb;
 
-    DEBUG_ASSERT_NOT_NULL(userdata);
+    ASSERT_NOT_NULL(userdata);
 
     fb = userdata;
     locked_fb_unref(fb);
@@ -370,11 +370,11 @@ static int egl_gbm_render_surface_present_kms(struct surface *s, const struct fl
     egl_surface = CAST_THIS(s);
 
     /// TODO: Implement non axis-aligned fl_layer_props
-    DEBUG_ASSERT_MSG(props->is_aa_rect, "only axis aligned view geometry is supported right now");
+    ASSERT_MSG(props->is_aa_rect, "only axis aligned view geometry is supported right now");
 
     surface_lock(s);
 
-    DEBUG_ASSERT_NOT_NULL_MSG(
+    ASSERT_NOT_NULL_MSG(
         egl_surface->locked_front_fb,
         "There's no framebuffer available for scanout right now. Make sure you called render_surface_queue_present() before presenting."
     );
@@ -389,7 +389,7 @@ static int egl_gbm_render_surface_present_kms(struct surface *s, const struct fl
         }
 
         drmdev = kms_req_builder_get_drmdev(builder);
-        DEBUG_ASSERT_NOT_NULL(drmdev);
+        ASSERT_NOT_NULL(drmdev);
 
         TRACER_BEGIN(egl_surface->surface.tracer, "drmdev_add_fb (non-opaque)");
         fb_id = drmdev_add_fb(
@@ -416,7 +416,7 @@ static int egl_gbm_render_surface_present_kms(struct surface *s, const struct fl
         gbm_bo_set_user_data(bo, meta, on_destroy_gbm_bo_meta);
     } else {
         // We can only add this GBM BO to a single KMS device as an fb right now.
-        DEBUG_ASSERT_EQUALS_MSG(
+        ASSERT_EQUALS_MSG(
             meta->drmdev,
             kms_req_builder_get_drmdev(builder),
             "Currently GBM BOs can only be scanned out on a single KMS device for their whole lifetime."
@@ -547,7 +547,7 @@ static int egl_gbm_render_surface_queue_present(struct render_surface *s, const 
         locked_fb_unrefp(&egl_surface->locked_front_fb);
     }
 
-    DEBUG_ASSERT(gbm_surface_has_free_buffers(egl_surface->gbm_surface));
+    assert(gbm_surface_has_free_buffers(egl_surface->gbm_surface));
 
     // create the in fence here
     TRACER_BEGIN(s->surface.tracer, "eglSwapBuffers");
@@ -580,13 +580,13 @@ static int egl_gbm_render_surface_queue_present(struct render_surface *s, const 
 
     // If we reached this point, we couldn't find lock one of the 4 locked_fbs.
     // Which shouldn't happen except we have an application bug.
-    DEBUG_ASSERT_MSG(false, "Couldn't find a free slot to lock the surfaces front framebuffer.");
+    ASSERT_MSG(false, "Couldn't find a free slot to lock the surfaces front framebuffer.");
     ok = EIO;
     goto fail_release_bo;
 
 locked:
     /// TODO: Remove this once we're using triple buffering
-    //DEBUG_ASSERT_MSG(atomic_fetch_add(&render_surface->n_locked_fbs, 1) <= 1, "sanity check failed: too many locked fbs for double-buffered vsync");
+    //ASSERT_MSG(atomic_fetch_add(&render_surface->n_locked_fbs, 1) <= 1, "sanity check failed: too many locked fbs for double-buffered vsync");
     egl_surface->locked_fbs[i].bo = bo;
     egl_surface->locked_fbs[i].surface = CAST_THIS(surface_ref(CAST_SURFACE(s)));
     egl_surface->locked_fbs[i].n_refs = REFCOUNT_INIT_1;

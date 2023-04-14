@@ -93,8 +93,8 @@ struct user_input {
 static int on_open(const char *path, int flags, void *userdata) {
     struct user_input *input;
 
-    DEBUG_ASSERT_NOT_NULL(path);
-    DEBUG_ASSERT_NOT_NULL(userdata);
+    ASSERT_NOT_NULL(path);
+    ASSERT_NOT_NULL(userdata);
     input = userdata;
 
     return input->interface.open(path, flags | O_CLOEXEC, input->userdata);
@@ -103,7 +103,7 @@ static int on_open(const char *path, int flags, void *userdata) {
 static void on_close(int fd, void *userdata) {
     struct user_input *input;
 
-    DEBUG_ASSERT_NOT_NULL(userdata);
+    ASSERT_NOT_NULL(userdata);
     input = userdata;
 
     return input->interface.close(fd, input->userdata);
@@ -192,7 +192,7 @@ fail_return_null:
 }
 
 void user_input_destroy(struct user_input *input) {
-    DEBUG_ASSERT(input != NULL);
+    assert(input != NULL);
 
     /// TODO: Destroy all the input device data, maybe add an additional
     /// parameter to indicate whether any flutter device removal events should be
@@ -212,9 +212,9 @@ void user_input_set_transform(
     unsigned int display_width,
     unsigned int display_height
 ) {
-    DEBUG_ASSERT(input != NULL);
-    DEBUG_ASSERT(display_to_view_transform != NULL);
-    DEBUG_ASSERT(view_to_display_transform != NULL);
+    assert(input != NULL);
+    assert(display_to_view_transform != NULL);
+    assert(view_to_display_transform != NULL);
 
     input->display_to_view_transform = *display_to_view_transform;
     input->view_to_display_transform_nontranslating = *view_to_display_transform;
@@ -225,19 +225,19 @@ void user_input_set_transform(
 }
 
 int user_input_get_fd(struct user_input *input) {
-    DEBUG_ASSERT(input != NULL);
+    assert(input != NULL);
     return libinput_get_fd(input->libinput);
 }
 
 void user_input_suspend(struct user_input *input) {
-    DEBUG_ASSERT_NOT_NULL(input);
+    ASSERT_NOT_NULL(input);
     libinput_suspend(input->libinput);
 }
 
 int user_input_resume(struct user_input *input) {
     int ok;
 
-    DEBUG_ASSERT_NOT_NULL(input);
+    ASSERT_NOT_NULL(input);
     ok = libinput_resume(input->libinput);
     if (ok < 0) {
         LOG_ERROR("Couldn't resume libinput event processing. libinput_resume: %s\n", strerror(errno));
@@ -248,7 +248,7 @@ int user_input_resume(struct user_input *input) {
 }
 
 static void flush_pointer_events(struct user_input *input) {
-    DEBUG_ASSERT(input != NULL);
+    assert(input != NULL);
 
     if (input->n_collected_flutter_pointer_events > 0) {
         input->interface.on_flutter_pointer_event(
@@ -262,8 +262,8 @@ static void flush_pointer_events(struct user_input *input) {
 }
 
 static void emit_pointer_events(struct user_input *input, const FlutterPointerEvent *events, size_t n_events) {
-    DEBUG_ASSERT(input != NULL);
-    DEBUG_ASSERT(events != NULL);
+    assert(input != NULL);
+    assert(events != NULL);
 
     size_t to_copy;
 
@@ -299,7 +299,7 @@ static void emit_pointer_events(struct user_input *input, const FlutterPointerEv
  * it it isn't yet enabled.
  */
 static void maybe_enable_mouse_cursor(struct user_input *input, uint64_t timestamp) {
-    DEBUG_ASSERT(input != NULL);
+    assert(input != NULL);
 
     if (input->n_cursor_devices == 1) {
         input->cursor_flutter_device_id = input->next_unused_flutter_device_id++;
@@ -316,7 +316,7 @@ static void maybe_enable_mouse_cursor(struct user_input *input, uint64_t timesta
  * @brief Called when input->n_cursor_devices was decreased to maybe disable the mouse cursor.
  */
 static void maybe_disable_mouse_cursor(struct user_input *input, uint64_t timestamp) {
-    DEBUG_ASSERT(input != NULL);
+    assert(input != NULL);
 
     if (input->n_cursor_devices == 0) {
         emit_pointer_events(
@@ -332,8 +332,8 @@ static int on_device_added(struct user_input *input, struct libinput_event *even
     struct libinput_device *device;
     int64_t device_id;
 
-    DEBUG_ASSERT(input != NULL);
-    DEBUG_ASSERT(event != NULL);
+    assert(input != NULL);
+    assert(event != NULL);
 
     device = libinput_event_get_device(event);
 
@@ -393,8 +393,8 @@ static int on_device_removed(struct user_input *input, struct libinput_event *ev
     struct input_device_data *data;
     struct libinput_device *device;
 
-    DEBUG_ASSERT(input != NULL);
-    DEBUG_ASSERT(event != NULL);
+    assert(input != NULL);
+    assert(event != NULL);
 
     device = libinput_event_get_device(event);
     data = libinput_device_get_user_data(device);
@@ -436,8 +436,8 @@ static int on_key_event(struct user_input *input, struct libinput_event *event) 
     uint16_t evdev_keycode;
     int ok;
 
-    DEBUG_ASSERT(input != NULL);
-    DEBUG_ASSERT(event != NULL);
+    assert(input != NULL);
+    assert(event != NULL);
 
     key_event = libinput_event_get_keyboard_event(event);
     device = libinput_event_get_device(event);
@@ -561,8 +561,8 @@ static int on_mouse_motion_event(struct user_input *input, struct libinput_event
     struct vec2f delta, pos_display, pos_view;
     uint64_t timestamp;
 
-    DEBUG_ASSERT(input != NULL);
-    DEBUG_ASSERT(event != NULL);
+    assert(input != NULL);
+    assert(event != NULL);
 
     pointer_event = libinput_event_get_pointer_event(event);
     device = libinput_event_get_device(event);
@@ -626,8 +626,8 @@ static int on_mouse_motion_absolute_event(struct user_input *input, struct libin
     struct vec2f pos_display, pos_view;
     uint64_t timestamp;
 
-    DEBUG_ASSERT(input != NULL);
-    DEBUG_ASSERT(event != NULL);
+    assert(input != NULL);
+    assert(event != NULL);
 
     pointer_event = libinput_event_get_pointer_event(event);
     device = libinput_event_get_device(event);
@@ -679,8 +679,8 @@ static int on_mouse_button_event(struct user_input *input, struct libinput_event
     int64_t flutter_button;
     int64_t new_flutter_button_state;
 
-    DEBUG_ASSERT(input != NULL);
-    DEBUG_ASSERT(event != NULL);
+    assert(input != NULL);
+    assert(event != NULL);
 
     pointer_event = libinput_event_get_pointer_event(event);
     device = libinput_event_get_device(event);
@@ -768,8 +768,8 @@ static int on_mouse_axis_event(struct user_input *input, struct libinput_event *
     struct vec2f pos_view;
     uint64_t timestamp;
 
-    DEBUG_ASSERT(input != NULL);
-    DEBUG_ASSERT(event != NULL);
+    assert(input != NULL);
+    assert(event != NULL);
 
     pointer_event = libinput_event_get_pointer_event(event);
     device = libinput_event_get_device(event);
@@ -813,8 +813,8 @@ static int on_touch_down(struct user_input *input, struct libinput_event *event)
     int64_t device_id;
     int slot;
 
-    DEBUG_ASSERT(input != NULL);
-    DEBUG_ASSERT(event != NULL);
+    assert(input != NULL);
+    assert(event != NULL);
 
     data = libinput_device_get_user_data(libinput_event_get_device(event));
     touch_event = libinput_event_get_touch_event(event);
@@ -856,8 +856,8 @@ static int on_touch_up(struct user_input *input, struct libinput_event *event) {
     int64_t device_id;
     int slot;
 
-    DEBUG_ASSERT(input != NULL);
-    DEBUG_ASSERT(event != NULL);
+    assert(input != NULL);
+    assert(event != NULL);
 
     data = libinput_device_get_user_data(libinput_event_get_device(event));
     touch_event = libinput_event_get_touch_event(event);
@@ -885,8 +885,8 @@ static int on_touch_motion(struct user_input *input, struct libinput_event *even
     int64_t device_id;
     int slot;
 
-    DEBUG_ASSERT(input != NULL);
-    DEBUG_ASSERT(event != NULL);
+    assert(input != NULL);
+    assert(event != NULL);
 
     data = libinput_device_get_user_data(libinput_event_get_device(event));
     touch_event = libinput_event_get_touch_event(event);
@@ -922,8 +922,8 @@ static int on_touch_motion(struct user_input *input, struct libinput_event *even
 }
 
 static int on_touch_cancel(struct user_input *input, struct libinput_event *event) {
-    DEBUG_ASSERT(input != NULL);
-    DEBUG_ASSERT(event != NULL);
+    assert(input != NULL);
+    assert(event != NULL);
 
     (void) input;
     (void) event;
@@ -933,8 +933,8 @@ static int on_touch_cancel(struct user_input *input, struct libinput_event *even
 }
 
 static int on_touch_frame(struct user_input *input, struct libinput_event *event) {
-    DEBUG_ASSERT(input != NULL);
-    DEBUG_ASSERT(event != NULL);
+    assert(input != NULL);
+    assert(event != NULL);
 
     (void) input;
     (void) event;
@@ -950,11 +950,11 @@ static int on_tablet_tool_axis(struct user_input *input, struct libinput_event *
     uint64_t timestamp;
     int64_t device_id;
 
-    DEBUG_ASSERT_NOT_NULL(input);
-    DEBUG_ASSERT_NOT_NULL(event);
+    ASSERT_NOT_NULL(input);
+    ASSERT_NOT_NULL(event);
 
     data = libinput_device_get_user_data(libinput_event_get_device(event));
-    DEBUG_ASSERT_NOT_NULL(data);
+    ASSERT_NOT_NULL(data);
 
     tablet_event = libinput_event_get_tablet_tool_event(event);
     timestamp = libinput_event_tablet_tool_get_time_usec(tablet_event);
@@ -977,8 +977,8 @@ static int on_tablet_tool_axis(struct user_input *input, struct libinput_event *
 }
 
 static int on_tablet_tool_proximity(struct user_input *input, struct libinput_event *event) {
-    DEBUG_ASSERT_NOT_NULL(input);
-    DEBUG_ASSERT_NOT_NULL(event);
+    ASSERT_NOT_NULL(input);
+    ASSERT_NOT_NULL(event);
 
     (void) input;
     (void) event;
@@ -993,11 +993,11 @@ static int on_tablet_tool_tip(struct user_input *input, struct libinput_event *e
     int64_t device_id;
     struct vec2f pos;
 
-    DEBUG_ASSERT_NOT_NULL(input);
-    DEBUG_ASSERT_NOT_NULL(event);
+    ASSERT_NOT_NULL(input);
+    ASSERT_NOT_NULL(event);
 
     data = libinput_device_get_user_data(libinput_event_get_device(event));
-    DEBUG_ASSERT_NOT_NULL(data);
+    ASSERT_NOT_NULL(data);
 
     tablet_event = libinput_event_get_tablet_tool_event(event);
     timestamp = libinput_event_tablet_tool_get_time_usec(tablet_event);
@@ -1022,8 +1022,8 @@ static int on_tablet_tool_tip(struct user_input *input, struct libinput_event *e
 }
 
 static int on_tablet_tool_button(struct user_input *input, struct libinput_event *event) {
-    DEBUG_ASSERT_NOT_NULL(input);
-    DEBUG_ASSERT_NOT_NULL(event);
+    ASSERT_NOT_NULL(input);
+    ASSERT_NOT_NULL(event);
 
     (void) input;
     (void) event;
@@ -1032,8 +1032,8 @@ static int on_tablet_tool_button(struct user_input *input, struct libinput_event
 }
 
 static int on_tablet_pad_button(struct user_input *input, struct libinput_event *event) {
-    DEBUG_ASSERT_NOT_NULL(input);
-    DEBUG_ASSERT_NOT_NULL(event);
+    ASSERT_NOT_NULL(input);
+    ASSERT_NOT_NULL(event);
 
     (void) input;
     (void) event;
@@ -1042,8 +1042,8 @@ static int on_tablet_pad_button(struct user_input *input, struct libinput_event 
 }
 
 static int on_tablet_pad_ring(struct user_input *input, struct libinput_event *event) {
-    DEBUG_ASSERT_NOT_NULL(input);
-    DEBUG_ASSERT_NOT_NULL(event);
+    ASSERT_NOT_NULL(input);
+    ASSERT_NOT_NULL(event);
 
     (void) input;
     (void) event;
@@ -1052,8 +1052,8 @@ static int on_tablet_pad_ring(struct user_input *input, struct libinput_event *e
 }
 
 static int on_tablet_pad_strip(struct user_input *input, struct libinput_event *event) {
-    DEBUG_ASSERT_NOT_NULL(input);
-    DEBUG_ASSERT_NOT_NULL(event);
+    ASSERT_NOT_NULL(input);
+    ASSERT_NOT_NULL(event);
 
     (void) input;
     (void) event;
@@ -1063,8 +1063,8 @@ static int on_tablet_pad_strip(struct user_input *input, struct libinput_event *
 
 #if THIS_LIBINPUT_VER >= LIBINPUT_VER(1, 15, 0)
 static int on_tablet_pad_key(struct user_input *input, struct libinput_event *event) {
-    DEBUG_ASSERT_NOT_NULL(input);
-    DEBUG_ASSERT_NOT_NULL(event);
+    ASSERT_NOT_NULL(input);
+    ASSERT_NOT_NULL(event);
 
     (void) input;
     (void) event;
@@ -1078,7 +1078,7 @@ static int process_libinput_events(struct user_input *input, uint64_t timestamp)
     struct libinput_event *event;
     int ok;
 
-    DEBUG_ASSERT(input != NULL);
+    assert(input != NULL);
 
     while (libinput_next_event_type(input->libinput) != LIBINPUT_EVENT_NONE) {
         event = libinput_get_event(input->libinput);
@@ -1226,7 +1226,7 @@ int user_input_on_fd_ready(struct user_input *input) {
     bool cursor_enabled, cursor_enabled_before;
     int ok;
 
-    DEBUG_ASSERT(input != NULL);
+    assert(input != NULL);
 
     // get a timestamp because some libinput events don't provide one
     // needs to be in milliseconds, since that's what the other libinput events

@@ -714,8 +714,8 @@ static void on_destroy_texture_frame(const struct texture_frame *texture_frame, 
 
     (void) texture_frame;
 
-    DEBUG_ASSERT_NOT_NULL(texture_frame);
-    DEBUG_ASSERT_NOT_NULL(userdata);
+    ASSERT_NOT_NULL(texture_frame);
+    ASSERT_NOT_NULL(userdata);
 
     frame = userdata;
 
@@ -725,8 +725,8 @@ static void on_destroy_texture_frame(const struct texture_frame *texture_frame, 
 static void on_appsink_eos(GstAppSink *appsink, void *userdata) {
     gboolean ok;
 
-    DEBUG_ASSERT_NOT_NULL(appsink);
-    DEBUG_ASSERT_NOT_NULL(userdata);
+    ASSERT_NOT_NULL(appsink);
+    ASSERT_NOT_NULL(userdata);
 
     (void) userdata;
 
@@ -750,8 +750,8 @@ static GstFlowReturn on_appsink_new_preroll(GstAppSink *appsink, void *userdata)
     struct gstplayer *player;
     GstSample *sample;
 
-    DEBUG_ASSERT_NOT_NULL(appsink);
-    DEBUG_ASSERT_NOT_NULL(userdata);
+    ASSERT_NOT_NULL(appsink);
+    ASSERT_NOT_NULL(userdata);
 
     player = userdata;
 
@@ -782,8 +782,8 @@ static GstFlowReturn on_appsink_new_sample(GstAppSink *appsink, void *userdata) 
     struct gstplayer *player;
     GstSample *sample;
 
-    DEBUG_ASSERT_NOT_NULL(appsink);
-    DEBUG_ASSERT_NOT_NULL(userdata);
+    ASSERT_NOT_NULL(appsink);
+    ASSERT_NOT_NULL(userdata);
 
     player = userdata;
 
@@ -815,7 +815,7 @@ static void on_appsink_cbs_destroy(void *userdata) {
     struct gstplayer *player;
 
     LOG_DEBUG("on_appsink_cbs_destroy()\n");
-    DEBUG_ASSERT_NOT_NULL(userdata);
+    ASSERT_NOT_NULL(userdata);
 
     player = userdata;
 
@@ -1007,8 +1007,8 @@ static struct gstplayer *gstplayer_new(struct flutterpi *flutterpi, const char *
     char *uri_owned, *pipeline_descr_owned;
     int ok;
 
-    DEBUG_ASSERT_NOT_NULL(flutterpi);
-    DEBUG_ASSERT((uri != NULL) != (pipeline_descr != NULL));
+    ASSERT_NOT_NULL(flutterpi);
+    assert((uri != NULL) != (pipeline_descr != NULL));
 
     player = malloc(sizeof *player);
     if (player == NULL)
@@ -1262,7 +1262,7 @@ int gstplayer_seek_to(struct gstplayer *player, int64_t position, bool nearest_k
 
 int gstplayer_set_playback_speed(struct gstplayer *player, double playback_speed) {
     LOG_DEBUG("gstplayer_set_playback_speed(%f)\n", playback_speed);
-    DEBUG_ASSERT_MSG(playback_speed > 0, "playback speed must be > 0.");
+    ASSERT_MSG(playback_speed > 0, "playback speed must be > 0.");
     player->playback_rate_forward = playback_speed;
     return apply_playback_state(player);
 }
@@ -1271,7 +1271,7 @@ int gstplayer_step_forward(struct gstplayer *player) {
     gboolean gst_ok;
     int ok;
 
-    DEBUG_ASSERT_NOT_NULL(player);
+    ASSERT_NOT_NULL(player);
 
     player->playpause_state = kStepping;
     player->direction = kForward;
@@ -1292,7 +1292,7 @@ int gstplayer_step_backward(struct gstplayer *player) {
     gboolean gst_ok;
     int ok;
 
-    DEBUG_ASSERT_NOT_NULL(player);
+    ASSERT_NOT_NULL(player);
 
     player->playpause_state = kStepping;
     player->direction = kBackward;

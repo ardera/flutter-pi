@@ -231,7 +231,7 @@ static void fill_view_matrices(
     struct mat3f *display_to_view_transform_out,
     struct mat3f *view_to_display_transform_out
 ) {
-    DEBUG_ASSERT(PLANE_TRANSFORM_IS_ONLY_ROTATION(transform));
+    assert(PLANE_TRANSFORM_IS_ONLY_ROTATION(transform));
 
     if (transform.rotate_0) {
         *view_to_display_transform_out = MAT3F_TRANSLATION(0, 0);
@@ -278,12 +278,12 @@ static int window_init(
     enum device_orientation original_orientation;
     double pixel_ratio;
 
-    DEBUG_ASSERT_NOT_NULL(window);
-    DEBUG_ASSERT_NOT_NULL(tracer);
-    DEBUG_ASSERT_NOT_NULL(scheduler);
-    DEBUG_ASSERT(!has_rotation || PLANE_TRANSFORM_IS_ONLY_ROTATION(rotation));
-    DEBUG_ASSERT(!has_orientation || ORIENTATION_IS_VALID(orientation));
-    DEBUG_ASSERT(!has_dimensions || (width_mm > 0 && height_mm > 0));
+    ASSERT_NOT_NULL(window);
+    ASSERT_NOT_NULL(tracer);
+    ASSERT_NOT_NULL(scheduler);
+    assert(!has_rotation || PLANE_TRANSFORM_IS_ONLY_ROTATION(rotation));
+    assert(!has_orientation || ORIENTATION_IS_VALID(orientation));
+    assert(!has_dimensions || (width_mm > 0 && height_mm > 0));
 
     if (has_dimensions == false) {
         LOG_DEBUG(
@@ -304,7 +304,7 @@ static int window_init(
         }
     }
 
-    DEBUG_ASSERT(!has_rotation || PLANE_TRANSFORM_IS_ONLY_ROTATION(rotation));
+    assert(!has_rotation || PLANE_TRANSFORM_IS_ONLY_ROTATION(rotation));
 
     if (width > height) {
         original_orientation = kLandscapeLeft;
@@ -356,7 +356,7 @@ static int window_init(
         original_orientation = o;
     }
 
-    DEBUG_ASSERT(has_orientation && has_rotation);
+    assert(has_orientation && has_rotation);
 
     fill_view_matrices(rotation, width, height, &window->display_to_view_transform, &window->view_to_display_transform);
 
@@ -401,22 +401,22 @@ static void window_deinit(struct window *window) {
 }
 
 void window_destroy(struct window *window) {
-    DEBUG_ASSERT_NOT_NULL(window);
-    DEBUG_ASSERT_NOT_NULL(window->deinit);
+    ASSERT_NOT_NULL(window);
+    ASSERT_NOT_NULL(window->deinit);
 
     window->deinit(window);
     free(window);
 }
 
 int window_push_composition(struct window *window, struct fl_layer_composition *composition) {
-    DEBUG_ASSERT_NOT_NULL(window);
-    DEBUG_ASSERT_NOT_NULL(composition);
-    DEBUG_ASSERT_NOT_NULL(window->push_composition);
+    ASSERT_NOT_NULL(window);
+    ASSERT_NOT_NULL(composition);
+    ASSERT_NOT_NULL(window->push_composition);
     return window->push_composition(window, composition);
 }
 
 struct view_geometry window_get_view_geometry(struct window *window) {
-    DEBUG_ASSERT_NOT_NULL(window);
+    ASSERT_NOT_NULL(window);
 
     window_lock(window);
     struct view_geometry geometry = {
@@ -432,14 +432,14 @@ struct view_geometry window_get_view_geometry(struct window *window) {
 }
 
 double window_get_refresh_rate(struct window *window) {
-    DEBUG_ASSERT_NOT_NULL(window);
+    ASSERT_NOT_NULL(window);
 
     return window->refresh_rate;
 }
 
 int window_get_next_vblank(struct window *window, uint64_t *next_vblank_ns_out) {
-    DEBUG_ASSERT_NOT_NULL(window);
-    DEBUG_ASSERT_NOT_NULL(next_vblank_ns_out);
+    ASSERT_NOT_NULL(window);
+    ASSERT_NOT_NULL(next_vblank_ns_out);
     (void) window;
     (void) next_vblank_ns_out;
 
@@ -450,21 +450,21 @@ int window_get_next_vblank(struct window *window, uint64_t *next_vblank_ns_out) 
 }
 
 EGLSurface window_get_egl_surface(struct window *window) {
-    DEBUG_ASSERT_NOT_NULL(window);
-    DEBUG_ASSERT_NOT_NULL(window->get_egl_surface);
+    ASSERT_NOT_NULL(window);
+    ASSERT_NOT_NULL(window->get_egl_surface);
     return window->get_egl_surface(window);
 }
 
 struct render_surface *window_get_render_surface(struct window *window, struct vec2i size) {
-    DEBUG_ASSERT_NOT_NULL(window);
-    DEBUG_ASSERT_NOT_NULL(window->get_render_surface);
+    ASSERT_NOT_NULL(window);
+    ASSERT_NOT_NULL(window->get_render_surface);
     return window->get_render_surface(window, size);
 }
 
 bool window_is_cursor_enabled(struct window *window) {
     bool enabled;
 
-    DEBUG_ASSERT_NOT_NULL(window);
+    ASSERT_NOT_NULL(window);
 
     window_lock(window);
     enabled = window->cursor_enabled;
@@ -476,7 +476,7 @@ bool window_is_cursor_enabled(struct window *window) {
 int window_set_cursor(struct window *window, bool has_enabled, bool enabled, bool has_pos, struct vec2i pos) {
     int ok;
 
-    DEBUG_ASSERT_NOT_NULL(window);
+    ASSERT_NOT_NULL(window);
 
     if (!has_enabled && !has_pos) {
         return 0;
@@ -487,11 +487,11 @@ int window_set_cursor(struct window *window, bool has_enabled, bool enabled, boo
     if (has_enabled) {
         if (enabled && !window->cursor_enabled) {
             // enable cursor
-            DEBUG_ASSERT_NOT_NULL(window->enable_cursor_locked);
+            ASSERT_NOT_NULL(window->enable_cursor_locked);
             ok = window->enable_cursor_locked(window, pos);
         } else if (!enabled && window->cursor_enabled) {
             // disable cursor
-            DEBUG_ASSERT_NOT_NULL(window->disable_cursor_locked);
+            ASSERT_NOT_NULL(window->disable_cursor_locked);
             ok = window->disable_cursor_locked(window);
         }
     }
@@ -499,7 +499,7 @@ int window_set_cursor(struct window *window, bool has_enabled, bool enabled, boo
     if (has_pos) {
         if (window->cursor_enabled) {
             // move cursor
-            DEBUG_ASSERT_NOT_NULL(window->move_cursor_locked);
+            ASSERT_NOT_NULL(window->move_cursor_locked);
             ok = window->move_cursor_locked(window, pos);
         } else {
             // !enabled && !window->cursor_enabled
@@ -569,8 +569,8 @@ UNUSED static struct cursor_buffer *cursor_buffer_new(struct drmdev *drmdev, enu
     int pixel_size, hot_x, hot_y;
     int ok;
 
-    DEBUG_ASSERT_NOT_NULL(drmdev);
-    DEBUG_ASSERT(PLANE_TRANSFORM_IS_ONLY_ROTATION(rotation));
+    ASSERT_NOT_NULL(drmdev);
+    assert(PLANE_TRANSFORM_IS_ONLY_ROTATION(rotation));
 
     if (!drmdev_supports_dumb_buffers(drmdev)) {
         LOG_ERROR("KMS doesn't support dumb buffers. Can't upload mouse cursor icon.\n");
@@ -595,11 +595,11 @@ UNUSED static struct cursor_buffer *cursor_buffer_new(struct drmdev *drmdev, enu
     }
 
     icon = cursors + size;
-    DEBUG_ASSERT_EQUALS(pixel_size, icon->width);
-    DEBUG_ASSERT_EQUALS(pixel_size, icon->height);
+    ASSERT_EQUALS(pixel_size, icon->width);
+    ASSERT_EQUALS(pixel_size, icon->height);
 
     if (rotation.rotate_0 == 0) {
-        DEBUG_ASSERT_EQUALS(pixel_size * 4, pitch);
+        ASSERT_EQUALS(pixel_size * 4, pitch);
         memcpy(map_void, icon->data, buffer_size);
         hot_x = icon->hot_x;
         hot_y = icon->hot_y;
@@ -616,7 +616,7 @@ UNUSED static struct cursor_buffer *cursor_buffer_new(struct drmdev *drmdev, enu
                     buffer_x = pixel_size - y - 1;
                     buffer_y = pixel_size - x - 1;
                 } else {
-                    DEBUG_ASSERT(rotation.rotate_270);
+                    assert(rotation.rotate_270);
                     buffer_x = y;
                     buffer_y = pixel_size - x - 1;
                 }
@@ -635,7 +635,7 @@ UNUSED static struct cursor_buffer *cursor_buffer_new(struct drmdev *drmdev, enu
             hot_x = pixel_size - icon->hot_x - 1;
             hot_y = pixel_size - icon->hot_y - 1;
         } else {
-            DEBUG_ASSERT(rotation.rotate_270);
+            assert(rotation.rotate_270);
             hot_x = icon->hot_y;
             hot_y = pixel_size - icon->hot_x - 1;
         }
@@ -767,7 +767,7 @@ static int select_mode(
         }
     }
 
-    DEBUG_ASSERT_NOT_NULL(mode);
+    ASSERT_NOT_NULL(mode);
 
     // Find the encoder that's linked to the connector right now
     for_each_encoder_in_drmdev(drmdev, encoder) {
@@ -857,10 +857,10 @@ MUST_CHECK struct window *kms_window_new(
     bool has_dimensions;
     int ok;
 
-    DEBUG_ASSERT_NOT_NULL(drmdev);
+    ASSERT_NOT_NULL(drmdev);
 
 #if !defined(HAS_VULKAN)
-    DEBUG_ASSERT(renderer_type != kVulkan_RendererType);
+    assert(renderer_type != kVulkan_RendererType);
 #endif
 
 #if !defined(HAS_EGL) || !defined(HAS_GL)
@@ -868,10 +868,10 @@ MUST_CHECK struct window *kms_window_new(
 #endif
 
     // if opengl --> gl_renderer != NULL && vk_renderer == NULL
-    DEBUG_ASSERT(renderer_type != kOpenGL_RendererType || (gl_renderer != NULL && vk_renderer == NULL));
+    assert(renderer_type != kOpenGL_RendererType || (gl_renderer != NULL && vk_renderer == NULL));
 
     // if vulkan --> vk_renderer != NULL && gl_renderer == NULL
-    DEBUG_ASSERT(renderer_type != kVulkan_RendererType || (vk_renderer != NULL && gl_renderer == NULL));
+    assert(renderer_type != kVulkan_RendererType || (vk_renderer != NULL && gl_renderer == NULL));
 
     window = malloc(sizeof *window);
     if (window == NULL) {
@@ -980,7 +980,7 @@ void kms_window_deinit(struct window *window) {
     DEBUG_ASSERT_NOT_NULL(builder);
 
     ok = kms_req_builder_unset_mode(builder);
-    DEBUG_ASSERT_EQUALS(ok, 0);
+    ASSERT_EQUALS(ok, 0);
 
     req = kms_req_builder_build(builder);
     DEBUG_ASSERT_NOT_NULL(req);
@@ -988,7 +988,7 @@ void kms_window_deinit(struct window *window) {
     kms_req_builder_unref(builder);
 
     ok = kms_req_commit_blocking(req, NULL);
-    DEBUG_ASSERT_EQUALS(ok, 0);
+    ASSERT_EQUALS(ok, 0);
     (void) ok;
 
     kms_req_unref(req);
@@ -1017,7 +1017,7 @@ struct frame {
 };
 
 UNUSED static void on_scanout(struct drmdev *drmdev, uint64_t vblank_ns, void *userdata) {
-    DEBUG_ASSERT_NOT_NULL(drmdev);
+    ASSERT_NOT_NULL(drmdev);
     (void) drmdev;
     (void) vblank_ns;
     (void) userdata;
@@ -1029,7 +1029,7 @@ static void on_present_frame(void *userdata) {
     struct frame *frame;
     int ok;
 
-    DEBUG_ASSERT_NOT_NULL(userdata);
+    ASSERT_NOT_NULL(userdata);
 
     frame = userdata;
 
@@ -1048,7 +1048,7 @@ static void on_present_frame(void *userdata) {
 
 static void on_cancel_frame(void *userdata) {
     struct frame *frame;
-    DEBUG_ASSERT_NOT_NULL(userdata);
+    ASSERT_NOT_NULL(userdata);
 
     frame = userdata;
 
@@ -1063,8 +1063,8 @@ static int kms_window_push_composition(struct window *window, struct fl_layer_co
     struct frame *frame;
     int ok;
 
-    DEBUG_ASSERT_NOT_NULL(window);
-    DEBUG_ASSERT_NOT_NULL(composition);
+    ASSERT_NOT_NULL(window);
+    ASSERT_NOT_NULL(composition);
 
     // If flutter won't request frames (because the vsync callback is broken),
     // we'll wait here for the previous frame to be presented / rendered.
@@ -1185,7 +1185,7 @@ static int kms_window_push_composition(struct window *window, struct fl_layer_co
     //         window->set_set_mode = false;
     //     }
     // } else {
-    //     DEBUG_ASSERT_EQUALS(window->present_mode, kTripleBufferedVsync_PresentMode);
+    //     ASSERT_EQUALS(window->present_mode, kTripleBufferedVsync_PresentMode);
     //
     //     if (window->present_immediately) {
     //         TRACER_BEGIN(window->tracer, "kms_req_builder_commit");
@@ -1241,7 +1241,7 @@ fail_unlock:
 static struct render_surface *kms_window_get_render_surface_internal(struct window *window, bool has_size, struct vec2i size) {
     struct render_surface *render_surface;
 
-    DEBUG_ASSERT_NOT_NULL(window);
+    ASSERT_NOT_NULL(window);
 
     if (window->render_surface != NULL) {
         return window->render_surface;
@@ -1348,7 +1348,7 @@ fail_free_allowed_modifiers:
 }
 
 static struct render_surface *kms_window_get_render_surface(struct window *window, struct vec2i size) {
-    DEBUG_ASSERT_NOT_NULL(window);
+    ASSERT_NOT_NULL(window);
     return kms_window_get_render_surface_internal(window, true, size);
 }
 
@@ -1364,7 +1364,7 @@ static EGLSurface kms_window_get_egl_surface(struct window *window) {
 static int kms_window_enable_cursor_locked(struct window *window, struct vec2i pos) {
     struct cursor_buffer *cursor;
 
-    DEBUG_ASSERT_EQUALS(window->kms.cursor, NULL);
+    ASSERT_EQUALS(window->kms.cursor, NULL);
 
     cursor = cursor_buffer_new(window->kms.drmdev, cursor_size_from_pixel_ratio(window->pixel_ratio), window->rotation);
     if (cursor == NULL) {

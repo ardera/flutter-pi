@@ -35,6 +35,7 @@
 #include "surface.h"
 #include "tracer.h"
 #include "util/collection.h"
+#include "util/dynarray.h"
 #include "vk_gbm_render_surface.h"
 #include "vk_renderer.h"
 #include "window.h"
@@ -71,19 +72,19 @@ struct fl_layer_composition *fl_layer_composition_new(size_t n_layers) {
 }
 
 size_t fl_layer_composition_get_n_layers(struct fl_layer_composition *composition) {
-    DEBUG_ASSERT_NOT_NULL(composition);
+    ASSERT_NOT_NULL(composition);
     return composition->n_layers;
 }
 
 struct fl_layer *fl_layer_composition_peek_layer(struct fl_layer_composition *composition, int layer) {
-    DEBUG_ASSERT_NOT_NULL(composition);
-    DEBUG_ASSERT_NOT_NULL(composition->layers);
-    DEBUG_ASSERT(layer >= 0 && layer < composition->n_layers);
+    ASSERT_NOT_NULL(composition);
+    ASSERT_NOT_NULL(composition->layers);
+    assert(layer >= 0 && layer < composition->n_layers);
     return composition->layers + layer;
 }
 
 void fl_layer_composition_destroy(struct fl_layer_composition *composition) {
-    DEBUG_ASSERT_NOT_NULL(composition);
+    ASSERT_NOT_NULL(composition);
 
     for (int i = 0; i < composition->n_layers; i++) {
         surface_unref(composition->layers[i].surface);
@@ -110,6 +111,8 @@ struct compositor {
 
     struct tracer *tracer;
     struct window *main_window;
+    struct util_dynarray views;
+
     struct pointer_set platform_views;
 
     FlutterCompositor flutter_compositor;
@@ -144,10 +147,7 @@ MUST_CHECK struct compositor *compositor_new(struct tracer *tracer, struct windo
         goto fail_free_compositor;
     }
 
-    ok = pset_init(&compositor->platform_views, PSET_DEFAULT_MAX_SIZE);
-    if (ok != 0) {
-        goto fail_destroy_mutex;
-    }
+    util_dynarray_init(&compositor->views);
 
     compositor->n_refs = REFCOUNT_INIT_1;
     // just so we get an error if the FlutterCompositor struct was updated
@@ -164,9 +164,6 @@ MUST_CHECK struct compositor *compositor_new(struct tracer *tracer, struct windo
     compositor->tracer = tracer_ref(tracer);
     return compositor;
 
-fail_destroy_mutex:
-    pthread_mutex_destroy(&compositor->mutex);
-
 fail_free_compositor:
     free(compositor);
 
@@ -175,15 +172,10 @@ fail_return_null:
 }
 
 void compositor_destroy(struct compositor *compositor) {
-    struct platform_view_with_id *view;
-
-    for_each_pointer_in_pset(&compositor->platform_views, view) {
+    util_dynarray_foreach(&compositor->views, struct platform_view_with_id, view) {
         surface_unref(view->surface);
-        free(view);
-        view = NULL;
     }
-
-    pset_deinit(&compositor->platform_views);
+    util_dynarray_fini(&compositor->views);
     tracer_unref(compositor->tracer);
     window_unref(compositor->main_window);
     pthread_mutex_destroy(&compositor->mutex);
@@ -203,8 +195,8 @@ ATTR_PURE double compositor_get_refresh_rate(struct compositor *compositor) {
 }
 
 int compositor_get_next_vblank(struct compositor *compositor, uint64_t *next_vblank_ns_out) {
-    DEBUG_ASSERT_NOT_NULL(compositor);
-    DEBUG_ASSERT_NOT_NULL(next_vblank_ns_out);
+    ASSERT_NOT_NULL(compositor);
+    ASSERT_NOT_NULL(next_vblank_ns_out);
     return window_get_next_vblank(compositor->main_window, next_vblank_ns_out);
 }
 
@@ -334,7 +326,7 @@ static int compositor_push_fl_layers(struct compositor *compositor, size_t n_fl_
             layer->props.n_clip_rects = 0;
             layer->props.clip_rects = NULL;
         } else {
-            DEBUG_ASSERT_EQUALS(fl_layer->type, kFlutterLayerContentTypePlatformView);
+            ASSERT_EQUALS(fl_layer->type, kFlutterLayerContentTypePlatformView);
 
             /// TODO: Maybe always check if the ID is valid?
 #if DEBUG
@@ -386,9 +378,9 @@ static bool on_flutter_present_layers(const FlutterLayer **layers, size_t layers
     struct compositor *compositor;
     int ok;
 
-    DEBUG_ASSERT_NOT_NULL(layers);
-    DEBUG_ASSERT(layers_count > 0);
-    DEBUG_ASSERT_NOT_NULL(userdata);
+    ASSERT_NOT_NULL(layers);
+    assert(layers_count > 0);
+    ASSERT_NOT_NULL(userdata);
     compositor = userdata;
 
     TRACER_BEGIN(compositor->tracer, "compositor_push_fl_layers");
@@ -402,61 +394,55 @@ static bool on_flutter_present_layers(const FlutterLayer **layers, size_t layers
     return true;
 }
 
-int compositor_set_platform_view(struct compositor *compositor, int64_t id, struct surface *surface) {
-    struct platform_view_with_id *data;
-    int ok;
+ATTR_PURE static bool platform_view_with_id_equal(const struct platform_view_with_id lhs, const struct platform_view_with_id rhs) {
+    return lhs.id == rhs.id;
+}
 
-    DEBUG_ASSERT_NOT_NULL(compositor);
-    DEBUG_ASSERT(id != 0);
-    DEBUG_ASSERT_NOT_NULL(surface);
+int compositor_set_platform_view(struct compositor *compositor, int64_t id, struct surface *surface) {
+    struct platform_view_with_id *view;
+
+    ASSERT_NOT_NULL(compositor);
+    assert(id != 0);
+    ASSERT_NOT_NULL(surface);
 
     compositor_lock(compositor);
 
-    for_each_pointer_in_pset(&compositor->platform_views, data) {
-        if (data->id == id) {
+    view = NULL;
+    util_dynarray_foreach(&compositor->views, struct platform_view_with_id, view_iter) {
+        if (view_iter->id == id) {
+            view = view_iter;
             break;
         }
     }
 
-    if (data == NULL) {
-        if (surface == NULL) {
-            data = malloc(sizeof *data);
-            if (data == NULL) {
-                ok = ENOMEM;
-                goto fail_unlock;
-            }
+    if (view == NULL) {
+        if (surface != NULL) {
+            struct platform_view_with_id v = {
+                .id = id,
+                .surface = surface_ref(surface),
+            };
 
-            data->id = id;
-            data->surface = surface;
-            pset_put(&compositor->platform_views, data);
+            util_dynarray_append(&compositor->views, struct platform_view_with_id, v);
         }
     } else {
-        DEBUG_ASSERT_NOT_NULL(data->surface);
+        ASSERT_NOT_NULL(view->surface);
         if (surface == NULL) {
-            pset_remove(&compositor->platform_views, data);
-            surface_unref(data->surface);
-            free(data);
+            util_dynarray_delete_unordered_ext(&compositor->views, struct platform_view_with_id, *view, platform_view_with_id_equal);
+            surface_unref(view->surface);
+            free(view);
         } else {
-            surface_ref(surface);
-            surface_unref(data->surface);
-            data->surface = surface;
+            surface_swap_ptrs(&view->surface, surface);
         }
     }
 
     compositor_unlock(compositor);
     return 0;
-
-fail_unlock:
-    compositor_unlock(compositor);
-    return ok;
 }
 
 struct surface *compositor_get_view_by_id_locked(struct compositor *compositor, int64_t view_id) {
-    struct platform_view_with_id *data;
-
-    for_each_pointer_in_pset(&compositor->platform_views, data) {
-        if (data->id == view_id) {
-            return data->surface;
+    util_dynarray_foreach(&compositor->views, struct platform_view_with_id, view) {
+        if (view->id == view_id) {
+            return view->surface;
         }
     }
 
@@ -473,9 +459,9 @@ on_flutter_create_backing_store(const FlutterBackingStoreConfig *config, Flutter
     struct compositor *compositor;
     int ok;
 
-    DEBUG_ASSERT_NOT_NULL(config);
-    DEBUG_ASSERT_NOT_NULL(backing_store_out);
-    DEBUG_ASSERT_NOT_NULL(userdata);
+    ASSERT_NOT_NULL(config);
+    ASSERT_NOT_NULL(backing_store_out);
+    ASSERT_NOT_NULL(userdata);
     compositor = userdata;
 
     // this will not increase the refcount on the surface.
@@ -510,8 +496,8 @@ on_flutter_create_backing_store(const FlutterBackingStoreConfig *config, Flutter
 static bool on_flutter_collect_backing_store(const FlutterBackingStore *fl_store, void *userdata) {
     struct compositor *compositor;
 
-    DEBUG_ASSERT_NOT_NULL(fl_store);
-    DEBUG_ASSERT_NOT_NULL(userdata);
+    ASSERT_NOT_NULL(fl_store);
+    ASSERT_NOT_NULL(userdata);
     compositor = userdata;
 
     /// TODO: What should we do here?
@@ -522,7 +508,7 @@ static bool on_flutter_collect_backing_store(const FlutterBackingStore *fl_store
 }
 
 const FlutterCompositor *compositor_get_flutter_compositor(struct compositor *compositor) {
-    DEBUG_ASSERT_NOT_NULL(compositor);
+    ASSERT_NOT_NULL(compositor);
     return &compositor->flutter_compositor;
 }
 

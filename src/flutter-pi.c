@@ -270,9 +270,9 @@ static bool on_make_current(void *userdata) {
     EGLSurface surface;
     int ok;
 
-    DEBUG_ASSERT_NOT_NULL(userdata);
+    ASSERT_NOT_NULL(userdata);
     flutterpi = userdata;
-    DEBUG_ASSERT_NOT_NULL(flutterpi->gl_renderer);
+    ASSERT_NOT_NULL(flutterpi->gl_renderer);
 
     surface = compositor_get_egl_surface(flutterpi->compositor);
     if (surface == EGL_NO_SURFACE) {
@@ -295,9 +295,9 @@ static bool on_clear_current(void *userdata) {
     struct flutterpi *flutterpi;
     int ok;
 
-    DEBUG_ASSERT_NOT_NULL(userdata);
+    ASSERT_NOT_NULL(userdata);
     flutterpi = userdata;
-    DEBUG_ASSERT_NOT_NULL(flutterpi->gl_renderer);
+    ASSERT_NOT_NULL(flutterpi->gl_renderer);
 
     ok = gl_renderer_clear_current(flutterpi->gl_renderer);
     if (ok != 0) {
@@ -323,7 +323,7 @@ static bool on_present(void *userdata) {
 static uint32_t fbo_callback(void *userdata) {
     struct flutterpi *flutterpi;
 
-    DEBUG_ASSERT_NOT_NULL(userdata);
+    ASSERT_NOT_NULL(userdata);
     flutterpi = userdata;
     (void) flutterpi;
 
@@ -337,9 +337,9 @@ static bool on_make_resource_current(void *userdata) {
     struct flutterpi *flutterpi;
     int ok;
 
-    DEBUG_ASSERT_NOT_NULL(userdata);
+    ASSERT_NOT_NULL(userdata);
     flutterpi = userdata;
-    DEBUG_ASSERT_NOT_NULL(flutterpi->gl_renderer);
+    ASSERT_NOT_NULL(flutterpi->gl_renderer);
 
     ok = gl_renderer_make_flutter_resource_uploading_context_current(flutterpi->gl_renderer);
     if (ok != 0) {
@@ -353,16 +353,16 @@ static bool on_make_resource_current(void *userdata) {
 static void *proc_resolver(void *userdata, const char *name) {
     struct flutterpi *flutterpi;
 
-    DEBUG_ASSERT_NOT_NULL(userdata);
+    ASSERT_NOT_NULL(userdata);
     flutterpi = userdata;
-    DEBUG_ASSERT_NOT_NULL(flutterpi->gl_renderer);
+    ASSERT_NOT_NULL(flutterpi->gl_renderer);
 
     return gl_renderer_get_proc_address(flutterpi->gl_renderer, name);
 }
 
 UNUSED static void *on_get_vulkan_proc_address(void *userdata, FlutterVulkanInstanceHandle instance, const char *name) {
-    DEBUG_ASSERT_NOT_NULL(userdata);
-    DEBUG_ASSERT_NOT_NULL(name);
+    ASSERT_NOT_NULL(userdata);
+    ASSERT_NOT_NULL(name);
     (void) userdata;
 
 #ifdef HAS_VULKAN
@@ -382,8 +382,8 @@ UNUSED static void *on_get_vulkan_proc_address(void *userdata, FlutterVulkanInst
 UNUSED static FlutterVulkanImage on_get_next_vulkan_image(void *userdata, const FlutterFrameInfo *frameinfo) {
     struct flutterpi *flutterpi;
 
-    DEBUG_ASSERT_NOT_NULL(userdata);
-    DEBUG_ASSERT_NOT_NULL(frameinfo);
+    ASSERT_NOT_NULL(userdata);
+    ASSERT_NOT_NULL(frameinfo);
     flutterpi = userdata;
 
     (void) flutterpi;
@@ -396,8 +396,8 @@ UNUSED static FlutterVulkanImage on_get_next_vulkan_image(void *userdata, const 
 UNUSED static bool on_present_vulkan_image(void *userdata, const FlutterVulkanImage *image) {
     struct flutterpi *flutterpi;
 
-    DEBUG_ASSERT_NOT_NULL(userdata);
-    DEBUG_ASSERT_NOT_NULL(image);
+    ASSERT_NOT_NULL(userdata);
+    ASSERT_NOT_NULL(image);
     flutterpi = userdata;
 
     (void) flutterpi;
@@ -412,14 +412,14 @@ static void on_platform_message(const FlutterPlatformMessage *message, void *use
 
     (void) userdata;
 
-    ok = plugin_registry_on_platform_message(flutterpi->plugin_registry, (FlutterPlatformMessage *) message);
+    ok = plugin_registry_on_platform_message(flutterpi->plugin_registry, message);
     if (ok != 0) {
         LOG_ERROR("Error handling platform message. plugin_registry_on_platform_message: %s\n", strerror(ok));
     }
 }
 
 static bool flutterpi_runs_platform_tasks_on_current_thread(struct flutterpi *flutterpi) {
-    DEBUG_ASSERT_NOT_NULL(flutterpi);
+    ASSERT_NOT_NULL(flutterpi);
     return pthread_equal(pthread_self(), flutterpi->event_loop_thread) != 0;
 }
 
@@ -433,10 +433,10 @@ static int on_deferred_begin_frame(void *userdata) {
     FlutterEngineResult engine_result;
     struct frame_req *req;
 
-    DEBUG_ASSERT_NOT_NULL(userdata);
+    ASSERT_NOT_NULL(userdata);
     req = userdata;
 
-    DEBUG_ASSERT(flutterpi_runs_platform_tasks_on_current_thread(req->flutterpi));
+    assert(flutterpi_runs_platform_tasks_on_current_thread(req->flutterpi));
 
     TRACER_INSTANT(req->flutterpi->tracer, "FlutterEngineOnVsync");
     engine_result = req->flutterpi->flutter.procs.OnVsync(req->flutterpi->flutter.engine, req->baton, req->vblank_ns, req->next_vblank_ns);
@@ -456,7 +456,7 @@ UNUSED static void on_begin_frame(void *userdata, uint64_t vblank_ns, uint64_t n
     struct frame_req *req;
     int ok;
 
-    DEBUG_ASSERT_NOT_NULL(userdata);
+    ASSERT_NOT_NULL(userdata);
     req = userdata;
 
     if (flutterpi_runs_platform_tasks_on_current_thread(req->flutterpi)) {
@@ -494,7 +494,7 @@ UNUSED static void on_frame_request(void *userdata, intptr_t baton) {
     struct frame_req *req;
     int ok;
 
-    DEBUG_ASSERT_NOT_NULL(userdata);
+    ASSERT_NOT_NULL(userdata);
     flutterpi = userdata;
 
     TRACER_INSTANT(flutterpi->tracer, "on_frame_request");
@@ -539,7 +539,7 @@ static FlutterTransformation on_get_transformation(void *userdata) {
     struct view_geometry geometry;
     struct flutterpi *flutterpi;
 
-    DEBUG_ASSERT_NOT_NULL(userdata);
+    ASSERT_NOT_NULL(userdata);
     flutterpi = userdata;
 
     compositor_get_view_geometry(flutterpi->compositor, &geometry);
@@ -918,14 +918,14 @@ int flutterpi_respond_to_platform_message(
 }
 
 struct texture_registry *flutterpi_get_texture_registry(struct flutterpi *flutterpi) {
-    DEBUG_ASSERT_NOT_NULL(flutterpi);
-    DEBUG_ASSERT_NOT_NULL(flutterpi->texture_registry);
+    ASSERT_NOT_NULL(flutterpi);
+    ASSERT_NOT_NULL(flutterpi->texture_registry);
     return flutterpi->texture_registry;
 }
 
 struct plugin_registry *flutterpi_get_plugin_registry(struct flutterpi *flutterpi) {
-    DEBUG_ASSERT_NOT_NULL(flutterpi);
-    DEBUG_ASSERT_NOT_NULL(flutterpi->plugin_registry);
+    ASSERT_NOT_NULL(flutterpi);
+    ASSERT_NOT_NULL(flutterpi->plugin_registry);
     return flutterpi->plugin_registry;
 }
 
@@ -934,8 +934,8 @@ flutterpi_create_platform_message_response_handle(struct flutterpi *flutterpi, F
     FlutterPlatformMessageResponseHandle *handle;
     FlutterEngineResult engine_result;
 
-    DEBUG_ASSERT_NOT_NULL(flutterpi);
-    DEBUG_ASSERT_NOT_NULL(data_callback);
+    ASSERT_NOT_NULL(flutterpi);
+    ASSERT_NOT_NULL(data_callback);
 
     // FlutterEngineResult FlutterPlatformMessageCreateResponseHandle(
     //     FLUTTER_API_SYMBOL(FlutterEngine) engine,
@@ -960,8 +960,8 @@ flutterpi_create_platform_message_response_handle(struct flutterpi *flutterpi, F
 void flutterpi_release_platform_message_response_handle(struct flutterpi *flutterpi, FlutterPlatformMessageResponseHandle *handle) {
     FlutterEngineResult engine_result;
 
-    DEBUG_ASSERT_NOT_NULL(flutterpi);
-    DEBUG_ASSERT_NOT_NULL(handle);
+    ASSERT_NOT_NULL(flutterpi);
+    ASSERT_NOT_NULL(handle);
 
     // FlutterEngineResult FlutterPlatformMessageReleaseResponseHandle(
     //     FLUTTER_API_SYMBOL(FlutterEngine) engine,
@@ -992,12 +992,12 @@ struct gbm_device *flutterpi_get_gbm_device(struct flutterpi *flutterpi) {
 }
 
 bool flutterpi_has_gl_renderer(struct flutterpi *flutterpi) {
-    DEBUG_ASSERT_NOT_NULL(flutterpi);
+    ASSERT_NOT_NULL(flutterpi);
     return flutterpi->gl_renderer != NULL;
 }
 
 struct gl_renderer *flutterpi_get_gl_renderer(struct flutterpi *flutterpi) {
-    DEBUG_ASSERT_NOT_NULL(flutterpi);
+    ASSERT_NOT_NULL(flutterpi);
     return flutterpi->gl_renderer;
 }
 
@@ -1045,7 +1045,7 @@ static int on_drmdev_ready(sd_event_source *s, int fd, uint32_t revents, void *u
     (void) revents;
     (void) userdata;
 
-    DEBUG_ASSERT_NOT_NULL(userdata);
+    ASSERT_NOT_NULL(userdata);
     drmdev = userdata;
 
     return drmdev_on_event_fd_ready(drmdev);
@@ -1059,7 +1059,7 @@ static bool
 on_gl_external_texture_frame_callback(void *userdata, int64_t texture_id, size_t width, size_t height, FlutterOpenGLTexture *texture_out) {
     struct flutterpi *flutterpi;
 
-    DEBUG_ASSERT_NOT_NULL(userdata);
+    ASSERT_NOT_NULL(userdata);
 
     flutterpi = userdata;
 
@@ -1136,9 +1136,9 @@ static int on_register_texture(void *userdata, int64_t texture_identifier) {
     FlutterEngineResult engine_result;
     struct flutterpi *flutterpi;
 
-    DEBUG_ASSERT_NOT_NULL(userdata);
+    ASSERT_NOT_NULL(userdata);
     flutterpi = userdata;
-    DEBUG_ASSERT_NOT_NULL(flutterpi->flutter.engine);
+    ASSERT_NOT_NULL(flutterpi->flutter.engine);
 
     engine_result = flutterpi->flutter.procs.RegisterExternalTexture(flutterpi->flutter.engine, texture_identifier);
     if (engine_result != kSuccess) {
@@ -1156,9 +1156,9 @@ static int on_unregister_texture(void *userdata, int64_t texture_identifier) {
     FlutterEngineResult engine_result;
     struct flutterpi *flutterpi;
 
-    DEBUG_ASSERT_NOT_NULL(userdata);
+    ASSERT_NOT_NULL(userdata);
     flutterpi = userdata;
-    DEBUG_ASSERT_NOT_NULL(flutterpi->flutter.engine);
+    ASSERT_NOT_NULL(flutterpi->flutter.engine);
 
     engine_result = flutterpi->flutter.procs.UnregisterExternalTexture(flutterpi->flutter.engine, texture_identifier);
     if (engine_result != kSuccess) {
@@ -1176,9 +1176,9 @@ static int on_mark_texture_frame_available(void *userdata, int64_t texture_ident
     FlutterEngineResult engine_result;
     struct flutterpi *flutterpi;
 
-    DEBUG_ASSERT_NOT_NULL(userdata);
+    ASSERT_NOT_NULL(userdata);
     flutterpi = userdata;
-    DEBUG_ASSERT_NOT_NULL(flutterpi->flutter.engine);
+    ASSERT_NOT_NULL(flutterpi->flutter.engine);
 
     engine_result = flutterpi->flutter.procs.MarkExternalTextureFrameAvailable(flutterpi->flutter.engine, texture_identifier);
     if (engine_result != kSuccess) {
@@ -1537,7 +1537,7 @@ static void on_flutter_pointer_event(void *userdata, const FlutterPointerEvent *
     FlutterEngineResult engine_result;
     struct flutterpi *flutterpi;
 
-    DEBUG_ASSERT_NOT_NULL(userdata);
+    ASSERT_NOT_NULL(userdata);
     flutterpi = userdata;
 
     /// TODO: make this atomic
@@ -1606,7 +1606,7 @@ on_gtk_keyevent(void *userdata, uint32_t unicode_scalar_values, uint32_t key_cod
 static void on_switch_vt(void *userdata, int vt) {
     struct flutterpi *flutterpi;
 
-    DEBUG_ASSERT_NOT_NULL(userdata);
+    ASSERT_NOT_NULL(userdata);
     flutterpi = userdata;
     (void) flutterpi;
     (void) vt;
@@ -1648,8 +1648,8 @@ static int on_user_input_open(const char *path, int flags, void *userdata) {
     struct flutterpi *flutterpi;
     int ok, fd;
 
-    DEBUG_ASSERT_NOT_NULL(path);
-    DEBUG_ASSERT_NOT_NULL(userdata);
+    ASSERT_NOT_NULL(path);
+    ASSERT_NOT_NULL(userdata);
     flutterpi = userdata;
     (void) flutterpi;
 
@@ -1698,7 +1698,7 @@ static void on_user_input_close(int fd, void *userdata) {
     struct flutterpi *flutterpi;
     int ok;
 
-    DEBUG_ASSERT_NOT_NULL(userdata);
+    ASSERT_NOT_NULL(userdata);
     flutterpi = userdata;
     (void) flutterpi;
 
@@ -1947,8 +1947,8 @@ valid_format:
 static int on_drmdev_open(const char *path, int flags, void **fd_metadata_out, void *userdata) {
     int ok, fd, device_id;
 
-    DEBUG_ASSERT_NOT_NULL(path);
-    DEBUG_ASSERT_NOT_NULL(fd_metadata_out);
+    ASSERT_NOT_NULL(path);
+    ASSERT_NOT_NULL(fd_metadata_out);
     (void) userdata;
 
 #if HAS_LIBSEAT
@@ -1965,7 +1965,7 @@ static int on_drmdev_open(const char *path, int flags, void **fd_metadata_out, v
         return fd;
     }
 #else
-    DEBUG_ASSERT_EQUALS(userdata, NULL);
+    ASSERT_EQUALS(userdata, NULL);
 #endif
 
     ok = open(path, flags);
@@ -1984,7 +1984,7 @@ static int on_drmdev_open(const char *path, int flags, void **fd_metadata_out, v
 static void on_drmdev_close(int fd, void *fd_metadata, void *userdata) {
     int ok;
 
-    DEBUG_ASSERT_NOT_NULL(fd_metadata);
+    ASSERT_NOT_NULL(fd_metadata);
     (void) fd_metadata;
     (void) userdata;
 
@@ -2002,7 +2002,7 @@ static void on_drmdev_close(int fd, void *fd_metadata, void *userdata) {
         return;
     }
 #else
-    DEBUG_ASSERT_EQUALS(userdata, NULL);
+    ASSERT_EQUALS(userdata, NULL);
 #endif
 
     ok = close(fd);
@@ -2021,7 +2021,7 @@ static struct drmdev *find_drmdev(struct libseat *libseat) {
     int ok, n_devices;
 
 #ifndef HAS_LIBSEAT
-    DEBUG_ASSERT_EQUALS(libseat, NULL);
+    ASSERT_EQUALS(libseat, NULL);
 #endif
 
     ok = drmGetDevices2(0, devices, sizeof(devices) / sizeof(*devices));
@@ -2086,8 +2086,8 @@ static void on_session_enable(struct libseat *seat, void *userdata) {
     struct flutterpi *fpi;
     int ok;
 
-    DEBUG_ASSERT_NOT_NULL(seat);
-    DEBUG_ASSERT_NOT_NULL(userdata);
+    ASSERT_NOT_NULL(seat);
+    ASSERT_NOT_NULL(userdata);
     fpi = userdata;
     (void) fpi;
     (void) seat;
@@ -2115,8 +2115,8 @@ static void on_session_enable(struct libseat *seat, void *userdata) {
 static void on_session_disable(struct libseat *seat, void *userdata) {
     struct flutterpi *fpi;
 
-    DEBUG_ASSERT_NOT_NULL(seat);
-    DEBUG_ASSERT_NOT_NULL(userdata);
+    ASSERT_NOT_NULL(seat);
+    ASSERT_NOT_NULL(userdata);
     fpi = userdata;
     (void) fpi;
 
@@ -2140,8 +2140,8 @@ static int on_libseat_fd_ready(sd_event_source *s, int fd, uint32_t revents, voi
     struct flutterpi *fpi;
     int ok;
 
-    DEBUG_ASSERT_NOT_NULL(s);
-    DEBUG_ASSERT_NOT_NULL(userdata);
+    ASSERT_NOT_NULL(s);
+    ASSERT_NOT_NULL(userdata);
     fpi = userdata;
     (void) s;
     (void) fd;

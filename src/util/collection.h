@@ -288,18 +288,14 @@ static inline uint64_t get_monotonic_time(void) {
 #define FILE_DESCR(_logging_name) static const char *__attribute__((unused)) __file_logging_name = _logging_name;
 
 #ifdef DEBUG
-    #define DEBUG_ASSERT(__cond) assert(__cond)
-    #define DEBUG_ASSERT_MSG(__cond, __msg) assert((__cond) && (__msg))
+    #define ASSERT_MSG(__cond, __msg) assert((__cond) && (__msg))
     #define LOG_ERROR(fmtstring, ...) fprintf(stderr, "[%s] " fmtstring, __file_logging_name, ##__VA_ARGS__)
     #define LOG_ERROR_UNPREFIXED(fmtstring, ...) fprintf(stderr, fmtstring, ##__VA_ARGS__)
     #define LOG_DEBUG(fmtstring, ...) fprintf(stderr, "[%s] " fmtstring, __file_logging_name, ##__VA_ARGS__)
     #define LOG_DEBUG_UNPREFIXED(fmtstring, ...) fprintf(stderr, fmtstring, ##__VA_ARGS__)
 #else
-    #define DEBUG_ASSERT(__cond) \
-        do {                     \
-        } while (0)
-    #define DEBUG_ASSERT_MSG(__cond, __msg) \
-        do {                                \
+    #define ASSERT_MSG(__cond, __msg) \
+        do {                          \
         } while (0)
     #define LOG_ERROR(fmtstring, ...) fprintf(stderr, "[%s] " fmtstring, __file_logging_name, ##__VA_ARGS__)
     #define LOG_ERROR_UNPREFIXED(fmtstring, ...) fprintf(stderr, fmtstring, ##__VA_ARGS__)
@@ -311,14 +307,15 @@ static inline uint64_t get_monotonic_time(void) {
         } while (0)
 #endif
 
-#define DEBUG_ASSERT_NOT_NULL(__var) DEBUG_ASSERT(__var != NULL)
-#define DEBUG_ASSERT_NOT_NULL_MSG(__var, __msg) DEBUG_ASSERT_MSG(__var != NULL, __msg)
-#define DEBUG_ASSERT_EQUALS(__a, __b) DEBUG_ASSERT((__a) == (__b))
-#define DEBUG_ASSERT_EQUALS_MSG(__a, __b, __msg) DEBUG_ASSERT_MSG((__a) == (__b), __msg)
-#define DEBUG_ASSERT_EGL_TRUE(__var) DEBUG_ASSERT((__var) == EGL_TRUE)
-#define DEBUG_ASSERT_EGL_TRUE_MSG(__var, __msg) DEBUG_ASSERT_MSG((__var) == EGL_TRUE, __msg)
-#define DEBUG_ASSERT_MUTEX_LOCKED(__mutex)         \
-    DEBUG_ASSERT(({                                \
+#define ASSERT assert
+#define ASSERT_NOT_NULL(__var) assert(__var != NULL)
+#define ASSERT_NOT_NULL_MSG(__var, __msg) ASSERT_MSG(__var != NULL, __msg)
+#define ASSERT_EQUALS(__a, __b) assert((__a) == (__b))
+#define ASSERT_EQUALS_MSG(__a, __b, __msg) ASSERT_MSG((__a) == (__b), __msg)
+#define ASSERT_EGL_TRUE(__var) assert((__var) == EGL_TRUE)
+#define ASSERT_EGL_TRUE_MSG(__var, __msg) ASSERT_MSG((__var) == EGL_TRUE, __msg)
+#define ASSERT_MUTEX_LOCKED(__mutex)               \
+    assert(({                                      \
         bool result;                               \
         int r = pthread_mutex_trylock(&(__mutex)); \
         if (r == 0) {                              \
@@ -329,6 +326,8 @@ static inline uint64_t get_monotonic_time(void) {
         }                                          \
         result;                                    \
     }))
+#define ASSERT_ZERO(__var) assert((__var) == 0)
+#define ASSERT_ZERO_MSG(__var, __msg) ASSERT_MSG((__var) == 0, __msg)
 
 #if !(201112L <= __STDC_VERSION__ || (!defined __STRICT_ANSI__ && (__GNUC__ > 4) || ((__GNUC__ == 4) && (__GNUC_MINOR >= 6))))
     #error "Needs C11 or later or GCC (not in pedantic mode) 4.6.0 or later for compile time asserts."
@@ -341,45 +340,45 @@ static inline uint64_t get_monotonic_time(void) {
     UNUSED void obj_name##_lock(struct obj_name *obj); \
     UNUSED void obj_name##_unlock(struct obj_name *obj);
 
-#define DEFINE_LOCK_OPS(obj_name, mutex_member_name)              \
-    UNUSED void obj_name##_lock(struct obj_name *obj) {           \
-        int ok;                                                   \
-        ok = pthread_mutex_lock(&obj->mutex_member_name);         \
-        DEBUG_ASSERT_EQUALS_MSG(ok, 0, "Error locking mutex.");   \
-        (void) ok;                                                \
-    }                                                             \
-    UNUSED void obj_name##_unlock(struct obj_name *obj) {         \
-        int ok;                                                   \
-        ok = pthread_mutex_unlock(&obj->mutex_member_name);       \
-        DEBUG_ASSERT_EQUALS_MSG(ok, 0, "Error unlocking mutex."); \
-        (void) ok;                                                \
+#define DEFINE_LOCK_OPS(obj_name, mutex_member_name)        \
+    UNUSED void obj_name##_lock(struct obj_name *obj) {     \
+        int ok;                                             \
+        ok = pthread_mutex_lock(&obj->mutex_member_name);   \
+        ASSERT_EQUALS_MSG(ok, 0, "Error locking mutex.");   \
+        (void) ok;                                          \
+    }                                                       \
+    UNUSED void obj_name##_unlock(struct obj_name *obj) {   \
+        int ok;                                             \
+        ok = pthread_mutex_unlock(&obj->mutex_member_name); \
+        ASSERT_EQUALS_MSG(ok, 0, "Error unlocking mutex."); \
+        (void) ok;                                          \
     }
 
-#define DEFINE_STATIC_LOCK_OPS(obj_name, mutex_member_name)       \
-    UNUSED static void obj_name##_lock(struct obj_name *obj) {    \
-        int ok;                                                   \
-        ok = pthread_mutex_lock(&obj->mutex_member_name);         \
-        DEBUG_ASSERT_EQUALS_MSG(ok, 0, "Error locking mutex.");   \
-        (void) ok;                                                \
-    }                                                             \
-    UNUSED static void obj_name##_unlock(struct obj_name *obj) {  \
-        int ok;                                                   \
-        ok = pthread_mutex_unlock(&obj->mutex_member_name);       \
-        DEBUG_ASSERT_EQUALS_MSG(ok, 0, "Error unlocking mutex."); \
-        (void) ok;                                                \
+#define DEFINE_STATIC_LOCK_OPS(obj_name, mutex_member_name)      \
+    UNUSED static void obj_name##_lock(struct obj_name *obj) {   \
+        int ok;                                                  \
+        ok = pthread_mutex_lock(&obj->mutex_member_name);        \
+        ASSERT_EQUALS_MSG(ok, 0, "Error locking mutex.");        \
+        (void) ok;                                               \
+    }                                                            \
+    UNUSED static void obj_name##_unlock(struct obj_name *obj) { \
+        int ok;                                                  \
+        ok = pthread_mutex_unlock(&obj->mutex_member_name);      \
+        ASSERT_EQUALS_MSG(ok, 0, "Error unlocking mutex.");      \
+        (void) ok;                                               \
     }
 
 #define DEFINE_INLINE_LOCK_OPS(obj_name, mutex_member_name)             \
     UNUSED static inline void obj_name##_lock(struct obj_name *obj) {   \
         int ok;                                                         \
         ok = pthread_mutex_lock(&obj->mutex_member_name);               \
-        DEBUG_ASSERT_EQUALS_MSG(ok, 0, "Error locking mutex.");         \
+        ASSERT_EQUALS_MSG(ok, 0, "Error locking mutex.");               \
         (void) ok;                                                      \
     }                                                                   \
     UNUSED static inline void obj_name##_unlock(struct obj_name *obj) { \
         int ok;                                                         \
         ok = pthread_mutex_unlock(&obj->mutex_member_name);             \
-        DEBUG_ASSERT_EQUALS_MSG(ok, 0, "Error unlocking mutex.");       \
+        ASSERT_EQUALS_MSG(ok, 0, "Error unlocking mutex.");             \
         (void) ok;                                                      \
     }
 

@@ -53,19 +53,19 @@ void render_surface_deinit(struct surface *s) {
 int render_surface_fill(struct render_surface *surface, FlutterBackingStore *fl_store) {
     int ok;
 
-    DEBUG_ASSERT_NOT_NULL(surface);
-    DEBUG_ASSERT_NOT_NULL(fl_store);
-    DEBUG_ASSERT_NOT_NULL(surface->fill);
+    ASSERT_NOT_NULL(surface);
+    ASSERT_NOT_NULL(fl_store);
+    ASSERT_NOT_NULL(surface->fill);
 
-    DEBUG_ASSERT_EQUALS(fl_store->user_data, NULL);
-    DEBUG_ASSERT_EQUALS(fl_store->did_update, false);
+    ASSERT_EQUALS(fl_store->user_data, NULL);
+    ASSERT_EQUALS(fl_store->did_update, false);
 
     TRACER_BEGIN(surface->surface.tracer, "render_surface_fill");
     ok = surface->fill(surface, fl_store);
     TRACER_END(surface->surface.tracer, "render_surface_fill");
 
-    DEBUG_ASSERT_EQUALS(fl_store->user_data, NULL);
-    DEBUG_ASSERT_EQUALS(fl_store->did_update, false);
+    ASSERT_EQUALS(fl_store->user_data, NULL);
+    ASSERT_EQUALS(fl_store->did_update, false);
 
     return ok;
 }
@@ -73,9 +73,9 @@ int render_surface_fill(struct render_surface *surface, FlutterBackingStore *fl_
 int render_surface_queue_present(struct render_surface *surface, const FlutterBackingStore *fl_store) {
     int ok;
 
-    DEBUG_ASSERT_NOT_NULL(surface);
-    DEBUG_ASSERT_NOT_NULL(fl_store);
-    DEBUG_ASSERT_NOT_NULL(surface->queue_present);
+    ASSERT_NOT_NULL(surface);
+    ASSERT_NOT_NULL(fl_store);
+    ASSERT_NOT_NULL(surface->queue_present);
 
     TRACER_BEGIN(surface->surface.tracer, "render_surface_queue_present");
     ok = surface->queue_present(surface, fl_store);
@@ -89,7 +89,7 @@ ATTR_PURE struct render_surface *__checked_cast_render_surface(void *ptr) {
     struct render_surface *surface;
 
     surface = CAST_RENDER_SURFACE_UNCHECKED(ptr);
-    DEBUG_ASSERT(uuid_equals(surface->uuid, uuid));
+    assert(uuid_equals(surface->uuid, uuid));
     return surface;
 }
 #endif

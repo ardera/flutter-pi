@@ -407,7 +407,7 @@ ATTR_CONST static uint64_t physical_key_for_evdev_keycode(uint16_t evdev_keycode
 }
 
 ATTR_CONST static uint64_t physical_key_for_xkb_keycode(xkb_keycode_t xkb_keycode) {
-    DEBUG_ASSERT(xkb_keycode >= 8);
+    assert(xkb_keycode >= 8);
     return physical_key_for_evdev_keycode(xkb_keycode - 8);
 }
 
@@ -793,7 +793,7 @@ int rawkb_on_key_event(
     } else if (is_down && is_repeat) {
         type = kFlutterKeyEventTypeRepeat;
     } else {
-        DEBUG_ASSERT(!is_repeat);
+        assert(!is_repeat);
         type = kFlutterKeyEventTypeUp;
     }
 
@@ -815,72 +815,72 @@ static void assert_key_modifiers_work() {
     memset(&mods, 0, sizeof(mods));
 
     mods.u32 = 1;
-    DEBUG_ASSERT_EQUALS(mods.shift, true);
-    DEBUG_ASSERT_EQUALS(mods.capslock, false);
-    DEBUG_ASSERT_EQUALS(mods.ctrl, false);
-    DEBUG_ASSERT_EQUALS(mods.alt, false);
-    DEBUG_ASSERT_EQUALS(mods.numlock, false);
-    DEBUG_ASSERT_EQUALS(mods.__pad, 0);
-    DEBUG_ASSERT_EQUALS(mods.meta, false);
+    ASSERT_EQUALS(mods.shift, true);
+    ASSERT_EQUALS(mods.capslock, false);
+    ASSERT_EQUALS(mods.ctrl, false);
+    ASSERT_EQUALS(mods.alt, false);
+    ASSERT_EQUALS(mods.numlock, false);
+    ASSERT_EQUALS(mods.__pad, 0);
+    ASSERT_EQUALS(mods.meta, false);
 
     mods.u32 = 1 << 1;
-    DEBUG_ASSERT_EQUALS(mods.shift, false);
-    DEBUG_ASSERT_EQUALS(mods.capslock, true);
-    DEBUG_ASSERT_EQUALS(mods.ctrl, false);
-    DEBUG_ASSERT_EQUALS(mods.alt, false);
-    DEBUG_ASSERT_EQUALS(mods.numlock, false);
-    DEBUG_ASSERT_EQUALS(mods.__pad, 0);
-    DEBUG_ASSERT_EQUALS(mods.meta, false);
+    ASSERT_EQUALS(mods.shift, false);
+    ASSERT_EQUALS(mods.capslock, true);
+    ASSERT_EQUALS(mods.ctrl, false);
+    ASSERT_EQUALS(mods.alt, false);
+    ASSERT_EQUALS(mods.numlock, false);
+    ASSERT_EQUALS(mods.__pad, 0);
+    ASSERT_EQUALS(mods.meta, false);
 
     mods.u32 = 1 << 2;
-    DEBUG_ASSERT_EQUALS(mods.shift, false);
-    DEBUG_ASSERT_EQUALS(mods.capslock, false);
-    DEBUG_ASSERT_EQUALS(mods.ctrl, true);
-    DEBUG_ASSERT_EQUALS(mods.alt, false);
-    DEBUG_ASSERT_EQUALS(mods.numlock, false);
-    DEBUG_ASSERT_EQUALS(mods.__pad, 0);
-    DEBUG_ASSERT_EQUALS(mods.meta, false);
+    ASSERT_EQUALS(mods.shift, false);
+    ASSERT_EQUALS(mods.capslock, false);
+    ASSERT_EQUALS(mods.ctrl, true);
+    ASSERT_EQUALS(mods.alt, false);
+    ASSERT_EQUALS(mods.numlock, false);
+    ASSERT_EQUALS(mods.__pad, 0);
+    ASSERT_EQUALS(mods.meta, false);
 
     mods.u32 = 1 << 3;
-    DEBUG_ASSERT_EQUALS(mods.shift, false);
-    DEBUG_ASSERT_EQUALS(mods.capslock, false);
-    DEBUG_ASSERT_EQUALS(mods.ctrl, false);
-    DEBUG_ASSERT_EQUALS(mods.alt, true);
-    DEBUG_ASSERT_EQUALS(mods.numlock, false);
-    DEBUG_ASSERT_EQUALS(mods.__pad, 0);
-    DEBUG_ASSERT_EQUALS(mods.meta, false);
+    ASSERT_EQUALS(mods.shift, false);
+    ASSERT_EQUALS(mods.capslock, false);
+    ASSERT_EQUALS(mods.ctrl, false);
+    ASSERT_EQUALS(mods.alt, true);
+    ASSERT_EQUALS(mods.numlock, false);
+    ASSERT_EQUALS(mods.__pad, 0);
+    ASSERT_EQUALS(mods.meta, false);
 
     mods.u32 = 1 << 4;
-    DEBUG_ASSERT_EQUALS(mods.shift, false);
-    DEBUG_ASSERT_EQUALS(mods.capslock, false);
-    DEBUG_ASSERT_EQUALS(mods.ctrl, false);
-    DEBUG_ASSERT_EQUALS(mods.alt, false);
-    DEBUG_ASSERT_EQUALS(mods.numlock, true);
-    DEBUG_ASSERT_EQUALS(mods.__pad, 0);
-    DEBUG_ASSERT_EQUALS(mods.meta, false);
+    ASSERT_EQUALS(mods.shift, false);
+    ASSERT_EQUALS(mods.capslock, false);
+    ASSERT_EQUALS(mods.ctrl, false);
+    ASSERT_EQUALS(mods.alt, false);
+    ASSERT_EQUALS(mods.numlock, true);
+    ASSERT_EQUALS(mods.__pad, 0);
+    ASSERT_EQUALS(mods.meta, false);
 
     mods.u32 = 1 << 28;
-    DEBUG_ASSERT_EQUALS(mods.shift, false);
-    DEBUG_ASSERT_EQUALS(mods.capslock, false);
-    DEBUG_ASSERT_EQUALS(mods.ctrl, false);
-    DEBUG_ASSERT_EQUALS(mods.alt, false);
-    DEBUG_ASSERT_EQUALS(mods.numlock, false);
-    DEBUG_ASSERT_EQUALS(mods.__pad, 0);
-    DEBUG_ASSERT_EQUALS(mods.meta, true);
+    ASSERT_EQUALS(mods.shift, false);
+    ASSERT_EQUALS(mods.capslock, false);
+    ASSERT_EQUALS(mods.ctrl, false);
+    ASSERT_EQUALS(mods.alt, false);
+    ASSERT_EQUALS(mods.numlock, false);
+    ASSERT_EQUALS(mods.__pad, 0);
+    ASSERT_EQUALS(mods.meta, true);
 
     memset(&mods, 0, sizeof(mods));
     mods.shift = true;
     mods.meta = true;
-    DEBUG_ASSERT_EQUALS(mods.u32, ((1 << 0) | (1 << 28)));
+    ASSERT_EQUALS(mods.u32, ((1 << 0) | (1 << 28)));
 
     mods.u32 = (1 << 1) | (1 << 4);
-    DEBUG_ASSERT_EQUALS(mods.shift, false);
-    DEBUG_ASSERT_EQUALS(mods.capslock, true);
-    DEBUG_ASSERT_EQUALS(mods.ctrl, false);
-    DEBUG_ASSERT_EQUALS(mods.alt, false);
-    DEBUG_ASSERT_EQUALS(mods.numlock, true);
-    DEBUG_ASSERT_EQUALS(mods.__pad, 0);
-    DEBUG_ASSERT_EQUALS(mods.meta, false);
+    ASSERT_EQUALS(mods.shift, false);
+    ASSERT_EQUALS(mods.capslock, true);
+    ASSERT_EQUALS(mods.ctrl, false);
+    ASSERT_EQUALS(mods.alt, false);
+    ASSERT_EQUALS(mods.numlock, true);
+    ASSERT_EQUALS(mods.__pad, 0);
+    ASSERT_EQUALS(mods.meta, false);
 
     (void) mods;
 }

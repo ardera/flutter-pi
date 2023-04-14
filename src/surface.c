@@ -32,7 +32,7 @@ ATTR_PURE struct surface *__checked_cast_surface(void *ptr) {
     struct surface *s;
 
     s = CAST_SURFACE_UNCHECKED(ptr);
-    DEBUG_ASSERT(uuid_equals(s->uuid, uuid));
+    assert(uuid_equals(s->uuid, uuid));
     return s;
 }
 #endif
@@ -72,7 +72,7 @@ struct surface *surface_new(struct tracer *tracer) {
 }
 
 void surface_destroy(struct surface *s) {
-    DEBUG_ASSERT_NOT_NULL(s->deinit);
+    ASSERT_NOT_NULL(s->deinit);
     s->deinit(s);
     free(s);
 }
@@ -82,17 +82,17 @@ DEFINE_LOCK_OPS(surface, lock)
 DEFINE_REF_OPS(surface, n_refs)
 
 int64_t surface_get_revision(struct surface *s) {
-    DEBUG_ASSERT_NOT_NULL(s);
+    ASSERT_NOT_NULL(s);
     return s->revision;
 }
 
 int surface_present_kms(struct surface *s, const struct fl_layer_props *props, struct kms_req_builder *builder) {
     int ok;
 
-    DEBUG_ASSERT_NOT_NULL(s);
-    DEBUG_ASSERT_NOT_NULL(props);
-    DEBUG_ASSERT_NOT_NULL(builder);
-    DEBUG_ASSERT_NOT_NULL(s->present_kms);
+    ASSERT_NOT_NULL(s);
+    ASSERT_NOT_NULL(props);
+    ASSERT_NOT_NULL(builder);
+    ASSERT_NOT_NULL(s->present_kms);
 
     TRACER_BEGIN(s->tracer, "surface_present_kms");
     ok = s->present_kms(s, props, builder);
@@ -104,10 +104,10 @@ int surface_present_kms(struct surface *s, const struct fl_layer_props *props, s
 int surface_present_fbdev(struct surface *s, const struct fl_layer_props *props, struct fbdev_commit_builder *builder) {
     int ok;
 
-    DEBUG_ASSERT_NOT_NULL(s);
-    DEBUG_ASSERT_NOT_NULL(props);
-    DEBUG_ASSERT_NOT_NULL(builder);
-    DEBUG_ASSERT_NOT_NULL(s->present_fbdev);
+    ASSERT_NOT_NULL(s);
+    ASSERT_NOT_NULL(props);
+    ASSERT_NOT_NULL(builder);
+    ASSERT_NOT_NULL(s->present_fbdev);
 
     TRACER_BEGIN(s->tracer, "surface_present_fbdev");
     ok = s->present_fbdev(s, props, builder);
