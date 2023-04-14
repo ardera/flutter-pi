@@ -37,7 +37,7 @@
 #include <xf86drm.h>
 #include <xf86drmMode.h>
 
-#ifdef HAS_LIBSEAT
+#ifdef HAVE_LIBSEAT
     #include <libseat.h>
 #endif
 #include <flutter_embedder.h>
@@ -90,7 +90,7 @@ OPTIONS:\n\
                              built with --runtime-mode=profile.\n\
 \n\
   --vulkan                   Use vulkan for rendering.\n"
-#ifndef HAS_VULKAN
+#ifndef HAVE_VULKAN
     "\
                              NOTE: This flutter-pi executable was built without\n\
                              vulkan support.\n"
@@ -365,7 +365,7 @@ UNUSED static void *on_get_vulkan_proc_address(void *userdata, FlutterVulkanInst
     ASSERT_NOT_NULL(name);
     (void) userdata;
 
-#ifdef HAS_VULKAN
+#ifdef HAVE_VULKAN
     if (streq(name, "GetInstanceProcAddr")) {
         name = "vkGetInstanceProcAddr";
     }
@@ -1208,7 +1208,7 @@ static FlutterEngine create_flutter_engine(
 
     // configure flutter rendering
     if (vk_renderer) {
-#ifdef HAS_VULKAN
+#ifdef HAVE_VULKAN
         renderer_config = (FlutterRendererConfig) {
             .type = kVulkan,
             .vulkan = {
@@ -1318,7 +1318,7 @@ static int flutterpi_run(struct flutterpi *flutterpi) {
     procs = &flutterpi->flutter.procs;
 
     if (flutterpi->libseat != NULL) {
-#ifdef HAS_LIBSEAT
+#ifdef HAVE_LIBSEAT
         ok = libseat_dispatch(flutterpi->libseat, 0);
         if (ok < 0) {
             LOG_ERROR("initial libseat dispatch failed. libseat_dispatch: %s\n", strerror(errno));
@@ -1614,7 +1614,7 @@ static void on_switch_vt(void *userdata, int vt) {
     LOG_DEBUG("on_switch_vt(%d)\n", vt);
 
     if (flutterpi->libseat != NULL) {
-#ifdef HAS_LIBSEAT
+#ifdef HAVE_LIBSEAT
         int ok;
 
         ok = libseat_switch_session(flutterpi->libseat, vt);
@@ -1654,7 +1654,7 @@ static int on_user_input_open(const char *path, int flags, void *userdata) {
     (void) flutterpi;
 
     if (flutterpi->libseat != NULL) {
-#ifdef HAS_LIBSEAT
+#ifdef HAVE_LIBSEAT
         struct device_id_and_fd *entry;
         int device_id;
 
@@ -1703,7 +1703,7 @@ static void on_user_input_close(int fd, void *userdata) {
     (void) flutterpi;
 
     if (flutterpi->libseat != NULL) {
-#ifdef HAS_LIBSEAT
+#ifdef HAVE_LIBSEAT
         struct device_id_and_fd *entry;
 
         for_each_pointer_in_pset(&flutterpi->fd_for_device_id, entry) {
@@ -1932,7 +1932,7 @@ valid_format:
     result_out->engine_argc = argc - optind;
     result_out->engine_argv = argv + optind;
 
-#ifndef HAS_VULKAN
+#ifndef HAVE_VULKAN
     if (vulkan_int == true) {
         LOG_ERROR("ERROR: --vulkan was specified, but flutter-pi was built without vulkan support.\n");
         printf("%s", usage);
@@ -1951,7 +1951,7 @@ static int on_drmdev_open(const char *path, int flags, void **fd_metadata_out, v
     ASSERT_NOT_NULL(fd_metadata_out);
     (void) userdata;
 
-#if HAS_LIBSEAT
+#if HAVE_LIBSEAT
     struct libseat *libseat = userdata;
     if (libseat != NULL) {
         ok = libseat_open_device(libseat, path, &fd);
@@ -1988,7 +1988,7 @@ static void on_drmdev_close(int fd, void *fd_metadata, void *userdata) {
     (void) fd_metadata;
     (void) userdata;
 
-#ifdef HAS_LIBSEAT
+#ifdef HAVE_LIBSEAT
     struct libseat *libseat = userdata;
     if (libseat != NULL) {
         int device_id = (intptr_t) fd_metadata;
@@ -2020,7 +2020,7 @@ static struct drmdev *find_drmdev(struct libseat *libseat) {
     drmDevicePtr devices[64];
     int ok, n_devices;
 
-#ifndef HAS_LIBSEAT
+#ifndef HAVE_LIBSEAT
     ASSERT_EQUALS(libseat, NULL);
 #endif
 
@@ -2081,7 +2081,7 @@ fail_free_devices:
     return NULL;
 }
 
-#ifdef HAS_LIBSEAT
+#ifdef HAVE_LIBSEAT
 static void on_session_enable(struct libseat *seat, void *userdata) {
     struct flutterpi *fpi;
     int ok;
@@ -2226,7 +2226,7 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
         goto fail_unref_event_loop;
     }
 
-#ifdef HAS_LIBSEAT
+#ifdef HAVE_LIBSEAT
     static const struct libseat_seat_listener libseat_interface = { .enable_seat = on_session_enable, .disable_seat = on_session_disable };
 
     libseat = libseat_open_seat(&libseat_interface, fpi);
@@ -2297,7 +2297,7 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
     }
 
     if (renderer_type == kVulkan_RendererType) {
-#ifdef HAS_VULKAN
+#ifdef HAVE_VULKAN
         gl_renderer = NULL;
         vk_renderer = vk_renderer_new();
         if (vk_renderer == NULL) {
@@ -2531,7 +2531,7 @@ fail_unref_renderer:
     if (gl_renderer) {
         gl_renderer_unref(gl_renderer);
     }
-#ifdef HAS_VULKAN
+#ifdef HAVE_VULKAN
     if (vk_renderer) {
         vk_renderer_unref(vk_renderer);
     }
@@ -2551,7 +2551,7 @@ fail_destroy_locales:
 
 fail_destroy_libseat:
     if (libseat != NULL) {
-#ifdef HAS_LIBSEAT
+#ifdef HAVE_LIBSEAT
         libseat_close_seat(libseat);
 #else
         UNREACHABLE();
@@ -2590,7 +2590,7 @@ void flutterpi_destroy(struct flutterpi *flutterpi) {
         gl_renderer_unref(flutterpi->gl_renderer);
     }
     if (flutterpi->vk_renderer) {
-#ifdef HAS_VULKAN
+#ifdef HAVE_VULKAN
         vk_renderer_unref(flutterpi->vk_renderer);
 #else
         UNREACHABLE();
@@ -2600,7 +2600,7 @@ void flutterpi_destroy(struct flutterpi *flutterpi) {
     drmdev_unref(flutterpi->drmdev);
     locales_destroy(flutterpi->locales);
     if (flutterpi->libseat != NULL) {
-#ifdef HAS_LIBSEAT
+#ifdef HAVE_LIBSEAT
         libseat_close_seat(flutterpi->libseat);
 #else
         UNREACHABLE();

@@ -2,7 +2,7 @@
 
 #include <vulkan.h>
 
-#ifdef HAS_FBDEV
+#ifdef HAVE_FBDEV
     #define FBDEV_FORMAT_FIELD_INITIALIZER(r_length, r_offset, g_length, g_offset, b_length, b_offset, a_length, a_offset) \
         .fbdev_format = {                                                                                                  \
             .r = { .length = r_length, .offset = r_offset, .msb_right = 0 },                                               \
@@ -14,21 +14,21 @@
     #define FBDEV_FORMAT_FIELD_INITIALIZER(r_length, r_offset, g_length, g_offset, b_length, b_offset, a_length, a_offset)
 #endif
 
-#ifdef HAS_GBM
+#ifdef HAVE_GBM
     #include <gbm.h>
     #define GBM_FORMAT_FIELD_INITIALIZER(_gbm_format) .gbm_format = _gbm_format,
 #else
     #define GBM_FORMAT_FIELD_INITIALIZER(_gbm_format)
 #endif
 
-#ifdef HAS_KMS
+#ifdef HAVE_KMS
     #include <drm_fourcc.h>
     #define DRM_FORMAT_FIELD_INITIALIZER(_drm_format) .drm_format = _drm_format,
 #else
     #define DRM_FORMAT_FIELD_INITIALIZER(_drm_format)
 #endif
 
-#ifdef HAS_VULKAN
+#ifdef HAVE_VULKAN
     #include <vulkan.h>
     #define VK_FORMAT_FIELD_INITIALIZER(_vk_format) .vk_format = _vk_format,
 #else

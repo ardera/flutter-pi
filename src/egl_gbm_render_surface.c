@@ -25,10 +25,6 @@
 
 FILE_DESCR("EGL/GBM render surface")
 
-#ifndef HAS_EGL
-    #error "EGL is needed for EGL/GBM render surface."
-#endif
-
 struct egl_gbm_render_surface;
 
 struct locked_fb {
@@ -186,11 +182,12 @@ static int egl_gbm_render_surface_init(
         }
     }
 
-    static const EGLAttrib surface_attribs[] = { /* EGL_GL_COLORSPACE, GL_LINEAR / GL_SRGB */
-                                                 /* EGL_RENDER_BUFFER, EGL_BACK_BUFFER / EGL_SINGLE_BUFFER */
-                                                 /* EGL_VG_ALPHA_FORMAT, EGL_VG_ALPHA_FORMAT_NONPRE / EGL_VG_ALPHA_FORMAT_PRE */
-                                                 /* EGL_VG_COLORSPACE, EGL_VG_COLORSPACE_sRGB / EGL_VG_COLORSPACE_LINEAR */
-                                                 EGL_NONE
+    static const EGLAttrib surface_attribs[] = {
+        /* EGL_GL_COLORSPACE, GL_LINEAR / GL_SRGB */
+        /* EGL_RENDER_BUFFER, EGL_BACK_BUFFER / EGL_SINGLE_BUFFER */
+        /* EGL_VG_ALPHA_FORMAT, EGL_VG_ALPHA_FORMAT_NONPRE / EGL_VG_ALPHA_FORMAT_PRE */
+        /* EGL_VG_COLORSPACE, EGL_VG_COLORSPACE_sRGB / EGL_VG_COLORSPACE_LINEAR */
+        EGL_NONE,
     };
 
     (void) surface_attribs;
@@ -235,11 +232,9 @@ static int egl_gbm_render_surface_init(
     return 0;
 
 fail_destroy_egl_surface:
-#ifdef HAS_EGL
     eglDestroySurface(egl_display, egl_surface);
 
 fail_destroy_gbm_surface:
-#endif
     gbm_surface_destroy(gbm_surface);
     return ok;
 }

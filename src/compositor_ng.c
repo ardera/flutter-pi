@@ -16,7 +16,7 @@
 #include <pthread.h>
 #include <semaphore.h>
 
-#ifdef HAS_GBM
+#ifdef HAVE_GBM
     #include <gbm.h>
 #endif
 #include <flutter_embedder.h>

@@ -8,7 +8,7 @@
 #ifndef _FLUTTERPI_INCLUDE_GLES_H
 #define _FLUTTERPI_INCLUDE_GLES_H
 
-#ifdef HAS_GL
+#ifdef HAVE_GLES2
 
     #include <GLES2/gl2.h>
     #include <GLES2/gl2ext.h>
