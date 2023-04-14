@@ -864,7 +864,7 @@ MUST_CHECK struct window *kms_window_new(
 #endif
 
 #if !defined(HAS_EGL) || !defined(HAS_GL)
-    DEBUG_ASSERT(renderer_type != kOpenGL_RendererType);
+    assert(renderer_type != kOpenGL_RendererType);
 #endif
 
     // if opengl --> gl_renderer != NULL && vk_renderer == NULL
@@ -977,13 +977,13 @@ void kms_window_deinit(struct window *window) {
     int ok;
 
     builder = drmdev_create_request_builder(window->kms.drmdev, window->kms.crtc->id);
-    DEBUG_ASSERT_NOT_NULL(builder);
+    ASSERT_NOT_NULL(builder);
 
     ok = kms_req_builder_unset_mode(builder);
     ASSERT_EQUALS(ok, 0);
 
     req = kms_req_builder_build(builder);
-    DEBUG_ASSERT_NOT_NULL(req);
+    ASSERT_NOT_NULL(req);
 
     kms_req_builder_unref(builder);
 

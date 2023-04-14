@@ -477,7 +477,7 @@ static bool get_plane_sizes_from_video_info(const GstVideoInfo *info, size_t pla
     }
 
     #ifdef DEBUG
-    DEBUG_ASSERT(gst_video_info_is_equal(info, info_non_const));
+    assert(gst_video_info_is_equal(info, info_non_const));
     gst_video_info_free(info_non_const);
     #endif
 
