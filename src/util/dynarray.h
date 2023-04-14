@@ -211,6 +211,44 @@ static inline void util_dynarray_append_dynarray(struct util_dynarray *buf, cons
         }                                                                                                          \
     } while (0)
 
+#define util_dynarray_delete_unordered_ext(buf, type, v, equals_fn)                                                \
+    do {                                                                                                           \
+        unsigned num_elements = (buf)->size / sizeof(type);                                                        \
+        unsigned i;                                                                                                \
+        for (i = 0; i < num_elements; i++) {                                                                       \
+            type __v = *util_dynarray_element((buf), type, (i));                                                   \
+            if (equals_fn((v), __v)) {                                                                             \
+                memcpy(util_dynarray_element((buf), type, (i)), util_dynarray_pop_ptr((buf), type), sizeof(type)); \
+                break;                                                                                             \
+            }                                                                                                      \
+        }                                                                                                          \
+    } while (0)
+
+#define util_dynarray_delete_where_unordered(buf, type, where_fn, userdata)                                        \
+    do {                                                                                                           \
+        unsigned num_elements = (buf)->size / sizeof(type);                                                        \
+        unsigned i;                                                                                                \
+        for (i = 0; i < num_elements; i++) {                                                                       \
+            type __v = *util_dynarray_element((buf), type, (i));                                                   \
+            if (where_fn((__v), userdata)) {                                                                       \
+                memcpy(util_dynarray_element((buf), type, (i)), util_dynarray_pop_ptr((buf), type), sizeof(type)); \
+            }                                                                                                      \
+        }                                                                                                          \
+    } while (0)
+
+#define util_dynarray_delete_single_where_unordered(buf, type, where_fn, userdata)                                 \
+    do {                                                                                                           \
+        unsigned num_elements = (buf)->size / sizeof(type);                                                        \
+        unsigned i;                                                                                                \
+        for (i = 0; i < num_elements; i++) {                                                                       \
+            type __v = *util_dynarray_element((buf), type, (i));                                                   \
+            if (where_fn((__v), userdata)) {                                                                       \
+                memcpy(util_dynarray_element((buf), type, (i)), util_dynarray_pop_ptr((buf), type), sizeof(type)); \
+                break;                                                                                             \
+            }                                                                                                      \
+        }                                                                                                          \
+    } while (0)
+
 #ifdef __cplusplus
 }
 #endif

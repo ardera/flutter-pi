@@ -270,7 +270,7 @@ void texture_destroy(struct texture *texture) {
 static void on_flutter_acquired_frame_destroy(void *userdata) {
     struct counted_texture_frame *frame;
 
-    DEBUG_ASSERT_NOT_NULL(userdata);
+    ASSERT_NOT_NULL(userdata);
 
     frame = userdata;
 
@@ -285,8 +285,8 @@ texture_gl_external_texture_frame_callback(struct texture *texture, size_t width
     (void) width;
     (void) height;
 
-    DEBUG_ASSERT_NOT_NULL(texture);
-    DEBUG_ASSERT_NOT_NULL(texture_out);
+    ASSERT_NOT_NULL(texture);
+    ASSERT_NOT_NULL(texture_out);
 
     texture_lock(texture);
 

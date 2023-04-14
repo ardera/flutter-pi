@@ -349,7 +349,7 @@ void assert_pixfmt_list_valid();
  *
  */
 static inline const struct pixfmt_info *get_pixfmt_info(enum pixfmt format) {
-    DEBUG_ASSERT(format >= 0 && format <= kMax_PixFmt);
+    assert(format >= 0 && format <= kMax_PixFmt);
 #ifdef DEBUG
     assert_pixfmt_list_valid();
 #endif
@@ -358,7 +358,6 @@ static inline const struct pixfmt_info *get_pixfmt_info(enum pixfmt format) {
 
 COMPILE_ASSERT(kRGB565_FpiPixelFormat == 0);
 
-#define DEBUG_ASSERT_PIXFMT_VALID(format) \
-    DEBUG_ASSERT_MSG(format >= kRGB565_FpiPixelFormat && format <= kMax_PixFmt, "Invalid pixel format")
+#define ASSERT_PIXFMT_VALID(format) ASSERT_MSG(format >= kRGB565_FpiPixelFormat && format <= kMax_PixFmt, "Invalid pixel format")
 
 #endif  // _FLUTTERPI_INCLUDE_PIXEL_FORMAT_H

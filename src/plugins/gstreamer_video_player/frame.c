@@ -277,7 +277,7 @@ struct frame_interface *frame_interface_new(struct gl_renderer *renderer) {
 
 fail_destroy_context:
     egl_ok = eglDestroyContext(display, context);
-    DEBUG_ASSERT_EGL_TRUE(egl_ok);
+    ASSERT_EGL_TRUE(egl_ok);
     (void) egl_ok;
 
 fail_free:
@@ -290,7 +290,7 @@ void frame_interface_destroy(struct frame_interface *interface) {
 
     pthread_mutex_destroy(&interface->context_lock);
     egl_ok = eglDestroyContext(interface->display, interface->context);
-    DEBUG_ASSERT_EGL_TRUE(egl_ok);
+    ASSERT_EGL_TRUE(egl_ok);
     (void) egl_ok;
     if (interface->formats != NULL) {
         free(interface->formats);
@@ -303,7 +303,7 @@ ATTR_PURE int frame_interface_get_n_formats(struct frame_interface *interface) {
 }
 
 ATTR_PURE const struct egl_modified_format *frame_interface_get_format(struct frame_interface *interface, int index) {
-    DEBUG_ASSERT(index < interface->n_formats);
+    assert(index < interface->n_formats);
     return interface->formats + index;
 }
 
@@ -774,11 +774,11 @@ static EGLint egl_vertical_chroma_siting_from_gst_info(const GstVideoInfo *info)
 }
 
 struct video_frame *frame_new(struct frame_interface *interface, GstSample *sample, const GstVideoInfo *info) {
-#define PUT_ATTR(_key, _value)                                  \
-    do {                                                        \
-        DEBUG_ASSERT(attr_index + 2 <= ARRAY_SIZE(attributes)); \
-        attributes[attr_index++] = (_key);                      \
-        attributes[attr_index++] = (_value);                    \
+#define PUT_ATTR(_key, _value)                            \
+    do {                                                  \
+        assert(attr_index + 2 <= ARRAY_SIZE(attributes)); \
+        attributes[attr_index++] = (_key);                \
+        attributes[attr_index++] = (_value);              \
     } while (false)
     struct video_frame *frame;
     struct plane_info planes[MAX_N_PLANES];
@@ -971,7 +971,7 @@ format_supported:
         }
     }
 
-    DEBUG_ASSERT(attr_index < ARRAY_SIZE(attributes));
+    assert(attr_index < ARRAY_SIZE(attributes));
     attributes[attr_index++] = EGL_NONE;
 
     egl_image = interface->eglCreateImageKHR(interface->display, EGL_NO_CONTEXT, EGL_LINUX_DMA_BUF_EXT, NULL, attributes);
@@ -1067,20 +1067,20 @@ void frame_destroy(struct video_frame *frame) {
 
     frame_interface_lock(frame->interface);
     egl_ok = eglMakeCurrent(frame->interface->display, EGL_NO_SURFACE, EGL_NO_SURFACE, frame->interface->context);
-    DEBUG_ASSERT_EGL_TRUE(egl_ok);
+    ASSERT_EGL_TRUE(egl_ok);
     (void) egl_ok;
     glDeleteTextures(1, &frame->gl_frame.name);
-    DEBUG_ASSERT(GL_NO_ERROR == glGetError());
+    assert(GL_NO_ERROR == glGetError());
     egl_ok = eglMakeCurrent(frame->interface->display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
-    DEBUG_ASSERT_EGL_TRUE(egl_ok);
+    ASSERT_EGL_TRUE(egl_ok);
     frame_interface_unlock(frame->interface);
 
     egl_ok = frame->interface->eglDestroyImageKHR(frame->interface->display, frame->image);
-    DEBUG_ASSERT_EGL_TRUE(egl_ok);
+    ASSERT_EGL_TRUE(egl_ok);
     frame_interface_unref(frame->interface);
     for (int i = 0; i < frame->n_dmabuf_fds; i++) {
         ok = close(frame->dmabuf_fds[i]);
-        DEBUG_ASSERT(ok == 0);
+        assert(ok == 0);
         (void) ok;
     }
 

@@ -360,7 +360,7 @@ int platch_write_value_to_buffer_std(struct std_value *value, uint8_t **pbuffer)
                 size = strlen(value->string_value);
                 byteArray = (uint8_t *) value->string_value;
             } else {
-                DEBUG_ASSERT(value->type == kStdUInt8Array);
+                assert(value->type == kStdUInt8Array);
                 size = value->size;
                 byteArray = value->uint8array;
             }
@@ -1534,8 +1534,8 @@ bool stdvalue_equals(struct std_value *a, struct std_value *b) {
     if ((a == NULL) ^ (b == NULL))
         return false;
 
-    DEBUG_ASSERT_NOT_NULL(a);
-    DEBUG_ASSERT_NOT_NULL(b);
+    ASSERT_NOT_NULL(a);
+    ASSERT_NOT_NULL(b);
 
     if (a->type != b->type)
         return false;
@@ -1548,8 +1548,8 @@ bool stdvalue_equals(struct std_value *a, struct std_value *b) {
         case kStdInt64: return a->int64_value == b->int64_value;
         case kStdLargeInt:
         case kStdString:
-            DEBUG_ASSERT_NOT_NULL(a->string_value);
-            DEBUG_ASSERT_NOT_NULL(b->string_value);
+            ASSERT_NOT_NULL(a->string_value);
+            ASSERT_NOT_NULL(b->string_value);
             return strcmp(a->string_value, b->string_value) == 0;
         case kStdFloat64: return a->float64_value == b->float64_value;
         case kStdUInt8Array:
@@ -1558,8 +1558,8 @@ bool stdvalue_equals(struct std_value *a, struct std_value *b) {
             if (a->uint8array == b->uint8array)
                 return true;
 
-            DEBUG_ASSERT_NOT_NULL(a->uint8array);
-            DEBUG_ASSERT_NOT_NULL(b->uint8array);
+            ASSERT_NOT_NULL(a->uint8array);
+            ASSERT_NOT_NULL(b->uint8array);
             for (int i = 0; i < a->size; i++)
                 if (a->uint8array[i] != b->uint8array[i])
                     return false;
@@ -1570,8 +1570,8 @@ bool stdvalue_equals(struct std_value *a, struct std_value *b) {
             if (a->int32array == b->int32array)
                 return true;
 
-            DEBUG_ASSERT_NOT_NULL(a->int32array);
-            DEBUG_ASSERT_NOT_NULL(b->int32array);
+            ASSERT_NOT_NULL(a->int32array);
+            ASSERT_NOT_NULL(b->int32array);
             for (int i = 0; i < a->size; i++)
                 if (a->int32array[i] != b->int32array[i])
                     return false;
@@ -1582,8 +1582,8 @@ bool stdvalue_equals(struct std_value *a, struct std_value *b) {
             if (a->int64array == b->int64array)
                 return true;
 
-            DEBUG_ASSERT_NOT_NULL(a->int64array);
-            DEBUG_ASSERT_NOT_NULL(b->int64array);
+            ASSERT_NOT_NULL(a->int64array);
+            ASSERT_NOT_NULL(b->int64array);
             for (int i = 0; i < a->size; i++)
                 if (a->int64array[i] != b->int64array[i])
                     return false;
@@ -1594,8 +1594,8 @@ bool stdvalue_equals(struct std_value *a, struct std_value *b) {
             if (a->float64array == b->float64array)
                 return true;
 
-            DEBUG_ASSERT_NOT_NULL(a->float64array);
-            DEBUG_ASSERT_NOT_NULL(b->float64array);
+            ASSERT_NOT_NULL(a->float64array);
+            ASSERT_NOT_NULL(b->float64array);
             for (int i = 0; i < a->size; i++)
                 if (a->float64array[i] != b->float64array[i])
                     return false;
@@ -1607,8 +1607,8 @@ bool stdvalue_equals(struct std_value *a, struct std_value *b) {
             if (a->list == b->list)
                 return true;
 
-            DEBUG_ASSERT_NOT_NULL(a->list);
-            DEBUG_ASSERT_NOT_NULL(b->list);
+            ASSERT_NOT_NULL(a->list);
+            ASSERT_NOT_NULL(b->list);
             for (int i = 0; i < a->size; i++)
                 if (!stdvalue_equals(a->list + i, b->list + i))
                     return false;
@@ -1662,8 +1662,8 @@ bool stdvalue_equals(struct std_value *a, struct std_value *b) {
     return false;
 }
 struct std_value *stdmap_get(struct std_value *map, struct std_value *key) {
-    DEBUG_ASSERT_NOT_NULL(map);
-    DEBUG_ASSERT_NOT_NULL(key);
+    ASSERT_NOT_NULL(map);
+    ASSERT_NOT_NULL(key);
 
     for (int i = 0; i < map->size; i++) {
         if (stdvalue_equals(&map->keys[i], key)) {
@@ -1675,8 +1675,8 @@ struct std_value *stdmap_get(struct std_value *map, struct std_value *key) {
 }
 
 struct std_value *stdmap_get_str(struct std_value *map, char *key) {
-    DEBUG_ASSERT_NOT_NULL(map);
-    DEBUG_ASSERT_NOT_NULL(key);
+    ASSERT_NOT_NULL(map);
+    ASSERT_NOT_NULL(key);
     return stdmap_get(map, &STDSTRING(key));
 }
 
@@ -1771,7 +1771,7 @@ ATTR_PURE bool raw_std_value_is_int32(const struct raw_std_value *value) {
 }
 
 ATTR_PURE int32_t raw_std_value_as_int32(const struct raw_std_value *value) {
-    DEBUG_ASSERT(raw_std_value_is_int32(value));
+    assert(raw_std_value_is_int32(value));
     int32_t result;
     memcpy(&result, get_value_ptr(value, 0), sizeof(result));
 
@@ -1783,7 +1783,7 @@ ATTR_PURE bool raw_std_value_is_int64(const struct raw_std_value *value) {
 }
 
 ATTR_PURE int64_t raw_std_value_as_int64(const struct raw_std_value *value) {
-    DEBUG_ASSERT(raw_std_value_is_int64(value));
+    assert(raw_std_value_is_int64(value));
 
     int64_t result;
     memcpy(&result, get_value_ptr(value, 0), sizeof(result));
@@ -1796,7 +1796,7 @@ ATTR_PURE bool raw_std_value_is_float64(const struct raw_std_value *value) {
 }
 
 ATTR_PURE double raw_std_value_as_float64(const struct raw_std_value *value) {
-    DEBUG_ASSERT(raw_std_value_is_float64(value));
+    assert(raw_std_value_is_float64(value));
     return *(double *) get_value_ptr(value, 8);
 }
 
@@ -1805,7 +1805,7 @@ ATTR_PURE bool raw_std_value_is_string(const struct raw_std_value *value) {
 }
 
 MALLOCLIKE MUST_CHECK char *raw_std_string_dup(const struct raw_std_value *value) {
-    DEBUG_ASSERT(raw_std_value_is_string(value));
+    assert(raw_std_value_is_string(value));
 
     size_t size = raw_std_value_get_size(value);
 
@@ -1831,7 +1831,7 @@ ATTR_PURE bool raw_std_value_is_uint8array(const struct raw_std_value *value) {
 }
 
 ATTR_PURE const uint8_t *raw_std_value_as_uint8array(const struct raw_std_value *value) {
-    DEBUG_ASSERT(raw_std_value_is_uint8array(value));
+    assert(raw_std_value_is_uint8array(value));
     return get_array_value_ptr(value, 0, raw_std_value_get_size(value));
 }
 
@@ -1840,7 +1840,7 @@ ATTR_PURE bool raw_std_value_is_int32array(const struct raw_std_value *value) {
 }
 
 ATTR_PURE const int32_t *raw_std_value_as_int32array(const struct raw_std_value *value) {
-    DEBUG_ASSERT(raw_std_value_is_int32array(value));
+    assert(raw_std_value_is_int32array(value));
     return get_array_value_ptr(value, 4, raw_std_value_get_size(value));
 }
 
@@ -1849,7 +1849,7 @@ ATTR_PURE bool raw_std_value_is_int64array(const struct raw_std_value *value) {
 }
 
 ATTR_PURE const int64_t *raw_std_value_as_int64array(const struct raw_std_value *value) {
-    DEBUG_ASSERT(raw_std_value_is_int64array(value));
+    assert(raw_std_value_is_int64array(value));
     return get_array_value_ptr(value, 8, raw_std_value_get_size(value));
 }
 
@@ -1858,7 +1858,7 @@ ATTR_PURE bool raw_std_value_is_float64array(const struct raw_std_value *value) 
 }
 
 ATTR_PURE const double *raw_std_value_as_float64array(const struct raw_std_value *value) {
-    DEBUG_ASSERT(raw_std_value_is_float64array(value));
+    assert(raw_std_value_is_float64array(value));
     return get_array_value_ptr(value, 8, raw_std_value_get_size(value));
 }
 
@@ -1867,7 +1867,7 @@ ATTR_PURE bool raw_std_value_is_list(const struct raw_std_value *value) {
 }
 
 ATTR_PURE size_t raw_std_list_get_size(const struct raw_std_value *list) {
-    DEBUG_ASSERT(raw_std_value_is_list(list));
+    assert(raw_std_value_is_list(list));
     return raw_std_value_get_size(list);
 }
 
@@ -1876,7 +1876,7 @@ ATTR_PURE bool raw_std_value_is_map(const struct raw_std_value *value) {
 }
 
 ATTR_PURE size_t raw_std_map_get_size(const struct raw_std_value *map) {
-    DEBUG_ASSERT(raw_std_value_is_map(map));
+    assert(raw_std_value_is_map(map));
     return raw_std_value_get_size(map);
 }
 
@@ -1885,7 +1885,7 @@ ATTR_PURE bool raw_std_value_is_float32array(const struct raw_std_value *value) 
 }
 
 ATTR_PURE const float *raw_std_value_as_float32array(const struct raw_std_value *value) {
-    DEBUG_ASSERT(raw_std_value_is_float32array(value));
+    assert(raw_std_value_is_float32array(value));
     return get_array_value_ptr(value, 4, raw_std_value_get_size(value));
 }
 
@@ -1893,8 +1893,8 @@ ATTR_PURE bool raw_std_value_equals(const struct raw_std_value *a, const struct 
     size_t length;
     int alignment, element_size;
 
-    DEBUG_ASSERT_NOT_NULL(a);
-    DEBUG_ASSERT_NOT_NULL(b);
+    ASSERT_NOT_NULL(a);
+    ASSERT_NOT_NULL(b);
 
     if (a == b) {
         return true;
@@ -2035,7 +2035,7 @@ found:
             }
 
             return true;
-        default: DEBUG_ASSERT(false); return false;
+        default: assert(false); return false;
     }
 }
 
@@ -2044,7 +2044,7 @@ ATTR_PURE bool raw_std_value_is_bool(const struct raw_std_value *value) {
 }
 
 ATTR_PURE bool raw_std_value_as_bool(const struct raw_std_value *value) {
-    DEBUG_ASSERT(raw_std_value_is_bool(value));
+    assert(raw_std_value_is_bool(value));
     return raw_std_value_is_true(value);
 }
 
@@ -2053,7 +2053,7 @@ ATTR_PURE bool raw_std_value_is_int(const struct raw_std_value *value) {
 }
 
 ATTR_PURE int64_t raw_std_value_as_int(const struct raw_std_value *value) {
-    DEBUG_ASSERT(raw_std_value_is_int(value));
+    assert(raw_std_value_is_int(value));
     if (raw_std_value_is_int32(value)) {
         return raw_std_value_as_int32(value);
     } else {
@@ -2065,7 +2065,7 @@ ATTR_PURE size_t raw_std_value_get_size(const struct raw_std_value *value) {
     const uint8_t *byteptr;
     size_t size;
 
-    DEBUG_ASSERT(
+    assert(
         raw_std_value_is_uint8array(value) || raw_std_value_is_int32array(value) || raw_std_value_is_int64array(value) ||
         raw_std_value_is_float64array(value) || raw_std_value_is_string(value) || raw_std_value_is_list(value) ||
         raw_std_value_is_map(value) || raw_std_value_is_float32array(value)
@@ -2082,12 +2082,12 @@ ATTR_PURE size_t raw_std_value_get_size(const struct raw_std_value *value) {
     } else if (size == 254) {
         size = 0;
         memcpy(&size, byteptr + 1, 2);
-        DEBUG_ASSERT(size >= 254);
+        assert(size >= 254);
         return size;
     } else if (size == 255) {
         size = 0;
         memcpy(&size, byteptr + 1, 4);
-        DEBUG_ASSERT(size >= 0x10000);
+        assert(size >= 0x10000);
         return size;
     }
 
@@ -2130,21 +2130,21 @@ ATTR_PURE const struct raw_std_value *raw_std_value_after(const struct raw_std_v
 
             return value;
         case kStdFloat32Array: return get_array_after_ptr(value, 4, raw_std_value_get_size(value), 4);
-        default: DEBUG_ASSERT(false); return value;
+        default: assert(false); return value;
     }
 }
 
 ATTR_PURE const struct raw_std_value *raw_std_list_get_first_element(const struct raw_std_value *list) {
-    DEBUG_ASSERT(raw_std_value_is_list(list));
-    DEBUG_ASSERT(raw_std_value_get_size(list) > 0);
+    assert(raw_std_value_is_list(list));
+    assert(raw_std_value_get_size(list) > 0);
     return get_array_value_ptr(list, 0, raw_std_value_get_size(list));
 }
 
 ATTR_PURE const struct raw_std_value *raw_std_list_get_nth_element(const struct raw_std_value *list, size_t index) {
     const struct raw_std_value *element;
 
-    DEBUG_ASSERT(raw_std_value_is_list(list));
-    DEBUG_ASSERT(raw_std_value_get_size(list) > index);
+    assert(raw_std_value_is_list(list));
+    assert(raw_std_value_get_size(list) > index);
 
     element = raw_std_list_get_first_element(list);
     while (index != 0) {
@@ -2156,13 +2156,13 @@ ATTR_PURE const struct raw_std_value *raw_std_list_get_nth_element(const struct 
 }
 
 ATTR_PURE const struct raw_std_value *raw_std_map_get_first_key(const struct raw_std_value *map) {
-    DEBUG_ASSERT(raw_std_value_is_map(map));
+    assert(raw_std_value_is_map(map));
 
     return get_array_value_ptr(map, 0, raw_std_value_get_size(map));
 }
 
 ATTR_PURE const struct raw_std_value *raw_std_map_find(const struct raw_std_value *map, const struct raw_std_value *key) {
-    DEBUG_ASSERT(raw_std_value_is_map(map));
+    assert(raw_std_value_is_map(map));
 
     for_each_entry_in_raw_std_map(key_iter, value_iter, map) {
         if (raw_std_value_equals(key_iter, key)) {
@@ -2174,7 +2174,7 @@ ATTR_PURE const struct raw_std_value *raw_std_map_find(const struct raw_std_valu
 }
 
 ATTR_PURE const struct raw_std_value *raw_std_map_find_str(const struct raw_std_value *map, const char *str) {
-    DEBUG_ASSERT(raw_std_value_is_map(map));
+    assert(raw_std_value_is_map(map));
 
     for_each_entry_in_raw_std_map(key_iter, value_iter, map) {
         if (raw_std_value_is_string(key_iter) && raw_std_string_equals(key_iter, str)) {
@@ -2281,7 +2281,7 @@ check_arrays:
 
             // get the offset of the actual array values.
             int diff = (intptr_t) get_array_value_ptr(value, alignment, size) - (intptr_t) value;
-            DEBUG_ASSERT(diff >= 0);
+            assert(diff >= 0);
 
             if (buffer_size < diff) {
                 return false;
@@ -2370,7 +2370,7 @@ ATTR_PURE bool raw_std_method_call_check(const struct raw_std_value *value, size
 
     const struct raw_std_value *after = raw_std_value_after(value);
     int diff = (intptr_t) after - (intptr_t) value;
-    DEBUG_ASSERT(diff <= buffer_size);
+    assert(diff <= buffer_size);
 
     if (!raw_std_value_check(after, buffer_size - diff)) {
         return false;
@@ -2403,7 +2403,7 @@ ATTR_PURE bool raw_std_method_call_response_check(const struct raw_std_value *va
 
         const struct raw_std_value *second = raw_std_value_after(value);
         int diff = (intptr_t) second - (intptr_t) value;
-        DEBUG_ASSERT(diff <= buffer_size);
+        assert(diff <= buffer_size);
 
         // second value should be the error message. (string or null)
         if (!raw_std_value_check(second, buffer_size - diff)) {
@@ -2416,7 +2416,7 @@ ATTR_PURE bool raw_std_method_call_response_check(const struct raw_std_value *va
 
         const struct raw_std_value *third = raw_std_value_after(value);
         diff = (intptr_t) third - (intptr_t) value;
-        DEBUG_ASSERT(diff <= buffer_size);
+        assert(diff <= buffer_size);
 
         // third value is the error detail. Can be anything.
         if (!raw_std_value_check(third, buffer_size - diff)) {
@@ -2432,12 +2432,12 @@ ATTR_PURE bool raw_std_event_check(const struct raw_std_value *value, size_t buf
 }
 
 ATTR_PURE const struct raw_std_value *raw_std_method_call_get_method(const struct raw_std_value *value) {
-    DEBUG_ASSERT(raw_std_value_is_string(value));
+    assert(raw_std_value_is_string(value));
     return value;
 }
 
 MALLOCLIKE MUST_CHECK char *raw_std_method_call_get_method_dup(const struct raw_std_value *value) {
-    DEBUG_ASSERT(raw_std_value_is_string(value));
+    assert(raw_std_value_is_string(value));
     return raw_std_string_dup(value);
 }
 

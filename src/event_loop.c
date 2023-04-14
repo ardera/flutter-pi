@@ -94,15 +94,15 @@ void evloop_destroy(struct evloop *loop) {
 DEFINE_REF_OPS(evloop, n_refs)
 
 int evloop_get_fd_locked(struct evloop *loop) {
-    DEBUG_ASSERT_NOT_NULL(loop);
-    DEBUG_ASSERT_MUTEX_LOCKED(loop->mutex);
+    ASSERT_NOT_NULL(loop);
+    ASSERT_MUTEX_LOCKED(loop->mutex);
     return sd_event_get_fd(loop->sdloop);
 }
 
 int evloop_get_fd(struct evloop *loop) {
     int result;
 
-    DEBUG_ASSERT_NOT_NULL(loop);
+    ASSERT_NOT_NULL(loop);
 
     evloop_lock(loop);
     result = evloop_get_fd_locked(loop);
@@ -115,7 +115,7 @@ int evloop_run(struct evloop *loop) {
     int evloop_fd;
     int ok;
 
-    DEBUG_ASSERT_NOT_NULL(loop);
+    ASSERT_NOT_NULL(loop);
 
     evloop_fd = evloop_get_fd(loop);
 
@@ -212,8 +212,8 @@ static int wakeup_sdloop(struct evloop *loop) {
 int evloop_schedule_exit_locked(struct evloop *loop) {
     int ok;
 
-    DEBUG_ASSERT_NOT_NULL(loop);
-    DEBUG_ASSERT_MUTEX_LOCKED(loop->mutex);
+    ASSERT_NOT_NULL(loop);
+    ASSERT_MUTEX_LOCKED(loop->mutex);
 
     ok = sd_event_exit(loop->sdloop, 0);
     if (ok != 0) {
@@ -227,7 +227,7 @@ int evloop_schedule_exit_locked(struct evloop *loop) {
 int evloop_schedule_exit(struct evloop *loop) {
     int ok;
 
-    DEBUG_ASSERT_NOT_NULL(loop);
+    ASSERT_NOT_NULL(loop);
 
     evloop_lock(loop);
     ok = evloop_schedule_exit_locked(loop);
@@ -247,7 +247,7 @@ static int on_execute_task(sd_event_source *s, void *userdata) {
     struct task *task;
     int ok;
 
-    DEBUG_ASSERT_NOT_NULL(userdata);
+    ASSERT_NOT_NULL(userdata);
     task = userdata;
 
     task->callback(task->userdata);
@@ -263,9 +263,9 @@ int evloop_post_task_locked(struct evloop *loop, void_callback_t callback, void 
     struct task *task;
     int ok;
 
-    DEBUG_ASSERT_NOT_NULL(loop);
-    DEBUG_ASSERT_NOT_NULL(callback);
-    DEBUG_ASSERT_MUTEX_LOCKED(loop->mutex);
+    ASSERT_NOT_NULL(loop);
+    ASSERT_NOT_NULL(callback);
+    ASSERT_MUTEX_LOCKED(loop->mutex);
 
     task = malloc(sizeof *task);
     if (task == NULL) {
@@ -295,8 +295,8 @@ fail_free_task:
 int evloop_post_task(struct evloop *loop, void_callback_t callback, void *userdata) {
     int ok;
 
-    DEBUG_ASSERT_NOT_NULL(loop);
-    DEBUG_ASSERT_NOT_NULL(callback);
+    ASSERT_NOT_NULL(loop);
+    ASSERT_NOT_NULL(callback);
 
     evloop_lock(loop);
     ok = evloop_post_task_locked(loop, callback, userdata);
@@ -310,7 +310,7 @@ int evloop_post_task(struct evloop *loop, void_callback_t callback, void *userda
 static int on_execute_delayed_task(sd_event_source *s, uint64_t usec, void *userdata) {
     struct task *task;
 
-    DEBUG_ASSERT_NOT_NULL(userdata);
+    ASSERT_NOT_NULL(userdata);
     task = userdata;
     (void) usec;
 
@@ -326,9 +326,9 @@ int evloop_post_delayed_task_locked(struct evloop *loop, void_callback_t callbac
     struct task *task;
     int ok;
 
-    DEBUG_ASSERT_NOT_NULL(loop);
-    DEBUG_ASSERT_NOT_NULL(callback);
-    DEBUG_ASSERT_MUTEX_LOCKED(loop->mutex);
+    ASSERT_NOT_NULL(loop);
+    ASSERT_NOT_NULL(callback);
+    ASSERT_MUTEX_LOCKED(loop->mutex);
 
     task = malloc(sizeof *task);
     if (task == NULL) {
@@ -358,8 +358,8 @@ fail_free_task:
 int evloop_post_delayed_task(struct evloop *loop, void_callback_t callback, void *userdata, uint64_t target_time_usec) {
     int ok;
 
-    DEBUG_ASSERT_NOT_NULL(loop);
-    DEBUG_ASSERT_NOT_NULL(callback);
+    ASSERT_NOT_NULL(loop);
+    ASSERT_NOT_NULL(callback);
 
     evloop_lock(loop);
     ok = evloop_post_delayed_task_locked(loop, callback, userdata, target_time_usec);
@@ -379,7 +379,7 @@ struct evsrc {
 };
 
 void evsrc_destroy_locked(struct evsrc *src) {
-    DEBUG_ASSERT_MUTEX_LOCKED(src->loop->mutex);
+    ASSERT_MUTEX_LOCKED(src->loop->mutex);
     sd_event_source_disable_unref(src->sdsrc);
     evloop_unref(src->loop);
     free(src);
@@ -398,8 +398,8 @@ int on_io_src_ready(sd_event_source *s, int fd, uint32_t revents, void *userdata
     enum event_handler_return handler_return;
     struct evsrc *evsrc;
 
-    DEBUG_ASSERT_NOT_NULL(s);
-    DEBUG_ASSERT_NOT_NULL(userdata);
+    ASSERT_NOT_NULL(s);
+    ASSERT_NOT_NULL(userdata);
     evsrc = userdata;
 
     handler_return = evsrc->io_callback(fd, revents, evsrc->userdata);
@@ -421,8 +421,8 @@ struct evsrc *evloop_add_io_locked(struct evloop *loop, int fd, uint32_t events,
         return NULL;
     }
 
-    DEBUG_ASSERT_NOT_NULL(loop);
-    DEBUG_ASSERT_MUTEX_LOCKED(loop->mutex);
+    ASSERT_NOT_NULL(loop);
+    ASSERT_MUTEX_LOCKED(loop->mutex);
 
     evsrc->io_callback = callback;
     evsrc->userdata = userdata;
@@ -442,8 +442,8 @@ struct evsrc *evloop_add_io_locked(struct evloop *loop, int fd, uint32_t events,
 struct evsrc *evloop_add_io(struct evloop *loop, int fd, uint32_t events, evloop_io_handler_t callback, void *userdata) {
     struct evsrc *src;
 
-    DEBUG_ASSERT_NOT_NULL(loop);
-    DEBUG_ASSERT_NOT_NULL(callback);
+    ASSERT_NOT_NULL(loop);
+    ASSERT_NOT_NULL(callback);
 
     evloop_lock(loop);
     src = evloop_add_io_locked(loop, fd, events, callback, userdata);
@@ -473,7 +473,7 @@ static void *evthread_entry(void *userdata) {
     // initialization.
     {
         struct evthread_startup_args *args;
-        DEBUG_ASSERT_NOT_NULL(userdata);
+        ASSERT_NOT_NULL(userdata);
         args = userdata;
 
         evthread = malloc(sizeof *evthread);
@@ -554,7 +554,7 @@ struct evthread *evthread_start() {
 
     sem_destroy(&args->initialization_done);
 
-    DEBUG_ASSERT_NOT_NULL(args->evthread);
+    ASSERT_NOT_NULL(args->evthread);
     evthread = args->evthread;
     free(args);
 

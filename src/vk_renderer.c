@@ -534,52 +534,52 @@ void vk_renderer_destroy(struct vk_renderer *renderer) {
 DEFINE_REF_OPS(vk_renderer, n_refs)
 
 ATTR_CONST uint32_t vk_renderer_get_vk_version(ASSERTED struct vk_renderer *renderer) {
-    DEBUG_ASSERT_NOT_NULL(renderer);
+    ASSERT_NOT_NULL(renderer);
     return VK_MAKE_VERSION(1, 1, 0);
 }
 
 ATTR_PURE VkInstance vk_renderer_get_instance(struct vk_renderer *renderer) {
-    DEBUG_ASSERT_NOT_NULL(renderer);
+    ASSERT_NOT_NULL(renderer);
     return renderer->instance;
 }
 
 ATTR_PURE VkPhysicalDevice vk_renderer_get_physical_device(struct vk_renderer *renderer) {
-    DEBUG_ASSERT_NOT_NULL(renderer);
+    ASSERT_NOT_NULL(renderer);
     return renderer->physical_device;
 }
 
 ATTR_PURE VkDevice vk_renderer_get_device(struct vk_renderer *renderer) {
-    DEBUG_ASSERT_NOT_NULL(renderer);
+    ASSERT_NOT_NULL(renderer);
     return renderer->device;
 }
 
 ATTR_PURE uint32_t vk_renderer_get_queue_family_index(struct vk_renderer *renderer) {
-    DEBUG_ASSERT_NOT_NULL(renderer);
+    ASSERT_NOT_NULL(renderer);
     return (uint32_t) get_graphics_queue_family_index(renderer->physical_device);
 }
 
 ATTR_PURE VkQueue vk_renderer_get_queue(struct vk_renderer *renderer) {
-    DEBUG_ASSERT_NOT_NULL(renderer);
+    ASSERT_NOT_NULL(renderer);
     return renderer->graphics_queue;
 }
 
 ATTR_PURE int vk_renderer_get_enabled_instance_extension_count(struct vk_renderer *renderer) {
-    DEBUG_ASSERT_NOT_NULL(renderer);
+    ASSERT_NOT_NULL(renderer);
     return renderer->n_enabled_instance_extensions;
 }
 
 ATTR_PURE const char **vk_renderer_get_enabled_instance_extensions(struct vk_renderer *renderer) {
-    DEBUG_ASSERT_NOT_NULL(renderer);
+    ASSERT_NOT_NULL(renderer);
     return renderer->enabled_instance_extensions;
 }
 
 ATTR_PURE int vk_renderer_get_enabled_device_extension_count(struct vk_renderer *renderer) {
-    DEBUG_ASSERT_NOT_NULL(renderer);
+    ASSERT_NOT_NULL(renderer);
     return renderer->n_enabled_device_extensions;
 }
 
 ATTR_PURE const char **vk_renderer_get_enabled_device_extensions(struct vk_renderer *renderer) {
-    DEBUG_ASSERT_NOT_NULL(renderer);
+    ASSERT_NOT_NULL(renderer);
     return renderer->enabled_device_extensions;
 }
 
