@@ -177,7 +177,7 @@ int dmabuf_surface_push_dmabuf(struct dmabuf_surface *s, const struct dmabuf *bu
     ASSERT_NOT_NULL(buf);
     ASSERT_NOT_NULL(release_cb);
 
-#ifdef HAS_EGL
+#ifdef HAVE_EGL
     assert(eglGetCurrentContext() != EGL_NO_CONTEXT);
 #endif
 

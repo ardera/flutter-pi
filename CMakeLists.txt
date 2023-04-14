@@ -159,8 +159,6 @@ add_library(
 target_link_libraries(flutterpi_module PUBLIC
   PkgConfig::DRM
   PkgConfig::GBM
-  PkgConfig::EGL
-  PkgConfig::GLESV2
   PkgConfig::LIBSYSTEMD
   PkgConfig::LIBINPUT
   PkgConfig::LIBXKBCOMMON
@@ -203,23 +201,23 @@ target_compile_definitions(flutterpi_module PRIVATE
 )
 
 # TODO: Just unconditionally define those, make them optional later
-target_compile_definitions(flutterpi_module PRIVATE HAS_KMS HAS_GBM HAS_FBDEV)
+target_compile_definitions(flutterpi_module PRIVATE HAVE_KMS HAVE_GBM HAVE_FBDEV)
 
 # OpenGL
 pkg_check_modules(EGL IMPORTED_TARGET egl)
-pkg_check_modules(GLESV2 IMPORTED_TARGET glesv2)
+pkg_check_modules(GLES2 IMPORTED_TARGET glesv2)
 
 if (ENABLE_OPENGL)
-  if (EGL_FOUND AND GLESV2_FOUND)
+  if (EGL_FOUND AND GLES2_FOUND)
     target_sources(flutterpi_module PRIVATE
       src/egl_gbm_render_surface.c
       src/gl_renderer.c
     )
     target_link_libraries(flutterpi_module PUBLIC
       PkgConfig::EGL
-      PkgConfig::GLESV2
+      PkgConfig::GLES2
     )
-    target_compile_definitions(flutterpi_module PRIVATE HAS_EGL HAS_GL)
+    target_compile_definitions(flutterpi_module PRIVATE HAVE_EGL HAVE_GLES2)
   elseif (TRY_ENABLE_OPENGL)
     message("EGL and/or OpenGL was not found. Flutter-pi will build without EGL/OpenGL rendering support.")
   else()
@@ -227,10 +225,7 @@ if (ENABLE_OPENGL)
   endif()
 endif()
 
-if (EGL_FOUND)
-  target_include_directories(flutterpi_module PRIVATE ${EGL_INCLUDE_DIRS})
-  target_compile_options(flutterpi_module PRIVATE ${EGL_CFLAGS})
-else()
+if (NOT EGL_FOUND)
   FetchContent_Declare(
     EGL_REGISTRY
     GIT_REPOSITORY "https://github.com/KhronosGroup/EGL-Registry"
@@ -246,10 +241,7 @@ else()
   target_include_directories(flutterpi_module PRIVATE ${egl_registry_SOURCE_DIR}/api/)
 endif()
 
-if (GLESV2_FOUND)
-  target_include_directories(flutterpi_module PRIVATE ${GLESV2_INCLUDE_DIRS})
-  target_compile_options(flutterpi_module PRIVATE ${GLESV2_CFLAGS})
-else()
+if (NOT GLES2_FOUND)
   FetchContent_Declare(
     OGL_REGISTRY
     GIT_REPOSITORY "https://github.com/KhronosGroup/OpenGL-Registry"
@@ -289,7 +281,7 @@ if (ENABLE_VULKAN)
     target_link_libraries(flutterpi_module PUBLIC
       PkgConfig::VULKAN
     )
-    target_compile_definitions(flutterpi_module PRIVATE HAS_VULKAN)
+    target_compile_definitions(flutterpi_module PRIVATE HAVE_VULKAN)
   elseif (TRY_ENABLE_VULKAN)
     message("Vulkan was not found. Flutter-pi will build without vulkan rendering support.")
   else()
@@ -326,7 +318,7 @@ if (ENABLE_SESSION_SWITCHING)
 
   if (LIBSEAT_FOUND)
     target_link_libraries(flutterpi_module PUBLIC PkgConfig::LIBSEAT)
-    target_compile_definitions(flutterpi_module PUBLIC "HAS_LIBSEAT")
+    target_compile_definitions(flutterpi_module PUBLIC HAVE_LIBSEAT)
   else()
     message("libseat was not found. flutter-pi will be built without session switching support.")
   endif()
@@ -444,8 +436,8 @@ if (ENABLE_ASAN)
   target_link_options(flutterpi_module PUBLIC -fsanitize=address -fno-omit-frame-pointer -Wl,--no-as-needed)
   target_compile_options(flutterpi_module PUBLIC -fsanitize=address)
 
-  check_c_compiler_flag(-static-libasan HAS_STATIC_LIBASAN)
-  if (HAS_STATIC_LIBASAN)
+  check_c_compiler_flag(-static-libasan HAVE_STATIC_LIBASAN)
+  if (HAVE_STATIC_LIBASAN)
     target_link_options(flutterpi_module PUBLIC -static-libasan)
   endif()
 endif()

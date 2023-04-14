@@ -859,12 +859,12 @@ MUST_CHECK struct window *kms_window_new(
 
     ASSERT_NOT_NULL(drmdev);
 
-#if !defined(HAS_VULKAN)
-    assert(renderer_type != kVulkan_RendererType);
+#if !defined(HAVE_VULKAN)
+    ASSUME(renderer_type != kVulkan_RendererType);
 #endif
 
-#if !defined(HAS_EGL) || !defined(HAS_GL)
-    assert(renderer_type != kOpenGL_RendererType);
+#if !defined(HAVE_EGL) || !defined(HAVE_GLES2)
+    ASSUME(renderer_type != kOpenGL_RendererType);
 #endif
 
     // if opengl --> gl_renderer != NULL && vk_renderer == NULL
@@ -947,7 +947,7 @@ MUST_CHECK struct window *kms_window_new(
     window->renderer_type = renderer_type;
     window->gl_renderer = gl_renderer != NULL ? gl_renderer_ref(gl_renderer) : NULL;
     if (vk_renderer != NULL) {
-#ifdef HAS_VULKAN
+#ifdef HAVE_VULKAN
         window->vk_renderer = vk_renderer_ref(vk_renderer);
 #else
         UNREACHABLE();
@@ -1000,7 +1000,7 @@ void kms_window_deinit(struct window *window) {
         gl_renderer_unref(window->gl_renderer);
     }
     if (window->vk_renderer != NULL) {
-#ifdef HAS_VULKAN
+#ifdef HAVE_VULKAN
         vk_renderer_unref(window->vk_renderer);
 #else
         UNREACHABLE();
@@ -1313,7 +1313,7 @@ static struct render_surface *kms_window_get_render_surface_internal(struct wind
         render_surface = CAST_RENDER_SURFACE(egl_surface);
     } else {
         // vulkan
-#ifdef HAS_VULKAN
+#ifdef HAVE_VULKAN
         struct vk_gbm_render_surface *vk_surface = vk_gbm_render_surface_new(
             window->tracer,
             size,

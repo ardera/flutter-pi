@@ -8,7 +8,7 @@
 #ifndef _FLUTTERPI_INCLUDE_VULKAN_H
 #define _FLUTTERPI_INCLUDE_VULKAN_H
 
-#ifdef HAS_VULKAN
+#ifdef HAVE_VULKAN
 
     #include <vulkan/vulkan.h>
 

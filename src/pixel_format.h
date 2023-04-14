@@ -3,7 +3,7 @@
 
 #include "util/collection.h"
 
-#ifdef HAS_FBDEV
+#ifdef HAVE_FBDEV
     #include <linux/fb.h>
 
 /**
@@ -16,15 +16,15 @@ struct fbdev_pixfmt {
 
 #endif
 
-#ifdef HAS_GBM
+#ifdef HAVE_GBM
     #include <gbm.h>
 #endif
 
-#ifdef HAS_KMS
+#ifdef HAVE_KMS
     #include <drm_fourcc.h>
 #endif
 
-#ifdef HAS_VULKAN
+#ifdef HAVE_VULKAN
     #include <vulkan.h>
 #endif
 
@@ -307,25 +307,25 @@ struct pixfmt_info {
      */
     bool is_opaque;
 
-#ifdef HAS_FBDEV
+#ifdef HAVE_FBDEV
     /**
      * @brief The fbdev format equivalent to this pixel format.
      */
     struct fbdev_pixfmt fbdev_format;
 #endif
-#ifdef HAS_GBM
+#ifdef HAVE_GBM
     /**
      * @brief The GBM format equivalent to this pixel format.
      */
     uint32_t gbm_format;
 #endif
-#ifdef HAS_KMS
+#ifdef HAVE_KMS
     /**
      * @brief The DRM format equivalent to this pixel format.
      */
     uint32_t drm_format;
 #endif
-#ifdef HAS_VULKAN
+#ifdef HAVE_VULKAN
     /**
      * @brief The vulkan equivalent of this pixel format.
      */
