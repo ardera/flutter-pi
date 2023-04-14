@@ -38,8 +38,8 @@ int queue_deinit(struct queue *queue) {
 int queue_enqueue(struct queue *queue, const void *p_element) {
     size_t new_size;
 
-    DEBUG_ASSERT_NOT_NULL(queue);
-    DEBUG_ASSERT_NOT_NULL(p_element);
+    ASSERT_NOT_NULL(queue);
+    ASSERT_NOT_NULL(p_element);
 
     if (queue->size == queue->length) {
         // expand the queue or wait for an element to be dequeued.
@@ -76,7 +76,7 @@ int queue_enqueue(struct queue *queue, const void *p_element) {
 }
 
 int queue_dequeue(struct queue *queue, void *element_out) {
-    DEBUG_ASSERT_NOT_NULL(queue);
+    ASSERT_NOT_NULL(queue);
 
     if (queue->length == 0) {
         return EAGAIN;
@@ -93,7 +93,7 @@ int queue_dequeue(struct queue *queue, void *element_out) {
 }
 
 int queue_peek(struct queue *queue, void **pelement_out) {
-    DEBUG_ASSERT_NOT_NULL(queue);
+    ASSERT_NOT_NULL(queue);
 
     if (queue->length == 0) {
         if (pelement_out != NULL) {

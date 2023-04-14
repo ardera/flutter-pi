@@ -49,17 +49,17 @@ static struct flutter_paths *resolve(
     char *engine_path;
     int ok;
 
-    DEBUG_ASSERT_NOT_NULL(app_bundle_path);
-    DEBUG_ASSERT(icudtl_subpath || icudtl_system_path || icudtl_system_path_fallback);
-    DEBUG_ASSERT_MSG(
+    ASSERT_NOT_NULL(app_bundle_path);
+    assert(icudtl_subpath || icudtl_system_path || icudtl_system_path_fallback);
+    ASSERT_MSG(
         !icudtl_system_path_fallback || icudtl_system_path,
         "icudtl.dat fallback system path is given, but no non-fallback system path."
     );
-    DEBUG_ASSERT_NOT_NULL(asset_bundle_subpath);
-    DEBUG_ASSERT_NOT_NULL(kernel_blob_subpath);
-    DEBUG_ASSERT_NOT_NULL(app_elf_subpath);
-    DEBUG_ASSERT(app_engine_subpath || engine_dlopen_name || engine_dlopen_name_fallback);
-    DEBUG_ASSERT_MSG(
+    ASSERT_NOT_NULL(asset_bundle_subpath);
+    ASSERT_NOT_NULL(kernel_blob_subpath);
+    ASSERT_NOT_NULL(app_elf_subpath);
+    assert(app_engine_subpath || engine_dlopen_name || engine_dlopen_name_fallback);
+    ASSERT_MSG(
         !engine_dlopen_name_fallback || engine_dlopen_name,
         "flutter engine fallback dlopen name is given, but no non-fallback dlopen name."
     );
@@ -80,7 +80,7 @@ static struct flutter_paths *resolve(
         goto fail_free_paths;
     }
 
-    DEBUG_ASSERT(path_exists(app_bundle_path_real));
+    assert(path_exists(app_bundle_path_real));
 
     // Asset bundle path is the same as the app bundle path in the default filesystem layout,
     // or <appbundle>/flutter_assets in meta-flutter dunfell / kirkstone layout.
@@ -118,7 +118,7 @@ static struct flutter_paths *resolve(
         }
     }
 
-    DEBUG_ASSERT_NOT_NULL(icudtl_path);
+    ASSERT_NOT_NULL(icudtl_path);
 
     if (icudtl_system_path_fallback != NULL && path_exists(icudtl_path) == false) {
         LOG_DEBUG("icudtl file not found at %s.\n", icudtl_path);
@@ -130,7 +130,7 @@ static struct flutter_paths *resolve(
         }
     }
 
-    DEBUG_ASSERT_NOT_NULL(icudtl_path);
+    ASSERT_NOT_NULL(icudtl_path);
 
     // We still haven't found it. Fail because we need it to run flutter.
     if (path_exists(icudtl_path) == false) {

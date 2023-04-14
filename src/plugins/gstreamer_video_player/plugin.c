@@ -266,7 +266,7 @@ static enum listener_return on_video_info_notify(void *arg, void *userdata) {
     struct gstplayer_meta *meta;
     struct video_info *info;
 
-    DEBUG_ASSERT_NOT_NULL(userdata);
+    ASSERT_NOT_NULL(userdata);
     meta = userdata;
     info = arg;
 
@@ -298,7 +298,7 @@ static enum listener_return on_buffering_state_notify(void *arg, void *userdata)
     struct gstplayer_meta *meta;
     bool new_is_buffering;
 
-    DEBUG_ASSERT_NOT_NULL(userdata);
+    ASSERT_NOT_NULL(userdata);
     meta = userdata;
     state = arg;
 
@@ -420,7 +420,7 @@ static int add_headers_to_player(const struct std_value *headers, struct gstplay
     if (headers == NULL || STDVALUE_IS_NULL(*headers)) {
         return 0;
     } else if (headers->type != kStdMap) {
-        DEBUG_ASSERT(false);
+        assert(false);
     }
 
     for (int i = 0; i < headers->size; i++) {
@@ -433,7 +433,7 @@ static int add_headers_to_player(const struct std_value *headers, struct gstplay
         } else if (STDVALUE_IS_STRING(*key) && STDVALUE_IS_STRING(*value)) {
             gstplayer_put_http_header(player, STDVALUE_AS_STRING(*key), STDVALUE_AS_STRING(*value));
         } else {
-            DEBUG_ASSERT(false);
+            assert(false);
         }
     }
 
@@ -1483,11 +1483,11 @@ static int on_step_backward_v2(const struct raw_std_value *arg, FlutterPlatformM
 static int on_receive_method_channel_v2(char *channel, struct platch_obj *object, FlutterPlatformMessageResponseHandle *responsehandle) {
     const struct raw_std_value *envelope, *method, *arg;
 
-    DEBUG_ASSERT_NOT_NULL(channel);
-    DEBUG_ASSERT_NOT_NULL(object);
-    DEBUG_ASSERT_NOT_NULL(responsehandle);
-    DEBUG_ASSERT_EQUALS(object->codec, kBinaryCodec);
-    DEBUG_ASSERT(object->binarydata_size != 0);
+    ASSERT_NOT_NULL(channel);
+    ASSERT_NOT_NULL(object);
+    ASSERT_NOT_NULL(responsehandle);
+    ASSERT_EQUALS(object->codec, kBinaryCodec);
+    assert(object->binarydata_size != 0);
     (void) channel;
 
     envelope = (const struct raw_std_value *) (object->binarydata);

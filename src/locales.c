@@ -62,7 +62,7 @@ struct locale *locale_new(const char *language, const char *territory, const cha
     struct locale *locale;
     FlutterLocale *fl_locale;
 
-    DEBUG_ASSERT(language != NULL);
+    assert(language != NULL);
 
     locale = malloc(sizeof *locale);
     if (locale == NULL) {
@@ -138,7 +138,7 @@ fail_free_locale:
 }
 
 const FlutterLocale *locale_get_fl_locale(struct locale *locale) {
-    DEBUG_ASSERT(locale != NULL);
+    assert(locale != NULL);
     return locale->flutter_locale;
 }
 
@@ -352,7 +352,7 @@ fail_return_null:
 void locales_destroy(struct locales *locales) {
     struct locale *locale;
 
-    DEBUG_ASSERT(locales != NULL);
+    assert(locales != NULL);
 
     for_each_pointer_in_cpset(&locales->locales, locale) {
         locale_destroy(locale);
@@ -363,16 +363,16 @@ void locales_destroy(struct locales *locales) {
 }
 
 int locales_get_flutter_locales(struct locales *locales, const FlutterLocale ***fl_locales_out, size_t *n_fl_locales_out) {
-    DEBUG_ASSERT(locales != NULL);
-    DEBUG_ASSERT(fl_locales_out != NULL);
-    DEBUG_ASSERT(n_fl_locales_out != NULL);
+    assert(locales != NULL);
+    assert(fl_locales_out != NULL);
+    assert(n_fl_locales_out != NULL);
     *fl_locales_out = locales->flutter_locales;
     *n_fl_locales_out = locales->n_locales;
     return 0;
 }
 
 const FlutterLocale *locales_get_default_flutter_locale(struct locales *locales) {
-    DEBUG_ASSERT(locales != NULL);
+    assert(locales != NULL);
     return locales->default_flutter_locale;
 }
 
@@ -411,9 +411,9 @@ int locales_add_to_fl_engine(struct locales *locales, FlutterEngine engine, Flut
 
 const FlutterLocale *
 locales_on_compute_platform_resolved_locale(struct locales *locales, const FlutterLocale **fl_locales, size_t n_fl_locales) {
-    DEBUG_ASSERT(locales != NULL);
-    DEBUG_ASSERT(fl_locales != NULL);
-    DEBUG_ASSERT(n_fl_locales > 0);
+    assert(locales != NULL);
+    assert(fl_locales != NULL);
+    assert(n_fl_locales > 0);
 
     (void) locales;
     (void) n_fl_locales;
@@ -422,7 +422,7 @@ locales_on_compute_platform_resolved_locale(struct locales *locales, const Flutt
 }
 
 void locales_print(const struct locales *locales) {
-    DEBUG_ASSERT_NOT_NULL(locales);
+    ASSERT_NOT_NULL(locales);
 
     LOG_DEBUG_UNPREFIXED("==============Locale==============\n");
     LOG_DEBUG_UNPREFIXED("Flutter locale:\n");

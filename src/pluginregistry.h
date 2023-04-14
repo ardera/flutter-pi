@@ -45,6 +45,8 @@ typedef struct _FlutterPlatformMessageResponseHandle FlutterPlatformMessageRespo
 ///   passed to plugin_registry_set_receiver.
 typedef int (*platch_obj_recv_callback)(char *channel, struct platch_obj *object, FlutterPlatformMessageResponseHandle *responsehandle);
 
+typedef void (*platform_message_callback_v2_t)(void *userdata, const FlutterPlatformMessage *message);
+
 /**
  * @brief Create a new plugin registry instance and add the hardcoded plugins, but don't initialize them yet.
  */
@@ -52,7 +54,7 @@ struct plugin_registry *plugin_registry_new(struct flutterpi *flutterpi);
 
 void plugin_registry_destroy(struct plugin_registry *registry);
 
-int plugin_registry_add_plugin(struct plugin_registry *registry, const struct flutterpi_plugin_v2 *plugin);
+void plugin_registry_add_plugin(struct plugin_registry *registry, const struct flutterpi_plugin_v2 *plugin);
 
 int plugin_registry_add_plugins_from_static_registry(struct plugin_registry *registry);
 
@@ -69,46 +71,89 @@ void plugin_registry_ensure_plugins_deinitialized(struct plugin_registry *regist
 /**
  * @brief Called by flutter-pi when a platform message arrives.
  */
-int plugin_registry_on_platform_message(struct plugin_registry *registry, FlutterPlatformMessage *message);
+int plugin_registry_on_platform_message(struct plugin_registry *registry, const FlutterPlatformMessage *message);
 
-/// Sets the callback that should be called when a platform message arrives on channel "channel",
-/// and the codec used to automatically decode the platform message.
-/// Call this method with NULL as the callback parameter to remove the current listener on that channel.
+/**
+ * @brief Sets the callback that should be called when a platform message arrives on channel `channel`.
+ *
+ * The platform message will be automatically decoded using the codec `codec`.
+ */
+int plugin_registry_set_receiver_v2_locked(
+    struct plugin_registry *registry,
+    const char *channel,
+    platform_message_callback_v2_t callback,
+    void *userdata
+);
+
+/**
+ * @brief Sets the callback that should be called when a platform message arrives on channel `channel`.
+ *
+ * The platform message will be automatically decoded using the codec `codec`.
+ */
+int plugin_registry_set_receiver_v2(
+    struct plugin_registry *registry,
+    const char *channel,
+    platform_message_callback_v2_t callback,
+    void *userdata
+);
+
+/**
+ * @brief Sets the callback that should be called when a platform message arrives on channel `channel`.
+ *
+ * The platform message will be automatically decoded using the codec `codec`.
+ */
 int plugin_registry_set_receiver(const char *channel, enum platch_codec codec, platch_obj_recv_callback callback);
 
+/**
+ * @brief Removes the callback for platform channel `channel`.
+ *
+ */
+int plugin_registry_remove_receiver_v2_locked(struct plugin_registry *registry, const char *channel);
+
+/**
+ * @brief Removes the callback for platform channel `channel`.
+ *
+ */
+int plugin_registry_remove_receiver_v2(struct plugin_registry *registry, const char *channel);
+
+/**
+ * @brief Removes the callback for platform channel `channel`.
+ *
+ */
 int plugin_registry_remove_receiver(const char *channel);
 
 void *plugin_registry_get_plugin_userdata(struct plugin_registry *registry, const char *plugin_name);
+
+void *plugin_registry_get_plugin_userdata_locked(struct plugin_registry *registry, const char *plugin_name);
 
 /**
  * @brief Returns true @ref registry has a plugin with name @ref plugin_name.
  */
 bool plugin_registry_is_plugin_present(struct plugin_registry *registry, const char *plugin_name);
 
+/**
+ * @brief Returns true @ref registry has a plugin with name @ref plugin_name.
+ */
+bool plugin_registry_is_plugin_present_locked(struct plugin_registry *registry, const char *plugin_name);
+
 int plugin_registry_deinit(void);
 
-int static_plugin_registry_add_plugin(const struct flutterpi_plugin_v2 *plugin);
+void static_plugin_registry_add_plugin(const struct flutterpi_plugin_v2 *plugin);
 
-int static_plugin_registry_remove_plugin(const char *plugin_name);
+void static_plugin_registry_remove_plugin(const char *plugin_name);
 
-#define FLUTTERPI_PLUGIN(_name, _identifier_name, _init, _deinit)                                             \
-    __attribute__((constructor)) static void __reg_plugin_##_identifier_name() {                              \
-        static struct flutterpi_plugin_v2 plugin = { .name = (_name), .init = (_init), .deinit = (_deinit) }; \
-        int ok;                                                                                               \
-                                                                                                              \
-        ok = static_plugin_registry_add_plugin(&plugin);                                                      \
-        if (ok != 0) {                                                                                        \
-            fprintf(stderr, "Couldn't register plugin " _name " to plugin registry.\n");                      \
-            abort();                                                                                          \
-        }                                                                                                     \
-    }                                                                                                         \
-                                                                                                              \
-    __attribute__((destructor)) static void __unreg_plugin_##_identifier_name() {                             \
-        int ok;                                                                                               \
-        ok = static_plugin_registry_remove_plugin(_name);                                                     \
-        if (ok != 0) {                                                                                        \
-            fprintf(stderr, "Couldn't remove plugin " _name " from plugin registry.\n");                      \
-        }                                                                                                     \
+#define FLUTTERPI_PLUGIN(_name, _identifier_name, _init, _deinit)                 \
+    __attribute__((constructor)) static void __reg_plugin_##_identifier_name() {  \
+        static struct flutterpi_plugin_v2 plugin = {                              \
+            .name = (_name),                                                      \
+            .init = (_init),                                                      \
+            .deinit = (_deinit),                                                  \
+        };                                                                        \
+        static_plugin_registry_add_plugin(&plugin);                               \
+    }                                                                             \
+                                                                                  \
+    __attribute__((destructor)) static void __unreg_plugin_##_identifier_name() { \
+        static_plugin_registry_remove_plugin(_name);                              \
     }
 
 #endif

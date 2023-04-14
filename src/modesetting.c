@@ -142,7 +142,7 @@ static struct drm_mode_blob *drm_mode_blob_new(int drm_fd, const drmModeModeInfo
 void drm_mode_blob_destroy(struct drm_mode_blob *blob) {
     int ok;
 
-    DEBUG_ASSERT_NOT_NULL(blob);
+    ASSERT_NOT_NULL(blob);
 
     ok = drmModeDestroyPropertyBlob(blob->drm_fd, blob->blob_id);
     if (ok != 0) {
@@ -210,7 +210,7 @@ static int fetch_connector(int drm_fd, uint32_t connector_id, struct drm_connect
         prop_info = NULL;
     }
 
-    DEBUG_ASSERT((connector->modes == NULL) == (connector->count_modes == 0));
+    assert((connector->modes == NULL) == (connector->count_modes == 0));
 
     if (connector->modes != NULL) {
         modes = memdup(connector->modes, connector->count_modes * sizeof(*connector->modes));
@@ -227,7 +227,7 @@ static int fetch_connector(int drm_fd, uint32_t connector_id, struct drm_connect
     connector_out->type_id = connector->connector_type_id;
     connector_out->ids = ids;
     connector_out->n_encoders = connector->count_encoders;
-    DEBUG_ASSERT(connector->count_encoders <= 32);
+    assert(connector->count_encoders <= 32);
     memcpy(connector_out->encoders, connector->encoders, connector->count_encoders * sizeof(uint32_t));
     connector_out->variable_state.connection_state = (enum drm_connection_state) connector->connection;
     connector_out->variable_state.subpixel_layout = (enum drm_subpixel_layout) connector->subpixel;
@@ -472,9 +472,9 @@ static int get_supported_modified_formats(
     struct drm_format_modifier *modifiers;
     uint32_t *formats;
 
-    DEBUG_ASSERT_NOT_NULL(blob);
-    DEBUG_ASSERT_NOT_NULL(n_formats_out);
-    DEBUG_ASSERT(blob->version == FORMAT_BLOB_CURRENT);
+    ASSERT_NOT_NULL(blob);
+    ASSERT_NOT_NULL(n_formats_out);
+    assert(blob->version == FORMAT_BLOB_CURRENT);
 
     modifiers = (void *) (((char *) blob) + blob->modifiers_offset);
     formats = (void *) (((char *) blob) + blob->formats_offset);
@@ -560,22 +560,22 @@ static int fetch_plane(int drm_fd, uint32_t plane_id, struct drm_plane *plane_ou
         }
 
         if (strcmp(info->name, "type") == 0) {
-            DEBUG_ASSERT(has_type == false);
+            assert(has_type == false);
             has_type = true;
 
             type = props->prop_values[j];
         } else if (strcmp(info->name, "rotation") == 0) {
-            DEBUG_ASSERT(has_rotation == false);
+            assert(has_rotation == false);
             has_rotation = true;
 
             supported_rotations = PLANE_TRANSFORM_NONE;
-            DEBUG_ASSERT(info->flags & DRM_MODE_PROP_BITMASK);
+            assert(info->flags & DRM_MODE_PROP_BITMASK);
 
             for (int k = 0; k < info->count_enums; k++) {
                 supported_rotations.u32 |= 1 << info->enums[k].value;
             }
 
-            DEBUG_ASSERT(PLANE_TRANSFORM_IS_VALID(supported_rotations));
+            assert(PLANE_TRANSFORM_IS_VALID(supported_rotations));
 
             if (info->flags & DRM_MODE_PROP_IMMUTABLE) {
                 has_hardcoded_rotation = true;
@@ -584,30 +584,30 @@ static int fetch_plane(int drm_fd, uint32_t plane_id, struct drm_plane *plane_ou
 
             committed_rotation.u64 = props->prop_values[j];
         } else if (strcmp(info->name, "zpos") == 0) {
-            DEBUG_ASSERT(has_zpos == false);
+            assert(has_zpos == false);
             has_zpos = true;
 
             if (info->flags & DRM_MODE_PROP_SIGNED_RANGE) {
                 min_zpos = *(int64_t *) (info->values + 0);
                 max_zpos = *(int64_t *) (info->values + 1);
                 committed_zpos = *(int64_t *) (props->prop_values + j);
-                DEBUG_ASSERT(min_zpos <= max_zpos);
-                DEBUG_ASSERT(min_zpos <= committed_zpos);
-                DEBUG_ASSERT(committed_zpos <= max_zpos);
+                assert(min_zpos <= max_zpos);
+                assert(min_zpos <= committed_zpos);
+                assert(committed_zpos <= max_zpos);
             } else if (info->flags & DRM_MODE_PROP_RANGE) {
-                DEBUG_ASSERT(info->values[0] < (uint64_t) INT64_MAX);
-                DEBUG_ASSERT(info->values[1] < (uint64_t) INT64_MAX);
+                assert(info->values[0] < (uint64_t) INT64_MAX);
+                assert(info->values[1] < (uint64_t) INT64_MAX);
                 min_zpos = info->values[0];
                 max_zpos = info->values[1];
                 committed_zpos = props->prop_values[j];
-                DEBUG_ASSERT(min_zpos <= max_zpos);
+                assert(min_zpos <= max_zpos);
             } else {
-                DEBUG_ASSERT_MSG(info->flags && false, "Invalid property type for zpos property.");
+                ASSERT_MSG(info->flags && false, "Invalid property type for zpos property.");
             }
 
             if (info->flags & DRM_MODE_PROP_IMMUTABLE) {
                 has_hardcoded_zpos = true;
-                DEBUG_ASSERT(props->prop_values[j] < (uint64_t) INT64_MAX);
+                assert(props->prop_values[j] < (uint64_t) INT64_MAX);
                 hardcoded_zpos = committed_zpos;
                 if (min_zpos != max_zpos) {
                     LOG_DEBUG(
@@ -677,25 +677,25 @@ static int fetch_plane(int drm_fd, uint32_t plane_id, struct drm_plane *plane_ou
             drmModeFreePropertyBlob(blob);
         } else if (strcmp(info->name, "alpha") == 0) {
             has_alpha = true;
-            DEBUG_ASSERT(info->flags == DRM_MODE_PROP_RANGE);
-            DEBUG_ASSERT(info->values[0] == 0);
-            DEBUG_ASSERT(info->values[1] == 0xFFFF);
-            DEBUG_ASSERT(props->prop_values[j] <= 0xFFFF);
+            assert(info->flags == DRM_MODE_PROP_RANGE);
+            assert(info->values[0] == 0);
+            assert(info->values[1] == 0xFFFF);
+            assert(props->prop_values[j] <= 0xFFFF);
 
             committed_alpha = (uint16_t) props->prop_values[j];
         } else if (strcmp(info->name, "pixel blend mode") == 0) {
             has_blend_mode = true;
-            DEBUG_ASSERT(info->flags == DRM_MODE_PROP_ENUM);
+            assert(info->flags == DRM_MODE_PROP_ENUM);
 
             for (int i = 0; i < info->count_enums; i++) {
                 if (strcmp(info->enums[i].name, "None") == 0) {
-                    DEBUG_ASSERT_EQUALS(info->enums[i].value, kNone_DrmBlendMode);
+                    ASSERT_EQUALS(info->enums[i].value, kNone_DrmBlendMode);
                     supported_blend_modes[kNone_DrmBlendMode] = true;
                 } else if (strcmp(info->enums[i].name, "Pre-multiplied") == 0) {
-                    DEBUG_ASSERT_EQUALS(info->enums[i].value, kPremultiplied_DrmBlendMode);
+                    ASSERT_EQUALS(info->enums[i].value, kPremultiplied_DrmBlendMode);
                     supported_blend_modes[kPremultiplied_DrmBlendMode] = true;
                 } else if (strcmp(info->enums[i].name, "Coverage") == 0) {
-                    DEBUG_ASSERT_EQUALS(info->enums[i].value, kCoverage_DrmBlendMode);
+                    ASSERT_EQUALS(info->enums[i].value, kCoverage_DrmBlendMode);
                     supported_blend_modes[kCoverage_DrmBlendMode] = true;
                 } else {
                     LOG_DEBUG(
@@ -707,8 +707,8 @@ static int fetch_plane(int drm_fd, uint32_t plane_id, struct drm_plane *plane_ou
             }
 
             committed_blend_mode = props->prop_values[j];
-            DEBUG_ASSERT(committed_blend_mode >= 0 && committed_blend_mode <= kMax_DrmBlendMode);
-            DEBUG_ASSERT(supported_blend_modes[committed_blend_mode]);
+            assert(committed_blend_mode >= 0 && committed_blend_mode <= kMax_DrmBlendMode);
+            assert(supported_blend_modes[committed_blend_mode]);
         }
 
 #define CHECK_ASSIGN_PROPERTY_ID(_name_str, _name)                     \
@@ -725,7 +725,7 @@ static int fetch_plane(int drm_fd, uint32_t plane_id, struct drm_plane *plane_ou
         drmModeFreeProperty(info);
     }
 
-    DEBUG_ASSERT(has_type);
+    assert(has_type);
     (void) has_type;
 
     for (int i = 0; i < plane->count_formats; i++) {
@@ -813,7 +813,7 @@ static int fetch_planes(struct drmdev *drmdev, struct drm_plane **planes_out, si
             return ENOMEM;
         }
 
-        DEBUG_ASSERT_MSG(planes[0].has_zpos == planes[i].has_zpos, "If one plane has a zpos property, all planes need to have one.");
+        ASSERT_MSG(planes[0].has_zpos == planes[i].has_zpos, "If one plane has a zpos property, all planes need to have one.");
     }
 
     *planes_out = planes;
@@ -830,61 +830,61 @@ static void free_planes(struct drm_plane *planes, size_t n_planes) {
 }
 
 static void assert_rotations_work() {
-    DEBUG_ASSERT(PLANE_TRANSFORM_ROTATE_0.rotate_0 == true);
-    DEBUG_ASSERT(PLANE_TRANSFORM_ROTATE_0.rotate_90 == false);
-    DEBUG_ASSERT(PLANE_TRANSFORM_ROTATE_0.rotate_180 == false);
-    DEBUG_ASSERT(PLANE_TRANSFORM_ROTATE_0.rotate_270 == false);
-    DEBUG_ASSERT(PLANE_TRANSFORM_ROTATE_0.reflect_x == false);
-    DEBUG_ASSERT(PLANE_TRANSFORM_ROTATE_0.reflect_y == false);
+    assert(PLANE_TRANSFORM_ROTATE_0.rotate_0 == true);
+    assert(PLANE_TRANSFORM_ROTATE_0.rotate_90 == false);
+    assert(PLANE_TRANSFORM_ROTATE_0.rotate_180 == false);
+    assert(PLANE_TRANSFORM_ROTATE_0.rotate_270 == false);
+    assert(PLANE_TRANSFORM_ROTATE_0.reflect_x == false);
+    assert(PLANE_TRANSFORM_ROTATE_0.reflect_y == false);
 
-    DEBUG_ASSERT(PLANE_TRANSFORM_ROTATE_90.rotate_0 == false);
-    DEBUG_ASSERT(PLANE_TRANSFORM_ROTATE_90.rotate_90 == true);
-    DEBUG_ASSERT(PLANE_TRANSFORM_ROTATE_90.rotate_180 == false);
-    DEBUG_ASSERT(PLANE_TRANSFORM_ROTATE_90.rotate_270 == false);
-    DEBUG_ASSERT(PLANE_TRANSFORM_ROTATE_90.reflect_x == false);
-    DEBUG_ASSERT(PLANE_TRANSFORM_ROTATE_90.reflect_y == false);
+    assert(PLANE_TRANSFORM_ROTATE_90.rotate_0 == false);
+    assert(PLANE_TRANSFORM_ROTATE_90.rotate_90 == true);
+    assert(PLANE_TRANSFORM_ROTATE_90.rotate_180 == false);
+    assert(PLANE_TRANSFORM_ROTATE_90.rotate_270 == false);
+    assert(PLANE_TRANSFORM_ROTATE_90.reflect_x == false);
+    assert(PLANE_TRANSFORM_ROTATE_90.reflect_y == false);
 
-    DEBUG_ASSERT(PLANE_TRANSFORM_ROTATE_180.rotate_0 == false);
-    DEBUG_ASSERT(PLANE_TRANSFORM_ROTATE_180.rotate_90 == false);
-    DEBUG_ASSERT(PLANE_TRANSFORM_ROTATE_180.rotate_180 == true);
-    DEBUG_ASSERT(PLANE_TRANSFORM_ROTATE_180.rotate_270 == false);
-    DEBUG_ASSERT(PLANE_TRANSFORM_ROTATE_180.reflect_x == false);
-    DEBUG_ASSERT(PLANE_TRANSFORM_ROTATE_180.reflect_y == false);
+    assert(PLANE_TRANSFORM_ROTATE_180.rotate_0 == false);
+    assert(PLANE_TRANSFORM_ROTATE_180.rotate_90 == false);
+    assert(PLANE_TRANSFORM_ROTATE_180.rotate_180 == true);
+    assert(PLANE_TRANSFORM_ROTATE_180.rotate_270 == false);
+    assert(PLANE_TRANSFORM_ROTATE_180.reflect_x == false);
+    assert(PLANE_TRANSFORM_ROTATE_180.reflect_y == false);
 
-    DEBUG_ASSERT(PLANE_TRANSFORM_ROTATE_270.rotate_0 == false);
-    DEBUG_ASSERT(PLANE_TRANSFORM_ROTATE_270.rotate_90 == false);
-    DEBUG_ASSERT(PLANE_TRANSFORM_ROTATE_270.rotate_180 == false);
-    DEBUG_ASSERT(PLANE_TRANSFORM_ROTATE_270.rotate_270 == true);
-    DEBUG_ASSERT(PLANE_TRANSFORM_ROTATE_270.reflect_x == false);
-    DEBUG_ASSERT(PLANE_TRANSFORM_ROTATE_270.reflect_y == false);
+    assert(PLANE_TRANSFORM_ROTATE_270.rotate_0 == false);
+    assert(PLANE_TRANSFORM_ROTATE_270.rotate_90 == false);
+    assert(PLANE_TRANSFORM_ROTATE_270.rotate_180 == false);
+    assert(PLANE_TRANSFORM_ROTATE_270.rotate_270 == true);
+    assert(PLANE_TRANSFORM_ROTATE_270.reflect_x == false);
+    assert(PLANE_TRANSFORM_ROTATE_270.reflect_y == false);
 
-    DEBUG_ASSERT(PLANE_TRANSFORM_REFLECT_X.rotate_0 == false);
-    DEBUG_ASSERT(PLANE_TRANSFORM_REFLECT_X.rotate_90 == false);
-    DEBUG_ASSERT(PLANE_TRANSFORM_REFLECT_X.rotate_180 == false);
-    DEBUG_ASSERT(PLANE_TRANSFORM_REFLECT_X.rotate_270 == false);
-    DEBUG_ASSERT(PLANE_TRANSFORM_REFLECT_X.reflect_x == true);
-    DEBUG_ASSERT(PLANE_TRANSFORM_REFLECT_X.reflect_y == false);
+    assert(PLANE_TRANSFORM_REFLECT_X.rotate_0 == false);
+    assert(PLANE_TRANSFORM_REFLECT_X.rotate_90 == false);
+    assert(PLANE_TRANSFORM_REFLECT_X.rotate_180 == false);
+    assert(PLANE_TRANSFORM_REFLECT_X.rotate_270 == false);
+    assert(PLANE_TRANSFORM_REFLECT_X.reflect_x == true);
+    assert(PLANE_TRANSFORM_REFLECT_X.reflect_y == false);
 
-    DEBUG_ASSERT(PLANE_TRANSFORM_REFLECT_Y.rotate_0 == false);
-    DEBUG_ASSERT(PLANE_TRANSFORM_REFLECT_Y.rotate_90 == false);
-    DEBUG_ASSERT(PLANE_TRANSFORM_REFLECT_Y.rotate_180 == false);
-    DEBUG_ASSERT(PLANE_TRANSFORM_REFLECT_Y.rotate_270 == false);
-    DEBUG_ASSERT(PLANE_TRANSFORM_REFLECT_Y.reflect_x == false);
-    DEBUG_ASSERT(PLANE_TRANSFORM_REFLECT_Y.reflect_y == true);
+    assert(PLANE_TRANSFORM_REFLECT_Y.rotate_0 == false);
+    assert(PLANE_TRANSFORM_REFLECT_Y.rotate_90 == false);
+    assert(PLANE_TRANSFORM_REFLECT_Y.rotate_180 == false);
+    assert(PLANE_TRANSFORM_REFLECT_Y.rotate_270 == false);
+    assert(PLANE_TRANSFORM_REFLECT_Y.reflect_x == false);
+    assert(PLANE_TRANSFORM_REFLECT_Y.reflect_y == true);
 
     drm_plane_transform_t r = PLANE_TRANSFORM_NONE;
 
     r.rotate_0 = true;
     r.reflect_x = true;
-    DEBUG_ASSERT(r.u32 == (DRM_MODE_ROTATE_0 | DRM_MODE_REFLECT_X));
+    assert(r.u32 == (DRM_MODE_ROTATE_0 | DRM_MODE_REFLECT_X));
 
     r.u32 = DRM_MODE_ROTATE_90 | DRM_MODE_REFLECT_Y;
-    DEBUG_ASSERT(r.rotate_0 == false);
-    DEBUG_ASSERT(r.rotate_90 == true);
-    DEBUG_ASSERT(r.rotate_180 == false);
-    DEBUG_ASSERT(r.rotate_270 == false);
-    DEBUG_ASSERT(r.reflect_x == false);
-    DEBUG_ASSERT(r.reflect_y == true);
+    assert(r.rotate_0 == false);
+    assert(r.rotate_90 == true);
+    assert(r.rotate_180 == false);
+    assert(r.rotate_270 == false);
+    assert(r.reflect_x == false);
+    assert(r.reflect_y == true);
     (void) r;
 }
 
@@ -1052,8 +1052,8 @@ struct drmdev *drmdev_new_from_path(const char *path, const struct drmdev_interf
     void *fd_metadata;
     int fd;
 
-    DEBUG_ASSERT_NOT_NULL(path);
-    DEBUG_ASSERT_NOT_NULL(interface);
+    ASSERT_NOT_NULL(path);
+    ASSERT_NOT_NULL(interface);
 
     fd = interface->open(path, O_RDWR, &fd_metadata, userdata);
     if (fd < 0) {
@@ -1071,7 +1071,7 @@ struct drmdev *drmdev_new_from_path(const char *path, const struct drmdev_interf
 }
 
 void drmdev_destroy(struct drmdev *drmdev) {
-    DEBUG_ASSERT(refcount_is_zero(&drmdev->n_refs));
+    assert(refcount_is_zero(&drmdev->n_refs));
 
     drmdev->interface.close(drmdev->master_fd, drmdev->master_fd_metadata, drmdev->userdata);
     close(drmdev->event_fd);
@@ -1088,12 +1088,12 @@ void drmdev_destroy(struct drmdev *drmdev) {
 DEFINE_REF_OPS(drmdev, n_refs)
 
 int drmdev_get_fd(struct drmdev *drmdev) {
-    DEBUG_ASSERT_NOT_NULL(drmdev);
+    ASSERT_NOT_NULL(drmdev);
     return drmdev->master_fd;
 }
 
 int drmdev_get_event_fd(struct drmdev *drmdev) {
-    DEBUG_ASSERT_NOT_NULL(drmdev);
+    ASSERT_NOT_NULL(drmdev);
     return drmdev->master_fd;
 }
 
@@ -1113,10 +1113,10 @@ int drmdev_create_dumb_buffer(
     struct drm_mode_create_dumb create_req;
     int ok;
 
-    DEBUG_ASSERT_NOT_NULL(drmdev);
-    DEBUG_ASSERT_NOT_NULL(gem_handle_out);
-    DEBUG_ASSERT_NOT_NULL(pitch_out);
-    DEBUG_ASSERT_NOT_NULL(size_out);
+    ASSERT_NOT_NULL(drmdev);
+    ASSERT_NOT_NULL(gem_handle_out);
+    ASSERT_NOT_NULL(pitch_out);
+    ASSERT_NOT_NULL(size_out);
 
     memset(&create_req, 0, sizeof create_req);
     create_req.width = width;
@@ -1144,7 +1144,7 @@ void drmdev_destroy_dumb_buffer(struct drmdev *drmdev, uint32_t gem_handle) {
     struct drm_mode_destroy_dumb destroy_req;
     int ok;
 
-    DEBUG_ASSERT_NOT_NULL(drmdev);
+    ASSERT_NOT_NULL(drmdev);
 
     memset(&destroy_req, 0, sizeof destroy_req);
     destroy_req.handle = gem_handle;
@@ -1160,7 +1160,7 @@ void *drmdev_map_dumb_buffer(struct drmdev *drmdev, uint32_t gem_handle, size_t 
     void *map;
     int ok;
 
-    DEBUG_ASSERT_NOT_NULL(drmdev);
+    ASSERT_NOT_NULL(drmdev);
 
     memset(&map_req, 0, sizeof map_req);
     map_req.handle = gem_handle;
@@ -1183,8 +1183,8 @@ void *drmdev_map_dumb_buffer(struct drmdev *drmdev, uint32_t gem_handle, size_t 
 void drmdev_unmap_dumb_buffer(struct drmdev *drmdev, void *map, size_t size) {
     int ok;
 
-    DEBUG_ASSERT_NOT_NULL(drmdev);
-    DEBUG_ASSERT_NOT_NULL(map);
+    ASSERT_NOT_NULL(drmdev);
+    ASSERT_NOT_NULL(map);
     (void) drmdev;
 
     ok = munmap(map, size);
@@ -1201,7 +1201,7 @@ drmdev_on_page_flip_locked(int fd, unsigned int sequence, unsigned int tv_sec, u
     struct kms_req *req;
     struct drmdev *drmdev;
 
-    DEBUG_ASSERT_NOT_NULL(userdata);
+    ASSERT_NOT_NULL(userdata);
     builder = userdata;
     req = userdata;
 
@@ -1216,7 +1216,7 @@ drmdev_on_page_flip_locked(int fd, unsigned int sequence, unsigned int tv_sec, u
         }
     }
 
-    DEBUG_ASSERT_NOT_NULL_MSG(crtc, "Invalid CRTC id");
+    ASSERT_NOT_NULL_MSG(crtc, "Invalid CRTC id");
 
     if (drmdev->per_crtc_state[crtc->index].scanout_callback != NULL) {
         uint64_t vblank_ns = tv_sec * 1000000000ull + tv_usec * 1000ull;
@@ -1232,7 +1232,7 @@ drmdev_on_page_flip_locked(int fd, unsigned int sequence, unsigned int tv_sec, u
     if (*last_flipped != NULL) {
         /// TODO: Remove this if we ever cache KMS reqs.
         /// FIXME: This will fail if we're using blocking commits.
-        // DEBUG_ASSERT(refcount_is_one(&((struct kms_req_builder*) *last_flipped)->n_refs));
+        // assert(refcount_is_one(&((struct kms_req_builder*) *last_flipped)->n_refs));
     }
 
     kms_req_swap_ptrs(last_flipped, req);
@@ -1262,7 +1262,7 @@ int drmdev_on_event_fd_ready(struct drmdev *drmdev) {
     struct epoll_event events[16];
     int ok, n_events;
 
-    DEBUG_ASSERT_NOT_NULL(drmdev);
+    ASSERT_NOT_NULL(drmdev);
 
     drmdev_lock(drmdev);
 
@@ -1283,7 +1283,7 @@ int drmdev_on_event_fd_ready(struct drmdev *drmdev) {
     n_events = ok;
     for (int i = 0; i < n_events; i++) {
         // currently this could only be the root drmdev fd.
-        DEBUG_ASSERT_EQUALS(events[i].data.ptr, NULL);
+        ASSERT_EQUALS(events[i].data.ptr, NULL);
         ok = drmdev_on_modesetting_fd_ready_locked(drmdev);
         if (ok != 0) {
             goto fail_unlock;
@@ -1300,15 +1300,15 @@ fail_unlock:
 }
 
 struct gbm_device *drmdev_get_gbm_device(struct drmdev *drmdev) {
-    DEBUG_ASSERT_NOT_NULL(drmdev);
+    ASSERT_NOT_NULL(drmdev);
     return drmdev->gbm_device;
 }
 
 int drmdev_get_last_vblank(struct drmdev *drmdev, uint32_t crtc_id, uint64_t *last_vblank_ns_out) {
     int ok;
 
-    DEBUG_ASSERT_NOT_NULL(drmdev);
-    DEBUG_ASSERT_NOT_NULL(last_vblank_ns_out);
+    ASSERT_NOT_NULL(drmdev);
+    ASSERT_NOT_NULL(last_vblank_ns_out);
 
     ok = drmCrtcGetSequence(drmdev->fd, crtc_id, NULL, last_vblank_ns_out);
     if (ok < 0) {
@@ -1334,10 +1334,10 @@ uint32_t drmdev_add_fb(
     uint32_t fb_id;
     int ok;
 
-    DEBUG_ASSERT_NOT_NULL(drmdev);
-    DEBUG_ASSERT(width > 0 && height > 0);
-    DEBUG_ASSERT(bo_handle != 0);
-    DEBUG_ASSERT(pitch != 0);
+    ASSERT_NOT_NULL(drmdev);
+    assert(width > 0 && height > 0);
+    assert(bo_handle != 0);
+    assert(pitch != 0);
 
     fb_id = 0;
     if (has_modifier) {
@@ -1376,7 +1376,7 @@ uint32_t drmdev_add_fb(
         }
     }
 
-    DEBUG_ASSERT(fb_id != 0);
+    assert(fb_id != 0);
     return fb_id;
 }
 
@@ -1394,10 +1394,10 @@ uint32_t drmdev_add_fb_multiplanar(
     uint32_t fb_id;
     int ok;
 
-    DEBUG_ASSERT_NOT_NULL(drmdev);
-    DEBUG_ASSERT(width > 0 && height > 0);
-    DEBUG_ASSERT(bo_handles[0] != 0);
-    DEBUG_ASSERT(pitches[0] != 0);
+    ASSERT_NOT_NULL(drmdev);
+    assert(width > 0 && height > 0);
+    assert(bo_handles[0] != 0);
+    assert(pitches[0] != 0);
 
     fb_id = 0;
     if (has_modifiers) {
@@ -1425,7 +1425,7 @@ uint32_t drmdev_add_fb_multiplanar(
         }
     }
 
-    DEBUG_ASSERT(fb_id != 0);
+    assert(fb_id != 0);
     return fb_id;
 }
 
@@ -1492,7 +1492,7 @@ int drmdev_rm_fb(struct drmdev *drmdev, uint32_t fb_id) {
 bool drmdev_can_modeset(struct drmdev *drmdev) {
     bool can_modeset;
 
-    DEBUG_ASSERT_NOT_NULL(drmdev);
+    ASSERT_NOT_NULL(drmdev);
 
     drmdev_lock(drmdev);
     can_modeset = drmdev->master_fd > 0;
@@ -1502,7 +1502,7 @@ bool drmdev_can_modeset(struct drmdev *drmdev) {
 }
 
 void drmdev_suspend(struct drmdev *drmdev) {
-    DEBUG_ASSERT_NOT_NULL(drmdev);
+    ASSERT_NOT_NULL(drmdev);
 
     drmdev_lock(drmdev);
 
@@ -1524,7 +1524,7 @@ int drmdev_resume(struct drmdev *drmdev) {
     void *fd_metadata;
     int ok, master_fd;
 
-    DEBUG_ASSERT_NOT_NULL(drmdev);
+    ASSERT_NOT_NULL(drmdev);
 
     drmdev_lock(drmdev);
 
@@ -1583,7 +1583,7 @@ static void drmdev_set_scanout_callback_locked(
 ) {
     struct drm_crtc *crtc;
 
-    DEBUG_ASSERT_NOT_NULL(drmdev);
+    ASSERT_NOT_NULL(drmdev);
 
     for_each_crtc_in_drmdev(drmdev, crtc) {
         if (crtc->id == crtc_id) {
@@ -1591,12 +1591,12 @@ static void drmdev_set_scanout_callback_locked(
         }
     }
 
-    DEBUG_ASSERT_NOT_NULL_MSG(crtc, "Could not find CRTC with given id.");
+    ASSERT_NOT_NULL_MSG(crtc, "Could not find CRTC with given id.");
 
     // If there's already a scanout callback configured, this is probably a state machine error.
     // The scanout callback is configured in kms_req_commit and is cleared after it was called.
     // So if this is called again this mean kms_req_commit is called but the previous frame wasn't committed yet.
-    DEBUG_ASSERT_EQUALS_MSG(
+    ASSERT_EQUALS_MSG(
         drmdev->per_crtc_state[crtc->index].scanout_callback,
         NULL,
         "There's already a scanout callback configured for this CRTC."
@@ -1831,7 +1831,7 @@ static void release_plane(struct kms_req_builder *builder, uint32_t plane_id) {
         return;
     }
 
-    DEBUG_ASSERT(!BITSET_TEST(builder->available_planes, index));
+    assert(!BITSET_TEST(builder->available_planes, index));
     BITSET_SET(builder->available_planes, index);
 }
 
@@ -1842,8 +1842,8 @@ struct kms_req_builder *drmdev_create_request_builder(struct drmdev *drmdev, uin
     int64_t min_zpos;
     bool supports_atomic_modesetting;
 
-    DEBUG_ASSERT_NOT_NULL(drmdev);
-    DEBUG_ASSERT(crtc_id != 0 && crtc_id != 0xFFFFFFFF);
+    ASSERT_NOT_NULL(drmdev);
+    assert(crtc_id != 0 && crtc_id != 0xFFFFFFFF);
 
     drmdev_lock(drmdev);
 
@@ -1935,21 +1935,21 @@ struct drmdev *kms_req_builder_get_drmdev(struct kms_req_builder *builder) {
 }
 
 bool kms_req_builder_prefer_next_layer_opaque(struct kms_req_builder *builder) {
-    DEBUG_ASSERT_NOT_NULL(builder);
+    ASSERT_NOT_NULL(builder);
     return builder->n_layers == 0;
 }
 
 int kms_req_builder_set_mode(struct kms_req_builder *builder, const drmModeModeInfo *mode) {
-    DEBUG_ASSERT_NOT_NULL(builder);
-    DEBUG_ASSERT_NOT_NULL(mode);
+    ASSERT_NOT_NULL(builder);
+    ASSERT_NOT_NULL(mode);
     builder->has_mode = true;
     builder->mode = *mode;
     return 0;
 }
 
 int kms_req_builder_unset_mode(struct kms_req_builder *builder) {
-    DEBUG_ASSERT_NOT_NULL(builder);
-    DEBUG_ASSERT(!builder->has_mode);
+    ASSERT_NOT_NULL(builder);
+    assert(!builder->has_mode);
     builder->unset_mode = true;
     return 0;
 }
@@ -1957,8 +1957,8 @@ int kms_req_builder_unset_mode(struct kms_req_builder *builder) {
 int kms_req_builder_set_connector(struct kms_req_builder *builder, uint32_t connector_id) {
     struct drm_connector *conn;
 
-    DEBUG_ASSERT_NOT_NULL(builder);
-    DEBUG_ASSERT(DRM_ID_IS_VALID(connector_id));
+    ASSERT_NOT_NULL(builder);
+    assert(DRM_ID_IS_VALID(connector_id));
 
     for_each_connector_in_drmdev(builder->drmdev, conn) {
         if (conn->id == connector_id) {
@@ -1987,10 +1987,10 @@ int kms_req_builder_push_fb_layer(
     bool close_in_fence_fd_after;
     int ok, index;
 
-    DEBUG_ASSERT_NOT_NULL(builder);
-    DEBUG_ASSERT_NOT_NULL(layer);
-    DEBUG_ASSERT_NOT_NULL(release_callback);
-    DEBUG_ASSERT_EQUALS_MSG(deferred_release_callback, NULL, "deferred release callbacks are not supported right now.");
+    ASSERT_NOT_NULL(builder);
+    ASSERT_NOT_NULL(layer);
+    ASSERT_NOT_NULL(release_callback);
+    ASSERT_EQUALS_MSG(deferred_release_callback, NULL, "deferred release callbacks are not supported right now.");
 
     if (builder->use_legacy && builder->supports_atomic && builder->n_layers > 1) {
         // if we already have a first layer and we should use legacy modesetting even though the kernel driver
@@ -2193,8 +2193,8 @@ fail_release_plane:
 }
 
 int kms_req_builder_push_zpos_placeholder_layer(struct kms_req_builder *builder, int64_t *zpos_out) {
-    DEBUG_ASSERT_NOT_NULL(builder);
-    DEBUG_ASSERT_NOT_NULL(zpos_out);
+    ASSERT_NOT_NULL(builder);
+    ASSERT_NOT_NULL(zpos_out);
     *zpos_out = builder->next_zpos++;
     return 0;
 }
@@ -2230,7 +2230,7 @@ kms_req_commit_common(struct kms_req *req, bool blocking, kms_scanout_cb_t scano
     update_mode = false;
     mode_blob = NULL;
 
-    DEBUG_ASSERT_NOT_NULL(req);
+    ASSERT_NOT_NULL(req);
     builder = (struct kms_req_builder *) req;
 
     drmdev_lock(builder->drmdev);
@@ -2279,13 +2279,13 @@ kms_req_commit_common(struct kms_req *req, bool blocking, kms_scanout_cb_t scano
     }
 
     if (builder->use_legacy) {
-        DEBUG_ASSERT_EQUALS(builder->layers[0].layer.dst_x, 0);
-        DEBUG_ASSERT_EQUALS(builder->layers[0].layer.dst_y, 0);
-        DEBUG_ASSERT_EQUALS(builder->layers[0].layer.dst_w, builder->mode.hdisplay);
-        DEBUG_ASSERT_EQUALS(builder->layers[0].layer.dst_h, builder->mode.vdisplay);
+        ASSERT_EQUALS(builder->layers[0].layer.dst_x, 0);
+        ASSERT_EQUALS(builder->layers[0].layer.dst_y, 0);
+        ASSERT_EQUALS(builder->layers[0].layer.dst_w, builder->mode.hdisplay);
+        ASSERT_EQUALS(builder->layers[0].layer.dst_h, builder->mode.vdisplay);
 
         /// TODO: Do we really need to assert this?
-        DEBUG_ASSERT(get_pixfmt_info(builder->layers[0].layer.format)->is_opaque);
+        assert(get_pixfmt_info(builder->layers[0].layer.format)->is_opaque);
 
         if (update_mode) {
             /// TODO: Fetch new connector or current connector here since we seem to need it for drmModeSetCrtc
@@ -2322,7 +2322,7 @@ kms_req_commit_common(struct kms_req *req, bool blocking, kms_scanout_cb_t scano
         }
 
         // This should also be ensured by kms_req_builder_push_fb_layer
-        DEBUG_ASSERT_MSG(
+        ASSERT_MSG(
             !(builder->supports_atomic && builder->n_layers > 1),
             "There can be at most one framebuffer layer when the KMS device supports atomic modesetting but we are "
             "using legacy modesetting."
@@ -2415,7 +2415,7 @@ fail_unlock:
 void set_vblank_ns(struct drmdev *drmdev, uint64_t vblank_ns, void *userdata) {
     uint64_t *vblank_ns_out;
 
-    DEBUG_ASSERT_NOT_NULL(userdata);
+    ASSERT_NOT_NULL(userdata);
     vblank_ns_out = userdata;
     (void) drmdev;
 
@@ -2433,7 +2433,7 @@ int kms_req_commit_blocking(struct kms_req *req, uint64_t *vblank_ns_out) {
     }
 
     // make sure the vblank_ns is actually set
-    DEBUG_ASSERT(vblank_ns != int64_to_uint64(-1));
+    assert(vblank_ns != int64_to_uint64(-1));
     if (vblank_ns_out != NULL) {
         *vblank_ns_out = vblank_ns;
     }

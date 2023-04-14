@@ -103,8 +103,8 @@ static struct cursor_buffer *cursor_buffer_new(struct drmdev *drmdev, enum curso
     int pixel_size, hot_x, hot_y;
     int ok;
 
-    DEBUG_ASSERT_NOT_NULL(drmdev);
-    DEBUG_ASSERT(rotation == 0 || rotation == 1 || rotation == 2 || rotation == 3);
+    ASSERT_NOT_NULL(drmdev);
+    assert(rotation == 0 || rotation == 1 || rotation == 2 || rotation == 3);
 
     if (!drmdev_supports_dumb_buffers(drmdev)) {
         LOG_ERROR("KMS doesn't support dumb buffers. Can't upload mouse cursor icon.\n");
@@ -129,11 +129,11 @@ static struct cursor_buffer *cursor_buffer_new(struct drmdev *drmdev, enum curso
     }
 
     icon = cursors + size;
-    DEBUG_ASSERT_EQUALS(pixel_size, icon->width);
-    DEBUG_ASSERT_EQUALS(pixel_size, icon->height);
+    ASSERT_EQUALS(pixel_size, icon->width);
+    ASSERT_EQUALS(pixel_size, icon->height);
 
     if (rotation == 0) {
-        DEBUG_ASSERT_EQUALS(pixel_size * 4, pitch);
+        ASSERT_EQUALS(pixel_size * 4, pitch);
         memcpy(map_void, icon->data, buffer_size);
         hot_x = icon->hot_x;
         hot_y = icon->hot_y;
@@ -168,7 +168,7 @@ static struct cursor_buffer *cursor_buffer_new(struct drmdev *drmdev, enum curso
             hot_x = pixel_size - icon->hot_x - 1;
             hot_y = pixel_size - icon->hot_y - 1;
         } else {
-            DEBUG_ASSERT(rotation == 3);
+            assert(rotation == 3);
             hot_x = icon->hot_y;
             hot_y = pixel_size - icon->hot_x - 1;
         }
@@ -346,7 +346,7 @@ struct rendertarget_release_data {
 static void on_release_gbm_rendertarget_fb(void *userdata) {
     struct rendertarget_release_data *data;
 
-    DEBUG_ASSERT_NOT_NULL(userdata);
+    ASSERT_NOT_NULL(userdata);
     data = userdata;
 
     gbm_surface_release_buffer(data->surface, data->bo);
@@ -668,8 +668,8 @@ static void fill_platform_view_params(
 static void on_scanout(struct drmdev *drmdev, uint64_t vblank_ns, void *userdata) {
     struct compositor *compositor;
 
-    DEBUG_ASSERT_NOT_NULL(drmdev);
-    DEBUG_ASSERT_NOT_NULL(userdata);
+    ASSERT_NOT_NULL(drmdev);
+    ASSERT_NOT_NULL(userdata);
     compositor = userdata;
 
     (void) drmdev;
@@ -712,7 +712,7 @@ static bool on_present_layers(const FlutterLayer **layers, size_t layers_count, 
                 layers[i]->size.height
             );
         } else {
-            DEBUG_ASSERT(layers[i]->type == kFlutterLayerContentTypePlatformView);
+            assert(layers[i]->type == kFlutterLayerContentTypePlatformView);
 
             LOG_DEBUG(
                 "  platform view (id: %" PRId64 ", offset: %f, %f, size: %f, %f) mutations:\n",
@@ -762,7 +762,7 @@ static bool on_present_layers(const FlutterLayer **layers, size_t layers_count, 
                             mut->transformation.pers2
                         );
                         break;
-                    default: DEBUG_ASSERT_MSG(0, "invalid platform view mutation type\n"); break;
+                    default: ASSERT_MSG(0, "invalid platform view mutation type\n"); break;
                 }
             }
         }
@@ -823,7 +823,7 @@ static bool on_present_layers(const FlutterLayer **layers, size_t layers_count, 
                 LOG_ERROR("Could not present backing store. rendertarget->present: %s\n", strerror(ok));
             }
         } else {
-            DEBUG_ASSERT(layers[i]->type == kFlutterLayerContentTypePlatformView);
+            assert(layers[i]->type == kFlutterLayerContentTypePlatformView);
             cb_data = get_cbs_for_view_id_locked(layers[i]->platform_view->identifier);
 
             if ((cb_data != NULL) && (cb_data->present != NULL)) {

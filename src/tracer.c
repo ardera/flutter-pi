@@ -80,7 +80,7 @@ void tracer_set_cbs(
     tracer->trace_instant = trace_instant;
 
     bool already_set_before = atomic_exchange(&tracer->has_cbs, true);
-    DEBUG_ASSERT_MSG(!already_set_before, "tracing callbacks can only be set once.");
+    ASSERT_MSG(!already_set_before, "tracing callbacks can only be set once.");
     (void) already_set_before;
 }
 
@@ -98,8 +98,8 @@ static void log_discarded_event(struct tracer *tracer, const char *name) {
 }
 
 void __tracer_begin(struct tracer *tracer, const char *name) {
-    DEBUG_ASSERT_NOT_NULL(tracer);
-    DEBUG_ASSERT_NOT_NULL(name);
+    ASSERT_NOT_NULL(tracer);
+    ASSERT_NOT_NULL(name);
     if (atomic_load(&tracer->has_cbs)) {
         tracer->trace_begin(name);
     } else {
@@ -108,8 +108,8 @@ void __tracer_begin(struct tracer *tracer, const char *name) {
 }
 
 void __tracer_end(struct tracer *tracer, const char *name) {
-    DEBUG_ASSERT_NOT_NULL(tracer);
-    DEBUG_ASSERT_NOT_NULL(name);
+    ASSERT_NOT_NULL(tracer);
+    ASSERT_NOT_NULL(name);
     if (atomic_load(&tracer->has_cbs)) {
         tracer->trace_end(name);
     } else {
@@ -118,8 +118,8 @@ void __tracer_end(struct tracer *tracer, const char *name) {
 }
 
 void __tracer_instant(struct tracer *tracer, const char *name) {
-    DEBUG_ASSERT_NOT_NULL(tracer);
-    DEBUG_ASSERT_NOT_NULL(name);
+    ASSERT_NOT_NULL(tracer);
+    ASSERT_NOT_NULL(name);
     if (atomic_load(&tracer->has_cbs)) {
         tracer->trace_instant(name);
     } else {

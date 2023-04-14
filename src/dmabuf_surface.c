@@ -88,7 +88,7 @@ ATTR_PURE struct dmabuf_surface *__checked_cast_dmabuf_surface(void *ptr) {
     struct dmabuf_surface *s;
 
     s = CAST_DMABUF_SURFACE_UNCHECKED(ptr);
-    DEBUG_ASSERT(uuid_equals(s->uuid, uuid));
+    assert(uuid_equals(s->uuid, uuid));
     return s;
 }
 #endif
@@ -173,12 +173,12 @@ int dmabuf_surface_push_dmabuf(struct dmabuf_surface *s, const struct dmabuf *bu
     struct refcounted_dmabuf *b;
     int ok;
 
-    DEBUG_ASSERT_NOT_NULL(s);
-    DEBUG_ASSERT_NOT_NULL(buf);
-    DEBUG_ASSERT_NOT_NULL(release_cb);
+    ASSERT_NOT_NULL(s);
+    ASSERT_NOT_NULL(buf);
+    ASSERT_NOT_NULL(release_cb);
 
 #ifdef HAS_EGL
-    DEBUG_ASSERT(eglGetCurrentContext() != EGL_NO_CONTEXT);
+    assert(eglGetCurrentContext() != EGL_NO_CONTEXT);
 #endif
 
     UNIMPLEMENTED();
@@ -220,7 +220,7 @@ int dmabuf_surface_push_dmabuf(struct dmabuf_surface *s, const struct dmabuf *bu
 }
 
 ATTR_PURE int64_t dmabuf_surface_get_texture_id(struct dmabuf_surface *s) {
-    DEBUG_ASSERT_NOT_NULL(s);
+    ASSERT_NOT_NULL(s);
     return texture_get_id(s->texture);
 }
 
@@ -229,7 +229,7 @@ static int dmabuf_surface_present_kms(struct surface *_s, const struct fl_layer_
     uint32_t fb_id;
     int ok;
 
-    DEBUG_ASSERT_MSG(props->is_aa_rect, "Only axis-aligned rectangles supported right now.");
+    ASSERT_MSG(props->is_aa_rect, "Only axis-aligned rectangles supported right now.");
     s = CAST_THIS(_s);
     (void) s;
     (void) props;
@@ -237,14 +237,10 @@ static int dmabuf_surface_present_kms(struct surface *_s, const struct fl_layer_
 
     surface_lock(_s);
 
-    DEBUG_ASSERT_NOT_NULL_MSG(s->next_buf, "dmabuf_surface_present_kms was called, but no dmabuf is queued to be presented.");
+    ASSERT_NOT_NULL_MSG(s->next_buf, "dmabuf_surface_present_kms was called, but no dmabuf is queued to be presented.");
 
     if (DRM_ID_IS_VALID(s->next_buf->drm_fb_id)) {
-        DEBUG_ASSERT_EQUALS_MSG(
-            s->next_buf->drmdev,
-            kms_req_builder_get_drmdev(builder),
-            "Only 1 KMS instance per dmabuf supported right now."
-        );
+        ASSERT_EQUALS_MSG(s->next_buf->drmdev, kms_req_builder_get_drmdev(builder), "Only 1 KMS instance per dmabuf supported right now.");
         fb_id = s->next_buf->drm_fb_id;
     } else {
         fb_id = drmdev_add_fb_from_dmabuf(

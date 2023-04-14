@@ -55,7 +55,7 @@ static ATTR_PURE EGLConfig choose_config_with_pixel_format(EGLDisplay display, c
     EGLBoolean egl_ok;
     EGLint value, n_matched;
 
-    DEBUG_ASSERT(display != EGL_NO_DISPLAY);
+    assert(display != EGL_NO_DISPLAY);
 
     LOG_DEBUG("Choosing EGL config with pixel format %s...\n", get_pixfmt_info(pixel_format)->name);
 
@@ -303,7 +303,7 @@ fail_return_null:
 }
 
 void gl_renderer_destroy(struct gl_renderer *renderer) {
-    DEBUG_ASSERT_NOT_NULL(renderer);
+    ASSERT_NOT_NULL(renderer);
     tracer_unref(renderer->tracer);
     pthread_mutex_destroy(&renderer->root_context_lock);
     eglDestroyContext(renderer->egl_display, renderer->flutter_resource_uploading_context);
@@ -316,23 +316,23 @@ void gl_renderer_destroy(struct gl_renderer *renderer) {
 DEFINE_REF_OPS(gl_renderer, n_refs)
 
 bool gl_renderer_has_forced_pixel_format(struct gl_renderer *renderer) {
-    DEBUG_ASSERT_NOT_NULL(renderer);
+    ASSERT_NOT_NULL(renderer);
     return renderer->has_forced_pixel_format;
 }
 
 enum pixfmt gl_renderer_get_forced_pixel_format(struct gl_renderer *renderer) {
-    DEBUG_ASSERT_NOT_NULL(renderer);
-    DEBUG_ASSERT(renderer->has_forced_pixel_format);
+    ASSERT_NOT_NULL(renderer);
+    assert(renderer->has_forced_pixel_format);
     return renderer->pixel_format;
 }
 
 bool gl_renderer_has_forced_egl_config(struct gl_renderer *renderer) {
-    DEBUG_ASSERT_NOT_NULL(renderer);
+    ASSERT_NOT_NULL(renderer);
     return renderer->forced_egl_config != EGL_NO_CONFIG_KHR;
 }
 
 EGLConfig gl_renderer_get_forced_egl_config(struct gl_renderer *renderer) {
-    DEBUG_ASSERT_NOT_NULL(renderer);
+    ASSERT_NOT_NULL(renderer);
     return renderer->forced_egl_config;
 }
 
@@ -343,7 +343,7 @@ struct gbm_device *gl_renderer_get_gbm_device(struct gl_renderer *renderer) {
 int gl_renderer_make_flutter_setup_context_current(struct gl_renderer *renderer) {
     EGLBoolean egl_ok;
 
-    DEBUG_ASSERT_NOT_NULL(renderer);
+    ASSERT_NOT_NULL(renderer);
 
     TRACER_BEGIN(renderer->tracer, "gl_renderer_make_flutter_rendering_context_current");
     egl_ok = eglMakeCurrent(renderer->egl_display, EGL_NO_SURFACE, EGL_NO_SURFACE, renderer->flutter_setup_context);
@@ -360,9 +360,9 @@ int gl_renderer_make_flutter_setup_context_current(struct gl_renderer *renderer)
 int gl_renderer_make_flutter_rendering_context_current(struct gl_renderer *renderer, EGLSurface surface) {
     EGLBoolean egl_ok;
 
-    DEBUG_ASSERT_NOT_NULL(renderer);
+    ASSERT_NOT_NULL(renderer);
     /// NOTE: Allow this for now
-    /// DEBUG_ASSERT(surface != EGL_NO_SURFACE);
+    /// assert(surface != EGL_NO_SURFACE);
 
     TRACER_BEGIN(renderer->tracer, "gl_renderer_make_flutter_rendering_context_current");
     egl_ok = eglMakeCurrent(renderer->egl_display, surface, surface, renderer->flutter_rendering_context);
@@ -379,7 +379,7 @@ int gl_renderer_make_flutter_rendering_context_current(struct gl_renderer *rende
 int gl_renderer_make_flutter_resource_uploading_context_current(struct gl_renderer *renderer) {
     EGLBoolean egl_ok;
 
-    DEBUG_ASSERT_NOT_NULL(renderer);
+    ASSERT_NOT_NULL(renderer);
 
     TRACER_BEGIN(renderer->tracer, "gl_renderer_make_flutter_resource_uploading_context_current");
     egl_ok = eglMakeCurrent(renderer->egl_display, EGL_NO_SURFACE, EGL_NO_SURFACE, renderer->flutter_resource_uploading_context);
@@ -396,7 +396,7 @@ int gl_renderer_make_flutter_resource_uploading_context_current(struct gl_render
 int gl_renderer_clear_current(struct gl_renderer *renderer) {
     EGLBoolean egl_ok;
 
-    DEBUG_ASSERT_NOT_NULL(renderer);
+    ASSERT_NOT_NULL(renderer);
 
     TRACER_BEGIN(renderer->tracer, "gl_renderer_clear_current");
     egl_ok = eglMakeCurrent(renderer->egl_display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
@@ -428,14 +428,14 @@ void *gl_renderer_get_proc_address(UNUSED struct gl_renderer *renderer, const ch
 }
 
 EGLDisplay gl_renderer_get_egl_display(struct gl_renderer *renderer) {
-    DEBUG_ASSERT_NOT_NULL(renderer);
+    ASSERT_NOT_NULL(renderer);
     return renderer->egl_display;
 }
 
 EGLContext gl_renderer_create_context(struct gl_renderer *renderer) {
     EGLContext context;
 
-    DEBUG_ASSERT_NOT_NULL(renderer);
+    ASSERT_NOT_NULL(renderer);
 
     pthread_mutex_lock(&renderer->root_context_lock);
     context = eglCreateContext(renderer->egl_display, renderer->forced_egl_config, renderer->root_context, NULL);
@@ -445,19 +445,19 @@ EGLContext gl_renderer_create_context(struct gl_renderer *renderer) {
 }
 
 bool gl_renderer_supports_egl_extension(struct gl_renderer *renderer, const char *name) {
-    DEBUG_ASSERT_NOT_NULL(renderer);
-    DEBUG_ASSERT_NOT_NULL(name);
+    ASSERT_NOT_NULL(renderer);
+    ASSERT_NOT_NULL(name);
     return check_egl_extension(renderer->egl_client_exts, renderer->egl_display_exts, name);
 }
 
 bool gl_renderer_supports_gl_extension(struct gl_renderer *renderer, const char *name) {
-    DEBUG_ASSERT_NOT_NULL(renderer);
-    DEBUG_ASSERT_NOT_NULL(name);
+    ASSERT_NOT_NULL(renderer);
+    ASSERT_NOT_NULL(name);
     return check_egl_extension(renderer->gl_exts, NULL, name);
 }
 
 bool gl_renderer_is_llvmpipe(struct gl_renderer *renderer) {
-    DEBUG_ASSERT_NOT_NULL(renderer);
+    ASSERT_NOT_NULL(renderer);
     return strstr(renderer->gl_renderer, "llvmpipe") != NULL;
 }
 
@@ -469,8 +469,8 @@ int gl_renderer_make_this_a_render_thread(struct gl_renderer *renderer) {
     EGLContext context;
     EGLBoolean egl_ok;
 
-    DEBUG_ASSERT_NOT_NULL(renderer);
-    DEBUG_ASSERT(is_render_thread == false);
+    ASSERT_NOT_NULL(renderer);
+    assert(is_render_thread == false);
 
     pthread_mutex_lock(&renderer->root_context_lock);
     context = eglCreateContext(renderer->egl_display, renderer->forced_egl_config, renderer->root_context, NULL);
@@ -499,13 +499,13 @@ void gl_renderer_cleanup_this_render_thread() {
     EGLContext context;
     EGLBoolean egl_ok;
 
-    DEBUG_ASSERT(is_render_thread);
+    assert(is_render_thread);
 
     context = eglGetCurrentContext();
-    DEBUG_ASSERT(context != EGL_NO_CONTEXT);
+    assert(context != EGL_NO_CONTEXT);
 
     display = eglGetCurrentDisplay();
-    DEBUG_ASSERT(display != EGL_NO_CONTEXT);
+    assert(display != EGL_NO_CONTEXT);
 
     egl_ok = eglMakeCurrent(EGL_NO_DISPLAY, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
     if (egl_ok == EGL_FALSE) {
@@ -522,7 +522,7 @@ void gl_renderer_cleanup_this_render_thread() {
 
 ATTR_PURE EGLConfig
 gl_renderer_choose_config(struct gl_renderer *renderer, bool has_desired_pixel_format, enum pixfmt desired_pixel_format) {
-    DEBUG_ASSERT_NOT_NULL(renderer);
+    ASSERT_NOT_NULL(renderer);
 
     if (renderer->forced_egl_config != EGL_NO_CONFIG_KHR) {
         return renderer->forced_egl_config;
@@ -540,8 +540,8 @@ gl_renderer_choose_config(struct gl_renderer *renderer, bool has_desired_pixel_f
 }
 
 ATTR_PURE EGLConfig gl_renderer_choose_config_direct(struct gl_renderer *renderer, enum pixfmt pixel_format) {
-    DEBUG_ASSERT_NOT_NULL(renderer);
-    DEBUG_ASSERT_PIXFMT_VALID(pixel_format);
+    ASSERT_NOT_NULL(renderer);
+    ASSERT_PIXFMT_VALID(pixel_format);
 
     const EGLint config_attribs[] = { EGL_SURFACE_TYPE, EGL_WINDOW_BIT, EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT, EGL_SAMPLES, 0, EGL_NONE };
 
