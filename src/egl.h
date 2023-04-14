@@ -11,7 +11,7 @@
 #include <stdbool.h>
 #include <string.h>
 
-#ifdef HAS_EGL
+#ifdef HAVE_EGL
 
     #include <EGL/egl.h>
     #include <EGL/eglext.h>
