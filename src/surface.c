@@ -50,6 +50,7 @@ int surface_init(struct surface *s, struct tracer *tracer) {
 }
 
 void surface_deinit(struct surface *s) {
+    pthread_mutex_destroy(&s->lock);
     tracer_unref(s->tracer);
 }
 
