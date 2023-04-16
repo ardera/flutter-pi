@@ -160,7 +160,7 @@ ATTR_PURE struct vk_gbm_render_surface *__checked_cast_vk_gbm_render_surface(voi
     struct vk_gbm_render_surface *surface;
 
     surface = CAST_VK_GBM_RENDER_SURFACE_UNCHECKED(ptr);
-    DEBUG_ASSERT(uuid_equals(surface->uuid, uuid));
+    ASSERT(uuid_equals(surface->uuid, uuid));
     return surface;
 }
 #endif
