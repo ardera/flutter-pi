@@ -663,26 +663,28 @@ static int vk_gbm_render_surface_present_kms(struct surface *s, const struct fl_
     TRACER_BEGIN(vk_surface->surface.tracer, "kms_req_builder_push_fb_layer");
     ok = kms_req_builder_push_fb_layer(
         builder,
-        &(const struct kms_fb_layer){ .drm_fb_id = fb_id,
-                                      .format = pixel_format,
-                                      .has_modifier = true,
-                                      .modifier = gbm_bo_get_modifier(bo),
+        &(const struct kms_fb_layer){
+            .drm_fb_id = fb_id,
+            .format = pixel_format,
+            .has_modifier = true,
+            .modifier = gbm_bo_get_modifier(bo),
 
-                                      .dst_x = (int32_t) props->aa_rect.offset.x,
-                                      .dst_y = (int32_t) props->aa_rect.offset.y,
-                                      .dst_w = (uint32_t) props->aa_rect.size.x,
-                                      .dst_h = (uint32_t) props->aa_rect.size.y,
+            .dst_x = (int32_t) props->aa_rect.offset.x,
+            .dst_y = (int32_t) props->aa_rect.offset.y,
+            .dst_w = (uint32_t) props->aa_rect.size.x,
+            .dst_h = (uint32_t) props->aa_rect.size.y,
 
-                                      .src_x = 0,
-                                      .src_y = 0,
-                                      .src_w = DOUBLE_TO_FP1616_ROUNDED(vk_surface->render_surface.size.x),
-                                      .src_h = DOUBLE_TO_FP1616_ROUNDED(vk_surface->render_surface.size.y),
+            .src_x = 0,
+            .src_y = 0,
+            .src_w = DOUBLE_TO_FP1616_ROUNDED(vk_surface->render_surface.size.x),
+            .src_h = DOUBLE_TO_FP1616_ROUNDED(vk_surface->render_surface.size.y),
 
-                                      .has_rotation = false,
-                                      .rotation = PLANE_TRANSFORM_ROTATE_0,
+            .has_rotation = false,
+            .rotation = PLANE_TRANSFORM_ROTATE_0,
 
-                                      .has_in_fence_fd = false,
-                                      .in_fence_fd = 0 },
+            .has_in_fence_fd = false,
+            .in_fence_fd = 0,
+        },
         on_release_layer,
         NULL,
         locked_fb_ref(vk_surface->front_fb)
