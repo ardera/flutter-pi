@@ -755,8 +755,6 @@ void test_raw_std_value_equals() {
 
     // map
     {
-        const char *str = "The quick brown fox jumps over the lazy dog.";
-
         // clang-format off
         alignas(16) uint8_t lhs[] = {
             [0] = kStdMap,
@@ -1207,8 +1205,6 @@ void test_raw_std_value_after() {
 
     // map
     {
-        const char *str = "The quick brown fox jumps over the lazy dog.";
-
         // clang-format off
         alignas(16) uint8_t buffer[] = {
             [0] = kStdMap,
