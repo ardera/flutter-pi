@@ -173,7 +173,7 @@ target_include_directories(flutterpi_module PUBLIC
   ${CMAKE_SOURCE_DIR}/src
 )
 
-target_compile_options(flutterpi_module PRIVATE
+target_compile_options(flutterpi_module PUBLIC
   $<$<CONFIG:Debug>:-O0 -Wall -Wextra -Wno-sign-compare -Werror -ggdb -U_FORTIFY_SOURCE -DDEBUG>
   $<$<CONFIG:RelWithDebInfo>:-O3 -Wall -Wextra -Wno-sign-compare -ggdb -DNDEBUG>
   $<$<CONFIG:Release>:-O3 -Wall -Wextra -Wno-sign-compare -DNDEBUG>
@@ -182,7 +182,7 @@ target_compile_options(flutterpi_module PRIVATE
 # GCC prior to 11.3 reports false positives for missing-field-initializers warning.
 if (CMAKE_C_COMPILER_ID STREQUAL "GNU")
   if (CMAKE_C_COMPILER_VERSION VERSION_LESS "11.3")
-    target_compile_options(flutterpi_module PRIVATE -Wno-missing-field-initializers)
+    target_compile_options(flutterpi_module PUBLIC -Wno-missing-field-initializers)
   endif()
 endif()
 
@@ -194,14 +194,14 @@ list(GET LIBINPUT_VERSION_AS_LIST 0 LIBINPUT_VERSION_MAJOR)
 list(GET LIBINPUT_VERSION_AS_LIST 1 LIBINPUT_VERSION_MINOR)
 list(GET LIBINPUT_VERSION_AS_LIST 2 LIBINPUT_VERSION_PATCH)
 
-target_compile_definitions(flutterpi_module PRIVATE
+target_compile_definitions(flutterpi_module PUBLIC
   LIBINPUT_VERSION_MAJOR=${LIBINPUT_VERSION_MAJOR}
   LIBINPUT_VERSION_MINOR=${LIBINPUT_VERSION_MINOR}
   LIBINPUT_VERSION_PATCH=${LIBINPUT_VERSION_PATCH}
 )
 
 # TODO: Just unconditionally define those, make them optional later
-target_compile_definitions(flutterpi_module PRIVATE HAVE_KMS HAVE_GBM HAVE_FBDEV)
+target_compile_definitions(flutterpi_module PUBLIC HAVE_KMS HAVE_GBM HAVE_FBDEV)
 
 # OpenGL
 pkg_check_modules(EGL IMPORTED_TARGET egl)
@@ -217,7 +217,7 @@ if (ENABLE_OPENGL)
       PkgConfig::EGL
       PkgConfig::GLES2
     )
-    target_compile_definitions(flutterpi_module PRIVATE HAVE_EGL HAVE_GLES2)
+    target_compile_definitions(flutterpi_module PUBLIC HAVE_EGL HAVE_GLES2)
   elseif (TRY_ENABLE_OPENGL)
     message("EGL and/or OpenGL was not found. Flutter-pi will build without EGL/OpenGL rendering support.")
   else()
@@ -238,7 +238,7 @@ if (NOT EGL_FOUND)
     FetchContent_Populate(egl_registry)
   endif()
 
-  target_include_directories(flutterpi_module PRIVATE ${egl_registry_SOURCE_DIR}/api/)
+  target_include_directories(flutterpi_module PUBLIC ${egl_registry_SOURCE_DIR}/api/)
 endif()
 
 if (NOT GLES2_FOUND)
@@ -254,7 +254,7 @@ if (NOT GLES2_FOUND)
     FetchContent_Populate(ogl_registry)
   endif()
 
-  target_include_directories(flutterpi_module PRIVATE ${ogl_registry_SOURCE_DIR}/api/)
+  target_include_directories(flutterpi_module PUBLIC ${ogl_registry_SOURCE_DIR}/api/)
 endif()
 
 # Filesystem Layout
@@ -266,9 +266,9 @@ endif()
 
 message(STATUS "Filesystem Layout ...... ${FILESYSTEM_LAYOUT}")
 if(FILESYSTEM_LAYOUT STREQUAL default)
-  target_compile_definitions(flutterpi_module PRIVATE "FILESYSTEM_LAYOUT_DEFAULT")
+  target_compile_definitions(flutterpi_module PUBLIC "FILESYSTEM_LAYOUT_DEFAULT")
 elseif(FILESYSTEM_LAYOUT STREQUAL meta-flutter)
-  target_compile_definitions(flutterpi_module PRIVATE "FILESYSTEM_LAYOUT_METAFLUTTER")
+  target_compile_definitions(flutterpi_module PUBLIC "FILESYSTEM_LAYOUT_METAFLUTTER")
 endif()
 
 pkg_check_modules(VULKAN IMPORTED_TARGET vulkan)
@@ -281,7 +281,7 @@ if (ENABLE_VULKAN)
     target_link_libraries(flutterpi_module PUBLIC
       PkgConfig::VULKAN
     )
-    target_compile_definitions(flutterpi_module PRIVATE HAVE_VULKAN)
+    target_compile_definitions(flutterpi_module PUBLIC HAVE_VULKAN)
   elseif (TRY_ENABLE_VULKAN)
     message("Vulkan was not found. Flutter-pi will build without vulkan rendering support.")
   else()
@@ -304,7 +304,7 @@ if (NOT VULKAN_FOUND)
     FetchContent_Populate(vulkan_headers)
   endif()
 
-  target_include_directories(flutterpi_module PRIVATE ${vulkan_headers_SOURCE_DIR}/include/)
+  target_include_directories(flutterpi_module PUBLIC ${vulkan_headers_SOURCE_DIR}/include/)
 endif()
 
 # Session switching support (using libseat)
@@ -330,11 +330,11 @@ endif()
 # in flutter-pi.c)
 if (BUILD_TEXT_INPUT_PLUGIN)
   target_sources(flutterpi_module PRIVATE src/plugins/text_input.c)
-  target_compile_definitions(flutterpi_module PRIVATE "BUILD_TEXT_INPUT_PLUGIN")
+  target_compile_definitions(flutterpi_module PUBLIC "BUILD_TEXT_INPUT_PLUGIN")
 endif()
 if (BUILD_RAW_KEYBOARD_PLUGIN)
   target_sources(flutterpi_module PRIVATE src/plugins/raw_keyboard.c)
-  target_compile_definitions(flutterpi_module PRIVATE "BUILD_RAW_KEYBOARD_PLUGIN")
+  target_compile_definitions(flutterpi_module PUBLIC "BUILD_RAW_KEYBOARD_PLUGIN")
 endif()
 if (BUILD_TEST_PLUGIN)
   target_sources(flutterpi_module PRIVATE src/plugins/testplugin.c)
@@ -362,7 +362,7 @@ if (BUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN)
     list(GET LIBGSTREAMER_VERSION_AS_LIST 1 LIBGSTREAMER_VERSION_MINOR)
     list(GET LIBGSTREAMER_VERSION_AS_LIST 2 LIBGSTREAMER_VERSION_PATCH)
 
-    target_compile_definitions(flutterpi_module PRIVATE
+    target_compile_definitions(flutterpi_module PUBLIC
       LIBGSTREAMER_VERSION_MAJOR=${LIBGSTREAMER_VERSION_MAJOR}
       LIBGSTREAMER_VERSION_MINOR=${LIBGSTREAMER_VERSION_MINOR}
       LIBGSTREAMER_VERSION_PATCH=${LIBGSTREAMER_VERSION_PATCH}
@@ -412,13 +412,13 @@ endif()
 
 # Needed so dart VM can actually resolve symbols in the same
 # executable. (For dart:ffi DynamicLibrary.executable / DynamicLibrary.process)
-target_link_options(flutterpi_module PRIVATE -rdynamic)
+target_link_options(flutterpi_module PUBLIC -rdynamic)
 
 # Define VULKAN_DEBUG if it was set to On, or if it was set to AUTO and we're using debug mode.
 if (VULKAN_DEBUG STREQUAL "AUTO")
-  target_compile_definitions(flutterpi_module PRIVATE $<$<CONFIG:Debug>:VULKAN_DEBUG>)
+  target_compile_definitions(flutterpi_module PUBLIC $<$<CONFIG:Debug>:VULKAN_DEBUG>)
 elseif (VULKAN_DEBUG)
-  target_compile_definitions(flutterpi_module PRIVATE VULKAN_DEBUG)
+  target_compile_definitions(flutterpi_module PUBLIC VULKAN_DEBUG)
 endif()
 
 # Some sanitizer configs.
