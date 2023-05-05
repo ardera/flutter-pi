@@ -1597,9 +1597,10 @@ static int init_display(void) {
      * GBM INITIALIZATION *
      **********************/
     flutterpi.gbm.device = gbm_create_device(flutterpi.drm.drmdev->fd);
-    flutterpi.gbm.format = DRM_FORMAT_ARGB8888;
     flutterpi.gbm.surface = NULL;
     flutterpi.gbm.modifier = DRM_FORMAT_MOD_LINEAR;
+    if (!flutterpi.gbm.format)
+        flutterpi.gbm.format = DRM_FORMAT_ARGB8888;
 
     flutterpi.gbm.surface = gbm_surface_create_with_modifiers(flutterpi.gbm.device, flutterpi.display.width, flutterpi.display.height, flutterpi.gbm.format, &flutterpi.gbm.modifier, 1);
     if (flutterpi.gbm.surface == NULL) {
