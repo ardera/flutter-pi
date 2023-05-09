@@ -96,7 +96,7 @@ struct platform_task {
 struct platform_message {
     bool is_response;
     union {
-        FlutterPlatformMessageResponseHandle *target_handle;
+        const FlutterPlatformMessageResponseHandle *target_handle;
         struct {
             char *target_channel;
             FlutterPlatformMessageResponseHandle *response_handle;
@@ -123,7 +123,7 @@ int flutterpi_send_platform_message(
 );
 
 int flutterpi_respond_to_platform_message(
-    FlutterPlatformMessageResponseHandle *handle,
+    const FlutterPlatformMessageResponseHandle *handle,
     const uint8_t *restrict message,
     size_t message_size
 );

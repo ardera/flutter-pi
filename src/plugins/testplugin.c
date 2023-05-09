@@ -293,24 +293,24 @@ static int on_receive_ping(char *channel, struct platch_obj *object, FlutterPlat
 enum plugin_init_result testp_init(struct flutterpi *flutterpi, void **userdata_out) {
     int ok;
 
-    ok = plugin_registry_set_receiver(TESTPLUGIN_CHANNEL_JSON, kJSONMethodCall, on_receive_json);
+    ok = plugin_registry_set_receiver_locked(TESTPLUGIN_CHANNEL_JSON, kJSONMethodCall, on_receive_json);
     if (ok != 0) {
-        return kError_PluginInitResult;
+        return PLUGIN_INIT_RESULT_ERROR;
     }
 
-    ok = plugin_registry_set_receiver(TESTPLUGIN_CHANNEL_STD, kStandardMethodCall, on_receive_std);
+    ok = plugin_registry_set_receiver_locked(TESTPLUGIN_CHANNEL_STD, kStandardMethodCall, on_receive_std);
     if (ok != 0) {
         goto fail_remove_json_receiver;
     }
 
-    ok = plugin_registry_set_receiver(TESTPLUGIN_CHANNEL_PING, kStringCodec, on_receive_ping);
+    ok = plugin_registry_set_receiver_locked(TESTPLUGIN_CHANNEL_PING, kStringCodec, on_receive_ping);
     if (ok != 0) {
         goto fail_remove_std_receiver;
     }
 
     *userdata_out = NULL;
 
-    return kInitialized_PluginInitResult;
+    return PLUGIN_INIT_RESULT_INITIALIZED;
 
 fail_remove_std_receiver:
     plugin_registry_remove_receiver(TESTPLUGIN_CHANNEL_STD);
@@ -318,7 +318,7 @@ fail_remove_std_receiver:
 fail_remove_json_receiver:
     plugin_registry_remove_receiver(TESTPLUGIN_CHANNEL_JSON);
 
-    return kError_PluginInitResult;
+    return PLUGIN_INIT_RESULT_ERROR;
 }
 
 void testp_deinit(struct flutterpi *flutterpi, void *userdata) {

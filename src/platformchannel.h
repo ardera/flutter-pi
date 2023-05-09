@@ -72,7 +72,7 @@ struct std_value {
         struct {
             size_t size;
             union {
-                uint8_t *uint8array;
+                const uint8_t *uint8array;
                 int32_t *int32array;
                 int64_t *int64array;
                 double *float64array;
@@ -1338,7 +1338,7 @@ struct platch_obj {
         char *string_value;
         struct {
             size_t binarydata_size;
-            uint8_t *binarydata;
+            const uint8_t *binarydata;
         };
         struct json_value json_value;
         struct std_value std_value;
@@ -1410,7 +1410,7 @@ typedef int (*platch_msg_resp_callback)(struct platch_obj *object, void *userdat
 /// is freed by flutter, the contents of object_out will in many cases be bogus.
 /// If you'd like object_out to be persistent and not depend on the lifetime of the buffer,
 /// you'd have to manually deep-copy it.
-int platch_decode(uint8_t *buffer, size_t size, enum platch_codec codec, struct platch_obj *object_out);
+int platch_decode(const uint8_t *buffer, size_t size, enum platch_codec codec, struct platch_obj *object_out);
 
 /// Encodes a generic ChannelObject into a buffer (that is, too, allocated by PlatformChannel_encode)
 /// A pointer to the buffer is put into buffer_out and the size of that buffer into size_out.
@@ -1449,7 +1449,7 @@ int platch_call_json(char *channel, char *method, struct json_value *argument, p
 /// Responds to a platform message. You can (of course) only respond once to a platform message,
 /// i.e. a FlutterPlatformMessageResponseHandle can only be used once.
 /// The codec of `response` can be any of the available codecs.
-int platch_respond(FlutterPlatformMessageResponseHandle *handle, struct platch_obj *response);
+int platch_respond(const FlutterPlatformMessageResponseHandle *handle, struct platch_obj *response);
 
 /// Tells flutter that the platform message that was sent to you was not handled.
 ///   (for example, there's no plugin that is using this channel, or there is a plugin
@@ -1458,50 +1458,54 @@ int platch_respond(FlutterPlatformMessageResponseHandle *handle, struct platch_o
 /// When flutter receives this response, it will throw a MissingPluginException.
 ///   For most channel used by the ServicesPlugin, this is not too bad since it
 ///   specifies many of the channels used as OptionalMethodChannels. (which will silently catch the MissingPluginException)
-int platch_respond_not_implemented(FlutterPlatformMessageResponseHandle *handle);
+int platch_respond_not_implemented(const FlutterPlatformMessageResponseHandle *handle);
 
-int platch_respond_success_std(FlutterPlatformMessageResponseHandle *handle, struct std_value *return_value);
+int platch_respond_success_std(const FlutterPlatformMessageResponseHandle *handle, struct std_value *return_value);
 
 int platch_respond_error_std(
-    FlutterPlatformMessageResponseHandle *handle,
+    const FlutterPlatformMessageResponseHandle *handle,
     char *error_code,
     char *error_msg,
     struct std_value *error_details
 );
 
-int platch_respond_illegal_arg_std(FlutterPlatformMessageResponseHandle *handle, char *error_msg);
+int platch_respond_illegal_arg_std(const FlutterPlatformMessageResponseHandle *handle, char *error_msg);
 
-int platch_respond_illegal_arg_ext_std(FlutterPlatformMessageResponseHandle *handle, char *error_msg, struct std_value *error_details);
+int platch_respond_illegal_arg_ext_std(const FlutterPlatformMessageResponseHandle *handle, char *error_msg, struct std_value *error_details);
 
-int platch_respond_native_error_std(FlutterPlatformMessageResponseHandle *handle, int _errno);
+int platch_respond_native_error_std(const FlutterPlatformMessageResponseHandle *handle, int _errno);
 
-int platch_respond_success_json(FlutterPlatformMessageResponseHandle *handle, struct json_value *return_value);
+int platch_respond_success_json(const FlutterPlatformMessageResponseHandle *handle, struct json_value *return_value);
 
 int platch_respond_error_json(
-    FlutterPlatformMessageResponseHandle *handle,
+    const FlutterPlatformMessageResponseHandle *handle,
     char *error_code,
     char *error_msg,
     struct json_value *error_details
 );
 
-int platch_respond_illegal_arg_json(FlutterPlatformMessageResponseHandle *handle, char *error_msg);
+int platch_respond_illegal_arg_json(const FlutterPlatformMessageResponseHandle *handle, char *error_msg);
 
-int platch_respond_native_error_json(FlutterPlatformMessageResponseHandle *handle, int _errno);
+int platch_respond_native_error_json(const FlutterPlatformMessageResponseHandle *handle, int _errno);
 
-int platch_respond_success_pigeon(FlutterPlatformMessageResponseHandle *handle, struct std_value *return_value);
+int platch_respond_success_pigeon(const FlutterPlatformMessageResponseHandle *handle, struct std_value *return_value);
 
 int platch_respond_error_pigeon(
-    FlutterPlatformMessageResponseHandle *handle,
+    const FlutterPlatformMessageResponseHandle *handle,
     char *error_code,
     char *error_msg,
     struct std_value *error_details
 );
 
-int platch_respond_illegal_arg_pigeon(FlutterPlatformMessageResponseHandle *handle, char *error_msg);
+int platch_respond_illegal_arg_pigeon(const FlutterPlatformMessageResponseHandle *handle, char *error_msg);
 
-int platch_respond_illegal_arg_ext_pigeon(FlutterPlatformMessageResponseHandle *handle, char *error_msg, struct std_value *error_details);
+int platch_respond_illegal_arg_ext_pigeon(
+    const FlutterPlatformMessageResponseHandle *handle,
+    char *error_msg,
+    struct std_value *error_details
+);
 
-int platch_respond_native_error_pigeon(FlutterPlatformMessageResponseHandle *handle, int _errno);
+int platch_respond_native_error_pigeon(const FlutterPlatformMessageResponseHandle *handle, int _errno);
 
 /// Sends a success event with value `event_value` to an event channel
 /// that uses the standard method codec.

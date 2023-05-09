@@ -21,15 +21,13 @@ struct flutterpi_plugin_v2 {
     plugin_deinit_t deinit;
 };
 
-#define STREQ(a, b) (strcmp((a), (b)) == 0)
-
 /// The return value of a plugin initializer function.
 enum plugin_init_result {
-    kInitialized_PluginInitResult,  ///< The plugin was successfully initialized.
-    kNotApplicable_PluginInitResult,  ///< The plugin couldn't be initialized, because it's not compatible with the flutter-pi instance.
+    PLUGIN_INIT_RESULT_INITIALIZED,  ///< The plugin was successfully initialized.
+    PLUGIN_INIT_RESULT_NOT_APPLICABLE,  ///< The plugin couldn't be initialized, because it's not compatible with the flutter-pi instance.
     ///  For example, the plugin requires OpenGL but flutter-pi is using software rendering.
     ///  This is not an error, and flutter-pi will continue initializing the other plugins.
-    kError_PluginInitResult  ///< The plugin couldn't be initialized because an unexpected error ocurred.
+    PLUGIN_INIT_RESULT_ERROR  ///< The plugin couldn't be initialized because an unexpected error ocurred.
     ///  Flutter-pi may decide to abort the startup phase of the whole flutter-pi instance at that point.
 };
 
@@ -102,6 +100,13 @@ int plugin_registry_set_receiver_v2(
  *
  * The platform message will be automatically decoded using the codec `codec`.
  */
+int plugin_registry_set_receiver_locked(const char *channel, enum platch_codec codec, platch_obj_recv_callback callback);
+
+/**
+ * @brief Sets the callback that should be called when a platform message arrives on channel `channel`.
+ *
+ * The platform message will be automatically decoded using the codec `codec`.
+ */
 int plugin_registry_set_receiver(const char *channel, enum platch_codec codec, platch_obj_recv_callback callback);
 
 /**
@@ -142,18 +147,16 @@ void static_plugin_registry_add_plugin(const struct flutterpi_plugin_v2 *plugin)
 
 void static_plugin_registry_remove_plugin(const char *plugin_name);
 
-#define FLUTTERPI_PLUGIN(_name, _identifier_name, _init, _deinit)                 \
-    __attribute__((constructor)) static void __reg_plugin_##_identifier_name() {  \
-        static struct flutterpi_plugin_v2 plugin = {                              \
-            .name = (_name),                                                      \
-            .init = (_init),                                                      \
-            .deinit = (_deinit),                                                  \
-        };                                                                        \
-        static_plugin_registry_add_plugin(&plugin);                               \
-    }                                                                             \
-                                                                                  \
-    __attribute__((destructor)) static void __unreg_plugin_##_identifier_name() { \
-        static_plugin_registry_remove_plugin(_name);                              \
-    }
+#define FLUTTERPI_PLUGIN(_name, _identifier_name, _init, _deinit)                \
+    __attribute__((constructor)) static void __reg_plugin_##_identifier_name() { \
+        static struct flutterpi_plugin_v2 plugin = {                             \
+            .name = (_name),                                                     \
+            .init = (_init),                                                     \
+            .deinit = (_deinit),                                                 \
+        };                                                                       \
+        static_plugin_registry_add_plugin(&plugin);                              \
+    }                                                                            \
+                                                                                 \
+    __attribute__((destructor)) static void __unreg_plugin_##_identifier_name() { static_plugin_registry_remove_plugin(_name); }
 
 #endif

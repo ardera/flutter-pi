@@ -935,7 +935,7 @@ struct drmdev *drmdev_new_from_interface_fd(int fd, void *fd_metadata, const str
 
     ok = set_drm_client_caps(fd, &supports_atomic_modesetting);
     if (ok != 0) {
-        goto fail_close_master_fd;
+        goto fail_free_drmdev;
     }
 
     cap = 0;
@@ -1038,8 +1038,8 @@ fail_free_plane_resources:
 fail_free_resources:
     drmModeFreeResources(drmdev->res);
 
-fail_close_master_fd:
-    interface->close(master_fd, NULL, userdata);
+    // fail_close_master_fd:
+    //     interface->close(master_fd, NULL, userdata);
 
 fail_free_drmdev:
     free(drmdev);

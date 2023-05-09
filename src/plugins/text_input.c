@@ -138,37 +138,38 @@ static int on_set_client(struct platch_obj *object, FlutterPlatformMessageRespon
         );
     }
 
-    if STREQ ("TextInputAction.none", temp->string_value)
+    if (streq("TextInputAction.none", temp->string_value)) {
         input_action = kTextInputActionNone;
-    else if STREQ ("TextInputAction.unspecified", temp->string_value)
+    } else if (streq("TextInputAction.unspecified", temp->string_value)) {
         input_action = kTextInputActionUnspecified;
-    else if STREQ ("TextInputAction.done", temp->string_value)
+    } else if (streq("TextInputAction.done", temp->string_value)) {
         input_action = kTextInputActionDone;
-    else if STREQ ("TextInputAction.go", temp->string_value)
+    } else if (streq("TextInputAction.go", temp->string_value)) {
         input_action = kTextInputActionGo;
-    else if STREQ ("TextInputAction.search", temp->string_value)
+    } else if (streq("TextInputAction.search", temp->string_value)) {
         input_action = kTextInputActionSearch;
-    else if STREQ ("TextInputAction.send", temp->string_value)
+    } else if (streq("TextInputAction.send", temp->string_value)) {
         input_action = kTextInputActionSend;
-    else if STREQ ("TextInputAction.next", temp->string_value)
+    } else if (streq("TextInputAction.next", temp->string_value)) {
         input_action = kTextInputActionNext;
-    else if STREQ ("TextInputAction.previous", temp->string_value)
+    } else if (streq("TextInputAction.previous", temp->string_value)) {
         input_action = kTextInputActionPrevious;
-    else if STREQ ("TextInputAction.continueAction", temp->string_value)
+    } else if (streq("TextInputAction.continueAction", temp->string_value)) {
         input_action = kTextInputActionContinueAction;
-    else if STREQ ("TextInputAction.join", temp->string_value)
+    } else if (streq("TextInputAction.join", temp->string_value)) {
         input_action = kTextInputActionJoin;
-    else if STREQ ("TextInputAction.route", temp->string_value)
+    } else if (streq("TextInputAction.route", temp->string_value)) {
         input_action = kTextInputActionRoute;
-    else if STREQ ("TextInputAction.emergencyCall", temp->string_value)
+    } else if (streq("TextInputAction.emergencyCall", temp->string_value)) {
         input_action = kTextInputActionEmergencyCall;
-    else if STREQ ("TextInputAction.newline", temp->string_value)
+    } else if (streq("TextInputAction.newline", temp->string_value)) {
         input_action = kTextInputActionNewline;
-    else
+    } else {
         return platch_respond_illegal_arg_json(
             responsehandle,
             "Expected `arg[1]['inputAction']` to be a string-ification of `TextInputAction`."
         );
+    }
 
     // INPUT TYPE
     temp = jsobject_get(config, "inputType");
@@ -204,25 +205,25 @@ static int on_set_client(struct platch_obj *object, FlutterPlatformMessageRespon
         );
     }
 
-    if STREQ ("TextInputType.text", temp2->string_value) {
+    if (streq("TextInputType.text", temp2->string_value)) {
         input_type = kInputTypeText;
-    } else if STREQ ("TextInputType.multiline", temp2->string_value) {
+    } else if (streq("TextInputType.multiline", temp2->string_value)) {
         input_type = kInputTypeMultiline;
-    } else if STREQ ("TextInputType.number", temp2->string_value) {
+    } else if (streq("TextInputType.number", temp2->string_value)) {
         input_type = kInputTypeNumber;
-    } else if STREQ ("TextInputType.phone", temp2->string_value) {
+    } else if (streq("TextInputType.phone", temp2->string_value)) {
         input_type = kInputTypePhone;
-    } else if STREQ ("TextInputType.datetime", temp2->string_value) {
+    } else if (streq("TextInputType.datetime", temp2->string_value)) {
         input_type = kInputTypeDatetime;
-    } else if STREQ ("TextInputType.emailAddress", temp2->string_value) {
+    } else if (streq("TextInputType.emailAddress", temp2->string_value)) {
         input_type = kInputTypeEmailAddress;
-    } else if STREQ ("TextInputType.url", temp2->string_value) {
+    } else if (streq("TextInputType.url", temp2->string_value)) {
         input_type = kInputTypeUrl;
-    } else if STREQ ("TextInputType.visiblePassword", temp2->string_value) {
+    } else if (streq("TextInputType.visiblePassword", temp2->string_value)) {
         input_type = kInputTypeVisiblePassword;
-    } else if STREQ ("TextInputType.name", temp2->string_value) {
+    } else if (streq("TextInputType.name", temp2->string_value)) {
         input_type = kInputTypeName;
-    } else if STREQ ("TextInputType.address", temp2->string_value) {
+    } else if (streq("TextInputType.address", temp2->string_value)) {
         input_type = kInputTypeAddress;
     } else {
         return platch_respond_illegal_arg_json(
@@ -339,9 +340,9 @@ static int on_set_editing_state(struct platch_obj *object, FlutterPlatformMessag
             "Expected `arg['selectionAffinity']` to be a string-ification of `TextAffinity`."
         );
     } else {
-        if STREQ ("TextAffinity.downstream", temp->string_value) {
+        if (streq("TextAffinity.downstream", temp->string_value)) {
             selection_affinity_is_downstream = true;
-        } else if STREQ ("TextAffinity.upstream", temp->string_value) {
+        } else if (streq("TextAffinity.upstream", temp->string_value)) {
             selection_affinity_is_downstream = false;
         } else {
             return platch_respond_illegal_arg_json(
@@ -438,23 +439,23 @@ static int on_receive(char *channel, struct platch_obj *object, FlutterPlatformM
     (void) channel;
     (void) object;
 
-    if STREQ ("TextInput.setClient", object->method) {
+    if (streq("TextInput.setClient", object->method)) {
         return on_set_client(object, responsehandle);
-    } else if STREQ ("TextInput.hide", object->method) {
+    } else if (streq("TextInput.hide", object->method)) {
         return on_hide(object, responsehandle);
-    } else if STREQ ("TextInput.clearClient", object->method) {
+    } else if (streq("TextInput.clearClient", object->method)) {
         return on_clear_client(object, responsehandle);
-    } else if STREQ ("TextInput.setEditingState", object->method) {
+    } else if (streq("TextInput.setEditingState", object->method)) {
         return on_set_editing_state(object, responsehandle);
-    } else if STREQ ("TextInput.show", object->method) {
+    } else if (streq("TextInput.show", object->method)) {
         return on_show(object, responsehandle);
-    } else if STREQ ("TextInput.requestAutofill", object->method) {
+    } else if (streq("TextInput.requestAutofill", object->method)) {
         return on_request_autofill(object, responsehandle);
-    } else if STREQ ("TextInput.setEditableSizeAndTransform", object->method) {
+    } else if (streq("TextInput.setEditableSizeAndTransform", object->method)) {
         return on_set_editable_size_and_transform(object, responsehandle);
-    } else if STREQ ("TextInput.setStyle", object->method) {
+    } else if (streq("TextInput.setStyle", object->method)) {
         return on_set_style(object, responsehandle);
-    } else if STREQ ("TextInput.finishAutofillContext", object->method) {
+    } else if (streq("TextInput.finishAutofillContext", object->method)) {
         return on_finish_autofill_context(object, responsehandle);
     }
 
@@ -800,13 +801,13 @@ enum plugin_init_result textin_init(struct flutterpi *flutterpi, void **userdata
 
     textin = malloc(sizeof *textin);
     if (textin == NULL) {
-        return kError_PluginInitResult;
+        return PLUGIN_INIT_RESULT_ERROR;
     }
 
-    ok = plugin_registry_set_receiver(TEXT_INPUT_CHANNEL, kJSONMethodCall, on_receive);
+    ok = plugin_registry_set_receiver_locked(TEXT_INPUT_CHANNEL, kJSONMethodCall, on_receive);
     if (ok != 0) {
         free(textin);
-        return kError_PluginInitResult;
+        return PLUGIN_INIT_RESULT_ERROR;
     }
 
     textin->connection_id = -1;
@@ -826,7 +827,7 @@ enum plugin_init_result textin_init(struct flutterpi *flutterpi, void **userdata
     textin->composing_extent = 0;
     textin->warned_about_autocorrect = false;
     *userdata_out = textin;
-    return kInitialized_PluginInitResult;
+    return PLUGIN_INIT_RESULT_INITIALIZED;
 }
 
 void textin_deinit(struct flutterpi *flutterpi, void *userdata) {

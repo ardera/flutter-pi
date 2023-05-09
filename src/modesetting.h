@@ -29,100 +29,186 @@
 // All commented out properties are not present on the RPi.
 // Some of not-commented out properties we don't make usage of,
 // but they could be useful in the future.
-#define DRM_CONNECTOR_PROPERTIES(V)                       \
-    V("Broadcast RGB", broadcast_rgb)                     \
-    V("CRTC_ID", crtc_id)                                 \
-    V("Colorspace", colorspace)                           \
-    /* V("Content Protection", content_protection) */     \
-    V("DPMS", dpms)                                       \
-    V("EDID", edid)                                       \
-    /* V("HDCP Content Type", hdcp_content_type) */       \
-    V("HDR_OUTPUT_METADATA", hdr_output_metadata)         \
-    /* V("HDR_SOURCE_METADATA", hdr_source_metadata) */   \
-    /* V("PATH", path) */                                 \
-    V("TILE", tile)                                       \
-    V("WRITEBACK_FB_ID", writeback_fb_id)                 \
-    V("WRITEBACK_OUT_FENCE_PTR", writeback_out_fence_ptr) \
-    V("WRITEBACK_PIXEL_FORMATS", writeback_pixel_formats) \
-    /* V("abm level", abm_level) */                       \
-    /* V("aspect ratio", aspect_ratio) */                 \
-    /* V("audio", audio) */                               \
-    /* V("backlight", backlight) */                       \
-    V("bottom margin", bottom_margin)                     \
-    /* V("coherent", coherent) */                         \
-    /* V("color vibrance", color_vibrance) */             \
-    /* V("content type", content_type) */                 \
-    /* V("dither", dither) */                             \
-    /* V("dithering depth", dithering_depth) */           \
-    /* V("dithering mode", dithering_mode) */             \
-    /* V("flicker reduction", flicker_reduction) */       \
-    /* V("hotplug_mode_update", hotplug_mode_update) */   \
-    /* V("hue", hue) */                                   \
-    V("left margin", left_margin)                         \
-    V("link-status", link_status)                         \
-    /* V("load detection", load_detection) */             \
-    V("max bpc", max_bpc)                                 \
-    V("mode", mode)                                       \
-    V("non-desktop", non_desktop)                         \
-    /* V("output_csc", output_csc) */                     \
-    /* V("overscan", overscan) */                         \
-    /* V("panel orientation", panel_orientation) */       \
-    V("right margin", right_margin)                       \
-    /* V("saturation", saturation) */                     \
-    /* V("scaling mode", scaling_mode) */                 \
-    /* V("select subconnector", select_subconnector) */   \
-    /* V("subconnector", subconnector) */                 \
-    /* V("suggested X", suggested_x) */                   \
-    /* V("suggested Y", suggested_y) */                   \
-    V("top margin", top_margin)                           \
-    /* V("tv standard", tv_standard) */                   \
-    /* V("underscan", underscan) */                       \
-    /* V("underscan hborder", underscan_hborder) */       \
-    /* V("underscan vborder", underscan_vborder) */       \
-    /* V("vibrant hue", vibrant_hue) */                   \
+//
+// keep in sync with: https://drmdb.emersion.fr/properties?object-type=3233857728
+#define DRM_CONNECTOR_PROPERTIES(V)                                 \
+    V("Broadcast RGB", broadcast_rgb)                               \
+    /* V("CONNECTOR_ID", connector_id) */                           \
+    V("CRTC_ID", crtc_id)                                           \
+    V("Colorspace", colorspace)                                     \
+    /* V("Content Protection", content_protection) */               \
+    V("DPMS", dpms)                                                 \
+    V("EDID", edid)                                                 \
+    /* V("HDCP Content Type", hdcp_content_type) */                 \
+    V("HDR_OUTPUT_METADATA", hdr_output_metadata)                   \
+    /* V("HDR_PANEL_METADATA", hdr_panel_metadata) */               \
+    /* V("HDR_SOURCE_METADATA", hdr_source_metadata) */             \
+    /* V("NEXT_HDR_SINK_DATA", next_hdr_sink_data) */               \
+    V("Output format", output_format)                               \
+    /* V("PATH", path) */                                           \
+    V("TILE", tile)                                                 \
+    /* V("USER_SPLIT_MODE", user_split_mode) */                     \
+    V("WRITEBACK_FB_ID", writeback_fb_id)                           \
+    V("WRITEBACK_OUT_FENCE_PTR", writeback_out_fence_ptr)           \
+    V("WRITEBACK_PIXEL_FORMATS", writeback_pixel_formats)           \
+    /* V("abm level", abm_level) */                                 \
+    /* V("allm_capacity", allm_capacity) */                         \
+    /* V("allm_enable", allm_enable) */                             \
+    /* V("aspect ratio", aspect_ratio) */                           \
+    /* V("audio", audio) */                                         \
+    /* V("backlight", backlight) */                                 \
+    V("bottom margin", bottom_margin)                               \
+    /* V("bpc", bpc) */                                             \
+    /* V("brightness", brightness) */                               \
+    /* V("coherent", coherent) */                                   \
+    /* V("color vibrance", color_vibrance) */                       \
+    /* V("color depth", color_depth) */                             \
+    /* V("color depth caps", color_depth_caps) */                   \
+    /* V("color format", color_format) */                           \
+    /* V("color format caps", color_format_caps) */                 \
+    /* V("content type", content_type) */                           \
+    /* V("contrast", contrast) */                                   \
+    /* V("dither", dither) */                                       \
+    /* V("dithering depth", dithering_depth) */                     \
+    /* V("dithering mode", dithering_mode) */                       \
+    /* V("flicker reduction", flicker_reduction) */                 \
+    /* V("hdmi_color_depth_capacity", hdmi_color_depth_capacity) */ \
+    /* V("hdmi_output_colorimetry", hdmi_output_colorimetry) */     \
+    /* V("hdmi_output_depth", hdmi_output_depth) */                 \
+    /* V("hdmi_output_mode_capacity", hdmi_output_mode_capacity) */ \
+    /* V("hotplug_mode_update", hotplug_mode_update) */             \
+    /* V("hue", hue) */                                             \
+    V("left margin", left_margin)                                   \
+    V("link-status", link_status)                                   \
+    /* V("load detection", load_detection) */                       \
+    V("max bpc", max_bpc)                                           \
+    V("mode", mode)                                                 \
+    V("non-desktop", non_desktop)                                   \
+    /* V("output_csc", output_csc) */                               \
+    /* V("output_hdmi_dvi", output_hdmi_dvi) */                     \
+    /* V("output_type_capacity", output_type_capacity) */           \
+    /* V("overscan", overscan) */                                   \
+    /* V("panel orientation", panel_orientation) */                 \
+    /* V("privacy-screen hw-state", privacy_screen_hw_state) */     \
+    /* V("privacy-screen sw-state", privacy_screen_sw_state) */     \
+    V("right margin", right_margin)                                 \
+    /* V("saturation", saturation) */                               \
+    /* V("scaling mode", scaling_mode) */                           \
+    /* V("select subconnector", select_subconnector) */             \
+    /* V("subconnector", subconnector) */                           \
+    /* V("suggested X", suggested_x) */                             \
+    /* V("suggested Y", suggested_y) */                             \
+    /* V("sync", sync) */                                           \
+    V("top margin", top_margin)                                     \
+    /* V("tv standard", tv_standard) */                             \
+    /* V("underscan", underscan) */                                 \
+    /* V("underscan hborder", underscan_hborder) */                 \
+    /* V("underscan vborder", underscan_vborder) */                 \
+    /* V("vibrant hue", vibrant_hue) */                             \
     /* V("vrr_capable", vrr_capable) */
 
-#define DRM_CRTC_PROPERTIES(V)                    \
-    V("ACTIVE", active)                           \
-    V("CTM", ctm)                                 \
-    /* V("DEGAMMA_LUT", degamma_lut) */           \
-    /* V("DEGAMMA_LUT_SIZE", degamma_lut_size) */ \
-    V("GAMMA_LUT", gamma_lut)                     \
-    V("GAMMA_LUT_SIZE", gamma_lut_size)           \
-    V("MODE_ID", mode_id)                         \
-    V("OUT_FENCE_PTR", out_fence_ptr)             \
-    /* V("SCALING_FILTER", scaling_filter) */     \
-    V("VRR_ENABLED", vrr_enabled)                 \
-    V("rotation", rotation)                       \
-    /* V("zorder", zorder) */
+// again, crtc properties that are not available on pi 4
+// are commented out.
+//
+// keep in sync with:
+//   https://drmdb.emersion.fr/properties?object-type=3435973836
+#define DRM_CRTC_PROPERTIES(V)                              \
+    /* V("ACLK", aclk) */                                   \
+    V("ACTIVE", active)                                     \
+    /* V("ALPHA_SCALE", alpha_scale) */                     \
+    /* V("BACKGROUND", background) */                       \
+    /* V("BG_COLOR", bg_color) */                           \
+    /* V("CABC_CALC_PIXEL_NUM", cabc_calc_pixel_num) */     \
+    /* V("CABC_GLOBAL_DN", cabc_global_dn) */               \
+    /* V("CABC_LUT", cabc_lut) */                           \
+    /* V("CABC_MODE", cabc_mode) */                         \
+    /* V("CABC_STAGE_DOWN", cabc_stage_down) */             \
+    /* V("CABC_STAGE_UP", cabc_stage_up) */                 \
+    V("CTM", ctm)                                           \
+    /* V("DEGAMMA_LUT", degamma_lut) */                     \
+    /* V("DEGAMMA_LUT_SIZE", degamma_lut_size) */           \
+    /* V("DITHER_ENABLED", dither_enabled) */               \
+    /* V("FEATURE", feature) */                             \
+    V("GAMMA_LUT", gamma_lut)                               \
+    V("GAMMA_LUT_SIZE", gamma_lut_size)                     \
+    /* V("LINE_FLAG1", line_flag1) */                       \
+    V("MODE_ID", mode_id)                                   \
+    V("OUT_FENCE_PTR", out_fence_ptr)                       \
+    /* V("PLANE_MASK", plane_mask) */                       \
+    /* V("PORT_ID", port_id) */                             \
+    /* V("SCALING_FILTER", scaling_filter) */               \
+    /* V("SOC_ID", soc_id) */                               \
+    /* V("SYNC_ENABLED", sync_enabled) */                   \
+    V("VRR_ENABLED", vrr_enabled)                           \
+    /* V("bg_c0", bg_c0) */                                 \
+    /* V("bg_c1", bg_c1) */                                 \
+    /* V("bg_c2", bg_c2) */                                 \
+    /* V("bottom margin", bottom_margin) */                 \
+    /* V("left margin", left_margin) */                     \
+    /* V("max refresh rate", max_refresh_rate) */           \
+    /* V("min refresh rate", min_refresh_rate) */           \
+    /* V("output_color", output_color) */                   \
+    /* V("right margin", right_margin) */                   \
+    V("rotation", rotation)                                 \
+    /* V("top margin", top_margin) */                       \
+    /* V("variable refresh rate", variable_refresh_rate) */ \
+    V("zorder", zorder)
 
-#define DRM_PLANE_PROPERTIES(V)                 \
-    V("COLOR_ENCODING", color_encoding)         \
-    V("COLOR_RANGE", color_range)               \
-    V("CRTC_ID", crtc_id)                       \
-    V("CRTC_H", crtc_h)                         \
-    V("CRTC_W", crtc_w)                         \
-    V("CRTC_X", crtc_x)                         \
-    V("CRTC_Y", crtc_y)                         \
-    /* V("FB_DAMAGE_CLIPS", fb_damage_clips) */ \
-    V("FB_ID", fb_id)                           \
-    V("IN_FENCE_FD", in_fence_fd)               \
-    V("IN_FORMATS", in_formats)                 \
-    /* V("SCALING_FILTER", scaling_filter) */   \
-    V("SRC_H", src_h)                           \
-    V("SRC_W", src_w)                           \
-    V("SRC_X", src_x)                           \
-    V("SRC_Y", src_y)                           \
-    V("alpha", alpha)                           \
-    /* V("brightness", brightness) */           \
-    /* V("colorkey", colorkey) */               \
-    /* V("contrast", contrast) */               \
-    /* V("hue", hue) */                         \
-    V("pixel blend mode", pixel_blend_mode)     \
-    V("rotation", rotation)                     \
-    /* V("saturation", saturation) */           \
-    V("type", type)                             \
-    /* V("zorder", zorder) */                   \
+// again, plane properties that are not present on pi 4 are commented out.
+//
+// keep in sync with:
+//   https://drmdb.emersion.fr/properties?object-type=4008636142
+#define DRM_PLANE_PROPERTIES(V)                               \
+    /* V("ASYNC_COMMIT", async_commit) */                     \
+    /* V("BLEND_MODE", blend_mode) */                         \
+    /* V("CHROMA_SITING_H", chroma_siting_h) */               \
+    /* V("CHROMA_SITING_V", chroma_siting_v) */               \
+    /* V("COLOR_CONFIG", color_config) */                     \
+    V("COLOR_ENCODING", color_encoding)                       \
+    V("COLOR_RANGE", color_range)                             \
+    /* V("COLOR_SPACE", color_space) */                       \
+    V("CRTC_H", crtc_h)                                       \
+    V("CRTC_ID", crtc_id)                                     \
+    V("CRTC_W", crtc_w)                                       \
+    V("CRTC_X", crtc_x)                                       \
+    V("CRTC_Y", crtc_y)                                       \
+    /* V("DEGAMMA_MODE", degamma_mode) */                     \
+    /* V("EOTF", eotf) */                                     \
+    /* V("FB_DAMAGE_CLIPS", fb_damage_clips) */               \
+    V("FB_ID", fb_id)                                         \
+    /* V("FEATURE", feature) */                               \
+    /* V("GLOBAL_ALPHA", global_alpha) */                     \
+    /* V("INPUT_HEIGHT", input_height) */                     \
+    /* V("INPUT_WIDTH", input_width) */                       \
+    V("IN_FENCE_FD", in_fence_fd)                             \
+    V("IN_FORMATS", in_formats)                               \
+    /* V("NAME", name) */                                     \
+    /* V("NV_HDR_STATIC_METADATA", nv_hdr_static_metadata) */ \
+    /* V("NV_INPUT_COLORSPACE", nv_input_colorspace) */       \
+    /* V("OUTPUT_HEIGHT", output_height) */                   \
+    /* V("OUTPUT_WIDTH", output_width) */                     \
+    /* V("ROI", roi) */                                       \
+    /* V("SCALE_RATE", scale_rate) */                         \
+    /* V("SCALING_FILTER", scaling_filter) */                 \
+    /* V("SHARE_ID", share_id) */                             \
+    V("SRC_H", src_h)                                         \
+    V("SRC_W", src_w)                                         \
+    V("SRC_X", src_x)                                         \
+    V("SRC_Y", src_y)                                         \
+    /* V("WATERMARK", watermark) */                           \
+    /* V("ZPOS", zpos) */                                     \
+    V("alpha", alpha)                                         \
+    /* V("brightness", brightness) */                         \
+    /* V("colorkey", colorkey) */                             \
+    /* V("contrast", contrast) */                             \
+    /* V("g_alpha_en", g_alpha_en) */                         \
+    /* V("hue", hue) */                                       \
+    V("pixel blend mode", pixel_blend_mode)                   \
+    V("rotation", rotation)                                   \
+    /* V("saturation", saturation) */                         \
+    /* V("tpg", tpg) */                                       \
+    V("type", type)                                           \
+    /* V("zorder", zorder) */                                 \
     V("zpos", zpos)
 
 #define DECLARE_PROP_ID_AS_UINT32(prop_name, prop_var_name) uint32_t prop_var_name;

@@ -77,9 +77,7 @@ static inline int refcount_get_for_debug(refcount_t *refcount) {
         }                                                                            \
         *objp = obj;                                                                 \
     }                                                                                \
-    UNUSED void obj_name##_unref_void(void *obj) {                                   \
-        obj_name##_unref((struct obj_name *) obj);                                   \
-    }
+    UNUSED void obj_name##_unref_void(void *obj) { obj_name##_unref((struct obj_name *) obj); }
 
 #define DEFINE_STATIC_REF_OPS(obj_name, refcount_member_name)                               \
     UNUSED static struct obj_name *obj_name##_ref(struct obj_name *obj) {                   \
@@ -104,8 +102,6 @@ static inline int refcount_get_for_debug(refcount_t *refcount) {
         }                                                                                   \
         *objp = obj;                                                                        \
     }                                                                                       \
-    UNUSED static void obj_name##_unref_void(void *obj) {                                   \
-        obj_name##_unref((struct obj_name *) obj);                                          \
-    }
+    UNUSED static void obj_name##_unref_void(void *obj) { obj_name##_unref((struct obj_name *) obj); }
 
 #endif
