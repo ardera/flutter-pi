@@ -338,7 +338,7 @@ static int on_receive_evch(char *channel, struct platch_obj *object, FlutterPlat
 
     meta = gstplayer_get_userdata_locked(player);
 
-    if STREQ ("listen", method) {
+    if (streq("listen", method)) {
         platch_respond_success_std(responsehandle, NULL);
         meta->has_listener = true;
 
@@ -350,7 +350,7 @@ static int on_receive_evch(char *channel, struct platch_obj *object, FlutterPlat
         if (meta->buffering_state_listener == NULL) {
             LOG_ERROR("Couldn't listen for buffering events in gstplayer.\n");
         }
-    } else if STREQ ("cancel", method) {
+    } else if (streq("cancel", method)) {
         platch_respond_success_std(responsehandle, NULL);
         meta->has_listener = false;
 
@@ -526,13 +526,13 @@ static int on_create(char *channel, struct platch_obj *object, FlutterPlatformMe
     } else if (temp != NULL && temp->type == kStdString) {
         char *format_hint_str = temp->string_value;
 
-        if STREQ ("ss", format_hint_str) {
+        if (streq("ss", format_hint_str)) {
             format_hint = kSS_FormatHint;
-        } else if STREQ ("hls", format_hint_str) {
+        } else if (streq("hls", format_hint_str)) {
             format_hint = kHLS_FormatHint;
-        } else if STREQ ("dash", format_hint_str) {
+        } else if (streq("dash", format_hint_str)) {
             format_hint = kMpegDash_FormatHint;
-        } else if STREQ ("other", format_hint_str) {
+        } else if (streq("other", format_hint_str)) {
             format_hint = kOther_FormatHint;
         } else {
             goto invalid_format_hint;
@@ -587,7 +587,7 @@ invalid_format_hint:
     }
 
     // set a receiver on the videoEvents event channel
-    ok = plugin_registry_set_receiver(meta->event_channel_name, kStandardMethodCall, on_receive_evch);
+    ok = plugin_registry_set_receiver_locked(meta->event_channel_name, kStandardMethodCall, on_receive_evch);
     if (ok != 0) {
         goto fail_remove_player;
     }
@@ -887,11 +887,11 @@ static int on_receive_method_channel(char *channel, struct platch_obj *object, F
 
     method = object->method;
 
-    if STREQ ("stepForward", method) {
+    if (streq("stepForward", method)) {
         return on_step_forward(&object->std_arg, responsehandle);
-    } else if STREQ ("stepBackward", method) {
+    } else if (streq("stepBackward", method)) {
         return on_step_backward(&object->std_arg, responsehandle);
-    } else if STREQ ("fastSeek", method) {
+    } else if (streq("fastSeek", method)) {
         return on_fast_seek(&object->std_arg, responsehandle);
     } else {
         return platch_respond_not_implemented(responsehandle);
@@ -1193,7 +1193,7 @@ invalid_headers:
     }
 
     // Set a receiver on the videoEvents event channel
-    ok = plugin_registry_set_receiver(meta->event_channel_name, kStandardMethodCall, on_receive_evch);
+    ok = plugin_registry_set_receiver_locked(meta->event_channel_name, kStandardMethodCall, on_receive_evch);
     if (ok != 0) {
         goto fail_remove_player;
     }
@@ -1542,65 +1542,73 @@ enum plugin_init_result gstplayer_plugin_init(struct flutterpi *flutterpi, void 
 
     ok = cpset_init(&plugin.players, CPSET_DEFAULT_MAX_SIZE);
     if (ok != 0) {
-        return kError_PluginInitResult;
+        return PLUGIN_INIT_RESULT_ERROR;
     }
 
-    ok = plugin_registry_set_receiver("dev.flutter.pigeon.VideoPlayerApi.initialize", kStandardMessageCodec, on_initialize);
+    ok = plugin_registry_set_receiver_locked("dev.flutter.pigeon.VideoPlayerApi.initialize", kStandardMessageCodec, on_initialize);
     if (ok != 0) {
         goto fail_deinit_cpset;
     }
 
-    ok = plugin_registry_set_receiver("dev.flutter.pigeon.VideoPlayerApi.create", kStandardMessageCodec, on_create);
+    ok = plugin_registry_set_receiver_locked("dev.flutter.pigeon.VideoPlayerApi.create", kStandardMessageCodec, on_create);
     if (ok != 0) {
         goto fail_remove_initialize_receiver;
     }
 
-    ok = plugin_registry_set_receiver("dev.flutter.pigeon.VideoPlayerApi.dispose", kStandardMessageCodec, on_dispose);
+    ok = plugin_registry_set_receiver_locked("dev.flutter.pigeon.VideoPlayerApi.dispose", kStandardMessageCodec, on_dispose);
     if (ok != 0) {
         goto fail_remove_create_receiver;
     }
 
-    ok = plugin_registry_set_receiver("dev.flutter.pigeon.VideoPlayerApi.setLooping", kStandardMessageCodec, on_set_looping);
+    ok = plugin_registry_set_receiver_locked("dev.flutter.pigeon.VideoPlayerApi.setLooping", kStandardMessageCodec, on_set_looping);
     if (ok != 0) {
         goto fail_remove_dispose_receiver;
     }
 
-    ok = plugin_registry_set_receiver("dev.flutter.pigeon.VideoPlayerApi.setVolume", kStandardMessageCodec, on_set_volume);
+    ok = plugin_registry_set_receiver_locked("dev.flutter.pigeon.VideoPlayerApi.setVolume", kStandardMessageCodec, on_set_volume);
     if (ok != 0) {
         goto fail_remove_setLooping_receiver;
     }
 
-    ok = plugin_registry_set_receiver("dev.flutter.pigeon.VideoPlayerApi.setPlaybackSpeed", kStandardMessageCodec, on_set_playback_speed);
+    ok = plugin_registry_set_receiver_locked(
+        "dev.flutter.pigeon.VideoPlayerApi.setPlaybackSpeed",
+        kStandardMessageCodec,
+        on_set_playback_speed
+    );
     if (ok != 0) {
         goto fail_remove_setVolume_receiver;
     }
 
-    ok = plugin_registry_set_receiver("dev.flutter.pigeon.VideoPlayerApi.play", kStandardMessageCodec, on_play);
+    ok = plugin_registry_set_receiver_locked("dev.flutter.pigeon.VideoPlayerApi.play", kStandardMessageCodec, on_play);
     if (ok != 0) {
         goto fail_remove_setPlaybackSpeed_receiver;
     }
 
-    ok = plugin_registry_set_receiver("dev.flutter.pigeon.VideoPlayerApi.position", kStandardMessageCodec, on_get_position);
+    ok = plugin_registry_set_receiver_locked("dev.flutter.pigeon.VideoPlayerApi.position", kStandardMessageCodec, on_get_position);
     if (ok != 0) {
         goto fail_remove_play_receiver;
     }
 
-    ok = plugin_registry_set_receiver("dev.flutter.pigeon.VideoPlayerApi.seekTo", kStandardMessageCodec, on_seek_to);
+    ok = plugin_registry_set_receiver_locked("dev.flutter.pigeon.VideoPlayerApi.seekTo", kStandardMessageCodec, on_seek_to);
     if (ok != 0) {
         goto fail_remove_position_receiver;
     }
 
-    ok = plugin_registry_set_receiver("dev.flutter.pigeon.VideoPlayerApi.pause", kStandardMessageCodec, on_pause);
+    ok = plugin_registry_set_receiver_locked("dev.flutter.pigeon.VideoPlayerApi.pause", kStandardMessageCodec, on_pause);
     if (ok != 0) {
         goto fail_remove_seekTo_receiver;
     }
 
-    ok = plugin_registry_set_receiver("dev.flutter.pigeon.VideoPlayerApi.setMixWithOthers", kStandardMessageCodec, on_set_mix_with_others);
+    ok = plugin_registry_set_receiver_locked(
+        "dev.flutter.pigeon.VideoPlayerApi.setMixWithOthers",
+        kStandardMessageCodec,
+        on_set_mix_with_others
+    );
     if (ok != 0) {
         goto fail_remove_pause_receiver;
     }
 
-    ok = plugin_registry_set_receiver(
+    ok = plugin_registry_set_receiver_locked(
         "flutter.io/videoPlayer/gstreamerVideoPlayer/advancedControls",
         kStandardMethodCall,
         on_receive_method_channel
@@ -1609,12 +1617,12 @@ enum plugin_init_result gstplayer_plugin_init(struct flutterpi *flutterpi, void 
         goto fail_remove_setMixWithOthers_receiver;
     }
 
-    ok = plugin_registry_set_receiver("flutter-pi/gstreamerVideoPlayer", kBinaryCodec, on_receive_method_channel_v2);
+    ok = plugin_registry_set_receiver_locked("flutter-pi/gstreamerVideoPlayer", kBinaryCodec, on_receive_method_channel_v2);
     if (ok != 0) {
         goto fail_remove_advancedControls_receiver;
     }
 
-    return kInitialized_PluginInitResult;
+    return PLUGIN_INIT_RESULT_INITIALIZED;
 
 fail_remove_advancedControls_receiver:
     plugin_registry_remove_receiver("flutter.io/videoPlayer/gstreamerVideoPlayer/advancedControls");
@@ -1654,7 +1662,7 @@ fail_remove_initialize_receiver:
 
 fail_deinit_cpset:
     cpset_deinit(&plugin.players);
-    return kError_PluginInitResult;
+    return PLUGIN_INIT_RESULT_ERROR;
 }
 
 void gstplayer_plugin_deinit(struct flutterpi *flutterpi, void *userdata) {

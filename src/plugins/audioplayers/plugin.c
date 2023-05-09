@@ -150,19 +150,19 @@ enum plugin_init_result audioplayers_plugin_init(struct flutterpi *flutterpi, vo
 
     ok = cpset_init(&plugin.players, CPSET_DEFAULT_MAX_SIZE);
     if (ok != 0)
-        return kError_PluginInitResult;
+        return PLUGIN_INIT_RESULT_ERROR;
 
-    ok = plugin_registry_set_receiver(AUDIOPLAYERS_GLOBAL_CHANNEL, kStandardMethodCall, on_global_method_call);
+    ok = plugin_registry_set_receiver_locked(AUDIOPLAYERS_GLOBAL_CHANNEL, kStandardMethodCall, on_global_method_call);
     if (ok != 0) {
         goto fail_deinit_cpset;
     }
 
-    ok = plugin_registry_set_receiver(AUDIOPLAYERS_LOCAL_CHANNEL, kStandardMethodCall, on_local_method_call);
+    ok = plugin_registry_set_receiver_locked(AUDIOPLAYERS_LOCAL_CHANNEL, kStandardMethodCall, on_local_method_call);
     if (ok != 0) {
         goto fail_remove_global_receiver;
     }
 
-    return kInitialized_PluginInitResult;
+    return PLUGIN_INIT_RESULT_INITIALIZED;
 
 fail_remove_global_receiver:
     plugin_registry_remove_receiver(AUDIOPLAYERS_GLOBAL_CHANNEL);
@@ -170,7 +170,7 @@ fail_remove_global_receiver:
 fail_deinit_cpset:
     cpset_deinit(&plugin.players);
 
-    return kError_PluginInitResult;
+    return PLUGIN_INIT_RESULT_ERROR;
 }
 
 void audioplayers_plugin_deinit(struct flutterpi *flutterpi, void *userdata) {

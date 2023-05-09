@@ -538,8 +538,9 @@ struct cursor_buffer {
     int hot_x, hot_y;
 };
 
-static const int pixel_size_for_cursor_size
-    [] = { [k32x32_CursorSize] = 32, [k48x48_CursorSize] = 48, [k64x64_CursorSize] = 64, [k96x96_CursorSize] = 96, [k128x128_CursorSize] = 128 };
+static const int pixel_size_for_cursor_size[] = {
+    [k32x32_CursorSize] = 32, [k48x48_CursorSize] = 48, [k64x64_CursorSize] = 64, [k96x96_CursorSize] = 96, [k128x128_CursorSize] = 128,
+};
 
 COMPILE_ASSERT(ARRAY_SIZE(pixel_size_for_cursor_size) == kCount_CursorSize);
 

@@ -6,61 +6,75 @@
 //#include <compositor.h>
 #include "plugins/services.h"
 
-static struct {
+struct plugin {
     char label[256];
     uint32_t primary_color;  // ARGB8888 (blue is the lowest byte)
     char isolate_id[32];
-} services;
+};
 
-static int on_receive_navigation(char *channel, struct platch_obj *object, FlutterPlatformMessageResponseHandle *responsehandle) {
-    (void) channel;
-    (void) object;
-    return platch_respond_not_implemented(responsehandle);
+static void on_receive_navigation(ASSERTED void *userdata, const FlutterPlatformMessage *message) {
+    ASSUME(userdata);
+    ASSUME(message);
+    platch_respond_not_implemented(message->response_handle);
 }
 
-static int on_receive_isolate(char *channel, struct platch_obj *object, FlutterPlatformMessageResponseHandle *responsehandle) {
-    (void) channel;
-    if (object->binarydata_size > sizeof(services.isolate_id)) {
-        return EINVAL;
-    } else {
-        memcpy(services.isolate_id, object->binarydata, object->binarydata_size);
+static void on_receive_isolate(void *userdata, const FlutterPlatformMessage *message) {
+    struct plugin *plugin;
+
+    ASSUME(userdata);
+    ASSUME(message);
+    plugin = userdata;
+
+    ASSERT(message->message_size <= sizeof(plugin->isolate_id));
+    memcpy(plugin->isolate_id, message->message, message->message_size);
+    platch_respond_not_implemented(message->response_handle);
+}
+
+static void on_receive_platform(void *userdata, const FlutterPlatformMessage *message) {
+    struct platch_obj object;
+    struct json_value *value;
+    struct json_value *arg;
+    struct plugin *plugin;
+    int ok;
+
+    ASSUME(userdata);
+    ASSUME(message);
+    plugin = userdata;
+
+    ok = platch_decode(message->message, message->message_size, kJSONMethodCall, &object);
+    if (ok != 0) {
+        platch_respond_error_json(message->response_handle, "malformed-message", "The platform channel message was malformed.", NULL);
+        return;
     }
 
-    return platch_respond_not_implemented(responsehandle);
-}
+    arg = &(object.json_arg);
 
-static int on_receive_platform(char *channel, struct platch_obj *object, FlutterPlatformMessageResponseHandle *responsehandle) {
-    struct json_value *value;
-    struct json_value *arg = &(object->json_arg);
-
-    (void) channel;
-
-    if (strcmp(object->method, "Clipboard.setData") == 0) {
+    if (streq(object.method, "Clipboard.setData")) {
         /*
          *  Clipboard.setData(Map data)
          *      Places the data from the text entry of the argument,
          *      which must be a Map, onto the system clipboard.
          */
-    } else if (strcmp(object->method, "Clipboard.getData") == 0) {
+    } else if (streq(object.method, "Clipboard.getData")) {
         /*
          *  Clipboard.getData(String format)
          *      Returns the data that has the format specified in the argument
          *      from the system clipboard. The only currently supported is "text/plain".
          *      The result is a Map with a single key, "text".
          */
-    } else if (strcmp(object->method, "HapticFeedback.vibrate") == 0) {
+    } else if (streq(object.method, "HapticFeedback.vibrate")) {
         /*
          *  HapticFeedback.vibrate(void)
          *      Triggers a system-default haptic response.
          */
-    } else if (strcmp(object->method, "SystemSound.play") == 0) {
+    } else if (streq(object.method, "SystemSound.play")) {
         /*
          *  SystemSound.play(String soundName)
          *      Triggers a system audio effect. The argument must
          *      be a String describing the desired effect; currently only "click" is
          *      supported.
          */
-    } else if (strcmp(object->method, "SystemChrome.setPreferredOrientations") == 0) {
+    } else if (streq(object.method, "SystemChrome.setPreferredOrientations")) {
         /*
          *  SystemChrome.setPreferredOrientations(DeviceOrientation[])
          *      Informs the operating system of the desired orientation of the display. The argument is a [List] of
@@ -143,7 +157,7 @@ static int on_receive_platform(char *channel, struct platch_obj *object, Flutter
             "Expected `arg` to contain at least one element."
         );
         */
-    } else if (strcmp(object->method, "SystemChrome.setApplicationSwitcherDescription") == 0) {
+    } else if (streq(object.method, "SystemChrome.setApplicationSwitcherDescription")) {
         /*
          *  SystemChrome.setApplicationSwitcherDescription(Map description)
          *      Informs the operating system of the desired label and color to be used
@@ -156,11 +170,14 @@ static int on_receive_platform(char *channel, struct platch_obj *object, Flutter
          */
 
         value = jsobject_get(arg, "label");
-        if (value && (value->type == kJsonString))
-            snprintf(services.label, sizeof(services.label), "%s", value->string_value);
+        if (value && (value->type == kJsonString)) {
+            strncpy(plugin->label, value->string_value, sizeof(plugin->label) - 1);
+        }
 
-        return platch_respond_success_json(responsehandle, NULL);
-    } else if (strcmp(object->method, "SystemChrome.setEnabledSystemUIOverlays") == 0) {
+        platch_free_obj(&object);
+        platch_respond_success_json(message->response_handle, NULL);
+        return;
+    } else if (streq(object.method, "SystemChrome.setEnabledSystemUIOverlays")) {
         /*
          *  SystemChrome.setEnabledSystemUIOverlays(List overlays)
          *      Specifies the set of system overlays to have visible when the application
@@ -172,11 +189,11 @@ static int on_receive_platform(char *channel, struct platch_obj *object, Flutter
          *  }
          *
          */
-    } else if (strcmp(object->method, "SystemChrome.restoreSystemUIOverlays") == 0) {
+    } else if (streq(object.method, "SystemChrome.restoreSystemUIOverlays")) {
         /*
          * SystemChrome.restoreSystemUIOverlays(void)
          */
-    } else if (strcmp(object->method, "SystemChrome.setSystemUIOverlayStyle") == 0) {
+    } else if (streq(object.method, "SystemChrome.setSystemUIOverlayStyle")) {
         /*
          *  SystemChrome.setSystemUIOverlayStyle(struct SystemUIOverlayStyle)
          *
@@ -190,95 +207,117 @@ static int on_receive_platform(char *channel, struct platch_obj *object, Flutter
          *      statusBarBrightness: null / Brightness
          *      systemNavigationBarIconBrightness: null / Brightness
          */
-    } else if (strcmp(object->method, "SystemNavigator.pop") == 0) {
+    } else if (streq(object.method, "SystemNavigator.pop")) {
         LOG_FLUTTERPI_ERROR("received SystemNavigator.pop. Exiting...\n");
         flutterpi_schedule_exit(flutterpi);
     }
 
-    return platch_respond_not_implemented(responsehandle);
+    platch_free_obj(&object);
+    platch_respond_not_implemented(message->response_handle);
 }
 
-static int on_receive_accessibility(char *channel, struct platch_obj *object, FlutterPlatformMessageResponseHandle *responsehandle) {
-    (void) channel;
-    (void) object;
-    return platch_respond_not_implemented(responsehandle);
+static void on_receive_accessibility(ASSERTED void *userdata, const FlutterPlatformMessage *message) {
+    ASSUME(userdata);
+    ASSUME(message);
+    platch_respond_not_implemented(message->response_handle);
 }
 
-static int on_receive_platform_views(char *channel, struct platch_obj *object, FlutterPlatformMessageResponseHandle *responsehandle) {
-    (void) channel;
-    (void) object;
+static void on_receive_platform_views(ASSERTED void *userdata, const FlutterPlatformMessage *message) {
+    ASSUME(userdata);
+    ASSUME(message);
 
-    if STREQ ("create", object->method) {
-        return platch_respond_not_implemented(responsehandle);
-    } else if STREQ ("dispose", object->method) {
-        return platch_respond_not_implemented(responsehandle);
-    }
+    // if (streq("create", object->method)) {
+    //     return platch_respond_not_implemented(responsehandle);
+    // } else if (streq("dispose", object->method)) {
+    //     return platch_respond_not_implemented(responsehandle);
+    // }
 
-    return platch_respond_not_implemented(responsehandle);
+    platch_respond_not_implemented(message->response_handle);
 }
 
 enum plugin_init_result services_init(struct flutterpi *flutterpi, void **userdata_out) {
+    struct plugin_registry *registry;
+    struct plugin *plugin;
     int ok;
 
-    (void) flutterpi;
-    (void) userdata_out;
+    ASSUME(flutterpi);
 
-    ok = plugin_registry_set_receiver(FLUTTER_NAVIGATION_CHANNEL, kJSONMethodCall, on_receive_navigation);
-    if (ok != 0) {
-        fprintf(stderr, "[services-plugin] could not set \"" FLUTTER_NAVIGATION_CHANNEL "\" platform message receiver: %s\n", strerror(ok));
-        goto fail_return_ok;
+    registry = flutterpi_get_plugin_registry(flutterpi);
+
+    plugin = malloc(sizeof *plugin);
+    if (plugin == NULL) {
+        goto fail_return_error;
     }
 
-    ok = plugin_registry_set_receiver(FLUTTER_ISOLATE_CHANNEL, kBinaryCodec, on_receive_isolate);
+    ok = plugin_registry_set_receiver_v2_locked(registry, FLUTTER_NAVIGATION_CHANNEL, on_receive_navigation, plugin);
+    if (ok != 0) {
+        fprintf(stderr, "[services-plugin] could not set \"" FLUTTER_NAVIGATION_CHANNEL "\" platform message receiver: %s\n", strerror(ok));
+        goto fail_free_plugin;
+    }
+
+    ok = plugin_registry_set_receiver_v2_locked(registry, FLUTTER_ISOLATE_CHANNEL, on_receive_isolate, plugin);
     if (ok != 0) {
         fprintf(stderr, "[services-plugin] could not set \"" FLUTTER_ISOLATE_CHANNEL "\" ChannelObject receiver: %s\n", strerror(ok));
         goto fail_remove_navigation_receiver;
     }
 
-    ok = plugin_registry_set_receiver(FLUTTER_PLATFORM_CHANNEL, kJSONMethodCall, on_receive_platform);
+    ok = plugin_registry_set_receiver_v2_locked(registry, FLUTTER_PLATFORM_CHANNEL, on_receive_platform, plugin);
     if (ok != 0) {
         fprintf(stderr, "[services-plugin] could not set \"" FLUTTER_PLATFORM_CHANNEL "\" ChannelObject receiver: %s\n", strerror(ok));
         goto fail_remove_isolate_receiver;
     }
 
-    ok = plugin_registry_set_receiver(FLUTTER_ACCESSIBILITY_CHANNEL, kBinaryCodec, on_receive_accessibility);
+    ok = plugin_registry_set_receiver_v2_locked(registry, FLUTTER_ACCESSIBILITY_CHANNEL, on_receive_accessibility, plugin);
     if (ok != 0) {
         fprintf(stderr, "[services-plugin] could not set \"" FLUTTER_ACCESSIBILITY_CHANNEL "\" ChannelObject receiver: %s\n", strerror(ok));
         goto fail_remove_platform_receiver;
     }
 
-    ok = plugin_registry_set_receiver(FLUTTER_PLATFORM_VIEWS_CHANNEL, kStandardMethodCall, on_receive_platform_views);
+    ok = plugin_registry_set_receiver_v2_locked(registry, FLUTTER_PLATFORM_VIEWS_CHANNEL, on_receive_platform_views, plugin);
     if (ok != 0) {
         fprintf(stderr, "[services-plugin] could not set \"" FLUTTER_PLATFORM_VIEWS_CHANNEL "\" ChannelObject receiver: %s\n", strerror(ok));
         goto fail_remove_accessibility_receiver;
     }
 
+    *userdata_out = plugin;
+
     return 0;
 
 fail_remove_accessibility_receiver:
-    plugin_registry_remove_receiver(FLUTTER_ACCESSIBILITY_CHANNEL);
+    plugin_registry_remove_receiver_v2_locked(registry, FLUTTER_ACCESSIBILITY_CHANNEL);
 
 fail_remove_platform_receiver:
-    plugin_registry_remove_receiver(FLUTTER_PLATFORM_CHANNEL);
+    plugin_registry_remove_receiver_v2_locked(registry, FLUTTER_PLATFORM_CHANNEL);
 
 fail_remove_isolate_receiver:
-    plugin_registry_remove_receiver(FLUTTER_ISOLATE_CHANNEL);
+    plugin_registry_remove_receiver_v2_locked(registry, FLUTTER_ISOLATE_CHANNEL);
 
 fail_remove_navigation_receiver:
-    plugin_registry_remove_receiver(FLUTTER_NAVIGATION_CHANNEL);
+    plugin_registry_remove_receiver_v2_locked(registry, FLUTTER_NAVIGATION_CHANNEL);
 
-fail_return_ok:
-    return kError_PluginInitResult;
+fail_free_plugin:
+    free(plugin);
+
+fail_return_error:
+    return PLUGIN_INIT_RESULT_ERROR;
 }
 
 void services_deinit(struct flutterpi *flutterpi, void *userdata) {
-    (void) flutterpi;
-    (void) userdata;
-    plugin_registry_remove_receiver(FLUTTER_NAVIGATION_CHANNEL);
-    plugin_registry_remove_receiver(FLUTTER_ISOLATE_CHANNEL);
-    plugin_registry_remove_receiver(FLUTTER_PLATFORM_CHANNEL);
-    plugin_registry_remove_receiver(FLUTTER_ACCESSIBILITY_CHANNEL);
-    plugin_registry_remove_receiver(FLUTTER_PLATFORM_VIEWS_CHANNEL);
+    struct plugin_registry *registry;
+    struct plugin *plugin;
+
+    ASSUME(flutterpi);
+    ASSUME(userdata);
+
+    registry = flutterpi_get_plugin_registry(flutterpi);
+    plugin = userdata;
+
+    plugin_registry_remove_receiver_v2_locked(registry, FLUTTER_NAVIGATION_CHANNEL);
+    plugin_registry_remove_receiver_v2_locked(registry, FLUTTER_ISOLATE_CHANNEL);
+    plugin_registry_remove_receiver_v2_locked(registry, FLUTTER_PLATFORM_CHANNEL);
+    plugin_registry_remove_receiver_v2_locked(registry, FLUTTER_ACCESSIBILITY_CHANNEL);
+    plugin_registry_remove_receiver_v2_locked(registry, FLUTTER_PLATFORM_VIEWS_CHANNEL);
+    free(plugin);
 }
 
 FLUTTERPI_PLUGIN("services", services, services_init, services_deinit)
