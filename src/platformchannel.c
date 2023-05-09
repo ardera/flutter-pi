@@ -31,7 +31,7 @@ static int _check_remaining(size_t *remaining, int min_remaining) {
     }
     return 0;
 }
-static int _read(uint8_t **pbuffer, void *dest, int n_bytes, size_t *remaining) {
+static int _read(const uint8_t **pbuffer, void *dest, int n_bytes, size_t *remaining) {
     int ok;
 
     ok = _check_remaining(remaining, n_bytes);
@@ -94,12 +94,12 @@ static int _advance_size_bytes(uintptr_t *value, size_t size, size_t *remaining)
     }
 }
 
-#define DEFINE_READ_WRITE_FUNC(suffix, value_type)                                              \
-    UNUSED static int _write_##suffix(uint8_t **pbuffer, value_type value, size_t *remaining) { \
-        return _write(pbuffer, &value, sizeof value, remaining);                                \
-    }                                                                                           \
-    UNUSED static int _read_##suffix(uint8_t **pbuffer, value_type *value, size_t *remaining) { \
-        return _read(pbuffer, value, sizeof *value, remaining);                                 \
+#define DEFINE_READ_WRITE_FUNC(suffix, value_type)                                                    \
+    UNUSED static int _write_##suffix(uint8_t **pbuffer, value_type value, size_t *remaining) {       \
+        return _write(pbuffer, &value, sizeof value, remaining);                                      \
+    }                                                                                                 \
+    UNUSED static int _read_##suffix(const uint8_t **pbuffer, value_type *value, size_t *remaining) { \
+        return _read(pbuffer, value, sizeof *value, remaining);                                       \
     }
 
 DEFINE_READ_WRITE_FUNC(u8, uint8_t)
@@ -138,7 +138,7 @@ static int _writeSize(uint8_t **pbuffer, int size, size_t *remaining) {
 
     return ok;
 }
-static int _readSize(uint8_t **pbuffer, uint32_t *psize, size_t *remaining) {
+static int _readSize(const uint8_t **pbuffer, uint32_t *psize, size_t *remaining) {
     int ok;
     uint8_t size8;
     uint16_t size16;
@@ -337,7 +337,7 @@ int platch_calc_value_size_std(struct std_value *value, size_t *size_out) {
     return 0;
 }
 int platch_write_value_to_buffer_std(struct std_value *value, uint8_t **pbuffer) {
-    uint8_t *byteArray;
+    const uint8_t *byteArray;
     size_t size;
     int ok;
 
@@ -546,7 +546,7 @@ int platch_write_value_to_buffer_json(struct json_value *value, uint8_t **pbuffe
 
     return 0;
 }
-int platch_decode_value_std(uint8_t **pbuffer, size_t *premaining, struct std_value *value_out) {
+int platch_decode_value_std(const uint8_t **pbuffer, size_t *premaining, struct std_value *value_out) {
     enum std_value_type type;
     uint8_t type_byte;
     uint32_t size;
@@ -838,9 +838,9 @@ int platch_decode_json(char *string, struct json_value *out) {
     return platch_decode_value_json(string, strlen(string), NULL, NULL, out);
 }
 
-int platch_decode(uint8_t *buffer, size_t size, enum platch_codec codec, struct platch_obj *object_out) {
+int platch_decode(const uint8_t *buffer, size_t size, enum platch_codec codec, struct platch_obj *object_out) {
     struct json_value root_jsvalue;
-    uint8_t *buffer_cursor = buffer;
+    const uint8_t *buffer_cursor = buffer;
     size_t remaining = size;
     int ok;
 
@@ -990,7 +990,8 @@ int platch_encode(struct platch_obj *object, uint8_t **buffer_out, size_t *size_
             return 0;
         case kStringCodec: size = strlen(object->string_value); break;
         case kBinaryCodec:
-            *buffer_out = object->binarydata;
+            /// FIXME: Copy buffer instead
+            *buffer_out = (uint8_t *) object->binarydata;
             *size_out = object->binarydata_size;
             return 0;
         case kJSONMessageCodec:
@@ -1249,7 +1250,7 @@ int platch_call_json(char *channel, char *method, struct json_value *argument, p
     );
 }
 
-int platch_respond(FlutterPlatformMessageResponseHandle *handle, struct platch_obj *response) {
+int platch_respond(const FlutterPlatformMessageResponseHandle *handle, struct platch_obj *response) {
     uint8_t *buffer = NULL;
     size_t size = 0;
     int ok;
@@ -1267,7 +1268,7 @@ int platch_respond(FlutterPlatformMessageResponseHandle *handle, struct platch_o
     return 0;
 }
 
-int platch_respond_not_implemented(FlutterPlatformMessageResponseHandle *handle) {
+int platch_respond_not_implemented(const FlutterPlatformMessageResponseHandle *handle) {
     return platch_respond((FlutterPlatformMessageResponseHandle *) handle, &(struct platch_obj){ .codec = kNotImplemented });
 }
 
@@ -1275,7 +1276,7 @@ int platch_respond_not_implemented(FlutterPlatformMessageResponseHandle *handle)
  * STANDARD METHOD CHANNELS *
  ****************************/
 
-int platch_respond_success_std(FlutterPlatformMessageResponseHandle *handle, struct std_value *return_value) {
+int platch_respond_success_std(const FlutterPlatformMessageResponseHandle *handle, struct std_value *return_value) {
     return platch_respond(
         handle,
         &(struct platch_obj){ .codec = kStandardMethodCallResponse, .success = true, .std_result = return_value ? *return_value : STDNULL }
@@ -1283,36 +1284,38 @@ int platch_respond_success_std(FlutterPlatformMessageResponseHandle *handle, str
 }
 
 int platch_respond_error_std(
-    FlutterPlatformMessageResponseHandle *handle,
+    const FlutterPlatformMessageResponseHandle *handle,
     char *error_code,
     char *error_msg,
     struct std_value *error_details
 ) {
     return platch_respond(
         handle,
-        &(struct platch_obj){ .codec = kStandardMethodCallResponse,
-                              .success = false,
-                              .error_code = error_code,
-                              .error_msg = error_msg,
-                              .std_error_details = error_details ? *error_details : STDNULL }
+        &(struct platch_obj){
+            .codec = kStandardMethodCallResponse,
+            .success = false,
+            .error_code = error_code,
+            .error_msg = error_msg,
+            .std_error_details = error_details ? *error_details : STDNULL,
+        }
     );
 }
 
 /// Sends a platform message to `handle` with error code "illegalargument"
 /// and error message `errmsg`.
-int platch_respond_illegal_arg_std(FlutterPlatformMessageResponseHandle *handle, char *error_msg) {
+int platch_respond_illegal_arg_std(const FlutterPlatformMessageResponseHandle *handle, char *error_msg) {
     return platch_respond_error_std(handle, "illegalargument", error_msg, NULL);
 }
 
 /// Sends a platform message to `handle` with error code "illegalargument"
 /// and error message `errmsg`.
-int platch_respond_illegal_arg_ext_std(FlutterPlatformMessageResponseHandle *handle, char *error_msg, struct std_value *error_details) {
+int platch_respond_illegal_arg_ext_std(const FlutterPlatformMessageResponseHandle *handle, char *error_msg, struct std_value *error_details) {
     return platch_respond_error_std(handle, "illegalargument", error_msg, error_details);
 }
 
 /// Sends a platform message to `handle` with error code "nativeerror"
 /// and error messsage `strerror(_errno)`
-int platch_respond_native_error_std(FlutterPlatformMessageResponseHandle *handle, int _errno) {
+int platch_respond_native_error_std(const FlutterPlatformMessageResponseHandle *handle, int _errno) {
     return platch_respond_error_std(handle, "nativeerror", strerror(_errno), &STDINT32(_errno));
 }
 
@@ -1320,34 +1323,40 @@ int platch_respond_native_error_std(FlutterPlatformMessageResponseHandle *handle
  * JSON METHOD CHANNELS *
  ************************/
 
-int platch_respond_success_json(FlutterPlatformMessageResponseHandle *handle, struct json_value *return_value) {
+int platch_respond_success_json(const FlutterPlatformMessageResponseHandle *handle, struct json_value *return_value) {
     return platch_respond(
         handle,
-        &(struct platch_obj){ .codec = kJSONMethodCallResponse, .success = true, .json_result = return_value ? *return_value : JSONNULL }
+        &(struct platch_obj){
+            .codec = kJSONMethodCallResponse,
+            .success = true,
+            .json_result = return_value ? *return_value : JSONNULL,
+        }
     );
 }
 
 int platch_respond_error_json(
-    FlutterPlatformMessageResponseHandle *handle,
+    const FlutterPlatformMessageResponseHandle *handle,
     char *error_code,
     char *error_msg,
     struct json_value *error_details
 ) {
     return platch_respond(
         handle,
-        &(struct platch_obj){ .codec = kJSONMethodCallResponse,
-                              .success = false,
-                              .error_code = error_code,
-                              .error_msg = error_msg,
-                              .json_error_details = (error_details) ? *error_details : (struct json_value){ .type = kJsonNull } }
+        &(struct platch_obj){
+            .codec = kJSONMethodCallResponse,
+            .success = false,
+            .error_code = error_code,
+            .error_msg = error_msg,
+            .json_error_details = (error_details) ? *error_details : (struct json_value){ .type = kJsonNull },
+        }
     );
 }
 
-int platch_respond_illegal_arg_json(FlutterPlatformMessageResponseHandle *handle, char *error_msg) {
+int platch_respond_illegal_arg_json(const FlutterPlatformMessageResponseHandle *handle, char *error_msg) {
     return platch_respond_error_json(handle, "illegalargument", error_msg, NULL);
 }
 
-int platch_respond_native_error_json(FlutterPlatformMessageResponseHandle *handle, int _errno) {
+int platch_respond_native_error_json(const FlutterPlatformMessageResponseHandle *handle, int _errno) {
     return platch_respond_error_json(
         handle,
         "nativeerror",
@@ -1359,12 +1368,12 @@ int platch_respond_native_error_json(FlutterPlatformMessageResponseHandle *handl
 /**************************
  * PIGEON METHOD CHANNELS *
  **************************/
-int platch_respond_success_pigeon(FlutterPlatformMessageResponseHandle *handle, struct std_value *return_value) {
+int platch_respond_success_pigeon(const FlutterPlatformMessageResponseHandle *handle, struct std_value *return_value) {
     return platch_respond(handle, &PLATCH_OBJ_STD_MSG(STDMAP1(STDSTRING("result"), return_value != NULL ? *return_value : STDNULL)));
 }
 
 int platch_respond_error_pigeon(
-    FlutterPlatformMessageResponseHandle *handle,
+    const FlutterPlatformMessageResponseHandle *handle,
     char *error_code,
     char *error_msg,
     struct std_value *error_details
@@ -1385,15 +1394,19 @@ int platch_respond_error_pigeon(
     );
 }
 
-int platch_respond_illegal_arg_pigeon(FlutterPlatformMessageResponseHandle *handle, char *error_msg) {
+int platch_respond_illegal_arg_pigeon(const FlutterPlatformMessageResponseHandle *handle, char *error_msg) {
     return platch_respond_error_pigeon(handle, "illegalargument", error_msg, NULL);
 }
 
-int platch_respond_illegal_arg_ext_pigeon(FlutterPlatformMessageResponseHandle *handle, char *error_msg, struct std_value *error_details) {
+int platch_respond_illegal_arg_ext_pigeon(
+    const FlutterPlatformMessageResponseHandle *handle,
+    char *error_msg,
+    struct std_value *error_details
+) {
     return platch_respond_error_pigeon(handle, "illegalargument", error_msg, error_details);
 }
 
-int platch_respond_native_error_pigeon(FlutterPlatformMessageResponseHandle *handle, int _errno) {
+int platch_respond_native_error_pigeon(const FlutterPlatformMessageResponseHandle *handle, int _errno) {
     return platch_respond_error_pigeon(handle, "nativeerror", strerror(_errno), &STDINT32(_errno));
 }
 
@@ -1403,7 +1416,11 @@ int platch_respond_native_error_pigeon(FlutterPlatformMessageResponseHandle *han
 int platch_send_success_event_std(char *channel, struct std_value *event_value) {
     return platch_send(
         channel,
-        &(struct platch_obj){ .codec = kStandardMethodCallResponse, .success = true, .std_result = event_value ? *event_value : STDNULL },
+        &(struct platch_obj){
+            .codec = kStandardMethodCallResponse,
+            .success = true,
+            .std_result = event_value ? *event_value : STDNULL,
+        },
         0,
         NULL,
         NULL
@@ -1413,11 +1430,13 @@ int platch_send_success_event_std(char *channel, struct std_value *event_value) 
 int platch_send_error_event_std(char *channel, char *error_code, char *error_msg, struct std_value *error_details) {
     return platch_send(
         channel,
-        &(struct platch_obj){ .codec = kStandardMethodCallResponse,
-                              .success = false,
-                              .error_code = error_code,
-                              .error_msg = error_msg,
-                              .std_error_details = error_details ? *error_details : STDNULL },
+        &(struct platch_obj){
+            .codec = kStandardMethodCallResponse,
+            .success = false,
+            .error_code = error_code,
+            .error_msg = error_msg,
+            .std_error_details = error_details ? *error_details : STDNULL,
+        },
         0,
         NULL,
         NULL
@@ -1430,9 +1449,11 @@ int platch_send_error_event_std(char *channel, char *error_code, char *error_msg
 int platch_send_success_event_json(char *channel, struct json_value *event_value) {
     return platch_send(
         channel,
-        &(struct platch_obj){ .codec = kJSONMethodCallResponse,
-                              .success = true,
-                              .json_result = event_value ? *event_value : (struct json_value){ .type = kJsonNull } },
+        &(struct platch_obj){
+            .codec = kJSONMethodCallResponse,
+            .success = true,
+            .json_result = event_value ? *event_value : (struct json_value){ .type = kJsonNull },
+        },
         0,
         NULL,
         NULL

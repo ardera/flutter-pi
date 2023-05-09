@@ -868,7 +868,7 @@ int flutterpi_send_platform_message(
 }
 
 int flutterpi_respond_to_platform_message(
-    FlutterPlatformMessageResponseHandle *handle,
+    const FlutterPlatformMessageResponseHandle *handle,
     const uint8_t *restrict message,
     size_t message_size
 ) {
@@ -1822,16 +1822,16 @@ static bool parse_cmd_args(int argc, char **argv, struct cmd_args *result_out) {
                 break;
 
             case 'o':
-                if (STREQ(optarg, "portrait_up")) {
+                if (streq(optarg, "portrait_up")) {
                     result_out->orientation = kPortraitUp;
                     result_out->has_orientation = true;
-                } else if (STREQ(optarg, "landscape_left")) {
+                } else if (streq(optarg, "landscape_left")) {
                     result_out->orientation = kLandscapeLeft;
                     result_out->has_orientation = true;
-                } else if (STREQ(optarg, "portrait_down")) {
+                } else if (streq(optarg, "portrait_down")) {
                     result_out->orientation = kPortraitDown;
                     result_out->has_orientation = true;
-                } else if (STREQ(optarg, "landscape_right")) {
+                } else if (streq(optarg, "landscape_right")) {
                     result_out->orientation = kLandscapeRight;
                     result_out->has_orientation = true;
                 } else {

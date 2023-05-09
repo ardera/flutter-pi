@@ -4,14 +4,6 @@
 #include <flutter_embedder.h>
 
 #include "gles.h"
-
-struct flutter_external_texture_interface {
-    FlutterEngineRegisterExternalTextureFnPtr register_external_texture;
-    FlutterEngineUnregisterExternalTextureFnPtr unregister_external_texture;
-    FlutterEngineMarkExternalTextureFrameAvailableFnPtr mark_external_texture_frame_available;
-    FlutterEngine engine;
-};
-
 struct texture_registry_interface {
     int (*register_texture)(void *userdata, int64_t texture_identifier);
     int (*unregister_texture)(void *userdata, int64_t texture_identifier);

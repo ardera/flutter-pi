@@ -891,7 +891,7 @@ enum plugin_init_result rawkb_init(struct flutterpi *flutterpi, void **userdata_
 
     assert_key_modifiers_work();
 
-    return kInitialized_PluginInitResult;
+    return PLUGIN_INIT_RESULT_INITIALIZED;
 }
 
 void rawkb_deinit(struct flutterpi *flutterpi, void *userdata) {

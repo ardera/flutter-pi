@@ -214,16 +214,16 @@ int plugin_registry_ensure_plugins_initialized(struct plugin_registry *registry)
     util_dynarray_foreach(&registry->plugins, struct plugin_instance, instance) {
         if (instance->initialized == false) {
             result = instance->plugin->init(registry->flutterpi, &instance->userdata);
-            if (result == kError_PluginInitResult) {
+            if (result == PLUGIN_INIT_RESULT_ERROR) {
                 LOG_ERROR("Error initializing plugin \"%s\".\n", instance->plugin->name);
                 goto fail_deinit_all_initialized;
-            } else if (result == kNotApplicable_PluginInitResult) {
+            } else if (result == PLUGIN_INIT_RESULT_NOT_APPLICABLE) {
                 // This is not an error.
                 LOG_DEBUG("INFO: Plugin \"%s\" is not available in this flutter-pi instance.\n", instance->plugin->name);
                 continue;
             }
 
-            ASSUME(result == kInitialized_PluginInitResult);
+            ASSUME(result == PLUGIN_INIT_RESULT_INITIALIZED);
             instance->initialized = true;
         }
     }
@@ -340,6 +340,15 @@ int plugin_registry_set_receiver_v2(
 }
 
 /// TODO: Move this into a separate flutter messenger API
+int plugin_registry_set_receiver_locked(const char *channel, enum platch_codec codec, platch_obj_recv_callback callback) {
+    struct plugin_registry *registry;
+
+    registry = flutterpi_get_plugin_registry(flutterpi);
+    ASSUME(registry != NULL);
+
+    return set_receiver_locked(registry, channel, codec, callback, NULL, NULL);
+}
+
 int plugin_registry_set_receiver(const char *channel, enum platch_codec codec, platch_obj_recv_callback callback) {
     struct plugin_registry *registry;
 
