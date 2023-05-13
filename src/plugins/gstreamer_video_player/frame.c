@@ -11,9 +11,12 @@
 #include <gst/video/video.h>
 
 #include "flutter-pi.h"
-#include "gl_renderer.h"
-#include "plugins/gstreamer_video_player.h"
 #include "texture_registry.h"
+
+// This will error if we don't have EGL / OpenGL ES support.
+#include "plugins/gstreamer_video_player.h"
+
+#include "gl_renderer.h"
 
 FILE_DESCR("gstreamer video_player")
 

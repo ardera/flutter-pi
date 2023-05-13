@@ -12,12 +12,15 @@
 
 #include <flutter_embedder.h>
 
-#include "egl.h"
 #include "flutter-pi.h"
 #include "frame_scheduler.h"
 #include "modesetting.h"
 #include "pixel_format.h"
 #include "util/collection.h"
+
+#ifdef HAVE_EGL_GLES2
+    #include "egl.h"
+#endif
 
 struct compositor;
 
@@ -167,17 +170,17 @@ const FlutterCompositor *compositor_get_flutter_compositor(struct compositor *co
 
 int compositor_request_frame(struct compositor *compositor, compositor_frame_begin_cb_t cb, void *userdata);
 
+#ifdef HAVE_EGL_GLES2
 bool compositor_has_egl_surface(struct compositor *compositor);
 
 EGLSurface compositor_get_egl_surface(struct compositor *compositor);
+#endif
 
 int compositor_get_event_fd(struct compositor *compositor);
 
 int compositor_on_event_fd_ready(struct compositor *compositor);
 
 void compositor_set_cursor(struct compositor *compositor, bool has_enabled, bool enabled, bool has_delta, struct vec2f delta);
-
-ATTR_PURE EGLConfig egl_choose_config_with_pixel_format(EGLDisplay egl_display, const EGLint *config_attribs, enum pixfmt pixel_format);
 
 struct fl_layer_composition;
 

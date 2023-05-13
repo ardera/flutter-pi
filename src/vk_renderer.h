@@ -49,7 +49,7 @@ struct vk_renderer;
  */
 struct vk_renderer *vk_renderer_new();
 
-void vk_renderer_destroy();
+void vk_renderer_destroy(struct vk_renderer *renderer);
 
 DECLARE_REF_OPS(vk_renderer)
 

@@ -133,6 +133,7 @@ static void texture_registry_unregister_texture(struct texture_registry *reg, st
     cpset_remove(&reg->textures, texture);
 }
 
+#ifdef HAVE_EGL_GLES2
 static bool
 texture_gl_external_texture_frame_callback(struct texture *texture, size_t width, size_t height, FlutterOpenGLTexture *texture_out);
 
@@ -170,6 +171,7 @@ bool texture_registry_gl_external_texture_frame_callback(
 
     return result;
 }
+#endif
 
 DEFINE_INLINE_LOCK_OPS(texture, lock)
 
@@ -267,7 +269,7 @@ void texture_destroy(struct texture *texture) {
     free(texture);
 }
 
-static void on_flutter_acquired_frame_destroy(void *userdata) {
+UNUSED static void on_flutter_acquired_frame_destroy(void *userdata) {
     struct counted_texture_frame *frame;
 
     ASSERT_NOT_NULL(userdata);
@@ -277,6 +279,7 @@ static void on_flutter_acquired_frame_destroy(void *userdata) {
     counted_texture_frame_unref(frame);
 }
 
+#ifdef HAVE_EGL_GLES2
 static bool
 texture_gl_external_texture_frame_callback(struct texture *texture, size_t width, size_t height, FlutterOpenGLTexture *texture_out) {
     struct counted_texture_frame *frame;
@@ -341,3 +344,4 @@ texture_gl_external_texture_frame_callback(struct texture *texture, size_t width
         return false;
     }
 }
+#endif

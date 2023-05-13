@@ -162,6 +162,10 @@ target_compile_definitions(flutterpi_module PUBLIC HAVE_KMS HAVE_GBM HAVE_FBDEV)
 pkg_check_modules(EGL IMPORTED_TARGET egl)
 pkg_check_modules(GLES2 IMPORTED_TARGET glesv2)
 
+set(HAVE_EGL OFF)
+set(HAVE_GLES2 OFF)
+set(HAVE_EGL_GLES2 OFF)
+
 if (ENABLE_OPENGL)
   if (EGL_FOUND AND GLES2_FOUND)
     target_sources(flutterpi_module PRIVATE
@@ -172,7 +176,10 @@ if (ENABLE_OPENGL)
       PkgConfig::EGL
       PkgConfig::GLES2
     )
-    target_compile_definitions(flutterpi_module PUBLIC HAVE_EGL HAVE_GLES2)
+    set(HAVE_EGL ON)
+    set(HAVE_GLES2 ON)
+    set(HAVE_EGL_GLES2 ON)
+    target_compile_definitions(flutterpi_module PUBLIC HAVE_EGL HAVE_GLES2 HAVE_EGL_GLES2)
   elseif (TRY_ENABLE_OPENGL)
     message("EGL and/or OpenGL was not found. Flutter-pi will build without EGL/OpenGL rendering support.")
   else()
@@ -180,36 +187,40 @@ if (ENABLE_OPENGL)
   endif()
 endif()
 
-if (NOT EGL_FOUND)
-  FetchContent_Declare(
-    EGL_REGISTRY
-    GIT_REPOSITORY "https://github.com/KhronosGroup/EGL-Registry"
-    GIT_TAG "main"
-  )
+message(STATUS "EGL/GLES support ....... ${HAVE_EGL_GLES2}")
 
-  # Don't use FetchContent_MakeAvailable here to be compatible with cmake < 3.14 (debian buster)
-  FetchContent_GetProperties(egl_registry)
-  if(NOT egl_registry_POPULATED)
-    FetchContent_Populate(egl_registry)
-  endif()
-
-  target_include_directories(flutterpi_module PUBLIC ${egl_registry_SOURCE_DIR}/api/)
+if (LINT_EGL_HEADERS)
+  target_compile_definitions(flutterpi_module PUBLIC LINT_EGL_HEADERS)
+  message(STATUS "Lint EGL headers ....... ON")
+else()
+  message(STATUS "Lint EGL headers ....... OFF")
 endif()
 
-if (NOT GLES2_FOUND)
-  FetchContent_Declare(
-    OGL_REGISTRY
-    GIT_REPOSITORY "https://github.com/KhronosGroup/OpenGL-Registry"
-    GIT_TAG "main"
-  )
+pkg_check_modules(VULKAN IMPORTED_TARGET vulkan)
 
-  # Don't use FetchContent_MakeAvailable here to be compatible with cmake < 3.14 (debian buster)
-  FetchContent_GetProperties(ogl_registry)
-  if(NOT ogl_registry_POPULATED)
-    FetchContent_Populate(ogl_registry)
+set(HAVE_VULKAN OFF)
+if (ENABLE_VULKAN)
+  if (VULKAN_FOUND)
+    target_sources(flutterpi_module PRIVATE
+      src/vk_gbm_render_surface.c
+      src/vk_renderer.c
+    )
+    target_link_libraries(flutterpi_module PUBLIC
+      PkgConfig::VULKAN
+    )
+    set(HAVE_VULKAN ON)
+    target_compile_definitions(flutterpi_module PUBLIC HAVE_VULKAN)
+  elseif (TRY_ENABLE_VULKAN)
+    message("Vulkan was not found. Flutter-pi will build without vulkan rendering support.")
+  else()
+    message(SEND_ERROR "Vulkan was not found. Try building with `-DTRY_ENABLE_VULKAN=On` if you want to just disable vulkan support in that case.")
   endif()
+endif()
 
-  target_include_directories(flutterpi_module PUBLIC ${ogl_registry_SOURCE_DIR}/api/)
+message(STATUS "Vulkan support ......... ${HAVE_VULKAN}")
+
+if (NOT HAVE_VULKAN AND NOT HAVE_EGL_GLES2)
+  message(SEND_ERROR "At least one of the EGL/GLES2 and Vulkan backends must be enabled.")
 endif()
 
 # Filesystem Layout
@@ -224,42 +235,6 @@ if(FILESYSTEM_LAYOUT STREQUAL default)
   target_compile_definitions(flutterpi_module PUBLIC "FILESYSTEM_LAYOUT_DEFAULT")
 elseif(FILESYSTEM_LAYOUT STREQUAL meta-flutter)
   target_compile_definitions(flutterpi_module PUBLIC "FILESYSTEM_LAYOUT_METAFLUTTER")
-endif()
-
-pkg_check_modules(VULKAN IMPORTED_TARGET vulkan)
-if (ENABLE_VULKAN)
-  if (VULKAN_FOUND)
-    target_sources(flutterpi_module PRIVATE
-      src/vk_gbm_render_surface.c
-      src/vk_renderer.c
-    )
-    target_link_libraries(flutterpi_module PUBLIC
-      PkgConfig::VULKAN
-    )
-    target_compile_definitions(flutterpi_module PUBLIC HAVE_VULKAN)
-  elseif (TRY_ENABLE_VULKAN)
-    message("Vulkan was not found. Flutter-pi will build without vulkan rendering support.")
-  else()
-    message(SEND_ERROR "Vulkan was not found. Try building with `-DTRY_ENABLE_VULKAN=On` if you want to just disable vulkan support in that case.")
-  endif()
-endif()
-
-# We still need the headers for the types, so fetch the headers and use them.
-if (NOT VULKAN_FOUND)
-  message("Fetching vulkan headers.")
-  FetchContent_Declare(
-    vulkan_headers
-    GIT_REPOSITORY "https://github.com/KhronosGroup/Vulkan-Headers"
-    GIT_TAG "main"
-  )
-
-  # Don't use FetchContent_MakeAvailable here to be compatible with cmake < 3.14 (debian buster)
-  FetchContent_GetProperties(vulkan_headers)
-  if(NOT vulkan_headers_POPULATED)
-    FetchContent_Populate(vulkan_headers)
-  endif()
-
-  target_include_directories(flutterpi_module PUBLIC ${vulkan_headers_SOURCE_DIR}/include/)
 endif()
 
 # Session switching support (using libseat)
@@ -279,9 +254,7 @@ if (ENABLE_SESSION_SWITCHING)
   endif()
 endif()
 
-if (LINT_EGL_HEADERS)
-  target_compile_definitions(flutterpi_module PUBLIC LINT_EGL_HEADERS)
-endif()
+
 
 
 # TODO: We actually don't need the compile definitions anymore, except for
@@ -299,47 +272,51 @@ if (BUILD_TEST_PLUGIN)
   target_sources(flutterpi_module PRIVATE src/plugins/testplugin.c)
 endif()
 if (BUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN)
-  if (TRY_BUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN)
-    pkg_check_modules(LIBGSTREAMER IMPORTED_TARGET gstreamer-1.0)
-    pkg_check_modules(LIBGSTREAMER_PLUGINS_BASE IMPORTED_TARGET gstreamer-plugins-base-1.0)
-    pkg_check_modules(LIBGSTREAMER_APP IMPORTED_TARGET gstreamer-app-1.0)
-    pkg_check_modules(LIBGSTREAMER_ALLOCATORS IMPORTED_TARGET gstreamer-allocators-1.0)
-    pkg_check_modules(LIBGSTREAMER_VIDEO IMPORTED_TARGET gstreamer-video-1.0)
+  if (NOT HAVE_EGL_GLES2)
+    message(NOTICE "EGL and OpenGL ES2 are required for gstreamer video player. Gstreamer video player plugin won't be build.")
   else()
-    pkg_check_modules(LIBGSTREAMER REQUIRED IMPORTED_TARGET gstreamer-1.0)
-    pkg_check_modules(LIBGSTREAMER_PLUGINS_BASE REQUIRED IMPORTED_TARGET gstreamer-plugins-base-1.0)
-    pkg_check_modules(LIBGSTREAMER_APP REQUIRED IMPORTED_TARGET gstreamer-app-1.0)
-    pkg_check_modules(LIBGSTREAMER_ALLOCATORS REQUIRED IMPORTED_TARGET gstreamer-allocators-1.0)
-    pkg_check_modules(LIBGSTREAMER_VIDEO REQUIRED IMPORTED_TARGET gstreamer-video-1.0)
-  endif()
+    if (TRY_BUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN)
+      pkg_check_modules(LIBGSTREAMER IMPORTED_TARGET gstreamer-1.0)
+      pkg_check_modules(LIBGSTREAMER_PLUGINS_BASE IMPORTED_TARGET gstreamer-plugins-base-1.0)
+      pkg_check_modules(LIBGSTREAMER_APP IMPORTED_TARGET gstreamer-app-1.0)
+      pkg_check_modules(LIBGSTREAMER_ALLOCATORS IMPORTED_TARGET gstreamer-allocators-1.0)
+      pkg_check_modules(LIBGSTREAMER_VIDEO IMPORTED_TARGET gstreamer-video-1.0)
+    else()
+      pkg_check_modules(LIBGSTREAMER REQUIRED IMPORTED_TARGET gstreamer-1.0)
+      pkg_check_modules(LIBGSTREAMER_PLUGINS_BASE REQUIRED IMPORTED_TARGET gstreamer-plugins-base-1.0)
+      pkg_check_modules(LIBGSTREAMER_APP REQUIRED IMPORTED_TARGET gstreamer-app-1.0)
+      pkg_check_modules(LIBGSTREAMER_ALLOCATORS REQUIRED IMPORTED_TARGET gstreamer-allocators-1.0)
+      pkg_check_modules(LIBGSTREAMER_VIDEO REQUIRED IMPORTED_TARGET gstreamer-video-1.0)
+    endif()
 
-  if (LIBGSTREAMER_FOUND AND LIBGSTREAMER_PLUGINS_BASE_FOUND AND LIBGSTREAMER_APP_FOUND AND LIBGSTREAMER_ALLOCATORS_FOUND AND LIBGSTREAMER_VIDEO_FOUND)
-    # There's no other way to query the libinput version (in code) somehow.
-    # So we need to roll our own libinput version macro
-    string(REPLACE "." ";" LIBGSTREAMER_VERSION_AS_LIST ${LIBGSTREAMER_VERSION})
-    list(GET LIBGSTREAMER_VERSION_AS_LIST 0 LIBGSTREAMER_VERSION_MAJOR)
-    list(GET LIBGSTREAMER_VERSION_AS_LIST 1 LIBGSTREAMER_VERSION_MINOR)
-    list(GET LIBGSTREAMER_VERSION_AS_LIST 2 LIBGSTREAMER_VERSION_PATCH)
+    if (LIBGSTREAMER_FOUND AND LIBGSTREAMER_PLUGINS_BASE_FOUND AND LIBGSTREAMER_APP_FOUND AND LIBGSTREAMER_ALLOCATORS_FOUND AND LIBGSTREAMER_VIDEO_FOUND)
+      # There's no other way to query the libinput version (in code) somehow.
+      # So we need to roll our own libinput version macro
+      string(REPLACE "." ";" LIBGSTREAMER_VERSION_AS_LIST ${LIBGSTREAMER_VERSION})
+      list(GET LIBGSTREAMER_VERSION_AS_LIST 0 LIBGSTREAMER_VERSION_MAJOR)
+      list(GET LIBGSTREAMER_VERSION_AS_LIST 1 LIBGSTREAMER_VERSION_MINOR)
+      list(GET LIBGSTREAMER_VERSION_AS_LIST 2 LIBGSTREAMER_VERSION_PATCH)
 
-    target_compile_definitions(flutterpi_module PUBLIC
-      LIBGSTREAMER_VERSION_MAJOR=${LIBGSTREAMER_VERSION_MAJOR}
-      LIBGSTREAMER_VERSION_MINOR=${LIBGSTREAMER_VERSION_MINOR}
-      LIBGSTREAMER_VERSION_PATCH=${LIBGSTREAMER_VERSION_PATCH}
-    )
-    target_sources(flutterpi_module PRIVATE
-      src/plugins/gstreamer_video_player/plugin.c
-      src/plugins/gstreamer_video_player/player.c
-      src/plugins/gstreamer_video_player/frame.c
-    )
-    target_link_libraries(flutterpi_module PUBLIC
-      PkgConfig::LIBGSTREAMER
-      PkgConfig::LIBGSTREAMER_PLUGINS_BASE
-      PkgConfig::LIBGSTREAMER_APP
-      PkgConfig::LIBGSTREAMER_ALLOCATORS
-      PkgConfig::LIBGSTREAMER_VIDEO
-    )
-  else()
-    message(NOTICE "Couldn't find gstreamer libraries. Gstreamer video player plugin won't be build.")
+      target_compile_definitions(flutterpi_module PUBLIC
+        LIBGSTREAMER_VERSION_MAJOR=${LIBGSTREAMER_VERSION_MAJOR}
+        LIBGSTREAMER_VERSION_MINOR=${LIBGSTREAMER_VERSION_MINOR}
+        LIBGSTREAMER_VERSION_PATCH=${LIBGSTREAMER_VERSION_PATCH}
+      )
+      target_sources(flutterpi_module PRIVATE
+        src/plugins/gstreamer_video_player/plugin.c
+        src/plugins/gstreamer_video_player/player.c
+        src/plugins/gstreamer_video_player/frame.c
+      )
+      target_link_libraries(flutterpi_module PUBLIC
+        PkgConfig::LIBGSTREAMER
+        PkgConfig::LIBGSTREAMER_PLUGINS_BASE
+        PkgConfig::LIBGSTREAMER_APP
+        PkgConfig::LIBGSTREAMER_ALLOCATORS
+        PkgConfig::LIBGSTREAMER_VIDEO
+      )
+    else()
+      message(NOTICE "Couldn't find gstreamer libraries. Gstreamer video player plugin won't be build.")
+    endif()
   endif()
 endif()
 

@@ -18,17 +18,23 @@
 
 #include "compositor_ng.h"
 #include "cursor.h"
-#include "egl_gbm_render_surface.h"
 #include "flutter-pi.h"
 #include "frame_scheduler.h"
-#include "gl_renderer.h"
 #include "modesetting.h"
 #include "render_surface.h"
 #include "surface.h"
 #include "tracer.h"
 #include "util/collection.h"
-#include "vk_gbm_render_surface.h"
-#include "vk_renderer.h"
+
+#ifdef HAVE_EGL_GLES2
+    #include "gl_renderer.h"
+    #include "egl_gbm_render_surface.h"
+#endif
+
+#ifdef HAVE_VULKAN
+    #include "vk_renderer.h"
+    #include "vk_gbm_render_surface.h"
+#endif
 
 FILE_DESCR("native windows")
 
@@ -188,6 +194,7 @@ struct window {
      */
     struct render_surface *render_surface;
 
+#ifdef HAVE_EGL_GLES2
     /**
      * @brief The EGLSurface of this window, if any.
      *
@@ -197,6 +204,7 @@ struct window {
      *
      */
     EGLSurface egl_surface;
+#endif
 
     /**
      * @brief Whether this window currently shows a mouse cursor.
@@ -212,7 +220,11 @@ struct window {
 
     int (*push_composition)(struct window *window, struct fl_layer_composition *composition);
     struct render_surface *(*get_render_surface)(struct window *window, struct vec2i size);
+
+#ifdef HAVE_EGL_GLES2
     EGLSurface (*get_egl_surface)(struct window *window);
+#endif
+
     int (*enable_cursor_locked)(struct window *window, struct vec2i pos);
     int (*disable_cursor_locked)(struct window *window);
     int (*move_cursor_locked)(struct window *window, struct vec2i pos);
@@ -381,12 +393,16 @@ static int window_init(
     window->gl_renderer = NULL;
     window->vk_renderer = NULL;
     window->render_surface = NULL;
+#ifdef HAVE_EGL_GLES2
     window->egl_surface = NULL;
+#endif
     window->cursor_enabled = false;
     window->cursor_pos = VEC2I(0, 0);
     window->push_composition = NULL;
     window->get_render_surface = NULL;
+#ifdef HAVE_EGL_GLES2
     window->get_egl_surface = NULL;
+#endif
     window->enable_cursor_locked = NULL;
     window->disable_cursor_locked = NULL;
     window->move_cursor_locked = NULL;
@@ -449,11 +465,13 @@ int window_get_next_vblank(struct window *window, uint64_t *next_vblank_ns_out) 
     return 0;
 }
 
+#ifdef HAVE_EGL_GLES2
 EGLSurface window_get_egl_surface(struct window *window) {
     ASSERT_NOT_NULL(window);
     ASSERT_NOT_NULL(window->get_egl_surface);
     return window->get_egl_surface(window);
 }
+#endif
 
 struct render_surface *window_get_render_surface(struct window *window, struct vec2i size) {
     ASSERT_NOT_NULL(window);
@@ -829,7 +847,11 @@ static int select_mode(
 
 static int kms_window_push_composition(struct window *window, struct fl_layer_composition *composition);
 static struct render_surface *kms_window_get_render_surface(struct window *window, struct vec2i size);
+
+#ifdef HAVE_EGL_GLES2
 static EGLSurface kms_window_get_egl_surface(struct window *window);
+#endif
+
 static void kms_window_deinit(struct window *window);
 static int kms_window_enable_cursor_locked(struct window *window, struct vec2i pos);
 static int kms_window_disable_cursor_locked(struct window *window);
@@ -864,7 +886,7 @@ MUST_CHECK struct window *kms_window_new(
     ASSUME(renderer_type != kVulkan_RendererType);
 #endif
 
-#if !defined(HAVE_EGL) || !defined(HAVE_GLES2)
+#if !defined(HAVE_EGL_GLES2)
     ASSUME(renderer_type != kOpenGL_RendererType);
 #endif
 
@@ -946,7 +968,13 @@ MUST_CHECK struct window *kms_window_new(
     window->kms.should_apply_mode = true;
     window->kms.cursor = NULL;
     window->renderer_type = renderer_type;
-    window->gl_renderer = gl_renderer != NULL ? gl_renderer_ref(gl_renderer) : NULL;
+    if (gl_renderer != NULL) {
+#ifdef HAVE_EGL_GLES2
+        window->gl_renderer = gl_renderer_ref(gl_renderer);
+#else
+        UNREACHABLE();
+#endif
+    }
     if (vk_renderer != NULL) {
 #ifdef HAVE_VULKAN
         window->vk_renderer = vk_renderer_ref(vk_renderer);
@@ -958,7 +986,9 @@ MUST_CHECK struct window *kms_window_new(
     }
     window->push_composition = kms_window_push_composition;
     window->get_render_surface = kms_window_get_render_surface;
+#ifdef HAVE_EGL_GLES2
     window->get_egl_surface = kms_window_get_egl_surface;
+#endif
     window->deinit = kms_window_deinit;
     window->enable_cursor_locked = kms_window_enable_cursor_locked;
     window->disable_cursor_locked = kms_window_disable_cursor_locked;
@@ -998,7 +1028,11 @@ void kms_window_deinit(struct window *window) {
         surface_unref(CAST_SURFACE(window->render_surface));
     }
     if (window->gl_renderer != NULL) {
+#ifdef HAVE_EGL_GLES2
         gl_renderer_unref(window->gl_renderer);
+#else
+        UNREACHABLE();
+#endif
     }
     if (window->vk_renderer != NULL) {
 #ifdef HAVE_VULKAN
@@ -1239,7 +1273,7 @@ fail_unlock:
     return ok;
 }
 
-static struct render_surface *kms_window_get_render_surface_internal(struct window *window, bool has_size, struct vec2i size) {
+static struct render_surface *kms_window_get_render_surface_internal(struct window *window, bool has_size, UNUSED struct vec2i size) {
     struct render_surface *render_surface;
 
     ASSERT_NOT_NULL(window);
@@ -1294,13 +1328,14 @@ static struct render_surface *kms_window_get_render_surface_internal(struct wind
         }
     }
 
-    // EGL_NO_CONFIG_KHR is defined by EGL_KHR_no_config_context.
-    #ifndef EGL_KHR_no_config_context
-        #error "EGL header definitions for extension EGL_KHR_no_config_context are required."
-    #endif
-
     if (window->renderer_type == kOpenGL_RendererType) {
         // opengl
+#ifdef HAVE_EGL_GLES2
+        // EGL_NO_CONFIG_KHR is defined by EGL_KHR_no_config_context.
+        #ifndef EGL_KHR_no_config_context
+            #error "EGL header definitions for extension EGL_KHR_no_config_context are required."
+        #endif
+
         struct egl_gbm_render_surface *egl_surface = egl_gbm_render_surface_new_with_egl_config(
             window->tracer,
             size,
@@ -1313,11 +1348,17 @@ static struct render_surface *kms_window_get_render_surface_internal(struct wind
         );
         if (egl_surface == NULL) {
             LOG_ERROR("Couldn't create EGL GBM rendering surface.\n");
-            goto fail_free_allowed_modifiers;
+            render_surface = NULL;
+        } else {
+            render_surface = CAST_RENDER_SURFACE(egl_surface);
         }
-
-        render_surface = CAST_RENDER_SURFACE(egl_surface);
+        
+#else
+        UNREACHABLE();
+#endif
     } else {
+        ASSUME(window->renderer_type == kVulkan_RendererType);
+
         // vulkan
 #ifdef HAVE_VULKAN
         struct vk_gbm_render_surface *vk_surface = vk_gbm_render_surface_new(
@@ -1329,10 +1370,10 @@ static struct render_surface *kms_window_get_render_surface_internal(struct wind
         );
         if (vk_surface == NULL) {
             LOG_ERROR("Couldn't create Vulkan GBM rendering surface.\n");
-            goto fail_free_allowed_modifiers;
+            render_surface = NULL;
+        } else {
+            render_surface = CAST_RENDER_SURFACE(vk_surface);
         }
-
-        render_surface = CAST_RENDER_SURFACE(vk_surface);
 #else
         UNREACHABLE();
 #endif
@@ -1344,13 +1385,6 @@ static struct render_surface *kms_window_get_render_surface_internal(struct wind
 
     window->render_surface = render_surface;
     return render_surface;
-
-fail_free_allowed_modifiers:
-    if (allowed_modifiers != NULL) {
-        free(allowed_modifiers);
-    }
-
-    return NULL;
 }
 
 static struct render_surface *kms_window_get_render_surface(struct window *window, struct vec2i size) {
@@ -1358,6 +1392,7 @@ static struct render_surface *kms_window_get_render_surface(struct window *windo
     return kms_window_get_render_surface_internal(window, true, size);
 }
 
+#ifdef HAVE_EGL_GLES2
 static EGLSurface kms_window_get_egl_surface(struct window *window) {
     if (window->renderer_type == kOpenGL_RendererType) {
         struct render_surface *render_surface = kms_window_get_render_surface_internal(window, false, VEC2I(0, 0));
@@ -1366,6 +1401,7 @@ static EGLSurface kms_window_get_egl_surface(struct window *window) {
         return EGL_NO_SURFACE;
     }
 }
+#endif
 
 static int kms_window_enable_cursor_locked(struct window *window, struct vec2i pos) {
     struct cursor_buffer *cursor;
