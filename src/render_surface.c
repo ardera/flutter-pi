@@ -24,7 +24,9 @@ FILE_DESCR("flutter render surface")
 // just so we can be sure &render_surface->surface is the same as (struct surface*) render_surface
 COMPILE_ASSERT(offsetof(struct render_surface, surface) == 0);
 
+#ifdef DEBUG
 static const uuid_t uuid = CONST_UUID(0x78, 0x70, 0x45, 0x13, 0xa8, 0xf3, 0x43, 0x34, 0xa0, 0xa3, 0xae, 0x90, 0xf1, 0x11, 0x41, 0xe0);
+#endif
 
 void render_surface_deinit(struct surface *s);
 
@@ -39,7 +41,11 @@ int render_surface_init(struct render_surface *surface, struct tracer *tracer, s
     surface->surface.deinit = render_surface_deinit;
     surface->surface.present_kms = NULL;
     surface->surface.present_fbdev = NULL;
+    
+#ifdef DEBUG
     uuid_copy(&surface->uuid, uuid);
+#endif
+
     surface->size = size;
     surface->fill = NULL;
     surface->queue_present = NULL;
