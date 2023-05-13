@@ -35,7 +35,7 @@ struct video_frame {
     int n_dmabuf_fds;
     int dmabuf_fds[MAX_N_PLANES];
 
-    EGLImage image;
+    EGLImageKHR image;
     size_t width, height;
 
     struct gl_texture_frame gl_frame;
@@ -55,8 +55,10 @@ struct frame_interface {
     PFNGLEGLIMAGETARGETTEXTURE2DOESPROC glEGLImageTargetTexture2DOES;
 
     bool supports_extended_imports;
+#ifdef EGL_EXT_image_dma_buf_import_modifiers
     PFNEGLQUERYDMABUFFORMATSEXTPROC eglQueryDmaBufFormatsEXT;
     PFNEGLQUERYDMABUFMODIFIERSEXTPROC eglQueryDmaBufModifiersEXT;
+#endif
 
     int n_formats;
     struct egl_modified_format *formats;
@@ -64,6 +66,7 @@ struct frame_interface {
     refcount_t n_refs;
 };
 
+#ifdef EGL_EXT_image_dma_buf_import_modifiers
 static bool query_formats(
     EGLDisplay display,
     PFNEGLQUERYDMABUFFORMATSEXTPROC egl_query_dmabuf_formats,
@@ -71,6 +74,11 @@ static bool query_formats(
     int *n_formats_out,
     struct egl_modified_format **formats_out
 ) {
+    // EGLuint64KHR is defined by EGL_KHR_stream
+    #ifndef EGL_KHR_stream
+        #error "EGL header definitions for extension EGL_KHR_stream are required."
+    #endif
+
     struct egl_modified_format *modified_formats;
     EGLBoolean *external_only;
     EGLuint64KHR *modifiers;
@@ -168,6 +176,7 @@ fail:
     *formats_out = NULL;
     return false;
 }
+#endif
 
 struct frame_interface *frame_interface_new(struct gl_renderer *renderer) {
     struct frame_interface *interface;
@@ -190,7 +199,16 @@ struct frame_interface *frame_interface_new(struct gl_renderer *renderer) {
     }
 
     if (gl_renderer_supports_egl_extension(renderer, "EGL_EXT_image_dma_buf_import_modifiers")) {
-        supports_extended_imports = true;
+        #ifdef EGL_EXT_image_dma_buf_import_modifiers
+            LOG_ERROR(
+                "EGL supports EGL_EXT_image_dma_buf_import_modifiers, "
+                "but EGL headers didn't contain definitions for EGL_EXT_image_dma_buf_import_modifiers."
+                "Extended imports and pixel format information will not be used.\n"
+            );
+            supports_extended_imports = false;
+        #else
+            supports_extended_imports = true;
+        #endif
     } else {
         supports_extended_imports = false;
     }
@@ -232,19 +250,19 @@ struct frame_interface *frame_interface_new(struct gl_renderer *renderer) {
 
     // These two are optional.
     // Might be useful in the future.
-    PFNEGLQUERYDMABUFFORMATSEXTPROC egl_query_dmabuf_formats = (PFNEGLQUERYDMABUFFORMATSEXTPROC
-    ) gl_renderer_get_proc_address(renderer, "eglQueryDmaBufFormatsEXT");
+#ifdef EGL_EXT_image_dma_buf_import_modifiers
+    PFNEGLQUERYDMABUFFORMATSEXTPROC egl_query_dmabuf_formats = (PFNEGLQUERYDMABUFFORMATSEXTPROC) gl_renderer_get_proc_address(renderer, "eglQueryDmaBufFormatsEXT");
     if (egl_query_dmabuf_formats == NULL && supports_extended_imports) {
         LOG_ERROR("Could not resolve eglQueryDmaBufFormatsEXT egl procedure, even though it is listed as supported.\n");
         supports_extended_imports = false;
     }
 
-    PFNEGLQUERYDMABUFMODIFIERSEXTPROC egl_query_dmabuf_modifiers = (PFNEGLQUERYDMABUFMODIFIERSEXTPROC
-    ) gl_renderer_get_proc_address(renderer, "eglQueryDmaBufModifiersEXT");
+    PFNEGLQUERYDMABUFMODIFIERSEXTPROC egl_query_dmabuf_modifiers = (PFNEGLQUERYDMABUFMODIFIERSEXTPROC) gl_renderer_get_proc_address(renderer, "eglQueryDmaBufModifiersEXT");
     if (egl_query_dmabuf_modifiers == NULL && supports_extended_imports) {
         LOG_ERROR("Could not resolve eglQueryDmaBufModifiersEXT egl procedure, even though it is listed as supported.\n");
         supports_extended_imports = false;
     }
+#endif
 
     gbm_device = gl_renderer_get_gbm_device(renderer);
     if (gbm_device == NULL) {
@@ -253,7 +271,11 @@ struct frame_interface *frame_interface_new(struct gl_renderer *renderer) {
     }
 
     if (supports_extended_imports) {
-        query_formats(display, egl_query_dmabuf_formats, egl_query_dmabuf_modifiers, &n_formats, &formats);
+        #ifdef EGL_EXT_image_dma_buf_import_modifiers
+            query_formats(display, egl_query_dmabuf_formats, egl_query_dmabuf_modifiers, &n_formats, &formats);
+        #else
+            UNREACHABLE();
+        #endif
     } else {
         n_formats = 0;
         formats = NULL;
@@ -268,8 +290,10 @@ struct frame_interface *frame_interface_new(struct gl_renderer *renderer) {
     interface->supports_external_target = supports_external_target;
     interface->glEGLImageTargetTexture2DOES = gl_egl_image_target_texture2d;
     interface->supports_extended_imports = supports_extended_imports;
+#ifdef EGL_EXT_image_dma_buf_import_modifiers
     interface->eglQueryDmaBufFormatsEXT = egl_query_dmabuf_formats;
     interface->eglQueryDmaBufModifiersEXT = egl_query_dmabuf_modifiers;
+#endif
     interface->n_formats = n_formats;
     interface->formats = formats;
     interface->n_refs = REFCOUNT_INIT_1;
@@ -785,7 +809,7 @@ struct video_frame *frame_new(struct frame_interface *interface, GstSample *samp
     GstVideoInfo _info;
     EGLBoolean egl_ok;
     GstBuffer *buffer;
-    EGLImage egl_image;
+    EGLImageKHR egl_image;
     gboolean gst_ok;
     uint32_t drm_format;
     GstCaps *caps;
@@ -872,6 +896,10 @@ format_supported:
     // Start putting together the EGL attributes.
     attr_index = 0;
 
+    #ifndef EGL_EXT_image_dma_buf_import
+        #error "EGL header definitions for extension EGL_EXT_image_dma_buf_import are required."
+    #endif
+
     // first, put some of our basic attributes like
     // frame size and format
     PUT_ATTR(EGL_WIDTH, width);
@@ -904,8 +932,12 @@ format_supported:
     PUT_ATTR(EGL_DMA_BUF_PLANE0_PITCH_EXT, planes[0].pitch);
     if (planes[0].has_modifier) {
         if (interface->supports_extended_imports) {
-            PUT_ATTR(EGL_DMA_BUF_PLANE0_MODIFIER_LO_EXT, uint32_to_int32(planes[0].modifier & 0xFFFFFFFFlu));
-            PUT_ATTR(EGL_DMA_BUF_PLANE0_MODIFIER_HI_EXT, uint32_to_int32(planes[0].modifier >> 32));
+            #ifdef EGL_EXT_image_dma_buf_import_modifiers
+                PUT_ATTR(EGL_DMA_BUF_PLANE0_MODIFIER_LO_EXT, uint32_to_int32(planes[0].modifier & 0xFFFFFFFFlu));
+                PUT_ATTR(EGL_DMA_BUF_PLANE0_MODIFIER_HI_EXT, uint32_to_int32(planes[0].modifier >> 32));
+            #else
+                UNREACHABLE();
+            #endif
         } else {
             LOG_ERROR(
                 "video frame buffer uses modified format but EGL doesn't support the EGL_EXT_image_dma_buf_import_modifiers extension.\n"
@@ -921,8 +953,12 @@ format_supported:
         PUT_ATTR(EGL_DMA_BUF_PLANE1_PITCH_EXT, planes[1].pitch);
         if (planes[1].has_modifier) {
             if (interface->supports_extended_imports) {
-                PUT_ATTR(EGL_DMA_BUF_PLANE1_MODIFIER_LO_EXT, uint32_to_int32(planes[1].modifier & 0xFFFFFFFFlu));
-                PUT_ATTR(EGL_DMA_BUF_PLANE1_MODIFIER_HI_EXT, uint32_to_int32(planes[1].modifier >> 32));
+                #ifdef EGL_EXT_image_dma_buf_import_modifiers
+                    PUT_ATTR(EGL_DMA_BUF_PLANE1_MODIFIER_LO_EXT, uint32_to_int32(planes[1].modifier & 0xFFFFFFFFlu));
+                    PUT_ATTR(EGL_DMA_BUF_PLANE1_MODIFIER_HI_EXT, uint32_to_int32(planes[1].modifier >> 32));
+                #else
+                    UNREACHABLE();
+                #endif
             } else {
                 LOG_ERROR(
                     "video frame buffer uses modified format but EGL doesn't support the EGL_EXT_image_dma_buf_import_modifiers "
@@ -940,8 +976,12 @@ format_supported:
         PUT_ATTR(EGL_DMA_BUF_PLANE2_PITCH_EXT, planes[2].pitch);
         if (planes[2].has_modifier) {
             if (interface->supports_extended_imports) {
-                PUT_ATTR(EGL_DMA_BUF_PLANE2_MODIFIER_LO_EXT, uint32_to_int32(planes[2].modifier & 0xFFFFFFFFlu));
-                PUT_ATTR(EGL_DMA_BUF_PLANE2_MODIFIER_HI_EXT, uint32_to_int32(planes[2].modifier >> 32));
+                #ifdef EGL_EXT_image_dma_buf_import_modifiers
+                    PUT_ATTR(EGL_DMA_BUF_PLANE2_MODIFIER_LO_EXT, uint32_to_int32(planes[2].modifier & 0xFFFFFFFFlu));
+                    PUT_ATTR(EGL_DMA_BUF_PLANE2_MODIFIER_HI_EXT, uint32_to_int32(planes[2].modifier >> 32));
+                #else
+                    UNREACHABLE();
+                #endif
             } else {
                 LOG_ERROR(
                     "video frame buffer uses modified format but EGL doesn't support the EGL_EXT_image_dma_buf_import_modifiers "
@@ -962,13 +1002,17 @@ format_supported:
             goto fail_release_planes;
         }
 
-        PUT_ATTR(EGL_DMA_BUF_PLANE3_FD_EXT, planes[3].fd);
-        PUT_ATTR(EGL_DMA_BUF_PLANE3_OFFSET_EXT, planes[3].offset);
-        PUT_ATTR(EGL_DMA_BUF_PLANE3_PITCH_EXT, planes[3].pitch);
-        if (planes[3].has_modifier) {
-            PUT_ATTR(EGL_DMA_BUF_PLANE3_MODIFIER_LO_EXT, uint32_to_int32(planes[3].modifier & 0xFFFFFFFFlu));
-            PUT_ATTR(EGL_DMA_BUF_PLANE3_MODIFIER_HI_EXT, uint32_to_int32(planes[3].modifier >> 32));
-        }
+        #ifdef EGL_EXT_image_dma_buf_import_modifiers
+            PUT_ATTR(EGL_DMA_BUF_PLANE3_FD_EXT, planes[3].fd);
+            PUT_ATTR(EGL_DMA_BUF_PLANE3_OFFSET_EXT, planes[3].offset);
+            PUT_ATTR(EGL_DMA_BUF_PLANE3_PITCH_EXT, planes[3].pitch);
+            if (planes[3].has_modifier) {
+                PUT_ATTR(EGL_DMA_BUF_PLANE3_MODIFIER_LO_EXT, uint32_to_int32(planes[3].modifier & 0xFFFFFFFFlu));
+                PUT_ATTR(EGL_DMA_BUF_PLANE3_MODIFIER_HI_EXT, uint32_to_int32(planes[3].modifier >> 32));
+            }
+        #else
+            UNREACHABLE();
+        #endif
     }
 
     assert(attr_index < ARRAY_SIZE(attributes));

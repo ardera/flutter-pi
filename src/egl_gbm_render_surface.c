@@ -182,7 +182,12 @@ static int egl_gbm_render_surface_init(
         }
     }
 
-    static const EGLAttrib surface_attribs[] = {
+    // EGLAttribKHR is defined by EGL_KHR_cl_event2.
+    #ifndef EGL_KHR_cl_event2
+        #error "EGL header definitions for extension EGL_KHR_cl_event2 are required."
+    #endif
+
+    static const EGLAttribKHR surface_attribs[] = {
         /* EGL_GL_COLORSPACE, GL_LINEAR / GL_SRGB */
         /* EGL_RENDER_BUFFER, EGL_BACK_BUFFER / EGL_SINGLE_BUFFER */
         /* EGL_VG_ALPHA_FORMAT, EGL_VG_ALPHA_FORMAT_NONPRE / EGL_VG_ALPHA_FORMAT_PRE */
