@@ -50,7 +50,9 @@ struct vk_gbm_render_surface {
         struct render_surface render_surface;
     };
 
+#ifdef DEBUG
     uuid_t uuid;
+#endif
 
     /**
      * @brief The vulkan renderer we use for talking to vulkan.
@@ -476,7 +478,10 @@ fail_deinit_previous_fbs:
     surface->render_surface.fill = vk_gbm_render_surface_fill;
     surface->render_surface.queue_present = vk_gbm_render_surface_queue_present;
 
+#ifdef DEBUG
     uuid_copy(&surface->uuid, uuid);
+#endif
+
     surface->renderer = vk_renderer_ref(renderer);
     surface->front_fb = NULL;
     surface->pixel_format = pixel_format;

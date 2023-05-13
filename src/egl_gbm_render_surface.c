@@ -40,7 +40,10 @@ struct egl_gbm_render_surface {
         struct render_surface render_surface;
     };
 
+#ifdef DEBUG
     uuid_t uuid;
+#endif
+
     enum pixfmt pixel_format;
     struct gbm_device *gbm_device;
     struct gbm_surface *gbm_surface;
@@ -62,7 +65,9 @@ struct egl_gbm_render_surface {
 COMPILE_ASSERT(offsetof(struct egl_gbm_render_surface, surface) == 0);
 COMPILE_ASSERT(offsetof(struct egl_gbm_render_surface, render_surface.surface) == 0);
 
+#ifdef DEBUG
 static const uuid_t uuid = CONST_UUID(0xf9, 0xc2, 0x5d, 0xad, 0x2e, 0x3b, 0x4e, 0x2c, 0x9d, 0x26, 0x64, 0x70, 0xfa, 0x9a, 0x25, 0xd9);
+#endif
 
 #define CAST_THIS(ptr) CAST_EGL_GBM_RENDER_SURFACE(ptr)
 #define CAST_THIS_UNCHECKED(ptr) CAST_EGL_GBM_RENDER_SURFACE_UNCHECKED(ptr)
@@ -221,7 +226,9 @@ static int egl_gbm_render_surface_init(
     s->surface.deinit = egl_gbm_render_surface_deinit;
     s->render_surface.fill = egl_gbm_render_surface_fill;
     s->render_surface.queue_present = egl_gbm_render_surface_queue_present;
+#ifdef DEBUG
     uuid_copy(&s->uuid, uuid);
+#endif
     s->pixel_format = pixel_format;
     s->gbm_device = gbm_device;
     s->gbm_surface = gbm_surface;
@@ -466,7 +473,7 @@ static int egl_gbm_render_surface_present_kms(struct surface *s, const struct fl
                                       .rotation = PLANE_TRANSFORM_ROTATE_0,
 
                                       .has_in_fence_fd = false,
-                                      .in_fence_fd = 0 },
+                                      .in_fence_fd = 0, },
         on_release_layer,
         NULL,
         locked_fb_ref(egl_surface->locked_front_fb)
