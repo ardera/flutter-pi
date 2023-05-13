@@ -69,6 +69,6 @@ ATTR_PURE EGLConfig gl_renderer_choose_config(struct gl_renderer *renderer, bool
 
 ATTR_PURE EGLConfig gl_renderer_choose_config_direct(struct gl_renderer *renderer, enum pixfmt pixel_format);
 
-EGLSurface gl_renderer_create_gbm_window_surface(struct gl_renderer *renderer, EGLConfig config, struct gbm_surface *gbm_surface, const EGLAttribKHR *attrib_list);
+EGLSurface gl_renderer_create_gbm_window_surface(struct gl_renderer *renderer, EGLConfig config, struct gbm_surface *gbm_surface, const EGLAttribKHR *attrib_list, const EGLint *int_attrib_list));
 
 #endif  // _FLUTTERPI_INCLUDE_EGL_GL_RENDERER_H

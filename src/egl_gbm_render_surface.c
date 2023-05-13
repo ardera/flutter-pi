@@ -209,7 +209,7 @@ static int egl_gbm_render_surface_init(
         goto fail_destroy_gbm_surface;
     }
 
-    egl_surface = gl_renderer_create_gbm_window_surface(renderer, egl_config, gbm_surface, NULL);
+    egl_surface = gl_renderer_create_gbm_window_surface(renderer, egl_config, gbm_surface, NULL, NULL);
     if (egl_surface == EGL_NO_SURFACE) {
         ok = EIO;
         goto fail_destroy_gbm_surface;
