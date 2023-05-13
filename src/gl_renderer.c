@@ -653,20 +653,35 @@ ATTR_PURE EGLConfig gl_renderer_choose_config_direct(struct gl_renderer *rendere
 }
 
 EGLSurface gl_renderer_create_gbm_window_surface(struct gl_renderer *renderer, EGLConfig config, struct gbm_surface *gbm_surface, const EGLAttribKHR *attrib_list) {
+    EGLSurface surface;
+
     #ifdef EGL_VERSION_1_5
         if (renderer->egl_create_platform_window_surface != NULL) {
-            return renderer->egl_create_platform_window_surface(renderer->egl_display, config, gbm_surface, attrib_list);
+            surface = renderer->egl_create_platform_window_surface(renderer->egl_display, config, gbm_surface, attrib_list);
+            if (surface == EGL_NO_SURFACE) {
+                LOG_EGL_ERROR(eglGetError(), "Couldn't create gbm_surface backend window surface. eglCreatePlatformWindowSurface");
+                return EGL_NO_SURFACE;
+            }
         }
     #endif
 
     if (renderer->supports_egl_ext_platform_base) {
         #ifdef EGL_EXT_platform_base
             ASSUME(renderer->egl_create_platform_window_surface_ext);
-            return renderer->egl_create_platform_window_surface_ext(renderer->egl_display, config, gbm_surface, attrib_list);
+
+            surface = renderer->egl_create_platform_window_surface_ext(renderer->egl_display, config, gbm_surface, attrib_list);
+            if (surface == EGL_NO_SURFACE) {
+                LOG_EGL_ERROR(eglGetError(), "Couldn't create gbm_surface backend window surface. eglCreatePlatformWindowSurfaceEXT");
+                return EGL_NO_SURFACE;
+            }
         #else
             UNREACHABLE();
         #endif
     } else {
-        return eglCreateWindowSurface(renderer->egl_display, config, (EGLNativeWindowType) gbm_surface, attrib_list);
+        surface = eglCreateWindowSurface(renderer->egl_display, config, (EGLNativeWindowType) gbm_surface, attrib_list);
+        if (surface == EGL_NO_SURFACE) {
+            LOG_EGL_ERROR(eglGetError(), "Couldn't create gbm_surface backend window surface. eglCreateWindowSurface");
+            return EGL_NO_SURFACE;
+        }
     }
 }
