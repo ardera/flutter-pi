@@ -70,7 +70,9 @@ DEFINE_STATIC_REF_OPS(refcounted_dmabuf, n_refs);
 struct dmabuf_surface {
     struct surface surface;
 
+#ifdef DEBUG
     uuid_t uuid;
+#endif
     EGLDisplay egl_display;
     struct texture *texture;
     struct refcounted_dmabuf *next_buf;
@@ -78,7 +80,9 @@ struct dmabuf_surface {
 
 COMPILE_ASSERT(offsetof(struct dmabuf_surface, surface) == 0);
 
+#ifdef DEBUG
 static const uuid_t uuid = CONST_UUID(0x68, 0xed, 0xe5, 0x8a, 0x4a, 0x2b, 0x40, 0x76, 0xa1, 0xb8, 0x89, 0x2e, 0x81, 0xfa, 0xe2, 0xb7);
+#endif
 
 #define CAST_THIS(ptr) CAST_DMABUF_SURFACE(ptr)
 #define CAST_THIS_UNCHECKED(ptr) CAST_DMABUF_SURFACE_UNCHECKED(ptr)
@@ -114,7 +118,10 @@ int dmabuf_surface_init(struct dmabuf_surface *s, struct tracer *tracer, struct 
     s->surface.deinit = dmabuf_surface_deinit;
     s->surface.present_kms = dmabuf_surface_present_kms;
     s->surface.present_fbdev = dmabuf_surface_present_fbdev;
+
+#ifdef DEBUG
     uuid_copy(&s->uuid, uuid);
+#endif
     s->egl_display = EGL_NO_DISPLAY;
     s->texture = texture;
     s->next_buf = NULL;
