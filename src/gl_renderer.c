@@ -660,8 +660,9 @@ EGLSurface gl_renderer_create_gbm_window_surface(struct gl_renderer *renderer, E
             surface = renderer->egl_create_platform_window_surface(renderer->egl_display, config, gbm_surface, attrib_list);
             if (surface == EGL_NO_SURFACE) {
                 LOG_EGL_ERROR(eglGetError(), "Couldn't create gbm_surface backend window surface. eglCreatePlatformWindowSurface");
-                return EGL_NO_SURFACE;
             }
+
+            return surface;
         }
     #endif
 
@@ -669,11 +670,13 @@ EGLSurface gl_renderer_create_gbm_window_surface(struct gl_renderer *renderer, E
         #ifdef EGL_EXT_platform_base
             ASSUME(renderer->egl_create_platform_window_surface_ext);
 
-            surface = renderer->egl_create_platform_window_surface_ext(renderer->egl_display, config, gbm_surface, attrib_list);
+            surface = renderer->egl_create_platform_window_surface_ext(renderer->egl_display, config, gbm_surface, int_attrib_list);
             if (surface == EGL_NO_SURFACE) {
                 LOG_EGL_ERROR(eglGetError(), "Couldn't create gbm_surface backend window surface. eglCreatePlatformWindowSurfaceEXT");
                 return EGL_NO_SURFACE;
             }
+
+            return surface;
         #else
             UNREACHABLE();
         #endif
@@ -683,5 +686,7 @@ EGLSurface gl_renderer_create_gbm_window_surface(struct gl_renderer *renderer, E
             LOG_EGL_ERROR(eglGetError(), "Couldn't create gbm_surface backend window surface. eglCreateWindowSurface");
             return EGL_NO_SURFACE;
         }
+
+        return surface;
     }
 }
