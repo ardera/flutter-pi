@@ -22,7 +22,9 @@ struct fbdev_commit_builder;
 struct tracer;
 
 struct surface {
+#ifdef DEBUG
     uuid_t uuid;
+#endif
     refcount_t n_refs;
     pthread_mutex_t lock;
     struct tracer *tracer;

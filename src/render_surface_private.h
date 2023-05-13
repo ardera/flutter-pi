@@ -20,7 +20,10 @@
 struct render_surface {
     struct surface surface;
 
+#ifdef DEBUG
     uuid_t uuid;
+#endif
+
     struct vec2i size;
     int (*fill)(struct render_surface *surface, FlutterBackingStore *fl_store);
     int (*queue_present)(struct render_surface *surface, const FlutterBackingStore *fl_store);

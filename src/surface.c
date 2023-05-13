@@ -25,9 +25,9 @@ FILE_DESCR("rendering surfaces")
 
 void surface_deinit(struct surface *s);
 
+#ifdef DEBUG
 static const uuid_t uuid = CONST_UUID(0xce, 0x35, 0x87, 0x0c, 0x82, 0x08, 0x46, 0x09, 0xbd, 0xab, 0x80, 0x67, 0x28, 0x15, 0x45, 0xb5);
 
-#ifdef DEBUG
 ATTR_PURE struct surface *__checked_cast_surface(void *ptr) {
     struct surface *s;
 
@@ -38,7 +38,9 @@ ATTR_PURE struct surface *__checked_cast_surface(void *ptr) {
 #endif
 
 int surface_init(struct surface *s, struct tracer *tracer) {
+#ifdef DEBUG
     uuid_copy(&s->uuid, uuid);
+#endif
     s->n_refs = REFCOUNT_INIT_1;
     pthread_mutex_init(&s->lock, NULL);
     s->tracer = tracer_ref(tracer);
