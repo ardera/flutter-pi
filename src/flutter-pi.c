@@ -1248,7 +1248,7 @@ static FlutterEngine create_flutter_engine(
         };
     }
 
-    COMPILE_ASSERT(sizeof(FlutterProjectArgs) == 144 || sizeof(FlutterProjectArgs) == 280);
+    COMPILE_ASSERT(sizeof(FlutterProjectArgs) == 152 || sizeof(FlutterProjectArgs) == 288);
 
     // configure the project
     project_args = (FlutterProjectArgs){
@@ -1296,6 +1296,7 @@ static FlutterEngine create_flutter_engine(
         .log_message_callback = NULL,
         .log_tag = NULL,
         .on_pre_engine_restart_callback = NULL,
+        .update_semantics_callback = NULL,
     };
 
     // spin up the engine
