@@ -60,6 +60,7 @@ option(ENABLE_TESTS "True if tests should be built. Requires Unity to be checked
 option(ENABLE_SESSION_SWITCHING "True if flutter-pi should be built with session switching support. Requires libseat-dev to be installed." ON)
 option(TRY_ENABLE_SESSION_SWITCHING "Don't throw an error if libseat isn't found, instead just build without session switching support in that case." ON)
 option(LTO "Check for IPO/LTO support and enable, if supported. May require gold/lld when building with clang. (Either using `-fuse-ld` in CMAKE_C_FLAGS or by setting as the default system linker.) Only applies to Release or RelWithDebInfo build types." ON)
+option(LINT_EGL_HEADERS "Set an define that'll make the egl.h only export the extension definitions, prototypes that are explicitly marked as required." OFF)
 
 set(FILESYSTEM_LAYOUTS default meta-flutter)
 set(FILESYSTEM_LAYOUT "default" CACHE STRING "Where to look for the icudtl.dat, app.so/libapp.so, flutter asset bundle.")
@@ -322,6 +323,10 @@ if (ENABLE_SESSION_SWITCHING)
   else()
     message("libseat was not found. flutter-pi will be built without session switching support.")
   endif()
+endif()
+
+if (LINT_EGL_HEADERS)
+  target_compile_definitions(flutterpi_module PUBLIC LINT_EGL_HEADERS)
 endif()
 
 
