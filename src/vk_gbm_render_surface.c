@@ -152,7 +152,9 @@ static void log_locked_fbs(struct vk_gbm_render_surface *surface, const char *no
 COMPILE_ASSERT(offsetof(struct vk_gbm_render_surface, surface) == 0);
 COMPILE_ASSERT(offsetof(struct vk_gbm_render_surface, render_surface.surface) == 0);
 
+#ifdef DEBUG
 static const uuid_t uuid = CONST_UUID(0x26, 0xfe, 0x91, 0x53, 0x75, 0xf2, 0x41, 0x90, 0xa1, 0xf5, 0xba, 0xe1, 0x1b, 0x28, 0xd5, 0xe5);
+#endif
 
 #define CAST_THIS(ptr) CAST_VK_GBM_RENDER_SURFACE(ptr)
 #define CAST_THIS_UNCHECKED(ptr) CAST_VK_GBM_RENDER_SURFACE_UNCHECKED(ptr)
