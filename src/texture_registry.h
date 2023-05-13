@@ -4,7 +4,7 @@
 #include <flutter_embedder.h>
 
 #ifdef HAVE_EGL_GLES2
-    #include "gles2.h"
+    #include "gles.h"
 #endif
 
 struct texture_registry_interface {
