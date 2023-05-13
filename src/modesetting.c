@@ -1193,8 +1193,7 @@ void drmdev_unmap_dumb_buffer(struct drmdev *drmdev, void *map, size_t size) {
     }
 }
 
-static void
-drmdev_on_page_flip_locked(int fd, unsigned int sequence, unsigned int tv_sec, unsigned int tv_usec, unsigned int crtc_id, void *userdata) {
+static void drmdev_on_page_flip_locked(int fd, unsigned int sequence, unsigned int tv_sec, unsigned int tv_usec, unsigned int crtc_id, void *userdata) {
     struct kms_req_builder *builder;
     struct drm_crtc *crtc;
     struct kms_req **last_flipped;
@@ -1685,6 +1684,12 @@ drmModeModeInfo *__next_mode(const struct drm_connector *connector, const drmMod
     return NULL;
 }
 
+#ifdef DEBUG_DRM_PLANE_ALLOCATIONS
+    #define LOG_DRM_PLANE_ALLOCATION_DEBUG LOG_DEBUG
+#else
+    #define LOG_DRM_PLANE_ALLOCATION_DEBUG(...)
+#endif
+
 static bool plane_qualifies(
     // clang-format off
     struct drm_plane *plane,
@@ -1698,22 +1703,31 @@ static bool plane_qualifies(
     bool has_id_range, uint32_t id_lower_limit
     // clang-format on
 ) {
+    LOG_DRM_PLANE_ALLOCATION_DEBUG("  checking if plane with id %"PRIu32" qualifies...\n", plane->id);
+
     if (plane->type == kPrimary_DrmPlaneType) {
         if (!allow_primary) {
+            LOG_DRM_PLANE_ALLOCATION_DEBUG("    does not qualify: plane type is primary but allow_primary is false\n");
             return false;
         }
     } else if (plane->type == kOverlay_DrmPlaneType) {
         if (!allow_overlay) {
+            LOG_DRM_PLANE_ALLOCATION_DEBUG("    does not qualify: plane type is overlay but allow_overlay is false\n");
             return false;
         }
     } else if (plane->type == kCursor_DrmPlaneType) {
         if (!allow_cursor) {
+            LOG_DRM_PLANE_ALLOCATION_DEBUG("    does not qualify: plane type is cursor but allow_cursor is false\n");
             return false;
         }
+    } else {
+        ASSERT(false);
     }
+
     if (has_modifier) {
         if (!plane->supported_modified_formats) {
             // return false if we want a modified format but the plane doesn't support modified formats
+            LOG_DRM_PLANE_ALLOCATION_DEBUG("    does not qualify: framebuffer has modifier %"PRIu64" but plane does not support modified formats\n", modifier);
             return false;
         }
 
@@ -1724,12 +1738,15 @@ static bool plane_qualifies(
             }
         }
 
+        LOG_DRM_PLANE_ALLOCATION_DEBUG("    does not qualify: plane does not support the modified format %s, %"PRIu64".\n", get_pixfmt_info(format)->name, modifier);
+
         // not found in the supported modified format list
         return false;
     } else {
         // we don't want a modified format, return false if the format is not in the list
         // of supported (unmodified) formats
         if (!plane->supported_formats[format]) {
+            LOG_DRM_PLANE_ALLOCATION_DEBUG("    does not qualify: plane does not support the (unmodified) format %s.\n", get_pixfmt_info(format)->name);
             return false;
         }
     }
@@ -1738,29 +1755,43 @@ found:
     if (has_zpos) {
         if (!plane->has_zpos) {
             // return false if we want a zpos but the plane doesn't support one
+            LOG_DRM_PLANE_ALLOCATION_DEBUG("    does not qualify: zpos constraints specified but plane doesn't have a zpos property.\n");
             return false;
         } else if (zpos_lower_limit > plane->max_zpos || zpos_upper_limit < plane->min_zpos) {
             // return false if the zpos we want is outside the supported range of the plane
+            LOG_DRM_PLANE_ALLOCATION_DEBUG("    does not qualify: plane limits cannot satisfy the specified zpos constraints.\n");
+            LOG_DRM_PLANE_ALLOCATION_DEBUG(
+                "      plane zpos range: %"PRIi64" <= zpos <= %"PRIi64", given zpos constraints: %"PRIi64" <= zpos <= %"PRIi64".\n",
+                plane->min_zpos, plane->max_zpos,
+                zpos_lower_limit, zpos_upper_limit
+            );
             return false;
         }
     }
     if (has_id_range && plane->id < id_lower_limit) {
+        LOG_DRM_PLANE_ALLOCATION_DEBUG("    does not qualify: plane id does not satisfy the given plane id constrains.\n");
+        LOG_DRM_PLANE_ALLOCATION_DEBUG("      plane id: %"PRIu32", plane id lower limit: %"PRIu32"\n", plane->id, id_lower_limit);
         return false;
     }
     if (has_rotation) {
         if (!plane->has_rotation) {
             // return false if the plane doesn't support rotation
+            LOG_DRM_PLANE_ALLOCATION_DEBUG("    does not qualify: explicit rotation requested but plane has no rotation property.\n");
             return false;
         } else if (plane->has_hardcoded_rotation && plane->hardcoded_rotation.u32 != rotation.u32) {
             // return false if the plane has a hardcoded rotation and the rotation we want
             // is not the hardcoded one
+            LOG_DRM_PLANE_ALLOCATION_DEBUG("    does not qualify: plane has hardcoded rotation that doesn't match the requested rotation.\n");
             return false;
-        } else if (rotation.u32 & ~plane->hardcoded_rotation.u32) {
+        } else if (rotation.u32 & ~plane->supported_rotations.u32) {
             // return false if we can't construct the rotation using the rotation
             // bits that are supported by the plane
+            LOG_DRM_PLANE_ALLOCATION_DEBUG("    does not qualify: requested rotation is not supported by the plane.\n");
             return false;
         }
     }
+
+    LOG_DRM_PLANE_ALLOCATION_DEBUG("    does qualify.\n");
     return true;
 }
 
@@ -2122,7 +2153,7 @@ int kms_req_builder_push_fb_layer(
     }
 
     if (builder->use_legacy) {
-        UNIMPLEMENTED();
+        
     } else {
         uint32_t plane_id = plane->id;
 
@@ -2224,9 +2255,11 @@ kms_req_commit_common(struct kms_req *req, bool blocking, kms_scanout_cb_t scano
     struct kms_req_builder *builder;
     struct drm_mode_blob *mode_blob;
     uint32_t flags;
+    bool internally_blocking;
     bool update_mode;
     int ok;
 
+    internally_blocking = false;
     update_mode = false;
     mode_blob = NULL;
 
@@ -2285,11 +2318,34 @@ kms_req_commit_common(struct kms_req *req, bool blocking, kms_scanout_cb_t scano
         ASSERT_EQUALS(builder->layers[0].layer.dst_h, builder->mode.vdisplay);
 
         /// TODO: Do we really need to assert this?
-        assert(get_pixfmt_info(builder->layers[0].layer.format)->is_opaque);
+        ASSERT_NOT_NULL(builder->connector);
 
-        if (update_mode) {
+        bool needs_set_crtc = update_mode;
+
+        if (!needs_set_crtc) {
+            struct drm_plane *plane = NULL;
+            
+            for (int i = 0; i < builder->drmdev->n_planes; i++) {
+                if (builder->drmdev->planes[i].id == builder->layers[0].plane_id) {
+                    plane = builder->drmdev->planes + i;
+                }
+            }
+
+            ASSERT_NOT_NULL(plane);
+
+            drmModeFB2Ptr committed_fb2 = drmModeGetFB2(builder->drmdev->master_fd, plane->committed_state.fb_id);
+            if (committed_fb2 == NULL) {
+                needs_set_crtc = true;
+            } else if (get_pixfmt_info(builder->layers[0].layer.format)->drm_format != committed_fb2->pixel_format) {
+                needs_set_crtc = true;
+            }
+
+            drmModeFreeFB2(committed_fb2);
+        }
+
+        if (needs_set_crtc) {
             /// TODO: Fetch new connector or current connector here since we seem to need it for drmModeSetCrtc
-            UNIMPLEMENTED();
+            // UNIMPLEMENTED();
 
             ok = drmModeSetCrtc(
                 builder->drmdev->master_fd,
@@ -2297,8 +2353,8 @@ kms_req_commit_common(struct kms_req *req, bool blocking, kms_scanout_cb_t scano
                 builder->layers[0].layer.drm_fb_id,
                 0,
                 0,
-                NULL,
-                0,
+                (uint32_t[1]) { builder->connector->id },
+                1,
                 builder->unset_mode ? NULL : &builder->mode
             );
             if (ok != 0) {
@@ -2306,6 +2362,8 @@ kms_req_commit_common(struct kms_req *req, bool blocking, kms_scanout_cb_t scano
                 LOG_ERROR("Could not commit display update. drmModeSetCrtc: %s\n", strerror(ok));
                 goto fail_maybe_destroy_mode_blob;
             }
+
+            internally_blocking = true;
         } else {
             ok = drmModePageFlip(
                 builder->drmdev->master_fd,
@@ -2380,7 +2438,27 @@ kms_req_commit_common(struct kms_req *req, bool blocking, kms_scanout_cb_t scano
 
     drmdev_set_scanout_callback_locked(builder->drmdev, builder->crtc->id, scanout_cb, userdata, destroy_cb);
 
-    if (blocking) {
+    if (internally_blocking) {
+        uint64_t sequence = 0;
+        uint64_t ns = 0;
+        int ok;
+
+        ok = drmCrtcGetSequence(builder->drmdev->fd, builder->crtc->id, &sequence, &ns);
+        if (ok != 0) {
+            ok = errno;
+            LOG_ERROR("Could not get vblank timestamp. drmCrtcGetSequence: %s\n", strerror(ok));
+            goto fail_unref_builder;
+        }
+
+        drmdev_on_page_flip_locked(
+            builder->drmdev->fd,
+            (unsigned int) sequence,
+            ns / 1000000000,
+            ns / 1000,
+            builder->crtc->id,
+            kms_req_ref(req)
+        );
+    } else if (blocking) {
         // handle the page-flip event here, rather than via the eventfd
         ok = drmdev_on_modesetting_fd_ready_locked(builder->drmdev);
         if (ok != 0) {
