@@ -68,55 +68,9 @@ set_property(CACHE FILESYSTEM_LAYOUT PROPERTY STRINGS ${FILESYSTEM_LAYOUTS})
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-# Download the flutter_embedder.h if it's not specified
-if(NOT FLUTTER_EMBEDDER_HEADER)
-
-  include(FetchContent)
-
-  if(NOT FLUTTER_ENGINE_SHA)
-
-    if(NOT CHANNEL)
-      set(CHANNEL "stable" CACHE STRING "The flutter channel to be used for downloading the flutter_embedder.h header file. Choose: master, dev, beta, stable" FORCE)
-      message(STATUS "Flutter Channel not set, defaulting to stable")
-    endif()
-
-    message(STATUS "Flutter Channel ........ ${CHANNEL}")
-
-    FetchContent_Declare(engine-version
-      URL https://raw.githubusercontent.com/flutter/flutter/${CHANNEL}/bin/internal/engine.version
-      DOWNLOAD_NAME engine.version
-      DOWNLOAD_NO_EXTRACT TRUE
-      DOWNLOAD_DIR ${CMAKE_BINARY_DIR}
-    )
-
-    FetchContent_GetProperties(engine-version)
-    if(NOT engine-version_POPULATED)
-      FetchContent_Populate(engine-version)
-      file(READ ${CMAKE_BINARY_DIR}/engine.version FLUTTER_ENGINE_SHA)
-      string(REPLACE "\n" "" FLUTTER_ENGINE_SHA ${FLUTTER_ENGINE_SHA})
-    else()
-      MESSAGE(FATAL "Unable to determine engine-version, please override FLUTTER_ENGINE_SHA")
-    endif()
-
-  endif()
-
-  message(STATUS "Engine SHA1 ............ ${FLUTTER_ENGINE_SHA}")
-
-  set(FLUTTER_EMBEDDER_HEADER ${CMAKE_BINARY_DIR}/flutter_embedder.h)
-
-  # Download and setup the flutter engine library header.
-  if(NOT EXISTS ${FLUTTER_EMBEDDER_HEADER})
-    file(DOWNLOAD
-      https://raw.githubusercontent.com/flutter/engine/${FLUTTER_ENGINE_SHA}/shell/platform/embedder/embedder.h
-      ${FLUTTER_EMBEDDER_HEADER}
-    )
-  endif()
-else()
-  message(STATUS "Flutter Header ......... ${FLUTTER_EMBEDDER_HEADER}")
-endif()
-
 include(ExternalProject)
 include(CheckCCompilerFlag)
+include(FetchContent)
 
 # Those libraries we definitely need.
 include(FindPkgConfig)
@@ -170,7 +124,7 @@ target_link_libraries(flutterpi_module PUBLIC
 )
 
 target_include_directories(flutterpi_module PUBLIC
-  ${CMAKE_BINARY_DIR}
+  ${CMAKE_SOURCE_DIR}/third_party/flutter_embedder_header/include
   ${CMAKE_SOURCE_DIR}/src
 )
 
