@@ -201,7 +201,6 @@ static int egl_gbm_render_surface_init(
 
     egl_surface = gl_renderer_create_gbm_window_surface(renderer, egl_config, gbm_surface, NULL);
     if (egl_surface == EGL_NO_SURFACE) {
-        LOG_ERROR("Could not create EGL rendering surface. eglCreatePlatformWindowSurface: 0x%08X\n", eglGetError());
         ok = EIO;
         goto fail_destroy_gbm_surface;
     }
