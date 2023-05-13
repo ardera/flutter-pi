@@ -16,9 +16,10 @@ jobs:
         runner:
           - ARM
           - ARM64
-        enable-vulkan:
-          - 'on'
-          - 'off'
+        graphics-backends:
+          - vulkan-only
+          - opengl-only
+          - vulkan-and-opengl
         compiler:
           - gcc
           - clang
@@ -26,6 +27,21 @@ jobs:
           - Debug
           - Release
         include:
+          - graphics-backends: 'vulkan-only'
+            enable-vulkan: 'on'
+            enable-opengl: 'off'
+          
+          - graphics-backends: 'opengl-only'
+            enable-vulkan: 'off'
+            enable-opengl: 'on'
+
+          - graphics-backends: 'vulkan-and-opengl'
+            enable-vulkan: 'on'
+            enable-opengl: 'on'
+          
+          - enable-opengl: 'on'
+            opengl-deps: 'libgl1-mesa-dev libgles2-mesa-dev libegl1-mesa-dev'
+
           - enable-vulkan: 'on'
             vulkan-deps: 'libvulkan-dev'
 
@@ -56,6 +72,7 @@ jobs:
             -DBUILD_GSTREAMER_AUDIO_PLAYER_PLUGIN=On \
             -DBUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN=On \
             -DENABLE_VULKAN=${{ matrix.enable-vulkan }} \
+            -DENABLE_OPENGL=${{ matrix.enable-opengl }} \
             -DENABLE_TESTS=On \
             -GNinja
           echo test
@@ -79,16 +96,32 @@ jobs:
         container:
           - 'debian:bullseye'
           - 'debian:buster'
-        enable-vulkan:
-          - 'on'
-          - 'off'
+        graphics-backends:
+          - vulkan-only
+          - opengl-only
+          - vulkan-and-opengl
         compiler:
-          - clang
           - gcc
+          - clang
         build-type:
           - Debug
           - Release
         include:
+          - graphics-backends: 'vulkan-only'
+            enable-vulkan: 'on'
+            enable-opengl: 'off'
+          
+          - graphics-backends: 'opengl-only'
+            enable-vulkan: 'off'
+            enable-opengl: 'on'
+
+          - graphics-backends: 'vulkan-and-opengl'
+            enable-vulkan: 'on'
+            enable-opengl: 'on'
+          
+          - enable-opengl: 'on'
+            opengl-deps: 'libgl1-mesa-dev libgles2-mesa-dev libegl1-mesa-dev'
+
           - enable-vulkan: 'on'
             vulkan-deps: 'libvulkan-dev'
 
@@ -100,10 +133,11 @@ jobs:
       - name: Install dependencies
         run: |
           apt-get update && apt-get install -y \
-            git cmake libgl1-mesa-dev libgles2-mesa-dev libegl1-mesa-dev libdrm-dev libgbm-dev \
+            git cmake libdrm-dev libgbm-dev \
             fonts-liberation fontconfig libsystemd-dev libinput-dev libudev-dev \
             libxkbcommon-dev ninja-build libgstreamer-plugins-base1.0-dev \
             ${{ matrix.vulkan-deps }} \
+            ${{ matrix.opengl-deps }} \
             ${{ matrix.clang-deps }}
 
       - uses: actions/checkout@v3
@@ -120,6 +154,7 @@ jobs:
             -DBUILD_GSTREAMER_AUDIO_PLAYER_PLUGIN=On \
             -DBUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN=On \
             -DENABLE_VULKAN=${{ matrix.enable-vulkan }} \
+            -DENABLE_OPENGL=${{ matrix.enable-opengl }} \
             -DENABLE_TESTS=On \
             -GNinja
 

@@ -102,7 +102,9 @@ int window_get_next_vblank(struct window *window, uint64_t *next_vblank_ns_out);
 
 bool window_has_egl_surface(struct window *window);
 
+#ifdef HAVE_EGL_GLES2
 EGLSurface window_get_egl_surface(struct window *window);
+#endif
 
 /**
  * @brief Gets a render surface, used as the backing store for an engine layer.

@@ -11,7 +11,11 @@
 #include <stdbool.h>
 #include <string.h>
 
-#if defined(HAVE_EGL) && defined(LINT_EGL_HEADERS)
+#ifndef HAVE_EGL
+    #error "egl.h was included but EGL support is disabled."
+#endif
+
+#ifdef LINT_EGL_HEADERS
 
     // This makes sure we only use EGL 1.4 definitions and prototypes.
     #define EGL_VERSION_1_5 1
@@ -379,16 +383,8 @@
     #undef EGL_WL_bind_wayland_display
     #undef EGL_WL_create_wayland_buffer_from_image
 
-#elif defined(HAVE_EGL)
-
-    #include <EGL/egl.h>
-    #include <EGL/eglext.h>
-
 #else
 
-    // If the system doesn't have EGL installed, we'll clone the official EGL headers and include them,
-    // but don't declare the function prototypes so we don't accidentally use one.
-    #define EGL_EGL_PROTOTYPES 0
     #include <EGL/egl.h>
     #include <EGL/eglext.h>
 
@@ -415,6 +411,7 @@
     typedef EGLBoolean (EGLAPIENTRYP PFNEGLWAITSYNCPROC) (EGLDisplay dpy, EGLSync sync, EGLint flags);
 #endif
 
+#ifdef HAVE_EGL
 static inline bool check_egl_extension(const char *client_ext_string, const char *display_ext_string, const char *extension) {
     size_t len = strlen(extension);
 
@@ -434,6 +431,7 @@ static inline bool check_egl_extension(const char *client_ext_string, const char
 
     return false;
 }
+
 
 static inline const char *egl_strerror(EGLenum result) {
     switch (result) {
@@ -457,5 +455,6 @@ static inline const char *egl_strerror(EGLenum result) {
 }
 
 #define LOG_EGL_ERROR(result, fmt, ...) LOG_ERROR(fmt ": %s\n", __VA_ARGS__ egl_strerror(result))
+#endif
 
 #endif  // _FLUTTERPI_INCLUDE_EGL_H

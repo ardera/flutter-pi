@@ -3,7 +3,10 @@
 
 #include <flutter_embedder.h>
 
-#include "gles.h"
+#ifdef HAVE_EGL_GLES2
+    #include "gles2.h"
+#endif
+
 struct texture_registry_interface {
     int (*register_texture)(void *userdata, int64_t texture_identifier);
     int (*unregister_texture)(void *userdata, int64_t texture_identifier);
@@ -13,6 +16,7 @@ struct texture_registry_interface {
 struct texture_registry;
 struct texture;
 
+#ifdef HAVE_EGL_GLES2
 struct gl_texture_frame {
     GLenum target;
     GLuint name;
@@ -20,11 +24,14 @@ struct gl_texture_frame {
     size_t width;
     size_t height;
 };
+#endif
 
 struct texture_frame;
 struct texture_frame {
     union {
+#ifdef HAVE_EGL_GLES2
         struct gl_texture_frame gl;
+#endif
     };
     void (*destroy)(const struct texture_frame *frame, void *userdata);
     void *userdata;
@@ -40,6 +47,7 @@ struct texture_registry *texture_registry_new(const struct texture_registry_inte
 
 void texture_registry_destroy(struct texture_registry *reg);
 
+#ifdef HAVE_EGL_GLES2
 bool texture_registry_gl_external_texture_frame_callback(
     struct texture_registry *reg,
     int64_t texture_id,
@@ -47,6 +55,7 @@ bool texture_registry_gl_external_texture_frame_callback(
     size_t height,
     FlutterOpenGLTexture *texture_out
 );
+#endif
 
 struct texture *texture_new(struct texture_registry *reg);
 
