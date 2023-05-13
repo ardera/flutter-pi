@@ -1294,6 +1294,11 @@ static struct render_surface *kms_window_get_render_surface_internal(struct wind
         }
     }
 
+    // EGL_NO_CONFIG_KHR is defined by EGL_KHR_no_config_context.
+    #ifndef EGL_KHR_no_config_context
+        #error "EGL header definitions for extension EGL_KHR_no_config_context are required."
+    #endif
+
     if (window->renderer_type == kOpenGL_RendererType) {
         // opengl
         struct egl_gbm_render_surface *egl_surface = egl_gbm_render_surface_new_with_egl_config(
