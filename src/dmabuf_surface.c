@@ -73,7 +73,11 @@ struct dmabuf_surface {
 #ifdef DEBUG
     uuid_t uuid;
 #endif
+
+#ifdef HAVE_EGL_GLES2
     EGLDisplay egl_display;
+#endif
+
     struct texture *texture;
     struct refcounted_dmabuf *next_buf;
 };
@@ -122,7 +126,11 @@ int dmabuf_surface_init(struct dmabuf_surface *s, struct tracer *tracer, struct 
 #ifdef DEBUG
     uuid_copy(&s->uuid, uuid);
 #endif
+
+#ifdef HAVE_EGL_GLES2
     s->egl_display = EGL_NO_DISPLAY;
+#endif
+
     s->texture = texture;
     s->next_buf = NULL;
     return 0;
@@ -166,11 +174,15 @@ int on_resolve_texture_frame(size_t width, size_t height, void *userdata, struct
     (void) width;
     (void) height;
     (void) userdata;
+
+#ifdef HAVE_GLES2
     frame_out->gl.target = GL_TEXTURE_2D;
     frame_out->gl.name = 0;
     frame_out->gl.format = GL_RGBA8_OES;
     frame_out->gl.width = 0;
     frame_out->gl.height = 0;
+#endif
+
     frame_out->userdata = NULL;
     frame_out->destroy = NULL;
     return 0;
@@ -184,7 +196,7 @@ int dmabuf_surface_push_dmabuf(struct dmabuf_surface *s, const struct dmabuf *bu
     ASSERT_NOT_NULL(buf);
     ASSERT_NOT_NULL(release_cb);
 
-#ifdef HAVE_EGL
+#ifdef HAVE_EGL_GLES2
     assert(eglGetCurrentContext() != EGL_NO_CONTEXT);
 #endif
 

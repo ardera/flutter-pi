@@ -37,18 +37,12 @@
 #include <xf86drm.h>
 #include <xf86drmMode.h>
 
-#ifdef HAVE_LIBSEAT
-    #include <libseat.h>
-#endif
 #include <flutter_embedder.h>
 
 #include "compositor_ng.h"
-#include "egl.h"
 #include "filesystem_layout.h"
 #include "flutter-pi.h"
 #include "frame_scheduler.h"
-#include "gl_renderer.h"
-#include "gles.h"
 #include "keyboard.h"
 #include "locales.h"
 #include "modesetting.h"
@@ -60,8 +54,22 @@
 #include "texture_registry.h"
 #include "tracer.h"
 #include "user_input.h"
-#include "vk_renderer.h"
+
 #include "window.h"
+
+#ifdef HAVE_LIBSEAT
+    #include <libseat.h>
+#endif
+
+#ifdef HAVE_EGL_GLES2
+    #include "egl.h"
+    #include "gles.h"
+    #include "gl_renderer.h"
+#endif
+
+#ifdef HAVE_VULKAN
+    #include "vk_renderer.h"
+#endif
 
 #ifdef ENABLE_MTRACE
     #include <mcheck.h>
@@ -263,6 +271,8 @@ static bool runs_platform_tasks_on_current_thread(void *userdata);
 /*********************
  * FLUTTER CALLBACKS *
  *********************/
+
+#ifdef HAVE_EGL_GLES2
 /// Called on some flutter internal thread when the flutter
 /// rendering EGLContext should be made current.
 static bool on_make_current(void *userdata) {
@@ -359,6 +369,7 @@ static void *proc_resolver(void *userdata, const char *name) {
 
     return gl_renderer_get_proc_address(flutterpi->gl_renderer, name);
 }
+#endif
 
 UNUSED static void *on_get_vulkan_proc_address(void *userdata, FlutterVulkanInstanceHandle instance, const char *name) {
     ASSERT_NOT_NULL(userdata);
@@ -535,7 +546,7 @@ fail_free_req:
     free(req);
 }
 
-static FlutterTransformation on_get_transformation(void *userdata) {
+UNUSED static FlutterTransformation on_get_transformation(void *userdata) {
     struct view_geometry geometry;
     struct flutterpi *flutterpi;
 
@@ -1055,6 +1066,7 @@ static const FlutterLocale *on_compute_platform_resolved_locales(const FlutterLo
     return locales_on_compute_platform_resolved_locale(flutterpi->locales, locales, n_locales);
 }
 
+#ifdef HAVE_EGL_GLES2
 static bool
 on_gl_external_texture_frame_callback(void *userdata, int64_t texture_id, size_t width, size_t height, FlutterOpenGLTexture *texture_out) {
     struct flutterpi *flutterpi;
@@ -1065,6 +1077,7 @@ on_gl_external_texture_frame_callback(void *userdata, int64_t texture_id, size_t
 
     return texture_registry_gl_external_texture_frame_callback(flutterpi->texture_registry, texture_id, width, height, texture_out);
 }
+#endif
 
 /**************************
  * FLUTTER INITIALIZATION *
@@ -1232,6 +1245,7 @@ static FlutterEngine create_flutter_engine(
         UNREACHABLE();
 #endif
     } else {
+#ifdef HAVE_EGL_GLES2
         renderer_config = (FlutterRendererConfig){
             .type = kOpenGL,
             .open_gl = {
@@ -1246,6 +1260,9 @@ static FlutterEngine create_flutter_engine(
                 .gl_external_texture_frame_callback = on_gl_external_texture_frame_callback,
             },
         };
+#else
+        UNREACHABLE();
+#endif
     }
 
     COMPILE_ASSERT(sizeof(FlutterProjectArgs) == 152 || sizeof(FlutterProjectArgs) == 288);
@@ -2201,7 +2218,18 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
     bundle_path = cmd_args.bundle_path;
     engine_argc = cmd_args.engine_argc;
     engine_argv = cmd_args.engine_argv;
+
+#if defined(HAVE_EGL_GLES2) && defined(HAVE_VULKAN)
     renderer_type = cmd_args.use_vulkan ? kVulkan_RendererType : kOpenGL_RendererType;
+#elif defined(HAVE_EGL_GLES2) && !defined(HAVE_VULKAN)
+    ASSUME(!cmd_args.use_vulkan);
+    renderer_type = kOpenGL_RendererType;
+#elif !defined(HAVE_EGL_GLES2) && defined(HAVE_VULKAN)
+    renderer_type = kVulkan_RendererType;
+#else
+    #error "At least one of the Vulkan and OpenGL renderer backends must be built."
+#endif
+
     desired_videomode = cmd_args.desired_videomode;
 
     paths = setup_paths(runtime_mode, bundle_path);
@@ -2310,6 +2338,7 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
         UNREACHABLE();
 #endif
     } else if (renderer_type == kOpenGL_RendererType) {
+#ifdef HAVE_EGL_GLES2
         vk_renderer = NULL;
         gl_renderer = gl_renderer_new_from_gbm_device(tracer, gbm_device, cmd_args.has_pixel_format, cmd_args.pixel_format);
         if (gl_renderer == NULL) {
@@ -2333,8 +2362,12 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
             ok = EINVAL;
             goto fail_unref_scheduler;
         }
+#else
+        UNREACHABLE();
+#endif
     } else {
         UNREACHABLE();
+        goto fail_unref_scheduler;
     }
 
     window = kms_window_new(
@@ -2530,13 +2563,19 @@ fail_unref_window:
 
 fail_unref_renderer:
     if (gl_renderer) {
+#ifdef HAVE_EGL_GLES2
         gl_renderer_unref(gl_renderer);
-    }
-#ifdef HAVE_VULKAN
-    if (vk_renderer) {
-        vk_renderer_unref(vk_renderer);
-    }
+#else
+        UNREACHABLE();
 #endif
+    }
+    if (vk_renderer) {
+#ifdef HAVE_VULKAN
+        vk_renderer_unref(vk_renderer);
+#else
+        UNREACHABLE();
+#endif
+    }
 
 fail_unref_scheduler:
     frame_scheduler_unref(scheduler);
@@ -2588,7 +2627,11 @@ void flutterpi_destroy(struct flutterpi *flutterpi) {
     user_input_destroy(flutterpi->user_input);
     compositor_unref(flutterpi->compositor);
     if (flutterpi->gl_renderer) {
+#ifdef HAVE_EGL_GLES2
         gl_renderer_unref(flutterpi->gl_renderer);
+#else
+        UNREACHABLE();
+#endif
     }
     if (flutterpi->vk_renderer) {
 #ifdef HAVE_VULKAN

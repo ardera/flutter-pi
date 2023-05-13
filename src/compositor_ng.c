@@ -16,18 +16,12 @@
 #include <pthread.h>
 #include <semaphore.h>
 
-#ifdef HAVE_GBM
-    #include <gbm.h>
-#endif
 #include <flutter_embedder.h>
 #include <systemd/sd-event.h>
 
 #include "compositor_ng.h"
-#include "egl.h"
-#include "egl_gbm_render_surface.h"
 #include "flutter-pi.h"
 #include "frame_scheduler.h"
-#include "gl_renderer.h"
 #include "modesetting.h"
 #include "notifier_listener.h"
 #include "pixel_format.h"
@@ -36,9 +30,22 @@
 #include "tracer.h"
 #include "util/collection.h"
 #include "util/dynarray.h"
-#include "vk_gbm_render_surface.h"
-#include "vk_renderer.h"
 #include "window.h"
+
+#ifdef HAVE_GBM
+    #include <gbm.h>
+#endif
+
+#ifdef HAVE_EGL_GLES2
+    #include "egl.h"
+    #include "egl_gbm_render_surface.h"
+    #include "gl_renderer.h"
+#endif
+
+#ifdef HAVE_VULKAN
+    #include "vk_gbm_render_surface.h"
+    #include "vk_renderer.h"
+#endif
 
 FILE_DESCR("compositor-ng")
 
@@ -449,9 +456,11 @@ struct surface *compositor_get_view_by_id_locked(struct compositor *compositor, 
     return NULL;
 }
 
+#ifdef HAVE_EGL_GLES2
 EGLSurface compositor_get_egl_surface(struct compositor *compositor) {
     return window_get_egl_surface(compositor->main_window);
 }
+#endif
 
 static bool
 on_flutter_create_backing_store(const FlutterBackingStoreConfig *config, FlutterBackingStore *backing_store_out, void *userdata) {

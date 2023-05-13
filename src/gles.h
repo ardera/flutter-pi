@@ -8,19 +8,11 @@
 #ifndef _FLUTTERPI_INCLUDE_GLES_H
 #define _FLUTTERPI_INCLUDE_GLES_H
 
-#ifdef HAVE_GLES2
-
-    #include <GLES2/gl2.h>
-    #include <GLES2/gl2ext.h>
-
-#else
-
-    // If the system doesn't have EGL installed, we'll clone the official EGL headers,
-    // but don't declare the function prototypes, so we don't accidentally use one.
-    #define GL_GLES_PROTOTYPES 0
-    #include <GLES2/gl2.h>
-    #include <GLES2/gl2ext.h>
-
+#if !defined(HAVE_GLES2)
+    #error "gles.h was included but OpenGLES2 support is disabled."
 #endif
+
+#include <GLES2/gl2.h>
+#include <GLES2/gl2ext.h>
 
 #endif  // _FLUTTERPI_INCLUDE_GLES_H

@@ -21,8 +21,6 @@
 #include <xf86drm.h>
 #include <xf86drmMode.h>
 
-#include "egl.h"
-#include "gles.h"
 #include "util/collection.h"
 
 enum device_orientation { kPortraitUp, kLandscapeLeft, kPortraitDown, kLandscapeRight };

@@ -1,9 +1,14 @@
 #ifndef _FLUTTERPI_INCLUDE_PLUGINS_OMXPLAYER_VIDEO_PLUGIN_H
 #define _FLUTTERPI_INCLUDE_PLUGINS_OMXPLAYER_VIDEO_PLUGIN_H
 
-#include "egl.h"
-#include "gles.h"
 #include "util/collection.h"
+
+#if !defined(HAVE_EGL_GLES2)
+    #error "gstreamer video player requires EGL and OpenGL ES2 support."
+#else
+    #include "egl.h"
+    #include "gles.h"
+#endif
 
 enum format_hint { kNoFormatHint, kMpegDash_FormatHint, kHLS_FormatHint, kSS_FormatHint, kOther_FormatHint };
 
