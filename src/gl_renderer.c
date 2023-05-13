@@ -652,7 +652,7 @@ ATTR_PURE EGLConfig gl_renderer_choose_config_direct(struct gl_renderer *rendere
     return choose_config_with_pixel_format(renderer->egl_display, config_attribs, pixel_format);
 }
 
-EGLSurface gl_renderer_create_gbm_window_surface(struct gl_renderer *renderer, EGLConfig config, struct gbm_surface *gbm_surface, const EGLAttribKHR *attrib_list) {
+EGLSurface gl_renderer_create_gbm_window_surface(struct gl_renderer *renderer, EGLConfig config, struct gbm_surface *gbm_surface, const EGLAttribKHR *attrib_list, const EGLint *int_attrib_list) {
     EGLSurface surface;
 
     #ifdef EGL_VERSION_1_5
@@ -678,7 +678,7 @@ EGLSurface gl_renderer_create_gbm_window_surface(struct gl_renderer *renderer, E
             UNREACHABLE();
         #endif
     } else {
-        surface = eglCreateWindowSurface(renderer->egl_display, config, (EGLNativeWindowType) gbm_surface, attrib_list);
+        surface = eglCreateWindowSurface(renderer->egl_display, config, (EGLNativeWindowType) gbm_surface, int_attrib_list);
         if (surface == EGL_NO_SURFACE) {
             LOG_EGL_ERROR(eglGetError(), "Couldn't create gbm_surface backend window surface. eglCreateWindowSurface");
             return EGL_NO_SURFACE;
