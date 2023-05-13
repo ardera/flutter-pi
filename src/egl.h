@@ -14,7 +14,6 @@
 #if defined(HAVE_EGL) && defined(LINT_EGL_HEADERS)
 
     // This makes sure we only use EGL 1.4 definitions and prototypes.
-    #define EGL_EGL_PROTOTYPES 1
     #define EGL_VERSION_1_5 1
     #include <EGL/egl.h>
     #undef EGL_VERSION_1_5
@@ -393,6 +392,27 @@
     #include <EGL/egl.h>
     #include <EGL/eglext.h>
 
+#endif
+
+// Older egl.h doesn't define typedefs for standard EGL functions, for example on debian buster.
+// Define them ourselves if necessary.
+//
+// We don't use the function typedefs for functions part of 1.4, since
+// those should be present at all times and we just statically use them.
+//
+// For functions part of EGL 1.5 we dynamically resolve the functions at
+// runtime, since we can't be sure they're actually present.
+#if defined(EGL_VERSION_1_5) && !defined(EGL_EGL_PROTOTYPES)
+    typedef EGLSync (EGLAPIENTRYP PFNEGLCREATESYNCPROC) (EGLDisplay dpy, EGLenum type, const EGLAttrib *attrib_list);
+    typedef EGLBoolean (EGLAPIENTRYP PFNEGLDESTROYSYNCPROC) (EGLDisplay dpy, EGLSync sync);
+    typedef EGLint (EGLAPIENTRYP PFNEGLCLIENTWAITSYNCPROC) (EGLDisplay dpy, EGLSync sync, EGLint flags, EGLTime timeout);
+    typedef EGLBoolean (EGLAPIENTRYP PFNEGLGETSYNCATTRIBPROC) (EGLDisplay dpy, EGLSync sync, EGLint attribute, EGLAttrib *value);
+    typedef EGLImage (EGLAPIENTRYP PFNEGLCREATEIMAGEPROC) (EGLDisplay dpy, EGLContext ctx, EGLenum target, EGLClientBuffer buffer, const EGLAttrib *attrib_list);
+    typedef EGLBoolean (EGLAPIENTRYP PFNEGLDESTROYIMAGEPROC) (EGLDisplay dpy, EGLImage image);
+    typedef EGLDisplay (EGLAPIENTRYP PFNEGLGETPLATFORMDISPLAYPROC) (EGLenum platform, void *native_display, const EGLAttrib *attrib_list);
+    typedef EGLSurface (EGLAPIENTRYP PFNEGLCREATEPLATFORMWINDOWSURFACEPROC) (EGLDisplay dpy, EGLConfig config, void *native_window, const EGLAttrib *attrib_list);
+    typedef EGLSurface (EGLAPIENTRYP PFNEGLCREATEPLATFORMPIXMAPSURFACEPROC) (EGLDisplay dpy, EGLConfig config, void *native_pixmap, const EGLAttrib *attrib_list);
+    typedef EGLBoolean (EGLAPIENTRYP PFNEGLWAITSYNCPROC) (EGLDisplay dpy, EGLSync sync, EGLint flags);
 #endif
 
 static inline bool check_egl_extension(const char *client_ext_string, const char *display_ext_string, const char *extension) {
