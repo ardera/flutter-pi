@@ -16,7 +16,7 @@
 
 #if !defined(HAVE_EGL_GLES2)
     #error "gl_renderer requires EGL and OpenGL ES support."
-#else
+#endif
 
 #include "egl.h"
 #include "pixel_format.h"
