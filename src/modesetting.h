@@ -557,11 +557,11 @@ uint32_t drmdev_add_fb_multiplanar(
     uint32_t width,
     uint32_t height,
     enum pixfmt pixel_format,
-    uint32_t bo_handles[4],
-    uint32_t pitches[4],
-    uint32_t offsets[4],
+    const uint32_t bo_handles[4],
+    const uint32_t pitches[4],
+    const uint32_t offsets[4],
     bool has_modifiers,
-    uint64_t modifiers[4]
+    const uint64_t modifiers[4]
 );
 
 uint32_t drmdev_add_fb_from_dmabuf(
@@ -581,11 +581,11 @@ uint32_t drmdev_add_fb_from_dmabuf_multiplanar(
     uint32_t width,
     uint32_t height,
     enum pixfmt pixel_format,
-    int prime_fds[4],
-    uint32_t pitches[4],
-    uint32_t offsets[4],
+    const int prime_fds[4],
+    const uint32_t pitches[4],
+    const uint32_t offsets[4],
     bool has_modifiers,
-    uint64_t modifiers[4]
+    const uint64_t modifiers[4]
 );
 
 int drmdev_rm_fb(struct drmdev *drmdev, uint32_t fb_id);
