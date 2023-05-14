@@ -95,6 +95,7 @@ add_library(
   src/modesetting.c
   src/util/collection.c
   src/util/bitscan.c
+  src/util/vector.c
   src/cursor.c
   src/keyboard.c
   src/user_input.c
