@@ -17,6 +17,7 @@
 #include <xf86drmMode.h>
 
 #include "pixel_format.h"
+#include "util/macros.h"
 #include "util/bitset.h"
 #include "util/list.h"
 
@@ -528,6 +529,26 @@ static int get_supported_modified_formats(
     return 0;
 }
 
+struct _drmModeFB2;
+
+struct drm_mode_fb2 {
+	uint32_t fb_id;
+	uint32_t width, height;
+	uint32_t pixel_format; /* fourcc code from drm_fourcc.h */
+	uint64_t modifier; /* applies to all buffers */
+	uint32_t flags;
+
+	/* per-plane GEM handle; may be duplicate entries for multiple planes */
+	uint32_t handles[4];
+	uint32_t pitches[4]; /* bytes */
+	uint32_t offsets[4]; /* bytes */
+};
+
+#ifdef HAVE_FUNC_ATTRIBUTE_WEAK
+extern struct _drmModeFB2 *drmModeGetFB2(int fd, uint32_t bufferId) __attribute__((weak));
+#define HAVE_WEAK_DRM_MODE_GET_FB2
+#endif
+
 static int fetch_plane(int drm_fd, uint32_t plane_id, struct drm_plane *plane_out) {
     struct drm_plane_prop_ids ids;
     drmModeObjectProperties *props;
@@ -760,6 +781,30 @@ static int fetch_plane(int drm_fd, uint32_t plane_id, struct drm_plane *plane_ou
         }
     }
 
+    bool has_format = false;
+    enum pixfmt format = kRGB565_FpiPixelFormat;
+
+    // drmModeGetFB2 might not be present.
+    // If __attribute__((weak)) is supported by the compiler, we redefine it as
+    // weak above.
+    // If we don't have weak, we can't check for it here.
+#ifdef HAVE_WEAK_DRM_MODE_GET_FB2
+    if (drmModeGetFB2) {
+        struct drm_mode_fb2 *fb = (struct drm_mode_fb2 *) drmModeGetFB2(drm_fd, plane->fb_id);
+        if (fb != NULL) {
+            for (int i = 0; i < kCount_PixFmt; i++) {
+                if (get_pixfmt_info(i)->drm_format == fb->pixel_format) {
+                    has_format = true;
+                    format = i;
+                    break;
+                }
+            }
+
+            drmModeFreeFB2((struct _drmModeFB2*) fb);
+        }
+    }
+#endif
+
     plane_out->id = plane->plane_id;
     plane_out->possible_crtcs = plane->possible_crtcs;
     plane_out->ids = ids;
@@ -794,6 +839,8 @@ static int fetch_plane(int drm_fd, uint32_t plane_id, struct drm_plane *plane_ou
     plane_out->committed_state.rotation = committed_rotation;
     plane_out->committed_state.alpha = committed_alpha;
     plane_out->committed_state.blend_mode = committed_blend_mode;
+    plane_out->committed_state.has_format = has_format;
+    plane_out->committed_state.format = format;
     drmModeFreeObjectProperties(props);
     drmModeFreePlane(plane);
     return 0;
@@ -1332,7 +1379,7 @@ struct gbm_device *drmdev_get_gbm_device(struct drmdev *drmdev) {
     return drmdev->gbm_device;
 }
 
-int drmdev_get_last_vblank(struct drmdev *drmdev, uint32_t crtc_id, uint64_t *last_vblank_ns_out) {
+int drmdev_get_last_vblank_locked(struct drmdev *drmdev, uint32_t crtc_id, uint64_t *last_vblank_ns_out) {
     int ok;
 
     ASSERT_NOT_NULL(drmdev);
@@ -1348,7 +1395,17 @@ int drmdev_get_last_vblank(struct drmdev *drmdev, uint32_t crtc_id, uint64_t *la
     return 0;
 }
 
-uint32_t drmdev_add_fb_multiplanar(
+int drmdev_get_last_vblank(struct drmdev *drmdev, uint32_t crtc_id, uint64_t *last_vblank_ns_out) {
+    int ok;
+
+    drmdev_lock(drmdev);
+    ok = drmdev_get_last_vblank_locked(drmdev, crtc_id, last_vblank_ns_out);
+    drmdev_unlock(drmdev);
+
+    return ok;
+}
+
+uint32_t drmdev_add_fb_multiplanar_locked(
     struct drmdev *drmdev,
     uint32_t width,
     uint32_t height,
@@ -1422,6 +1479,60 @@ fail_free_fb:
     return 0;
 }
 
+uint32_t drmdev_add_fb_multiplanar(
+    struct drmdev *drmdev,
+    uint32_t width,
+    uint32_t height,
+    enum pixfmt pixel_format,
+    const uint32_t bo_handles[4],
+    const uint32_t pitches[4],
+    const uint32_t offsets[4],
+    bool has_modifiers,
+    const uint64_t modifiers[4]
+) {
+    uint32_t fb;
+
+    drmdev_lock(drmdev);
+
+    fb = drmdev_add_fb_multiplanar_locked(
+        drmdev,
+        width, height,
+        pixel_format,
+        bo_handles,
+        pitches,
+        offsets,
+        has_modifiers, modifiers
+    );
+
+    drmdev_unlock(drmdev);
+
+    return fb;
+}
+
+uint32_t drmdev_add_fb_locked(
+    struct drmdev *drmdev,
+    uint32_t width,
+    uint32_t height,
+    enum pixfmt pixel_format,
+    uint32_t bo_handle,
+    uint32_t pitch,
+    uint32_t offset,
+    bool has_modifier,
+    uint64_t modifier
+) {
+    return drmdev_add_fb_multiplanar_locked(
+        drmdev,
+        width,
+        height,
+        pixel_format,
+        (uint32_t[4]){ bo_handle, 0 },
+        (uint32_t[4]){ pitch, 0 },
+        (uint32_t[4]){ offset, 0 },
+        has_modifier,
+        (const uint64_t[4]){ modifier, 0 }
+    );
+}
+
 uint32_t drmdev_add_fb(
     struct drmdev *drmdev,
     uint32_t width,
@@ -1446,7 +1557,7 @@ uint32_t drmdev_add_fb(
     );
 }
 
-uint32_t drmdev_add_fb_from_dmabuf(
+uint32_t drmdev_add_fb_from_dmabuf_locked(
     struct drmdev *drmdev,
     uint32_t width,
     uint32_t height,
@@ -1466,10 +1577,40 @@ uint32_t drmdev_add_fb_from_dmabuf(
         return 0;
     }
 
-    return drmdev_add_fb(drmdev, width, height, pixel_format, prime_fd, pitch, offset, has_modifier, modifier);
+    return drmdev_add_fb_locked(drmdev, width, height, pixel_format, prime_fd, pitch, offset, has_modifier, modifier);
 }
 
-uint32_t drmdev_add_fb_from_dmabuf_multiplanar(
+uint32_t drmdev_add_fb_from_dmabuf(
+    struct drmdev *drmdev,
+    uint32_t width,
+    uint32_t height,
+    enum pixfmt pixel_format,
+    int prime_fd,
+    uint32_t pitch,
+    uint32_t offset,
+    bool has_modifier,
+    uint64_t modifier
+) {
+    uint32_t fb;
+
+    drmdev_lock(drmdev);
+
+    fb = drmdev_add_fb_from_dmabuf_locked(
+        drmdev,
+        width, height,
+        pixel_format,
+        prime_fd,
+        pitch,
+        offset,
+        has_modifier, modifier
+    );
+
+    drmdev_unlock(drmdev);
+
+    return fb;
+}
+
+uint32_t drmdev_add_fb_from_dmabuf_multiplanar_locked(
     struct drmdev *drmdev,
     uint32_t width,
     uint32_t height,
@@ -1491,19 +1632,71 @@ uint32_t drmdev_add_fb_from_dmabuf_multiplanar(
         }
     }
 
-    return drmdev_add_fb_multiplanar(drmdev, width, height, pixel_format, bo_handles, pitches, offsets, has_modifiers, modifiers);
+    return drmdev_add_fb_multiplanar_locked(drmdev, width, height, pixel_format, bo_handles, pitches, offsets, has_modifiers, modifiers);
+}
+
+uint32_t drmdev_add_fb_from_dmabuf_multiplanar(
+    struct drmdev *drmdev,
+    uint32_t width,
+    uint32_t height,
+    enum pixfmt pixel_format,
+    const int prime_fds[4],
+    const uint32_t pitches[4],
+    const uint32_t offsets[4],
+    bool has_modifiers,
+    const uint64_t modifiers[4]
+) {
+    uint32_t fb;
+
+    drmdev_lock(drmdev);
+
+    fb = drmdev_add_fb_from_dmabuf_multiplanar_locked(
+        drmdev,
+        width,
+        height,
+        pixel_format,
+        prime_fds,
+        pitches,
+        offsets,
+        has_modifiers,
+        modifiers
+    );
+
+    drmdev_unlock(drmdev);
+
+    return fb;
+}
+
+static int drmdev_rm_fb_locked(struct drmdev *drmdev, uint32_t fb_id) {
+    int ok;
+
+    list_for_each_entry(struct drm_fb, fb, &drmdev->fbs, entry) {
+        if (fb->id == fb_id) {
+            list_del(&fb->entry);
+            break;
+        }
+    }
+
+    ok = drmModeRmFB(drmdev->fd, fb_id);
+    if (ok < 0) {
+        ok = -ok;
+        LOG_ERROR("Could not remove DRM framebuffer. drmModeRmFB: %s\n", strerror(ok));
+        return ok;
+    }
+
+    return 0;
 }
 
 int drmdev_rm_fb(struct drmdev *drmdev, uint32_t fb_id) {
     int ok;
 
-    ok = drmModeRmFB(drmdev->fd, fb_id);
-    if (ok < 0) {
-        LOG_ERROR("Could not remove DRM framebuffer. drmModeRmFB: %s\n", strerror(-ok));
-        return -ok;
-    }
+    drmdev_lock(drmdev);
 
-    return 0;
+    ok = drmdev_rm_fb_locked(drmdev, fb_id);
+
+    drmdev_unlock(drmdev);
+
+    return ok;
 }
 
 bool drmdev_can_modeset(struct drmdev *drmdev) {
@@ -1512,7 +1705,9 @@ bool drmdev_can_modeset(struct drmdev *drmdev) {
     ASSERT_NOT_NULL(drmdev);
 
     drmdev_lock(drmdev);
+
     can_modeset = drmdev->master_fd > 0;
+
     drmdev_unlock(drmdev);
 
     return can_modeset;
@@ -2360,9 +2555,17 @@ kms_req_commit_common(struct kms_req *req, bool blocking, kms_scanout_cb_t scano
         // and if we're not absolutely sure the formats match, set needs_set_crtc
         // too.
         if (!needs_set_crtc) {
-            struct drm_plane *plane = builder->layers[0].plane;
+            struct kms_req_layer *layer = builder->layers + 0;
+            struct drm_plane *plane = layer->plane;
             ASSERT_NOT_NULL(plane);
 
+            if (plane->committed_state.has_format && plane->committed_state.format == layer->layer.format) {
+                needs_set_crtc = false;
+            } else {
+                needs_set_crtc = true;
+            }
+
+#ifdef DEBUG
             drmModeFBPtr committed_fb = drmModeGetFB(builder->drmdev->master_fd, plane->committed_state.fb_id);
             if (committed_fb == NULL) {
                 needs_set_crtc = true;
@@ -2371,21 +2574,27 @@ kms_req_commit_common(struct kms_req *req, bool blocking, kms_scanout_cb_t scano
 
                 list_for_each_entry(struct drm_fb, fb, &builder->drmdev->fbs, entry) {
                     if (fb->id == committed_fb->fb_id) {
-                        if (fb->format == builder->layers[0].layer.format) {
+                        ASSERT_EQUALS(fb->format, plane->committed_state.format);
+
+                        if (fb->format == layer->layer.format) {
                             needs_set_crtc = false;
                         }
-                        break;
+                    }
+
+                    if (fb->id == layer->layer.drm_fb_id) {
+                        ASSERT_EQUALS(fb->format, layer->layer.format);
                     }
                 }
             }
 
             drmModeFreeFB(committed_fb);
+#endif
         }
-
+        
+        /// TODO: Handle {src,dst}_{x,y,w,h} here
+        /// TODO: Handle setting other properties as well
         if (needs_set_crtc) {
             /// TODO: Fetch new connector or current connector here since we seem to need it for drmModeSetCrtc
-            // UNIMPLEMENTED();
-
             ok = drmModeSetCrtc(
                 builder->drmdev->master_fd,
                 builder->crtc->id,
@@ -2457,6 +2666,37 @@ kms_req_commit_common(struct kms_req *req, bool blocking, kms_scanout_cb_t scano
         }
     }
 
+    // update struct drm_plane.committed_state for all planes
+    for (int i = 0; i < builder->n_layers; i++) {
+        struct drm_plane *plane = builder->layers[i].plane;
+        struct kms_req_layer *layer = builder->layers + i;
+
+        plane->committed_state.crtc_id = builder->crtc->id;
+        plane->committed_state.fb_id = layer->layer.drm_fb_id;
+        plane->committed_state.src_x = layer->layer.src_x;
+        plane->committed_state.src_y = layer->layer.src_y;
+        plane->committed_state.src_w = layer->layer.src_w;
+        plane->committed_state.src_h = layer->layer.src_h;
+        plane->committed_state.crtc_x = layer->layer.dst_x;
+        plane->committed_state.crtc_y = layer->layer.dst_y;
+        plane->committed_state.crtc_w = layer->layer.dst_w;
+        plane->committed_state.crtc_h = layer->layer.dst_h;
+
+        if (builder->layers[i].set_zpos) {
+            plane->committed_state.zpos = layer->zpos;
+        }
+        if (builder->layers[i].set_rotation) {
+            plane->committed_state.rotation = layer->rotation;
+        }
+
+        plane->committed_state.has_format = true;
+        plane->committed_state.format = layer->layer.format;
+
+        // builder->layers[i].plane->committed_state.alpha = layer->alpha;
+        // builder->layers[i].plane->committed_state.blend_mode = builder->layers[i].layer.blend_mode;
+    }
+
+    // update struct drm_crtc.committed_state
     if (update_mode) {
         // destroy the old mode blob
         if (builder->crtc->committed_state.mode_blob != NULL) {
@@ -2474,6 +2714,10 @@ kms_req_commit_common(struct kms_req *req, bool blocking, kms_scanout_cb_t scano
             builder->crtc->committed_state.mode_blob = NULL;
         }
     }
+
+    // update struct drm_connector.committed_state
+    builder->connector->committed_state.crtc_id = builder->crtc->id;
+    // builder->connector->committed_state.encoder_id = 0; 
 
     drmdev_set_scanout_callback_locked(builder->drmdev, builder->crtc->id, scanout_cb, userdata, destroy_cb);
 
