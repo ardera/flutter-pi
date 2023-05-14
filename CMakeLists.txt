@@ -62,6 +62,7 @@ option(TRY_ENABLE_SESSION_SWITCHING "Don't throw an error if libseat isn't found
 option(LTO "Check for IPO/LTO support and enable, if supported. May require gold/lld when building with clang. (Either using `-fuse-ld` in CMAKE_C_FLAGS or by setting as the default system linker.) Only applies to Release or RelWithDebInfo build types." ON)
 option(LINT_EGL_HEADERS "Set an define that'll make the egl.h only export the extension definitions, prototypes that are explicitly marked as required." OFF)
 option(DEBUG_DRM_PLANE_ALLOCATIONS "Add logging in modesetting.c for debugging the process of choosing a fitting DRM plane for a framebuffer layer." OFF)
+option(USE_LEGACY_KMS "Force the use of legacy KMS." OFF)
 
 set(FILESYSTEM_LAYOUTS default meta-flutter)
 set(FILESYSTEM_LAYOUT "default" CACHE STRING "Where to look for the icudtl.dat, app.so/libapp.so, flutter asset bundle.")
@@ -258,6 +259,10 @@ endif()
 
 if (DEBUG_DRM_PLANE_ALLOCATIONS)
   target_compile_definitions(flutterpi_module PUBLIC DEBUG_DRM_PLANE_ALLOCATIONS)
+endif()
+
+if (USE_LEGACY_KMS)
+  target_compile_definitions(flutterpi_module PUBLIC USE_LEGACY_KMS)
 endif()
 
 # TODO: We actually don't need the compile definitions anymore, except for

@@ -18,13 +18,34 @@
 
 #include "pixel_format.h"
 #include "util/bitset.h"
+#include "util/list.h"
 
 FILE_DESCR("modesetting")
+
+struct drm_fb {
+    struct list_head entry;
+
+    uint32_t id;
+
+    uint32_t width, height;
+
+    enum pixfmt format;
+
+    bool has_modifier;
+    uint64_t modifier;
+
+    uint32_t flags;
+
+    uint32_t handles[4];
+    uint32_t pitches[4];
+    uint32_t offsets[4];
+};
 
 struct kms_req_layer {
     struct kms_fb_layer layer;
 
     uint32_t plane_id;
+    struct drm_plane *plane;
 
     bool set_zpos;
     int64_t zpos;
@@ -101,6 +122,8 @@ struct drmdev {
 
     struct drmdev_interface interface;
     void *userdata;
+
+    struct list_head fbs;
 };
 
 struct drmdev_atomic_req {
@@ -898,6 +921,9 @@ static int set_drm_client_caps(int fd, bool *supports_atomic_modesetting) {
         return ok;
     }
 
+#ifdef USE_LEGACY_KMS
+    *supports_atomic_modesetting = false;
+#else
     ok = drmSetClientCap(fd, DRM_CLIENT_CAP_ATOMIC, 1);
     if ((ok < 0) && (errno == EOPNOTSUPP)) {
         if (supports_atomic_modesetting != NULL) {
@@ -912,6 +938,7 @@ static int set_drm_client_caps(int fd, bool *supports_atomic_modesetting) {
             *supports_atomic_modesetting = true;
         }
     }
+#endif
 
     return 0;
 }
@@ -1012,6 +1039,7 @@ struct drmdev *drmdev_new_from_interface_fd(int fd, void *fd_metadata, const str
     drmdev->master_fd_metadata = fd_metadata;
     drmdev->interface = *interface;
     drmdev->userdata = userdata;
+    list_inithead(&drmdev->fbs);
     return drmdev;
 
 fail_close_event_fd:
@@ -1193,7 +1221,8 @@ void drmdev_unmap_dumb_buffer(struct drmdev *drmdev, void *map, size_t size) {
     }
 }
 
-static void drmdev_on_page_flip_locked(int fd, unsigned int sequence, unsigned int tv_sec, unsigned int tv_usec, unsigned int crtc_id, void *userdata) {
+static void
+drmdev_on_page_flip_locked(int fd, unsigned int sequence, unsigned int tv_sec, unsigned int tv_usec, unsigned int crtc_id, void *userdata) {
     struct kms_req_builder *builder;
     struct drm_crtc *crtc;
     struct kms_req **last_flipped;
@@ -1319,77 +1348,18 @@ int drmdev_get_last_vblank(struct drmdev *drmdev, uint32_t crtc_id, uint64_t *la
     return 0;
 }
 
-uint32_t drmdev_add_fb(
-    struct drmdev *drmdev,
-    uint32_t width,
-    uint32_t height,
-    enum pixfmt pixel_format,
-    uint32_t bo_handle,
-    uint32_t pitch,
-    uint32_t offset,
-    bool has_modifier,
-    uint64_t modifier
-) {
-    uint32_t fb_id;
-    int ok;
-
-    ASSERT_NOT_NULL(drmdev);
-    assert(width > 0 && height > 0);
-    assert(bo_handle != 0);
-    assert(pitch != 0);
-
-    fb_id = 0;
-    if (has_modifier) {
-        LOG_DEBUG("adding fb with pixel format %" PRIu32 " and modifier %" PRIu64 "\n", get_pixfmt_info(pixel_format)->drm_format, modifier);
-        ok = drmModeAddFB2WithModifiers(
-            drmdev->fd,
-            width,
-            height,
-            get_pixfmt_info(pixel_format)->drm_format,
-            (uint32_t[4]){ bo_handle, 0 },
-            (uint32_t[4]){ pitch, 0 },
-            (uint32_t[4]){ offset, 0 },
-            (const uint64_t[4]){ modifier, 0 },
-            &fb_id,
-            DRM_MODE_FB_MODIFIERS
-        );
-        if (ok < 0) {
-            LOG_ERROR("Couldn't add buffer as DRM fb. drmModeAddFB2WithModifiers: %s\n", strerror(-ok));
-            return 0;
-        }
-    } else {
-        ok = drmModeAddFB2(
-            drmdev->fd,
-            width,
-            height,
-            get_pixfmt_info(pixel_format)->drm_format,
-            (uint32_t[4]){ bo_handle, 0 },
-            (uint32_t[4]){ pitch, 0 },
-            (uint32_t[4]){ offset, 0 },
-            &fb_id,
-            0
-        );
-        if (ok < 0) {
-            LOG_ERROR("Couldn't add buffer as DRM fb. drmModeAddFB2: %s\n", strerror(-ok));
-            return 0;
-        }
-    }
-
-    assert(fb_id != 0);
-    return fb_id;
-}
-
 uint32_t drmdev_add_fb_multiplanar(
     struct drmdev *drmdev,
     uint32_t width,
     uint32_t height,
     enum pixfmt pixel_format,
-    uint32_t bo_handles[4],
-    uint32_t pitches[4],
-    uint32_t offsets[4],
+    const uint32_t bo_handles[4],
+    const uint32_t pitches[4],
+    const uint32_t offsets[4],
     bool has_modifiers,
-    uint64_t modifiers[4]
+    const uint64_t modifiers[4]
 ) {
+    struct drm_fb *fb;
     uint32_t fb_id;
     int ok;
 
@@ -1397,6 +1367,23 @@ uint32_t drmdev_add_fb_multiplanar(
     assert(width > 0 && height > 0);
     assert(bo_handles[0] != 0);
     assert(pitches[0] != 0);
+
+    fb = malloc(sizeof *fb);
+    if (fb == NULL) {
+        return 0;
+    }
+
+    list_inithead(&fb->entry);
+    fb->id = 0;
+    fb->width = width;
+    fb->height = height;
+    fb->format = pixel_format;
+    fb->has_modifier = has_modifiers;
+    fb->modifier = modifiers[0];
+    fb->flags = 0;
+    memcpy(fb->handles, bo_handles, sizeof(fb->handles));
+    memcpy(fb->pitches, pitches, sizeof(fb->pitches));
+    memcpy(fb->offsets, offsets, sizeof(fb->offsets));
 
     fb_id = 0;
     if (has_modifiers) {
@@ -1414,18 +1401,49 @@ uint32_t drmdev_add_fb_multiplanar(
         );
         if (ok < 0) {
             LOG_ERROR("Couldn't add buffer as DRM fb. drmModeAddFB2WithModifiers: %s\n", strerror(-ok));
-            return 0;
+            goto fail_free_fb;
         }
     } else {
         ok = drmModeAddFB2(drmdev->fd, width, height, get_pixfmt_info(pixel_format)->drm_format, bo_handles, pitches, offsets, &fb_id, 0);
         if (ok < 0) {
             LOG_ERROR("Couldn't add buffer as DRM fb. drmModeAddFB2: %s\n", strerror(-ok));
-            return 0;
+            goto fail_free_fb;
         }
     }
 
+    fb->id = fb_id;
+    list_add(&fb->entry, &drmdev->fbs);
+
     assert(fb_id != 0);
     return fb_id;
+
+fail_free_fb:
+    free(fb);
+    return 0;
+}
+
+uint32_t drmdev_add_fb(
+    struct drmdev *drmdev,
+    uint32_t width,
+    uint32_t height,
+    enum pixfmt pixel_format,
+    uint32_t bo_handle,
+    uint32_t pitch,
+    uint32_t offset,
+    bool has_modifier,
+    uint64_t modifier
+) {
+    return drmdev_add_fb_multiplanar(
+        drmdev,
+        width,
+        height,
+        pixel_format,
+        (uint32_t[4]){ bo_handle, 0 },
+        (uint32_t[4]){ pitch, 0 },
+        (uint32_t[4]){ offset, 0 },
+        has_modifier,
+        (const uint64_t[4]){ modifier, 0 }
+    );
 }
 
 uint32_t drmdev_add_fb_from_dmabuf(
@@ -1456,11 +1474,11 @@ uint32_t drmdev_add_fb_from_dmabuf_multiplanar(
     uint32_t width,
     uint32_t height,
     enum pixfmt pixel_format,
-    int prime_fds[4],
-    uint32_t pitches[4],
-    uint32_t offsets[4],
+    const int prime_fds[4],
+    const uint32_t pitches[4],
+    const uint32_t offsets[4],
     bool has_modifiers,
-    uint64_t modifiers[4]
+    const uint64_t modifiers[4]
 ) {
     uint32_t bo_handles[4] = { 0 };
     int ok;
@@ -1703,7 +1721,7 @@ static bool plane_qualifies(
     bool has_id_range, uint32_t id_lower_limit
     // clang-format on
 ) {
-    LOG_DRM_PLANE_ALLOCATION_DEBUG("  checking if plane with id %"PRIu32" qualifies...\n", plane->id);
+    LOG_DRM_PLANE_ALLOCATION_DEBUG("  checking if plane with id %" PRIu32 " qualifies...\n", plane->id);
 
     if (plane->type == kPrimary_DrmPlaneType) {
         if (!allow_primary) {
@@ -1727,7 +1745,10 @@ static bool plane_qualifies(
     if (has_modifier) {
         if (!plane->supported_modified_formats) {
             // return false if we want a modified format but the plane doesn't support modified formats
-            LOG_DRM_PLANE_ALLOCATION_DEBUG("    does not qualify: framebuffer has modifier %"PRIu64" but plane does not support modified formats\n", modifier);
+            LOG_DRM_PLANE_ALLOCATION_DEBUG(
+                "    does not qualify: framebuffer has modifier %" PRIu64 " but plane does not support modified formats\n",
+                modifier
+            );
             return false;
         }
 
@@ -1738,7 +1759,11 @@ static bool plane_qualifies(
             }
         }
 
-        LOG_DRM_PLANE_ALLOCATION_DEBUG("    does not qualify: plane does not support the modified format %s, %"PRIu64".\n", get_pixfmt_info(format)->name, modifier);
+        LOG_DRM_PLANE_ALLOCATION_DEBUG(
+            "    does not qualify: plane does not support the modified format %s, %" PRIu64 ".\n",
+            get_pixfmt_info(format)->name,
+            modifier
+        );
 
         // not found in the supported modified format list
         return false;
@@ -1746,7 +1771,10 @@ static bool plane_qualifies(
         // we don't want a modified format, return false if the format is not in the list
         // of supported (unmodified) formats
         if (!plane->supported_formats[format]) {
-            LOG_DRM_PLANE_ALLOCATION_DEBUG("    does not qualify: plane does not support the (unmodified) format %s.\n", get_pixfmt_info(format)->name);
+            LOG_DRM_PLANE_ALLOCATION_DEBUG(
+                "    does not qualify: plane does not support the (unmodified) format %s.\n",
+                get_pixfmt_info(format)->name
+            );
             return false;
         }
     }
@@ -1761,16 +1789,18 @@ found:
             // return false if the zpos we want is outside the supported range of the plane
             LOG_DRM_PLANE_ALLOCATION_DEBUG("    does not qualify: plane limits cannot satisfy the specified zpos constraints.\n");
             LOG_DRM_PLANE_ALLOCATION_DEBUG(
-                "      plane zpos range: %"PRIi64" <= zpos <= %"PRIi64", given zpos constraints: %"PRIi64" <= zpos <= %"PRIi64".\n",
-                plane->min_zpos, plane->max_zpos,
-                zpos_lower_limit, zpos_upper_limit
+                "      plane zpos range: %" PRIi64 " <= zpos <= %" PRIi64 ", given zpos constraints: %" PRIi64 " <= zpos <= %" PRIi64 ".\n",
+                plane->min_zpos,
+                plane->max_zpos,
+                zpos_lower_limit,
+                zpos_upper_limit
             );
             return false;
         }
     }
     if (has_id_range && plane->id < id_lower_limit) {
         LOG_DRM_PLANE_ALLOCATION_DEBUG("    does not qualify: plane id does not satisfy the given plane id constrains.\n");
-        LOG_DRM_PLANE_ALLOCATION_DEBUG("      plane id: %"PRIu32", plane id lower limit: %"PRIu32"\n", plane->id, id_lower_limit);
+        LOG_DRM_PLANE_ALLOCATION_DEBUG("      plane id: %" PRIu32 ", plane id lower limit: %" PRIu32 "\n", plane->id, id_lower_limit);
         return false;
     }
     if (has_rotation) {
@@ -1781,7 +1811,8 @@ found:
         } else if (plane->has_hardcoded_rotation && plane->hardcoded_rotation.u32 != rotation.u32) {
             // return false if the plane has a hardcoded rotation and the rotation we want
             // is not the hardcoded one
-            LOG_DRM_PLANE_ALLOCATION_DEBUG("    does not qualify: plane has hardcoded rotation that doesn't match the requested rotation.\n");
+            LOG_DRM_PLANE_ALLOCATION_DEBUG("    does not qualify: plane has hardcoded rotation that doesn't match the requested rotation.\n"
+            );
             return false;
         } else if (rotation.u32 & ~plane->supported_rotations.u32) {
             // return false if we can't construct the rotation using the rotation
@@ -2153,7 +2184,6 @@ int kms_req_builder_push_fb_layer(
     }
 
     if (builder->use_legacy) {
-        
     } else {
         uint32_t plane_id = plane->id;
 
@@ -2209,6 +2239,7 @@ int kms_req_builder_push_fb_layer(
     }
     builder->layers[index].layer = *layer;
     builder->layers[index].plane_id = plane->id;
+    builder->layers[index].plane = plane;
     builder->layers[index].set_zpos = plane->has_zpos;
     builder->layers[index].zpos = zpos;
     builder->layers[index].set_rotation = layer->has_rotation;
@@ -2322,25 +2353,33 @@ kms_req_commit_common(struct kms_req *req, bool blocking, kms_scanout_cb_t scano
 
         bool needs_set_crtc = update_mode;
 
+        // check if the plane pixel format changed.
+        // that needs a drmModeSetCrtc for legacy KMS as well.
+        // get the current, committed fb for the plane, check if we have info
+        // for it (we can't use drmModeGetFB2 since that's not present on debian buster)
+        // and if we're not absolutely sure the formats match, set needs_set_crtc
+        // too.
         if (!needs_set_crtc) {
-            struct drm_plane *plane = NULL;
-            
-            for (int i = 0; i < builder->drmdev->n_planes; i++) {
-                if (builder->drmdev->planes[i].id == builder->layers[0].plane_id) {
-                    plane = builder->drmdev->planes + i;
+            struct drm_plane *plane = builder->layers[0].plane;
+            ASSERT_NOT_NULL(plane);
+
+            drmModeFBPtr committed_fb = drmModeGetFB(builder->drmdev->master_fd, plane->committed_state.fb_id);
+            if (committed_fb == NULL) {
+                needs_set_crtc = true;
+            } else {
+                needs_set_crtc = true;
+
+                list_for_each_entry(struct drm_fb, fb, &builder->drmdev->fbs, entry) {
+                    if (fb->id == committed_fb->fb_id) {
+                        if (fb->format == builder->layers[0].layer.format) {
+                            needs_set_crtc = false;
+                        }
+                        break;
+                    }
                 }
             }
 
-            ASSERT_NOT_NULL(plane);
-
-            drmModeFB2Ptr committed_fb2 = drmModeGetFB2(builder->drmdev->master_fd, plane->committed_state.fb_id);
-            if (committed_fb2 == NULL) {
-                needs_set_crtc = true;
-            } else if (get_pixfmt_info(builder->layers[0].layer.format)->drm_format != committed_fb2->pixel_format) {
-                needs_set_crtc = true;
-            }
-
-            drmModeFreeFB2(committed_fb2);
+            drmModeFreeFB(committed_fb);
         }
 
         if (needs_set_crtc) {
@@ -2353,7 +2392,7 @@ kms_req_commit_common(struct kms_req *req, bool blocking, kms_scanout_cb_t scano
                 builder->layers[0].layer.drm_fb_id,
                 0,
                 0,
-                (uint32_t[1]) { builder->connector->id },
+                (uint32_t[1]){ builder->connector->id },
                 1,
                 builder->unset_mode ? NULL : &builder->mode
             );
