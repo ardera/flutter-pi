@@ -495,6 +495,13 @@ struct drm_plane {
         drm_plane_transform_t rotation;
         uint16_t alpha;
         enum drm_blend_mode blend_mode;
+        
+        // If false, we don't know about the committed format.
+        bool has_format;
+
+        // The format of the currently committed framebuffer. Only valid
+        // if has_format is true.
+        enum pixfmt format;
     } committed_state;
 };
 
