@@ -1273,6 +1273,36 @@ fail_unlock:
     return ok;
 }
 
+static bool count_modifiers_for_pixel_format(UNUSED struct drm_plane *plane, UNUSED int index, enum pixfmt pixel_format, UNUSED uint64_t modifier, void *userdata) {
+    struct {
+        enum pixfmt format;
+        uint64_t *modifiers;
+        size_t n_modifiers;
+        int index;
+    } *context = userdata;
+
+    if (pixel_format == context->format) {
+        context->n_modifiers++;
+    }
+
+    return true;
+}
+
+static bool extract_modifiers_for_pixel_format(UNUSED struct drm_plane *plane, UNUSED int index, enum pixfmt pixel_format, uint64_t modifier, void *userdata) {
+    struct {
+        enum pixfmt format;
+        uint64_t *modifiers;
+        size_t n_modifiers;
+        int index;
+    } *context = userdata;
+
+    if (pixel_format == context->format) {
+        context->modifiers[context->index++] = modifier;
+    }
+
+    return true;
+}
+
 static struct render_surface *kms_window_get_render_surface_internal(struct window *window, bool has_size, UNUSED struct vec2i size) {
     struct render_surface *render_surface;
 
@@ -1311,19 +1341,25 @@ static struct render_surface *kms_window_get_render_surface_internal(struct wind
                 continue;
             }
 
-            for (int i = 0; i < plane->n_supported_modified_formats; i++) {
-                if (plane->supported_modified_formats[i].format == pixel_format) {
-                    n_allowed_modifiers++;
-                }
-            }
+            struct {
+                enum pixfmt format;
+                uint64_t *modifiers;
+                size_t n_modifiers;
+                int index;
+            } context = {
+                .format = pixel_format,
+                .modifiers = NULL,
+                .n_modifiers = 0,
+                .index = 0,
+            };
 
-            allowed_modifiers = malloc(n_allowed_modifiers * sizeof *allowed_modifiers);
-            for (int i = 0, j = 0; i < plane->n_supported_modified_formats; i++) {
-                if (plane->supported_modified_formats[i].format == pixel_format) {
-                    allowed_modifiers[j++] = plane->supported_modified_formats[i].modifier;
-                }
-            }
+            drm_plane_foreach_modified_format(plane, count_modifiers_for_pixel_format, &context);
 
+            n_allowed_modifiers = context.n_modifiers;
+            allowed_modifiers = calloc(n_allowed_modifiers, sizeof(*context.modifiers));
+            context.modifiers = allowed_modifiers;
+
+            drm_plane_foreach_modified_format(plane, extract_modifiers_for_pixel_format, &context);
             break;
         }
     }

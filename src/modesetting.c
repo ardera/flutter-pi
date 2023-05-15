@@ -487,6 +487,50 @@ static int free_crtcs(struct drm_crtc *crtcs, size_t n_crtcs) {
     return 0;
 }
 
+void drm_plane_foreach_modified_format(
+    struct drm_plane *plane,
+    drm_plane_modified_format_callback_t callback,
+    void *userdata
+) {
+    struct drm_format_modifier_blob *blob;
+    struct drm_format_modifier *modifiers;
+    uint32_t *formats;
+
+    ASSERT_NOT_NULL(plane);
+    ASSERT_NOT_NULL(callback);
+    ASSERT(plane->supports_modifiers);
+    ASSERT_EQUALS(plane->supported_modified_formats_blob->version, FORMAT_BLOB_CURRENT);
+
+    blob = plane->supported_modified_formats_blob;
+
+    modifiers = (void *) (((char *) blob) + blob->modifiers_offset);
+    formats = (void *) (((char *) blob) + blob->formats_offset);
+
+    int index = 0;
+    for (int i = 0; i < blob->count_modifiers; i++) {
+        for (int j = modifiers[i].offset; (j < blob->count_formats) && (j < modifiers[i].offset + 64); j++) {
+            bool is_format_bit_set = (modifiers[i].formats & (1ull << (j % 64))) != 0;
+            if (!is_format_bit_set) {
+                continue;
+            }
+
+            if (has_pixfmt_for_drm_format(formats[j])) {
+                enum pixfmt format = get_pixfmt_for_drm_format(formats[j]);
+
+                bool should_continue = callback(plane, index, format, modifiers[i].modifier, userdata);
+                if (!should_continue) {
+                    goto exit;
+                }
+
+                index++;
+            }
+        }
+    }
+
+    exit:
+    return;
+}
+
 static int get_supported_modified_formats(
     struct drm_format_modifier_blob *blob,
     int max_formats_out,
@@ -693,6 +737,10 @@ static int fetch_plane(int drm_fd, uint32_t plane_id, struct drm_plane *plane_ou
                 goto fail_free_props;
             }
 
+            plane_out->supports_modifiers = true;
+            plane_out->n_supported_modified_formats = 0;
+            plane_out->supported_modified_formats_blob = memdup(blob->data, blob->length);
+
             supports_modifiers = true;
             n_supported_modified_formats = 0;
 
@@ -822,7 +870,7 @@ static int fetch_plane(int drm_fd, uint32_t plane_id, struct drm_plane *plane_ou
     memcpy(plane_out->supported_formats, supported_formats, sizeof supported_formats);
     plane_out->supports_modifiers = supports_modifiers;
     plane_out->n_supported_modified_formats = n_supported_modified_formats;
-    plane_out->supported_modified_formats = supported_modified_formats;
+    // plane_out->supported_modified_formats = supported_modified_formats;
     plane_out->has_alpha = has_alpha;
     plane_out->has_blend_mode = has_blend_mode;
     memcpy(plane_out->supported_blend_modes, supported_blend_modes, sizeof supported_blend_modes);
@@ -858,10 +906,10 @@ fail_free_plane:
     return ok;
 }
 
-static void free_plane(struct drm_plane *plane) {
-    if (plane->supported_modified_formats != NULL) {
-        free(plane->supported_modified_formats);
-    }
+static void free_plane(UNUSED struct drm_plane *plane) {
+    // if (plane->supported_modified_formats != NULL) {
+    //     free(plane->supported_modified_formats);
+    // }
 }
 
 static int fetch_planes(struct drmdev *drmdev, struct drm_plane **planes_out, size_t *n_planes_out) {
@@ -1904,6 +1952,21 @@ drmModeModeInfo *__next_mode(const struct drm_connector *connector, const drmMod
     #define LOG_DRM_PLANE_ALLOCATION_DEBUG(...)
 #endif
 
+static bool check_modified_format_supported(UNUSED struct drm_plane *plane, UNUSED int index, enum pixfmt format, uint64_t modifier, void *userdata) {
+    struct {
+        enum pixfmt format;
+        uint64_t modifier;
+        bool found;
+    } *context = userdata;
+
+    if (format == context->format && modifier == context->modifier) {
+        context->found = true;
+        return false;
+    } else {
+        return true;
+    }
+}
+
 static bool plane_qualifies(
     // clang-format off
     struct drm_plane *plane,
@@ -1939,7 +2002,7 @@ static bool plane_qualifies(
     }
 
     if (has_modifier) {
-        if (!plane->supported_modified_formats) {
+        if (!plane->supported_modified_formats_blob) {
             // return false if we want a modified format but the plane doesn't support modified formats
             LOG_DRM_PLANE_ALLOCATION_DEBUG(
                 "    does not qualify: framebuffer has modifier %" PRIu64 " but plane does not support modified formats\n",
@@ -1948,21 +2011,30 @@ static bool plane_qualifies(
             return false;
         }
 
-        // search for the modified format in the list of supported modified formats
-        for (int i = 0; i < plane->n_supported_modified_formats; i++) {
-            if (plane->supported_modified_formats[i].format == format && plane->supported_modified_formats[i].modifier == modifier) {
-                goto found;
-            }
+        struct {
+            enum pixfmt format;
+            uint64_t modifier;
+            bool found;
+        } context = {
+            .format = format,
+            .modifier = modifier,
+            .found = false,
+        };
+
+        // Check if the requested format & modifier is supported.
+        drm_plane_foreach_modified_format(plane, check_modified_format_supported, &context);
+
+        // Otherwise fail.
+        if (!context.found) {
+            LOG_DRM_PLANE_ALLOCATION_DEBUG(
+                "    does not qualify: plane does not support the modified format %s, %" PRIu64 ".\n",
+                get_pixfmt_info(format)->name,
+                modifier
+            );
+
+            // not found in the supported modified format list
+            return false;
         }
-
-        LOG_DRM_PLANE_ALLOCATION_DEBUG(
-            "    does not qualify: plane does not support the modified format %s, %" PRIu64 ".\n",
-            get_pixfmt_info(format)->name,
-            modifier
-        );
-
-        // not found in the supported modified format list
-        return false;
     } else {
         // we don't want a modified format, return false if the format is not in the list
         // of supported (unmodified) formats
@@ -1975,7 +2047,6 @@ static bool plane_qualifies(
         }
     }
 
-found:
     if (has_zpos) {
         if (!plane->has_zpos) {
             // return false if we want a zpos but the plane doesn't support one
