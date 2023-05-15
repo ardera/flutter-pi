@@ -546,6 +546,7 @@ struct drm_mode_fb2 {
 
 #ifdef HAVE_FUNC_ATTRIBUTE_WEAK
 extern struct _drmModeFB2 *drmModeGetFB2(int fd, uint32_t bufferId) __attribute__((weak));
+extern void drmModeFreeFB2(struct _drmModeFB2 *ptr) __attribute__((weak));
 #define HAVE_WEAK_DRM_MODE_GET_FB2
 #endif
 
@@ -789,7 +790,7 @@ static int fetch_plane(int drm_fd, uint32_t plane_id, struct drm_plane *plane_ou
     // weak above.
     // If we don't have weak, we can't check for it here.
 #ifdef HAVE_WEAK_DRM_MODE_GET_FB2
-    if (drmModeGetFB2) {
+    if (drmModeGetFB2 && drmModeFreeFB2) {
         struct drm_mode_fb2 *fb = (struct drm_mode_fb2 *) drmModeGetFB2(drm_fd, plane->fb_id);
         if (fb != NULL) {
             for (int i = 0; i < kCount_PixFmt; i++) {
