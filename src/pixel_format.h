@@ -348,7 +348,7 @@ void assert_pixfmt_list_valid();
  * @brief Get the pixel format info for a specific pixel format.
  *
  */
-static inline const struct pixfmt_info *get_pixfmt_info(enum pixfmt format) {
+ATTR_CONST static inline const struct pixfmt_info *get_pixfmt_info(enum pixfmt format) {
     assert(format >= 0 && format <= kMax_PixFmt);
 #ifdef DEBUG
     assert_pixfmt_list_valid();
@@ -356,7 +356,7 @@ static inline const struct pixfmt_info *get_pixfmt_info(enum pixfmt format) {
     return pixfmt_infos + format;
 }
 
-static inline bool has_pixfmt_for_drm_format(uint32_t fourcc) ATTR_CONST {
+ATTR_CONST static inline bool has_pixfmt_for_drm_format(uint32_t fourcc) {
     for (int i = 0; i < n_pixfmt_infos; i++) {
         if (get_pixfmt_info(i)->drm_format == fourcc) {
             return true;
@@ -366,7 +366,7 @@ static inline bool has_pixfmt_for_drm_format(uint32_t fourcc) ATTR_CONST {
     return false;
 }
 
-static inline enum pixfmt get_pixfmt_for_drm_format(uint32_t fourcc) ATTR_CONST {
+ATTR_CONST static inline enum pixfmt get_pixfmt_for_drm_format(uint32_t fourcc) {
     for (int i = 0; i < n_pixfmt_infos; i++) {
         if (get_pixfmt_info(i)->drm_format == fourcc) {
             return i;
