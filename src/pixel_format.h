@@ -356,6 +356,27 @@ static inline const struct pixfmt_info *get_pixfmt_info(enum pixfmt format) {
     return pixfmt_infos + format;
 }
 
+static inline bool has_pixfmt_for_drm_format(uint32_t fourcc) ATTR_CONST {
+    for (int i = 0; i < n_pixfmt_infos; i++) {
+        if (get_pixfmt_info(i)->drm_format == fourcc) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+static inline enum pixfmt get_pixfmt_for_drm_format(uint32_t fourcc) ATTR_CONST {
+    for (int i = 0; i < n_pixfmt_infos; i++) {
+        if (get_pixfmt_info(i)->drm_format == fourcc) {
+            return i;
+        }
+    }
+
+    ASSERT_MSG(false, "Check has_pixfmt_for_drm_format if an enum pixfmt exists for a specific DRM fourcc.");
+    return kRGB565_FpiPixelFormat;
+}
+
 COMPILE_ASSERT(kRGB565_FpiPixelFormat == 0);
 
 #define ASSERT_PIXFMT_VALID(format) ASSERT_MSG(format >= kRGB565_FpiPixelFormat && format <= kMax_PixFmt, "Invalid pixel format")

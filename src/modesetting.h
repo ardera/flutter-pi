@@ -406,104 +406,200 @@ struct modified_format {
 };
 
 struct drm_plane {
+    /// @brief The DRM id of this plane.
     uint32_t id;
 
-    /**
-     * @brief Bitmap of the indexes of the CRTCs that this plane can be scanned out on.
-     *
-     * i.e. if bit 0 is set, this plane can be scanned out on the CRTC with index 0.
-     * if bit 0 is not set, this plane can not be scanned out on that CRTC.
-     *
-     */
+    /// @brief Bitmap of the indexes of the CRTCs that this plane can be scanned out on.
+    /// 
+    /// I.e. if bit 0 is set, this plane can be scanned out on the CRTC with index 0.
+    /// if bit 0 is not set, this plane can not be scanned out on that CRTC.
     uint32_t possible_crtcs;
 
-    /// The ids of all properties associated with this plane.
-    /// Any property that is not supported has the value DRM_PLANE_ID_NONE
+    /// @brief The ids of all properties associated with this plane.
+    ///
+    /// Any property that is not supported has the value @ref DRM_PROP_ID_NONE.
     struct drm_plane_prop_ids ids;
 
-    /// The type of this plane (primary, overlay, cursor)
+    /// @brief The type of this plane (primary, overlay, cursor)
+    ///
     /// The type has some influence on what you can do with the plane.
     /// For example, it's possible the driver enforces the primary plane to be
     /// the bottom-most plane or have an opaque pixel format.
     enum drm_plane_type type;
 
-    /// True if this plane has a zpos property, whether readonly (hardcoded)
-    /// or read/write.
+    /// @brief True if this plane has a zpos property.
+    ///
+    /// This does not mean it is changeable by userspace. Check
+    /// @ref has_hardcoded_zpos for that.
+    ///
     /// The docs say if one plane has a zpos property, all planes should have one.
     bool has_zpos;
 
-    /// The minimum and maximum possible zpos, if @ref has_zpos is true.
+    /// @brief The minimum and maximum possible zpos
+    ///
+    /// Only valid if @ref has_zpos is true.
+    /// 
     /// If @ref has_hardcoded_zpos is true, min_zpos should equal max_zpos.
     int64_t min_zpos, max_zpos;
 
-    /// True if this plane has a hardcoded zpos that can't
+    /// @brief True if this plane has a hardcoded zpos that can't
     /// be changed by userspace.
     bool has_hardcoded_zpos;
 
-    /// The specific hardcoded zpos of this plane. Only valid if
-    /// @ref has_hardcoded_zpos is true.
+    /// @brief The specific hardcoded zpos of this plane.
+    ///
+    /// Only valid if @ref has_hardcoded_zpos is true.
     int64_t hardcoded_zpos;
 
-    /// True if this plane has a rotation property.
+    /// @brief True if this plane has a rotation property.
+    ///
+    /// This does not mean that it is mutable. Check @ref has_hardcoded_rotation
+    /// and @ref supported_rotations for that.
     bool has_rotation;
 
+    /// @brief The set of rotations that are supported by this plane.
+    ///
     /// Query the set booleans of the supported_rotations struct
     /// to find out of a given rotation is supported.
+    ///
     /// It is assumed if both a and b are listed as supported in this struct,
     /// a rotation value of a | b is supported as well.
     /// Only valid if @ref has_rotation is supported as well.
     drm_plane_transform_t supported_rotations;
 
-    /// True if this plane has a hardcoded rotation.
+    /// @brief True if this plane has a hardcoded rotation.
     bool has_hardcoded_rotation;
 
-    /// The specific hardcoded rotation, only valid if @ref has_hardcoded_rotation is true.
+    /// @brief The specific hardcoded rotation.
+    ///
+    /// Only valid if @ref has_hardcoded_rotation is true.
     drm_plane_transform_t hardcoded_rotation;
 
-    /// The framebuffer formats this plane supports. (Assuming no modifier)
-    /// For example, kARGB8888_FpiPixelFormat is supported if supported_formats[kARGB8888_FpiPixelFormat] is true.
+    /// @brief The framebuffer formats this plane supports, assuming no
+    /// (implicit) modifier.
+    ///
+    /// For example, @ref kARGB8888_FpiPixelFormat is supported if
+    /// supported_formats[kARGB8888_FpiPixelFormat] is true.
     bool supported_formats[kCount_PixFmt];
 
-    /// True if this plane has an IN_FORMATS property attached an
+    /// @brief True if this plane has an IN_FORMATS property attached and
     /// supports scanning out buffers with explicit format modifiers.
     bool supports_modifiers;
 
-    /// The number of entries in the @ref supported_format_modifier_pairs array below.
+    /// @brief The number of entries in the @ref supported_format_modifier_pairs
+    /// array below.
     int n_supported_modified_formats;
 
-    /// A pair of pixel format / modifier that is definitely supported.
+    /// @brief A pair of pixel format / modifier that is definitely supported.
+    ///
     /// DRM_FORMAT_MOD_LINEAR is supported for most (but not all pixel formats).
     /// There are some format & modifier pairs that may be faster to scanout by the GPU.
     /// Might be NULL if the plane didn't specify an IN_FORMATS property.
-    struct modified_format *supported_modified_formats;
+    //struct modified_format *supported_modified_formats;
 
-    /// Whether this plane has a mutable alpha property we can set.
+    struct drm_format_modifier_blob *supported_modified_formats_blob;
+
+    /// @brief Whether this plane has a mutable alpha property we can set.
     bool has_alpha;
 
-    /// Whether this plane has a pixel blend mode we can set.
+    /// @brief Whether this plane has a mutable pixel blend mode we can set.
     bool has_blend_mode;
 
-    /// The supported blend modes, if @ref has_blend_mode is true.
+    /// @brief The supported blend modes.
+    ///
+    /// Only valid if @ref has_blend_mode is true.
     bool supported_blend_modes[kCount_DrmBlendMode];
 
     struct {
+        /// @brief The committed CRTC id.
+        ///
+        /// The id of the CRTC this plane is associated with, right now.
         uint32_t crtc_id;
+
+        /// @brief The committed framebuffer id.
+        ///
+        /// The id of the framebuffer this plane is scanning out, right now.
         uint32_t fb_id;
+
+        /// @brief The committed source rect from the framebuffer.
+        ///
+        /// Only valid when using atomic modesetting.
         uint32_t src_x, src_y, src_w, src_h;
+
+        /// @brief The committed destination rect, on the CRTC.
+        /// 
+        /// Only valid when using atomic modesetting.
         uint32_t crtc_x, crtc_y, crtc_w, crtc_h;
+
+        /// @brief The committed plane zpos.
+        ///
+        /// Only valid if @ref drm_plane.has_zpos is true.
         int64_t zpos;
+
+        /// @brief The committed plane rotation.
+        /// 
+        /// Only valid if @ref drm_plane.has_rotation is true.
         drm_plane_transform_t rotation;
+        
+        /// @brief The committed alpha property.
+        ///
+        /// Only valid if @ref drm_plane.has_alpha is true.
         uint16_t alpha;
+        
+        /// @brief  The committed blend mode.
+        ///
+        /// Only valid if @ref drm_plane.has_blend_mode is true.
         enum drm_blend_mode blend_mode;
         
-        // If false, we don't know about the committed format.
+        /// @brief If false, we don't know about the committed format.
+        /// 
+        /// This can be false on debian buster for example, because we don't
+        /// have drmModeGetFB2 here, which is required for querying the pixel
+        /// format of a framebuffer. When a plane is associated with our own
+        /// framebuffer (created via @ref drmdev_add_fb, for example), we can
+        /// still determine the pixel format because we track the pixel formats
+        /// of each added drm fb.
+        ///
+        /// But for foreign framebuffers, i.e. the ones that are set on
+        /// the plane by fbcon when flutter-pi is starting up, we simply can't
+        /// tell.
+        ///
+        /// We need to know though because we need to call @ref drmModeSetCrtc
+        /// if the pixel format of a drm plane has changed.
         bool has_format;
 
-        // The format of the currently committed framebuffer. Only valid
-        // if has_format is true.
+        /// @brief The pixel format of the currently committed framebuffer.
+        ///
+        /// Only valid if @ref has_format is true.
         enum pixfmt format;
     } committed_state;
 };
+
+/**
+ * @brief Callback that will be called on each iteration of
+ * @ref drm_plane_foreach_modified_format.
+ * 
+ * Should return true if looping should continue. False if iterating should be
+ * stopped.
+ * 
+ * @param plane The plane that was passed to @ref drm_plane_foreach_modified_format.
+ * @param index The index of the pixel format. Is incremented for each call of the callback.
+ * @param pixel_format The pixel format.
+ * @param modifier The modifier of this pixel format.
+ * @param userdata Userdata that was passed to @ref drm_plane_foreach_modified_format.
+ */
+typedef bool (*drm_plane_modified_format_callback_t)(struct drm_plane *plane, int index, enum pixfmt pixel_format, uint64_t modifier, void *userdata);
+
+/**
+ * @brief Iterates over every supported pixel-format & modifier pair.
+ * 
+ * See @ref drm_plane_modified_format_callback_t for documentation on the callback.
+ */
+void drm_plane_foreach_modified_format(
+    struct drm_plane *plane,
+    drm_plane_modified_format_callback_t callback,
+    void *userdata
+);
 
 struct drmdev;
 struct _drmModeModeInfo;
