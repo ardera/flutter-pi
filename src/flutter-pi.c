@@ -2387,7 +2387,7 @@ static bool parse_cmd_args(int argc, char **argv) {
                 unsigned int width_mm, height_mm;
 
                 ok = sscanf(optarg, "%u,%u", &width_mm, &height_mm);
-                if ((ok == 0) || (ok == EOF)) {
+                if (ok != 2) {
                     LOG_ERROR("ERROR: Invalid argument for --dimensions passed.\n%s", usage);
                     return false;
                 }
