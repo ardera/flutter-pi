@@ -56,17 +56,17 @@ static int on_local_method_call(char *channel, struct platch_obj *object, Flutte
         return platch_respond_native_error_std(responsehandle, ENOMEM);
     }
 
-    if (strcmp(method, "pause") == 0) {
+    if (streq(method, "pause")) {
         audio_player_pause(player);
-    } else if (strcmp(method, "resume") == 0) {
+    } else if (streq(method, "resume")) {
         audio_player_resume(player);
-    } else if (strcmp(method, "stop") == 0) {
+    } else if (streq(method, "stop")) {
         audio_player_pause(player);
         audio_player_set_position(player, 0);
-    } else if (strcmp(method, "release") == 0) {
+    } else if (streq(method, "release")) {
         audio_player_pause(player);
         audio_player_set_position(player, 0);
-    } else if (strcmp(method, "seek") == 0) {
+    } else if (streq(method, "seek")) {
         tmp = stdmap_get_str(args, "position");
         if (tmp == NULL || !STDVALUE_IS_INT(*tmp)) {
             return platch_respond_illegal_arg_std(responsehandle, "Expected `arg['position']` to be an int.");
@@ -74,7 +74,7 @@ static int on_local_method_call(char *channel, struct platch_obj *object, Flutte
 
         int64_t position = STDVALUE_AS_INT(*tmp);
         audio_player_set_position(player, position);
-    } else if (strcmp(method, "setSourceUrl") == 0) {
+    } else if (streq(method, "setSourceUrl")) {
         tmp = stdmap_get_str(args, "url");
         if (tmp == NULL || !STDVALUE_IS_STRING(*tmp)) {
             return platch_respond_illegal_arg_std(responsehandle, "Expected `arg['url']` to be a string.");
@@ -97,25 +97,25 @@ static int on_local_method_call(char *channel, struct platch_obj *object, Flutte
         }
 
         audio_player_set_source_url(player, url);
-    } else if (strcmp(method, "getDuration") == 0) {
+    } else if (streq(method, "getDuration")) {
         result = audio_player_get_duration(player);
-    } else if (strcmp(method, "setVolume") == 0) {
+    } else if (streq(method, "setVolume")) {
         tmp = stdmap_get_str(args, "volume");
         if (tmp != NULL && STDVALUE_IS_FLOAT(*tmp)) {
             audio_player_set_volume(player, STDVALUE_AS_FLOAT(*tmp));
         } else {
             return platch_respond_illegal_arg_std(responsehandle, "Expected `arg['volume']` to be a float.");
         }
-    } else if (strcmp(method, "getCurrentPosition") == 0) {
+    } else if (streq(method, "getCurrentPosition")) {
         result = audio_player_get_position(player);
-    } else if (strcmp(method, "setPlaybackRate") == 0) {
+    } else if (streq(method, "setPlaybackRate")) {
         tmp = stdmap_get_str(args, "playback_rate");
         if (tmp != NULL && STDVALUE_IS_FLOAT(*tmp)) {
             audio_player_set_playback_rate(player, STDVALUE_AS_FLOAT(*tmp));
         } else {
             return platch_respond_illegal_arg_std(responsehandle, "Expected `arg['playback_rate']` to be a float.");
         }
-    } else if (strcmp(method, "setReleaseMode") == 0) {
+    } else if (streq(method, "setReleaseMode")) {
         tmp = stdmap_get_str(args, "release_mode");
         if (tmp != NULL && STDVALUE_IS_STRING(*tmp)) {
             char *release_mode = STDVALUE_AS_STRING(*tmp);
@@ -124,7 +124,7 @@ static int on_local_method_call(char *channel, struct platch_obj *object, Flutte
         } else {
             return platch_respond_illegal_arg_std(responsehandle, "Expected `arg['release_mode']` to be a string.");
         }
-    } else if (strcmp(method, "setPlayerMode") == 0) {
+    } else if (streq(method, "setPlayerMode")) {
         // TODO check support for low latency mode:
         // https://gstreamer.freedesktop.org/documentation/additional/design/latency.html?gi-language=c
     } else {

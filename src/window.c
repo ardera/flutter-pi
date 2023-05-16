@@ -739,12 +739,12 @@ static int select_mode(
                 return ENOMEM;
             }
 
-            if (strcmp(modeline, desired_videomode) == 0) {
+            if (streq(modeline, desired_videomode)) {
                 // Probably a bit superfluos, but the refresh rate can still vary in the decimal places.
                 if (mode == NULL || (mode_get_vrefresh(mode_iter) > mode_get_vrefresh(mode))) {
                     mode = mode_iter;
                 }
-            } else if (strcmp(modeline_nohz, desired_videomode) == 0) {
+            } else if (streq(modeline_nohz, desired_videomode)) {
                 if (mode == NULL || (mode_get_vrefresh(mode_iter) > mode_get_vrefresh(mode))) {
                     mode = mode_iter;
                 }
