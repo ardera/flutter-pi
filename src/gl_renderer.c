@@ -61,7 +61,7 @@ struct gl_renderer {
 #endif
 };
 
-static void *get_proc_address(const char *name) {
+static void *try_get_proc_address(const char *name) {
     void *address;
 
     address = eglGetProcAddress(name);
@@ -74,8 +74,19 @@ static void *get_proc_address(const char *name) {
         return address;
     }
 
-    LOG_ERROR("Could not resolve EGL/GL symbol \"%s\"\n", name);
     return NULL;
+}
+
+static void *get_proc_address(const char *name) {
+    void *address;
+
+    address = try_get_proc_address(name);
+    if (address == NULL) {
+        LOG_ERROR("Could not resolve EGL/GL symbol \"%s\"\n", name);
+        return NULL;
+    }
+
+    return address;
 }
 
 static ATTR_PURE EGLConfig choose_config_with_pixel_format(EGLDisplay display, const EGLint *attrib_list, enum pixfmt pixel_format) {
@@ -90,10 +101,7 @@ static ATTR_PURE EGLConfig choose_config_with_pixel_format(EGLDisplay display, c
     n_matched = 0;
     egl_ok = eglChooseConfig(display, attrib_list, NULL, 0, &n_matched);
     if (egl_ok != EGL_TRUE) {
-        LOG_ERROR(
-            "Could not query number of EGL framebuffer configurations with fitting attributes. eglChooseConfig: 0x%08X\n",
-            eglGetError()
-        );
+        LOG_EGL_ERROR(eglGetError(), "Could not query number of EGL framebuffer configurations with fitting attributes. eglChooseConfig");
         return EGL_NO_CONFIG_KHR;
     }
 
@@ -101,14 +109,14 @@ static ATTR_PURE EGLConfig choose_config_with_pixel_format(EGLDisplay display, c
 
     egl_ok = eglChooseConfig(display, attrib_list, matching, n_matched, &n_matched);
     if (egl_ok != EGL_TRUE) {
-        LOG_ERROR("Could not query EGL framebuffer configurations with fitting attributes. eglChooseConfig: 0x%08X\n", eglGetError());
+        LOG_EGL_ERROR(eglGetError(), "Could not query EGL framebuffer configurations with fitting attributes. eglChooseConfig");
         return EGL_NO_CONFIG_KHR;
     }
 
     for (int i = 0; i < n_matched; i++) {
         egl_ok = eglGetConfigAttrib(display, matching[i], EGL_NATIVE_VISUAL_ID, &value);
         if (egl_ok != EGL_TRUE) {
-            LOG_ERROR("Could not query pixel format of EGL framebuffer config. eglGetConfigAttrib: 0x%08X\n", eglGetError());
+            LOG_EGL_ERROR(eglGetError(), "Could not query pixel format of EGL framebuffer config. eglGetConfigAttrib");
             return EGL_NO_CONFIG_KHR;
         }
 
@@ -145,7 +153,7 @@ struct gl_renderer *gl_renderer_new_from_gbm_device(
 
     egl_client_exts = eglQueryString(EGL_NO_DISPLAY, EGL_EXTENSIONS);
     if (egl_client_exts == NULL) {
-        LOG_ERROR("Couldn't query EGL client extensions. eglQueryString: 0x%08X\n", eglGetError());
+        LOG_EGL_ERROR(eglGetError(), "Couldn't query EGL client extensions. eglQueryString");
         goto fail_free_renderer;
     }
 
@@ -172,7 +180,7 @@ struct gl_renderer *gl_renderer_new_from_gbm_device(
 
     if (supports_egl_ext_platform_base) {
         #ifdef EGL_EXT_platform_base
-            egl_get_platform_display_ext = get_proc_address("eglGetPlatformDisplayEXT");
+            egl_get_platform_display_ext = try_get_proc_address("eglGetPlatformDisplayEXT");
             if (egl_get_platform_display_ext == NULL) {
                 LOG_ERROR("Couldn't resolve \"eglGetPlatformDisplayEXT\" even though \"EGL_EXT_platform_base\" was listed as supported.\n");
                 supports_egl_ext_platform_base = false;
@@ -184,7 +192,7 @@ struct gl_renderer *gl_renderer_new_from_gbm_device(
 
     if (supports_egl_ext_platform_base) {
         #ifdef EGL_EXT_platform_base
-            egl_create_platform_window_surface_ext = get_proc_address("eglCreatePlatformWindowSurfaceEXT");
+            egl_create_platform_window_surface_ext = try_get_proc_address("eglCreatePlatformWindowSurfaceEXT");
             if (egl_create_platform_window_surface_ext == NULL) {
                 LOG_ERROR("Couldn't resolve \"eglCreatePlatformWindowSurfaceEXT\" even though \"EGL_EXT_platform_base\" was listed as supported.\n");
                 egl_get_platform_display_ext = NULL;
@@ -202,46 +210,46 @@ struct gl_renderer *gl_renderer_new_from_gbm_device(
 
     egl_display = EGL_NO_DISPLAY;
 
-    #ifdef EGL_VERSION_1_5
-        PFNEGLGETPLATFORMDISPLAYPROC egl_get_platform_display = get_proc_address("eglGetPlatformDisplay");
-        PFNEGLCREATEPLATFORMWINDOWSURFACEPROC egl_create_platform_window_surface = get_proc_address("eglCreatePlatformWindowSurface");
+#ifdef EGL_VERSION_1_5
+    PFNEGLGETPLATFORMDISPLAYPROC egl_get_platform_display = try_get_proc_address("eglGetPlatformDisplay");
+    PFNEGLCREATEPLATFORMWINDOWSURFACEPROC egl_create_platform_window_surface = try_get_proc_address("eglCreatePlatformWindowSurface");
 
-        if (egl_display == EGL_NO_DISPLAY && egl_get_platform_display != NULL) {
-            egl_display = egl_get_platform_display(EGL_PLATFORM_GBM_KHR, gbm_device, NULL);
-            if (egl_display == EGL_NO_DISPLAY) {
-                LOG_ERROR("Could not get EGL display from GBM device. eglGetPlatformDisplay: 0x%08X\n", eglGetError());
-                goto fail_free_renderer;
-            }
+    if (egl_display == EGL_NO_DISPLAY && egl_get_platform_display != NULL) {
+        egl_display = egl_get_platform_display(EGL_PLATFORM_GBM_KHR, gbm_device, NULL);
+        if (egl_display == EGL_NO_DISPLAY) {
+            LOG_EGL_ERROR(eglGetError(), "Could not get EGL display from GBM device. eglGetPlatformDisplay");
+            goto fail_free_renderer;
         }
-    #endif
+    }
+#endif
 
-    #ifdef EGL_EXT_platform_base
-        if (egl_display == EGL_NO_DISPLAY && egl_get_platform_display_ext != NULL) {
-            egl_display = egl_get_platform_display_ext(EGL_PLATFORM_GBM_KHR, gbm_device, NULL);
-            if (egl_display == EGL_NO_DISPLAY) {
-                LOG_ERROR("Could not get EGL display from GBM device. eglGetPlatformDisplay: 0x%08X\n", eglGetError());
-                goto fail_free_renderer;
-            }
+#ifdef EGL_EXT_platform_base
+    if (egl_display == EGL_NO_DISPLAY && egl_get_platform_display_ext != NULL) {
+        egl_display = egl_get_platform_display_ext(EGL_PLATFORM_GBM_KHR, gbm_device, NULL);
+        if (egl_display == EGL_NO_DISPLAY) {
+            LOG_EGL_ERROR(eglGetError(), "Could not get EGL display from GBM device. eglGetPlatformDisplayEXT");
+            goto fail_free_renderer;
         }
-    #endif
+    }
+#endif
 
     if (egl_display == EGL_NO_DISPLAY) {
         egl_display = eglGetDisplay((void*) gbm_device);
         if (egl_display == EGL_NO_DISPLAY) {
-            LOG_ERROR("Could not get EGL display from GBM device. eglGetDisplay: 0x%08X\n", eglGetError());
+            LOG_EGL_ERROR(eglGetError(), "Could not get EGL display from GBM device. eglGetDisplay");
             goto fail_free_renderer;
         }
     }
 
     egl_ok = eglInitialize(egl_display, &major, &minor);
     if (egl_ok != EGL_TRUE) {
-        LOG_ERROR("Failed to initialize EGL! eglInitialize: 0x%08X\n", eglGetError());
+        LOG_EGL_ERROR(eglGetError(), "Failed to initialize EGL! eglInitialize:");
         goto fail_free_renderer;
     }
 
     egl_display_exts = eglQueryString(egl_display, EGL_EXTENSIONS);
     if (egl_display_exts == NULL) {
-        LOG_ERROR("Couldn't query EGL display extensions. eglQueryString: 0x%08X\n", eglGetError());
+        LOG_EGL_ERROR(eglGetError(), "Couldn't query EGL display extensions. eglQueryString");
         goto fail_terminate_display;
     }
 
@@ -252,7 +260,7 @@ struct gl_renderer *gl_renderer_new_from_gbm_device(
 
     egl_ok = eglBindAPI(EGL_OPENGL_ES_API);
     if (egl_ok != EGL_TRUE) {
-        LOG_ERROR("Couldn't bind OpenGL ES API to EGL. eglBindAPI: 0x%08X\n", eglGetError());
+        LOG_EGL_ERROR(eglGetError(), "Couldn't bind OpenGL ES API to EGL. eglBindAPI");
         goto fail_terminate_display;
     }
 
@@ -264,7 +272,7 @@ struct gl_renderer *gl_renderer_new_from_gbm_device(
     } else {
         // choose a config
         const EGLint config_attribs[] = { EGL_SURFACE_TYPE, EGL_WINDOW_BIT, EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT, EGL_SAMPLES, 0,
-                                          EGL_NONE };
+                                          EGL_NONE, };
 
         if (has_forced_pixel_format == false) {
             has_forced_pixel_format = true;
@@ -282,31 +290,31 @@ struct gl_renderer *gl_renderer_new_from_gbm_device(
 
     root_context = eglCreateContext(egl_display, forced_egl_config, EGL_NO_CONTEXT, context_attribs);
     if (root_context == EGL_NO_CONTEXT) {
-        LOG_ERROR("Could not create EGL context for OpenGL ES. eglCreateContext: 0x%08X\n", eglGetError());
+        LOG_EGL_ERROR(eglGetError(), "Could not create EGL context for OpenGL ES. eglCreateContext");
         goto fail_terminate_display;
     }
 
     flutter_render_context = eglCreateContext(egl_display, forced_egl_config, root_context, context_attribs);
     if (flutter_render_context == EGL_NO_CONTEXT) {
-        LOG_ERROR("Could not create EGL OpenGL ES context for flutter rendering. eglCreateContext: 0x%08X\n", eglGetError());
+        LOG_EGL_ERROR(eglGetError(), "Could not create EGL OpenGL ES context for flutter rendering. eglCreateContext");
         goto fail_destroy_root_context;
     }
 
     flutter_resource_uploading_context = eglCreateContext(egl_display, forced_egl_config, root_context, context_attribs);
     if (flutter_resource_uploading_context == EGL_NO_CONTEXT) {
-        LOG_ERROR("Could not create EGL OpenGL ES context for flutter resource uploads. eglCreateContext: 0x%08X\n", eglGetError());
+        LOG_EGL_ERROR(eglGetError(), "Could not create EGL OpenGL ES context for flutter resource uploads. eglCreateContext");
         goto fail_destroy_flutter_render_context;
     }
 
     flutter_setup_context = eglCreateContext(egl_display, forced_egl_config, root_context, context_attribs);
     if (flutter_setup_context == EGL_NO_CONTEXT) {
-        LOG_ERROR("Could not create EGL OpenGL ES context for flutter initialization. eglCreateContext: 0x%08X\n", eglGetError());
+        LOG_EGL_ERROR(eglGetError(), "Could not create EGL OpenGL ES context for flutter initialization. eglCreateContext");
         goto fail_destroy_flutter_resource_uploading_context;
     }
 
     egl_ok = eglMakeCurrent(egl_display, EGL_NO_SURFACE, EGL_NO_SURFACE, root_context);
     if (egl_ok != EGL_TRUE) {
-        LOG_ERROR("Could not make EGL OpenGL ES root context current to query OpenGL information. eglMakeCurrent: 0x%08X\n", eglGetError());
+        LOG_EGL_ERROR(eglGetError(), "Could not make EGL OpenGL ES root context current to query OpenGL information. eglMakeCurrent");
         goto fail_destroy_flutter_setup_context;
     }
 
@@ -355,7 +363,7 @@ struct gl_renderer *gl_renderer_new_from_gbm_device(
 
     egl_ok = eglMakeCurrent(egl_display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
     if (egl_ok != EGL_TRUE) {
-        LOG_ERROR("Could not clear EGL OpenGL ES context. eglMakeCurrent: 0x%08X\n", eglGetError());
+        LOG_EGL_ERROR(eglGetError(), "Could not clear EGL OpenGL ES context. eglMakeCurrent");
         goto fail_destroy_flutter_resource_uploading_context;
     }
 
@@ -465,7 +473,7 @@ int gl_renderer_make_flutter_setup_context_current(struct gl_renderer *renderer)
     TRACER_END(renderer->tracer, "gl_renderer_make_flutter_rendering_context_current");
 
     if (egl_ok != EGL_TRUE) {
-        LOG_ERROR("Could not make the flutter setup EGL context current. eglMakeCurrent: 0x%08X\n", eglGetError());
+        LOG_EGL_ERROR(eglGetError(), "Could not make the flutter setup EGL context current. eglMakeCurrent");
         return EIO;
     }
 
@@ -484,7 +492,7 @@ int gl_renderer_make_flutter_rendering_context_current(struct gl_renderer *rende
     TRACER_END(renderer->tracer, "gl_renderer_make_flutter_rendering_context_current");
 
     if (egl_ok != EGL_TRUE) {
-        LOG_ERROR("Could not make the flutter rendering EGL context current. eglMakeCurrent: 0x%08X\n", eglGetError());
+        LOG_EGL_ERROR(eglGetError(), "Could not make the flutter rendering EGL context current. eglMakeCurrent");
         return EIO;
     }
 
@@ -501,7 +509,7 @@ int gl_renderer_make_flutter_resource_uploading_context_current(struct gl_render
     TRACER_END(renderer->tracer, "gl_renderer_make_flutter_resource_uploading_context_current");
 
     if (egl_ok != EGL_TRUE) {
-        LOG_ERROR("Could not make the flutter resource uploading EGL context current. eglMakeCurrent: 0x%08X\n", eglGetError());
+        LOG_EGL_ERROR(eglGetError(), "Could not make the flutter resource uploading EGL context current. eglMakeCurrent");
         return EIO;
     }
 
@@ -518,7 +526,7 @@ int gl_renderer_clear_current(struct gl_renderer *renderer) {
     TRACER_END(renderer->tracer, "gl_renderer_clear_current");
 
     if (egl_ok != EGL_TRUE) {
-        LOG_ERROR("Could not clear the flutter EGL context. eglMakeCurrent: 0x%08X\n", eglGetError());
+        LOG_EGL_ERROR(eglGetError(), "Could not clear the flutter EGL context. eglMakeCurrent");
         return EIO;
     }
 
