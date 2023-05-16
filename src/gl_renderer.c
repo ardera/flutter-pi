@@ -211,6 +211,7 @@ struct gl_renderer *gl_renderer_new_from_gbm_device(
 #endif
 
     egl_display = EGL_NO_DISPLAY;
+    bool failed_before = false;
 
 #ifdef EGL_VERSION_1_5
     PFNEGLGETPLATFORMDISPLAYPROC egl_get_platform_display = try_get_proc_address("eglGetPlatformDisplay");
@@ -220,22 +221,30 @@ struct gl_renderer *gl_renderer_new_from_gbm_device(
         egl_display = egl_get_platform_display(EGL_PLATFORM_GBM_KHR, gbm_device, NULL);
         if (egl_display == EGL_NO_DISPLAY) {
             LOG_EGL_ERROR(eglGetError(), "Could not get EGL display from GBM device. eglGetPlatformDisplay");
-            LOG_ERROR("Attempting eglGetPlatformDisplayEXT, if present...\n");
+            failed_before = true;
         }
     }
 #endif
 
 #ifdef EGL_EXT_platform_base
     if (egl_display == EGL_NO_DISPLAY && egl_get_platform_display_ext != NULL) {
+        if (failed_before) {
+            LOG_DEBUG("Attempting eglGetPlatformDisplayEXT...\n");
+        }
+
         egl_display = egl_get_platform_display_ext(EGL_PLATFORM_GBM_KHR, gbm_device, NULL);
         if (egl_display == EGL_NO_DISPLAY) {
             LOG_EGL_ERROR(eglGetError(), "Could not get EGL display from GBM device. eglGetPlatformDisplayEXT");
-            LOG_ERROR("Attempting eglGetDisplay...\n");
+            failed_before = true;
         }
     }
 #endif
 
     if (egl_display == EGL_NO_DISPLAY) {
+        if (failed_before) {
+            LOG_DEBUG("Attempting eglGetDisplay...\n");
+        }
+        
         egl_display = eglGetDisplay((void *) gbm_device);
         if (egl_display == EGL_NO_DISPLAY) {
             LOG_EGL_ERROR(eglGetError(), "Could not get EGL display from GBM device. eglGetDisplay");
@@ -677,39 +686,46 @@ EGLSurface gl_renderer_create_gbm_window_surface(
     const EGLint *int_attrib_list
 ) {
     EGLSurface surface;
+    bool failed_before = false;
 
 #ifdef EGL_VERSION_1_5
     if (renderer->egl_create_platform_window_surface != NULL) {
         surface = renderer->egl_create_platform_window_surface(renderer->egl_display, config, gbm_surface, attrib_list);
         if (surface == EGL_NO_SURFACE) {
             LOG_EGL_ERROR(eglGetError(), "Couldn't create gbm_surface backend window surface. eglCreatePlatformWindowSurface");
+            failed_before = true;
         }
-
-        return surface;
     }
 #endif
 
-    if (renderer->supports_egl_ext_platform_base) {
+    if (surface == EGL_NO_SURFACE && renderer->supports_egl_ext_platform_base) {
 #ifdef EGL_EXT_platform_base
         ASSUME(renderer->egl_create_platform_window_surface_ext);
+
+        if (failed_before) {
+            LOG_DEBUG("Attempting eglCreatePlatformWindowSurfaceEXT...\n");
+        }
 
         surface = renderer->egl_create_platform_window_surface_ext(renderer->egl_display, config, gbm_surface, int_attrib_list);
         if (surface == EGL_NO_SURFACE) {
             LOG_EGL_ERROR(eglGetError(), "Couldn't create gbm_surface backend window surface. eglCreatePlatformWindowSurfaceEXT");
-            return EGL_NO_SURFACE;
+            failed_before = true;
         }
-
-        return surface;
 #else
         UNREACHABLE();
 #endif
-    } else {
+    }
+
+    if (surface == EGL_NO_SURFACE) {
+        if (failed_before) {
+            LOG_DEBUG("Attempting eglCreateWindowSurface...\n");
+        }
+
         surface = eglCreateWindowSurface(renderer->egl_display, config, (EGLNativeWindowType) gbm_surface, int_attrib_list);
         if (surface == EGL_NO_SURFACE) {
             LOG_EGL_ERROR(eglGetError(), "Couldn't create gbm_surface backend window surface. eglCreateWindowSurface");
-            return EGL_NO_SURFACE;
         }
-
-        return surface;
     }
+
+    return surface;
 }
