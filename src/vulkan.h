@@ -8,18 +8,11 @@
 #ifndef _FLUTTERPI_INCLUDE_VULKAN_H
 #define _FLUTTERPI_INCLUDE_VULKAN_H
 
-#ifdef HAVE_VULKAN
-
-    #include <vulkan/vulkan.h>
-
-#else
-
-    // If the system doesn't have vulkan installed, we'll clone the official vulkan headers,
-    // but don't declare the function prototypes, so we don't accidentally use one.
-    #define VK_NO_PROTOTYPES 1
-    #include <vulkan/vulkan.h>
-
+#ifndef HAVE_VULKAN
+    #error "vulkan.h was included but Vulkan support is disabled."
 #endif
+
+#include <vulkan/vulkan.h>
 
 static inline const char *vk_strerror(VkResult result) {
     switch (result) {
