@@ -233,7 +233,7 @@ void audio_player_on_media_error(struct audio_player *self, GError *error, gchar
 
 void audio_player_on_media_state_change(struct audio_player *self, GstObject *src, GstState *old_state, GstState *new_state) {
     (void) old_state;
-    if (strcmp(GST_OBJECT_NAME(src), "playbin") == 0) {
+    if (streq(GST_OBJECT_NAME(src), "playbin")) {
         if (*new_state >= GST_STATE_READY) {
             if (!self->is_initialized) {
                 self->is_initialized = true;
@@ -431,7 +431,7 @@ void audio_player_set_position(struct audio_player *self, int64_t position) {
 
 void audio_player_set_source_url(struct audio_player *self, char *url) {
     ASSERT_NOT_NULL(url);
-    if (self->url == NULL || strcmp(self->url, url)) {
+    if (self->url == NULL || !streq(self->url, url)) {
         if (self->url != NULL) {
             free(self->url);
             self->url = NULL;
@@ -449,5 +449,5 @@ void audio_player_set_source_url(struct audio_player *self, char *url) {
 }
 
 bool audio_player_is_id(struct audio_player *self, char *player_id) {
-    return strcmp(self->player_id, player_id) == 0;
+    return streq(self->player_id, player_id);
 }

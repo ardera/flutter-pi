@@ -77,7 +77,7 @@ static struct gstplayer *get_player_by_evch(const char *const event_channel_name
     cpset_lock(&plugin.players);
     for_each_pointer_in_cpset(&plugin.players, player) {
         meta = gstplayer_get_userdata_locked(player);
-        if (strcmp(meta->event_channel_name, event_channel_name) == 0) {
+        if (streq(meta->event_channel_name, event_channel_name)) {
             cpset_unlock(&plugin.players);
             return player;
         }

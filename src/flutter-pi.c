@@ -1897,7 +1897,7 @@ static bool parse_cmd_args(int argc, char **argv, struct cmd_args *result_out) {
 
             case 'p':
                 for (unsigned i = 0; i < n_pixfmt_infos; i++) {
-                    if (strcmp(optarg, pixfmt_infos[i].arg_name) == 0) {
+                    if (streq(optarg, pixfmt_infos[i].arg_name)) {
                         result_out->has_pixel_format = true;
                         result_out->pixel_format = pixfmt_infos[i].format;
                         goto valid_format;

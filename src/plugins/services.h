@@ -5,10 +5,10 @@
 #include <string.h>
 
 #define ORIENTATION_FROM_STRING(str)                                          \
-    (strcmp(str, "DeviceOrientation.portraitUp") == 0     ? kPortraitUp :     \
-     strcmp(str, "DeviceOrientation.landscapeLeft") == 0  ? kLandscapeLeft :  \
-     strcmp(str, "DeviceOrientation.portraitDown") == 0   ? kPortraitDown :   \
-     strcmp(str, "DeviceOrientation.landscapeRight") == 0 ? kLandscapeRight : \
+    (streq(str, "DeviceOrientation.portraitUp")     ? kPortraitUp :     \
+     streq(str, "DeviceOrientation.landscapeLeft")  ? kLandscapeLeft :  \
+     streq(str, "DeviceOrientation.portraitDown")   ? kPortraitDown :   \
+     streq(str, "DeviceOrientation.landscapeRight") ? kLandscapeRight : \
                                                             -1)
 
 #define FLUTTER_NAVIGATION_CHANNEL "flutter/navigation"

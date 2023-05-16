@@ -20,7 +20,7 @@ FILE_DESCR("vulkan renderer")
 
 UNUSED static VkLayerProperties *get_layer_props(int n_layers, VkLayerProperties *layers, const char *layer_name) {
     for (int i = 0; i < n_layers; i++) {
-        if (strcmp(layers[i].layerName, layer_name) == 0) {
+        if (streq(layers[i].layerName, layer_name)) {
             return layers + i;
         }
     }
@@ -33,7 +33,7 @@ UNUSED static bool supports_layer(int n_layers, VkLayerProperties *layers, const
 
 static VkExtensionProperties *get_extension_props(int n_extensions, VkExtensionProperties *extensions, const char *extension_name) {
     for (int i = 0; i < n_extensions; i++) {
-        if (strcmp(extensions[i].extensionName, extension_name) == 0) {
+        if (streq(extensions[i].extensionName, extension_name)) {
             return extensions + i;
         }
     }
@@ -122,7 +122,7 @@ static int score_physical_device(VkPhysicalDevice device, const char **required_
 
     for (const char **cursor = required_device_extensions; *cursor != NULL; cursor++) {
         for (unsigned i = 0; i < n_available_extensions; i++) {
-            if (strcmp(available_extensions[i].extensionName, *cursor) == 0) {
+            if (streq(available_extensions[i].extensionName, *cursor)) {
                 goto found;
             }
         }

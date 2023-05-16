@@ -884,9 +884,9 @@ int platch_decode(const uint8_t *buffer, size_t size, enum platch_codec codec, s
                 return EBADMSG;
 
             for (int i = 0; i < root_jsvalue.size; i++) {
-                if ((strcmp(root_jsvalue.keys[i], "method") == 0) && (root_jsvalue.values[i].type == kJsonString)) {
+                if ((streq(root_jsvalue.keys[i], "method")) && (root_jsvalue.values[i].type == kJsonString)) {
                     object_out->method = root_jsvalue.values[i].string_value;
-                } else if (strcmp(root_jsvalue.keys[i], "args") == 0) {
+                } else if (streq(root_jsvalue.keys[i], "args")) {
                     object_out->json_arg = root_jsvalue.values[i];
                 } else
                     return EBADMSG;
@@ -1487,7 +1487,7 @@ bool jsvalue_equals(struct json_value *a, struct json_value *b) {
         case kJsonTrue:
         case kJsonFalse: return true;
         case kJsonNumber: return a->number_value == b->number_value;
-        case kJsonString: return strcmp(a->string_value, b->string_value) == 0;
+        case kJsonString: return streq(a->string_value, b->string_value);
         case kJsonArray:
             if (a->size != b->size)
                 return false;
@@ -1515,7 +1515,7 @@ bool jsvalue_equals(struct json_value *a, struct json_value *b) {
                     while ((j < a->size) && _keyInBAlsoInA[j])
                         j++;  // skip all keys with _keyInBAlsoInA set to true.
 					if (j >= a->size) break;
-                    if (strcmp(key, b->keys[j]) != 0)
+                    if (!streq(key, b->keys[j]))
                         j++;  // if b->keys[j] is not equal to "key", continue searching
                     else {
                         _keyInBAlsoInA[j] = true;
@@ -1542,7 +1542,7 @@ bool jsvalue_equals(struct json_value *a, struct json_value *b) {
 struct json_value *jsobject_get(struct json_value *object, char *key) {
     int i;
     for (i = 0; i < object->size; i++)
-        if (strcmp(object->keys[i], key) == 0)
+        if (streq(object->keys[i], key))
             break;
 
     if (i != object->size)
@@ -1571,7 +1571,7 @@ bool stdvalue_equals(struct std_value *a, struct std_value *b) {
         case kStdString:
             ASSERT_NOT_NULL(a->string_value);
             ASSERT_NOT_NULL(b->string_value);
-            return strcmp(a->string_value, b->string_value) == 0;
+            return streq(a->string_value, b->string_value);
         case kStdFloat64: return a->float64_value == b->float64_value;
         case kStdUInt8Array:
             if (a->size != b->size)

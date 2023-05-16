@@ -322,7 +322,7 @@ struct locales *locales_new(void) {
         i++;
     }
 
-    if (strcmp(fl_locales[0]->language_code, "C") == 0) {
+    if (streq(fl_locales[0]->language_code, "C")) {
         LOG_LOCALES_ERROR("Warning: The system has no configured locale. The default \"C\" locale may or may not be supported by the app.\n"
         );
     }
