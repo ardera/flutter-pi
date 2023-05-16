@@ -648,12 +648,12 @@ static int fetch_plane(int drm_fd, uint32_t plane_id, struct drm_plane *plane_ou
             goto fail_maybe_free_supported_formats;
         }
 
-        if (strcmp(info->name, "type") == 0) {
+        if (streq(info->name, "type")) {
             assert(has_type == false);
             has_type = true;
 
             type = props->prop_values[j];
-        } else if (strcmp(info->name, "rotation") == 0) {
+        } else if (streq(info->name, "rotation")) {
             assert(has_rotation == false);
             has_rotation = true;
 
@@ -672,7 +672,7 @@ static int fetch_plane(int drm_fd, uint32_t plane_id, struct drm_plane *plane_ou
             }
 
             committed_rotation.u64 = props->prop_values[j];
-        } else if (strcmp(info->name, "zpos") == 0) {
+        } else if (streq(info->name, "zpos")) {
             assert(has_zpos == false);
             has_zpos = true;
 
@@ -706,23 +706,23 @@ static int fetch_plane(int drm_fd, uint32_t plane_id, struct drm_plane *plane_ou
                     min_zpos = max_zpos = hardcoded_zpos;
                 }
             }
-        } else if (strcmp(info->name, "SRC_X") == 0) {
+        } else if (streq(info->name, "SRC_X")) {
             comitted_src_x = props->prop_values[j];
-        } else if (strcmp(info->name, "SRC_Y") == 0) {
+        } else if (streq(info->name, "SRC_Y")) {
             comitted_src_y = props->prop_values[j];
-        } else if (strcmp(info->name, "SRC_W") == 0) {
+        } else if (streq(info->name, "SRC_W")) {
             comitted_src_w = props->prop_values[j];
-        } else if (strcmp(info->name, "SRC_H") == 0) {
+        } else if (streq(info->name, "SRC_H")) {
             comitted_src_h = props->prop_values[j];
-        } else if (strcmp(info->name, "CRTC_X") == 0) {
+        } else if (streq(info->name, "CRTC_X")) {
             comitted_crtc_x = props->prop_values[j];
-        } else if (strcmp(info->name, "CRTC_Y") == 0) {
+        } else if (streq(info->name, "CRTC_Y")) {
             comitted_crtc_y = props->prop_values[j];
-        } else if (strcmp(info->name, "CRTC_W") == 0) {
+        } else if (streq(info->name, "CRTC_W")) {
             comitted_crtc_w = props->prop_values[j];
-        } else if (strcmp(info->name, "CRTC_H") == 0) {
+        } else if (streq(info->name, "CRTC_H")) {
             comitted_crtc_h = props->prop_values[j];
-        } else if (strcmp(info->name, "IN_FORMATS") == 0) {
+        } else if (streq(info->name, "IN_FORMATS")) {
             drmModePropertyBlobRes *blob;
 
             blob = drmModeGetPropertyBlob(drm_fd, props->prop_values[j]);
@@ -768,7 +768,7 @@ static int fetch_plane(int drm_fd, uint32_t plane_id, struct drm_plane *plane_ou
             }
 
             drmModeFreePropertyBlob(blob);
-        } else if (strcmp(info->name, "alpha") == 0) {
+        } else if (streq(info->name, "alpha")) {
             has_alpha = true;
             assert(info->flags == DRM_MODE_PROP_RANGE);
             assert(info->values[0] == 0);
@@ -776,18 +776,18 @@ static int fetch_plane(int drm_fd, uint32_t plane_id, struct drm_plane *plane_ou
             assert(props->prop_values[j] <= 0xFFFF);
 
             committed_alpha = (uint16_t) props->prop_values[j];
-        } else if (strcmp(info->name, "pixel blend mode") == 0) {
+        } else if (streq(info->name, "pixel blend mode")) {
             has_blend_mode = true;
             assert(info->flags == DRM_MODE_PROP_ENUM);
 
             for (int i = 0; i < info->count_enums; i++) {
-                if (strcmp(info->enums[i].name, "None") == 0) {
+                if (streq(info->enums[i].name, "None")) {
                     ASSERT_EQUALS(info->enums[i].value, kNone_DrmBlendMode);
                     supported_blend_modes[kNone_DrmBlendMode] = true;
-                } else if (strcmp(info->enums[i].name, "Pre-multiplied") == 0) {
+                } else if (streq(info->enums[i].name, "Pre-multiplied")) {
                     ASSERT_EQUALS(info->enums[i].value, kPremultiplied_DrmBlendMode);
                     supported_blend_modes[kPremultiplied_DrmBlendMode] = true;
-                } else if (strcmp(info->enums[i].name, "Coverage") == 0) {
+                } else if (streq(info->enums[i].name, "Coverage")) {
                     ASSERT_EQUALS(info->enums[i].value, kCoverage_DrmBlendMode);
                     supported_blend_modes[kCoverage_DrmBlendMode] = true;
                 } else {
