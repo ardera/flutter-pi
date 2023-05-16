@@ -685,7 +685,7 @@ EGLSurface gl_renderer_create_gbm_window_surface(
     const EGLAttribKHR *attrib_list,
     const EGLint *int_attrib_list
 ) {
-    EGLSurface surface;
+    EGLSurface surface = EGL_NO_SURFACE;
     bool failed_before = false;
 
 #ifdef EGL_VERSION_1_5
