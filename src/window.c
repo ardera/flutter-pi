@@ -27,13 +27,13 @@
 #include "util/collection.h"
 
 #ifdef HAVE_EGL_GLES2
-    #include "gl_renderer.h"
     #include "egl_gbm_render_surface.h"
+    #include "gl_renderer.h"
 #endif
 
 #ifdef HAVE_VULKAN
-    #include "vk_renderer.h"
     #include "vk_gbm_render_surface.h"
+    #include "vk_renderer.h"
 #endif
 
 FILE_DESCR("native windows")
@@ -1273,7 +1273,13 @@ fail_unlock:
     return ok;
 }
 
-static bool count_modifiers_for_pixel_format(UNUSED struct drm_plane *plane, UNUSED int index, enum pixfmt pixel_format, UNUSED uint64_t modifier, void *userdata) {
+static bool count_modifiers_for_pixel_format(
+    UNUSED struct drm_plane *plane,
+    UNUSED int index,
+    enum pixfmt pixel_format,
+    UNUSED uint64_t modifier,
+    void *userdata
+) {
     struct {
         enum pixfmt format;
         uint64_t *modifiers;
@@ -1288,7 +1294,13 @@ static bool count_modifiers_for_pixel_format(UNUSED struct drm_plane *plane, UNU
     return true;
 }
 
-static bool extract_modifiers_for_pixel_format(UNUSED struct drm_plane *plane, UNUSED int index, enum pixfmt pixel_format, uint64_t modifier, void *userdata) {
+static bool extract_modifiers_for_pixel_format(
+    UNUSED struct drm_plane *plane,
+    UNUSED int index,
+    enum pixfmt pixel_format,
+    uint64_t modifier,
+    void *userdata
+) {
     struct {
         enum pixfmt format;
         uint64_t *modifiers;
@@ -1330,14 +1342,25 @@ static struct render_surface *kms_window_get_render_surface_internal(struct wind
 
     // For now just set the supported modifiers for the first plane that supports this pixel format
     // as the allowed modifiers.
+    /// TODO: Find a way to rank pixel formats, maybe by number of planes that support them for scanout.
     {
         struct drm_plane *plane;
         for_each_plane_in_drmdev(window->kms.drmdev, plane) {
             if (!(plane->possible_crtcs & window->kms.crtc->bitmask)) {
+                // Only query planes that are possible to connect to the CRTC we're using.
                 continue;
             }
 
             if (plane->type != kPrimary_DrmPlaneType && plane->type != kOverlay_DrmPlaneType) {
+                // We explicitly only look for primary and overlay planes.
+                continue;
+            }
+
+            if (plane->supports_modifiers == NULL) {
+                // The plane does not have an IN_FORMATS property and does not support
+                // explicit modifiers.
+                //
+                // Calling drm_plane_foreach_modified_format below will segfault.
                 continue;
             }
 
@@ -1353,12 +1376,14 @@ static struct render_surface *kms_window_get_render_surface_internal(struct wind
                 .index = 0,
             };
 
+            // First, count the allowed modifiers for this pixel format.
             drm_plane_foreach_modified_format(plane, count_modifiers_for_pixel_format, &context);
 
             n_allowed_modifiers = context.n_modifiers;
             allowed_modifiers = calloc(n_allowed_modifiers, sizeof(*context.modifiers));
             context.modifiers = allowed_modifiers;
 
+            // Next, fill context.modifiers with the allowed modifiers.
             drm_plane_foreach_modified_format(plane, extract_modifiers_for_pixel_format, &context);
             break;
         }
@@ -1367,10 +1392,10 @@ static struct render_surface *kms_window_get_render_surface_internal(struct wind
     if (window->renderer_type == kOpenGL_RendererType) {
         // opengl
 #ifdef HAVE_EGL_GLES2
-        // EGL_NO_CONFIG_KHR is defined by EGL_KHR_no_config_context.
-        #ifndef EGL_KHR_no_config_context
-            #error "EGL header definitions for extension EGL_KHR_no_config_context are required."
-        #endif
+    // EGL_NO_CONFIG_KHR is defined by EGL_KHR_no_config_context.
+    #ifndef EGL_KHR_no_config_context
+        #error "EGL header definitions for extension EGL_KHR_no_config_context are required."
+    #endif
 
         struct egl_gbm_render_surface *egl_surface = egl_gbm_render_surface_new_with_egl_config(
             window->tracer,
@@ -1388,7 +1413,7 @@ static struct render_surface *kms_window_get_render_surface_internal(struct wind
         } else {
             render_surface = CAST_RENDER_SURFACE(egl_surface);
         }
-        
+
 #else
         UNREACHABLE();
 #endif
