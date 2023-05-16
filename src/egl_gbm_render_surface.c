@@ -132,7 +132,7 @@ static int egl_gbm_render_surface_init(
 
         egl_ok = eglGetConfigAttrib(egl_display, egl_config, EGL_NATIVE_VISUAL_ID, &value);
         if (egl_ok == EGL_FALSE) {
-            LOG_ERROR("Couldn't query pixel format of EGL framebuffer config. eglGetConfigAttrib: 0x%08X\n", eglGetError());
+            LOG_EGL_ERROR(eglGetError(), "Couldn't query pixel format of EGL framebuffer config. eglGetConfigAttrib");
             return EIO;
         }
 
@@ -204,7 +204,7 @@ static int egl_gbm_render_surface_init(
 
     egl_ok = eglBindAPI(EGL_OPENGL_ES_API);
     if (egl_ok == EGL_FALSE) {
-        LOG_ERROR("Couldn't bind OpenGL ES API to EGL. eglBindAPI: 0x%08X\n", eglGetError());
+        LOG_EGL_ERROR(eglGetError(), "Couldn't bind OpenGL ES API to EGL. eglBindAPI");
         ok = EIO;
         goto fail_destroy_gbm_surface;
     }
