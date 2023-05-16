@@ -1,7 +1,5 @@
 #include "pixel_format.h"
 
-#include <vulkan.h>
-
 #ifdef HAVE_FBDEV
     #define FBDEV_FORMAT_FIELD_INITIALIZER(r_length, r_offset, g_length, g_offset, b_length, b_offset, a_length, a_offset) \
         .fbdev_format = {                                                                                                  \
@@ -29,7 +27,7 @@
 #endif
 
 #ifdef HAVE_VULKAN
-    #include <vulkan.h>
+    #include "vulkan.h"
     #define VK_FORMAT_FIELD_INITIALIZER(_vk_format) .vk_format = _vk_format,
 #else
     #define VK_FORMAT_FIELD_INITIALIZER(_vk_format)
