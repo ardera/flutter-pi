@@ -1557,6 +1557,7 @@ bool jsvalue_equals(struct json_value *a, struct json_value *b) {
 				int j = 0;
 				while (j < a->size) {
 					while ((j < a->size) && _keyInBAlsoInA[j])  j++;	// skip all keys with _keyInBAlsoInA set to true.
+					if (j >= a->size) break;
 					if (strcmp(key, b->keys[j]) != 0)   		j++;	// if b->keys[j] is not equal to "key", continue searching
 					else {
 						_keyInBAlsoInA[j] = true;
@@ -1683,6 +1684,7 @@ bool stdvalue_equals(struct std_value *a, struct std_value *b) {
 				int j = 0;
 				while (j < a->size) {
 					while ((j < a->size) && _keyInBAlsoInA[j])  j++;	// skip all keys with _keyInBAlsoInA set to true.
+					if (j >= a->size) break;
 					if (stdvalue_equals(key, b->keys + j) == false) {
 						j++;	// if b->keys[j] is not equal to "key", continue searching
 					} else {
