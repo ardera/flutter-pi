@@ -1356,11 +1356,11 @@ static struct render_surface *kms_window_get_render_surface_internal(struct wind
                 continue;
             }
 
-            if (plane->supports_modifiers == NULL) {
+            if (!plane->supports_modifiers) {
                 // The plane does not have an IN_FORMATS property and does not support
                 // explicit modifiers.
                 //
-                // Calling drm_plane_foreach_modified_format below will segfault.
+                // Calling drm_plane_for_each_modified_format below will segfault.
                 continue;
             }
 
@@ -1377,14 +1377,14 @@ static struct render_surface *kms_window_get_render_surface_internal(struct wind
             };
 
             // First, count the allowed modifiers for this pixel format.
-            drm_plane_foreach_modified_format(plane, count_modifiers_for_pixel_format, &context);
+            drm_plane_for_each_modified_format(plane, count_modifiers_for_pixel_format, &context);
 
             n_allowed_modifiers = context.n_modifiers;
             allowed_modifiers = calloc(n_allowed_modifiers, sizeof(*context.modifiers));
             context.modifiers = allowed_modifiers;
 
             // Next, fill context.modifiers with the allowed modifiers.
-            drm_plane_foreach_modified_format(plane, extract_modifiers_for_pixel_format, &context);
+            drm_plane_for_each_modified_format(plane, extract_modifiers_for_pixel_format, &context);
             break;
         }
     }

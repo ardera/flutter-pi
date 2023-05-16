@@ -17,9 +17,9 @@
 #include <xf86drmMode.h>
 
 #include "pixel_format.h"
-#include "util/macros.h"
 #include "util/bitset.h"
 #include "util/list.h"
+#include "util/macros.h"
 
 FILE_DESCR("modesetting")
 
@@ -487,11 +487,7 @@ static int free_crtcs(struct drm_crtc *crtcs, size_t n_crtcs) {
     return 0;
 }
 
-void drm_plane_foreach_modified_format(
-    struct drm_plane *plane,
-    drm_plane_modified_format_callback_t callback,
-    void *userdata
-) {
+void drm_plane_for_each_modified_format(struct drm_plane *plane, drm_plane_modified_format_callback_t callback, void *userdata) {
     struct drm_format_modifier_blob *blob;
     struct drm_format_modifier *modifiers;
     uint32_t *formats;
@@ -527,77 +523,34 @@ void drm_plane_foreach_modified_format(
         }
     }
 
-    exit:
+exit:
     return;
-}
-
-static int get_supported_modified_formats(
-    struct drm_format_modifier_blob *blob,
-    int max_formats_out,
-    int *n_formats_out,
-    struct modified_format *formats_out
-) {
-    struct drm_format_modifier *modifiers;
-    uint32_t *formats;
-
-    ASSERT_NOT_NULL(blob);
-    ASSERT_NOT_NULL(n_formats_out);
-    assert(blob->version == FORMAT_BLOB_CURRENT);
-
-    modifiers = (void *) (((char *) blob) + blob->modifiers_offset);
-    formats = (void *) (((char *) blob) + blob->formats_offset);
-
-    int index = 0;
-    for (int i = 0; i < blob->count_modifiers; i++) {
-        for (int j = modifiers[i].offset; (j < blob->count_formats) && (j < modifiers[i].offset + 64); j++) {
-            bool is_format_bit_set = (modifiers[i].formats & (1ull << (j % 64))) != 0;
-            if (!is_format_bit_set) {
-                continue;
-            }
-
-            for (int k = 0; k < kCount_PixFmt; k++) {
-                if (get_pixfmt_info(k)->drm_format == formats[j]) {
-                    if ((index >= max_formats_out) && formats_out) {
-                        return ENOMEM;
-                    } else if (formats_out) {
-                        formats_out[index].format = k;
-                        formats_out[index].modifier = modifiers[i].modifier;
-                    }
-                    index++;
-                }
-            }
-        }
-    }
-
-    *n_formats_out = index;
-    return 0;
 }
 
 struct _drmModeFB2;
 
 struct drm_mode_fb2 {
-	uint32_t fb_id;
-	uint32_t width, height;
-	uint32_t pixel_format; /* fourcc code from drm_fourcc.h */
-	uint64_t modifier; /* applies to all buffers */
-	uint32_t flags;
+    uint32_t fb_id;
+    uint32_t width, height;
+    uint32_t pixel_format; /* fourcc code from drm_fourcc.h */
+    uint64_t modifier; /* applies to all buffers */
+    uint32_t flags;
 
-	/* per-plane GEM handle; may be duplicate entries for multiple planes */
-	uint32_t handles[4];
-	uint32_t pitches[4]; /* bytes */
-	uint32_t offsets[4]; /* bytes */
+    /* per-plane GEM handle; may be duplicate entries for multiple planes */
+    uint32_t handles[4];
+    uint32_t pitches[4]; /* bytes */
+    uint32_t offsets[4]; /* bytes */
 };
 
 #ifdef HAVE_FUNC_ATTRIBUTE_WEAK
 extern struct _drmModeFB2 *drmModeGetFB2(int fd, uint32_t bufferId) __attribute__((weak));
 extern void drmModeFreeFB2(struct _drmModeFB2 *ptr) __attribute__((weak));
-#define HAVE_WEAK_DRM_MODE_GET_FB2
+    #define HAVE_WEAK_DRM_MODE_GET_FB2
 #endif
 
 static int fetch_plane(int drm_fd, uint32_t plane_id, struct drm_plane *plane_out) {
     struct drm_plane_prop_ids ids;
     drmModeObjectProperties *props;
-    struct modified_format *supported_modified_formats;
     drm_plane_transform_t hardcoded_rotation, supported_rotations, committed_rotation;
     enum drm_blend_mode committed_blend_mode;
     enum drm_plane_type type;
@@ -609,8 +562,8 @@ static int fetch_plane(int drm_fd, uint32_t plane_id, struct drm_plane *plane_ou
     int64_t min_zpos, max_zpos, hardcoded_zpos, committed_zpos;
     bool supported_blend_modes[kCount_DrmBlendMode] = { 0 };
     bool supported_formats[kCount_PixFmt] = { 0 };
-    bool has_type, has_rotation, has_zpos, has_hardcoded_zpos, has_hardcoded_rotation, supports_modifiers, has_alpha, has_blend_mode;
-    int ok, n_supported_modified_formats;
+    bool has_type, has_rotation, has_zpos, has_hardcoded_zpos, has_hardcoded_rotation, has_alpha, has_blend_mode;
+    int ok;
 
     drm_plane_prop_ids_init(&ids);
 
@@ -628,16 +581,16 @@ static int fetch_plane(int drm_fd, uint32_t plane_id, struct drm_plane *plane_ou
         goto fail_free_plane;
     }
 
+    // zero-initialize plane_out.
+    memset(plane_out, 0, sizeof(*plane_out));
+
     has_type = false;
     has_rotation = false;
     has_hardcoded_rotation = false;
     has_zpos = false;
     has_hardcoded_zpos = false;
-    supports_modifiers = false;
     has_alpha = false;
     has_blend_mode = false;
-    n_supported_modified_formats = 0;
-    supported_modified_formats = NULL;
     comitted_crtc_x = comitted_crtc_y = comitted_crtc_w = comitted_crtc_h = 0;
     comitted_src_x = comitted_src_y = comitted_src_w = comitted_src_h = 0;
     for (int j = 0; j < props->count_props; j++) {
@@ -645,7 +598,7 @@ static int fetch_plane(int drm_fd, uint32_t plane_id, struct drm_plane *plane_ou
         if (info == NULL) {
             ok = errno;
             perror("[modesetting] Could not get DRM device planes' properties' info. drmModeGetProperty");
-            goto fail_maybe_free_supported_formats;
+            goto fail_maybe_free_supported_modified_formats_blob;
         }
 
         if (streq(info->name, "type")) {
@@ -738,34 +691,8 @@ static int fetch_plane(int drm_fd, uint32_t plane_id, struct drm_plane *plane_ou
             }
 
             plane_out->supports_modifiers = true;
-            plane_out->n_supported_modified_formats = 0;
             plane_out->supported_modified_formats_blob = memdup(blob->data, blob->length);
-
-            supports_modifiers = true;
-            n_supported_modified_formats = 0;
-
-            get_supported_modified_formats(blob->data, 0, &n_supported_modified_formats, NULL);
-
-            supported_modified_formats = calloc(sizeof *supported_modified_formats, n_supported_modified_formats);
-            if (supported_modified_formats == NULL) {
-                ok = ENOMEM;
-                drmModeFreePropertyBlob(blob);
-                drmModeFreeProperty(info);
-                goto fail_free_props;
-            }
-
-            ok = get_supported_modified_formats(
-                blob->data,
-                n_supported_modified_formats,
-                &n_supported_modified_formats,
-                supported_modified_formats
-            );
-            if (ok != 0) {
-                free(supported_modified_formats);
-                drmModeFreePropertyBlob(blob);
-                drmModeFreeProperty(info);
-                goto fail_free_props;
-            }
+            ASSERT_NOT_NULL(plane_out->supported_modified_formats_blob);
 
             drmModeFreePropertyBlob(blob);
         } else if (streq(info->name, "alpha")) {
@@ -849,7 +776,7 @@ static int fetch_plane(int drm_fd, uint32_t plane_id, struct drm_plane *plane_ou
                 }
             }
 
-            drmModeFreeFB2((struct _drmModeFB2*) fb);
+            drmModeFreeFB2((struct _drmModeFB2 *) fb);
         }
     }
 #endif
@@ -868,9 +795,6 @@ static int fetch_plane(int drm_fd, uint32_t plane_id, struct drm_plane *plane_ou
     plane_out->has_hardcoded_rotation = has_hardcoded_rotation;
     plane_out->hardcoded_rotation = hardcoded_rotation;
     memcpy(plane_out->supported_formats, supported_formats, sizeof supported_formats);
-    plane_out->supports_modifiers = supports_modifiers;
-    plane_out->n_supported_modified_formats = n_supported_modified_formats;
-    // plane_out->supported_modified_formats = supported_modified_formats;
     plane_out->has_alpha = has_alpha;
     plane_out->has_blend_mode = has_blend_mode;
     memcpy(plane_out->supported_blend_modes, supported_blend_modes, sizeof supported_blend_modes);
@@ -894,9 +818,9 @@ static int fetch_plane(int drm_fd, uint32_t plane_id, struct drm_plane *plane_ou
     drmModeFreePlane(plane);
     return 0;
 
-fail_maybe_free_supported_formats:
-    if (supported_modified_formats != NULL)
-        free(supported_modified_formats);
+fail_maybe_free_supported_modified_formats_blob:
+    if (plane_out->supported_modified_formats_blob != NULL)
+        free(plane_out->supported_modified_formats_blob);
 
 fail_free_props:
     drmModeFreeObjectProperties(props);
@@ -1543,15 +1467,7 @@ uint32_t drmdev_add_fb_multiplanar(
 
     drmdev_lock(drmdev);
 
-    fb = drmdev_add_fb_multiplanar_locked(
-        drmdev,
-        width, height,
-        pixel_format,
-        bo_handles,
-        pitches,
-        offsets,
-        has_modifiers, modifiers
-    );
+    fb = drmdev_add_fb_multiplanar_locked(drmdev, width, height, pixel_format, bo_handles, pitches, offsets, has_modifiers, modifiers);
 
     drmdev_unlock(drmdev);
 
@@ -1644,15 +1560,7 @@ uint32_t drmdev_add_fb_from_dmabuf(
 
     drmdev_lock(drmdev);
 
-    fb = drmdev_add_fb_from_dmabuf_locked(
-        drmdev,
-        width, height,
-        pixel_format,
-        prime_fd,
-        pitch,
-        offset,
-        has_modifier, modifier
-    );
+    fb = drmdev_add_fb_from_dmabuf_locked(drmdev, width, height, pixel_format, prime_fd, pitch, offset, has_modifier, modifier);
 
     drmdev_unlock(drmdev);
 
@@ -1952,7 +1860,8 @@ drmModeModeInfo *__next_mode(const struct drm_connector *connector, const drmMod
     #define LOG_DRM_PLANE_ALLOCATION_DEBUG(...)
 #endif
 
-static bool check_modified_format_supported(UNUSED struct drm_plane *plane, UNUSED int index, enum pixfmt format, uint64_t modifier, void *userdata) {
+static bool
+check_modified_format_supported(UNUSED struct drm_plane *plane, UNUSED int index, enum pixfmt format, uint64_t modifier, void *userdata) {
     struct {
         enum pixfmt format;
         uint64_t modifier;
@@ -2022,7 +1931,7 @@ static bool plane_qualifies(
         };
 
         // Check if the requested format & modifier is supported.
-        drm_plane_foreach_modified_format(plane, check_modified_format_supported, &context);
+        drm_plane_for_each_modified_format(plane, check_modified_format_supported, &context);
 
         // Otherwise fail.
         if (!context.found) {
@@ -2662,7 +2571,7 @@ kms_req_commit_common(struct kms_req *req, bool blocking, kms_scanout_cb_t scano
             drmModeFreeFB(committed_fb);
 #endif
         }
-        
+
         /// TODO: Handle {src,dst}_{x,y,w,h} here
         /// TODO: Handle setting other properties as well
         if (needs_set_crtc) {
@@ -2789,7 +2698,7 @@ kms_req_commit_common(struct kms_req *req, bool blocking, kms_scanout_cb_t scano
 
     // update struct drm_connector.committed_state
     builder->connector->committed_state.crtc_id = builder->crtc->id;
-    // builder->connector->committed_state.encoder_id = 0; 
+    // builder->connector->committed_state.encoder_id = 0;
 
     drmdev_set_scanout_callback_locked(builder->drmdev, builder->crtc->id, scanout_cb, userdata, destroy_cb);
 
