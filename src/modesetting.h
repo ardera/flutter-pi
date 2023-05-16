@@ -410,7 +410,7 @@ struct drm_plane {
     uint32_t id;
 
     /// @brief Bitmap of the indexes of the CRTCs that this plane can be scanned out on.
-    /// 
+    ///
     /// I.e. if bit 0 is set, this plane can be scanned out on the CRTC with index 0.
     /// if bit 0 is not set, this plane can not be scanned out on that CRTC.
     uint32_t possible_crtcs;
@@ -438,7 +438,7 @@ struct drm_plane {
     /// @brief The minimum and maximum possible zpos
     ///
     /// Only valid if @ref has_zpos is true.
-    /// 
+    ///
     /// If @ref has_hardcoded_zpos is true, min_zpos should equal max_zpos.
     int64_t min_zpos, max_zpos;
 
@@ -494,9 +494,8 @@ struct drm_plane {
     ///
     /// DRM_FORMAT_MOD_LINEAR is supported for most (but not all pixel formats).
     /// There are some format & modifier pairs that may be faster to scanout by the GPU.
-    /// Might be NULL if the plane didn't specify an IN_FORMATS property.
-    //struct modified_format *supported_modified_formats;
-
+    ///
+    /// Is NULL if the plane didn't specify an IN_FORMATS property.
     struct drm_format_modifier_blob *supported_modified_formats_blob;
 
     /// @brief Whether this plane has a mutable alpha property we can set.
@@ -527,7 +526,7 @@ struct drm_plane {
         uint32_t src_x, src_y, src_w, src_h;
 
         /// @brief The committed destination rect, on the CRTC.
-        /// 
+        ///
         /// Only valid when using atomic modesetting.
         uint32_t crtc_x, crtc_y, crtc_w, crtc_h;
 
@@ -537,22 +536,22 @@ struct drm_plane {
         int64_t zpos;
 
         /// @brief The committed plane rotation.
-        /// 
+        ///
         /// Only valid if @ref drm_plane.has_rotation is true.
         drm_plane_transform_t rotation;
-        
+
         /// @brief The committed alpha property.
         ///
         /// Only valid if @ref drm_plane.has_alpha is true.
         uint16_t alpha;
-        
+
         /// @brief  The committed blend mode.
         ///
         /// Only valid if @ref drm_plane.has_blend_mode is true.
         enum drm_blend_mode blend_mode;
-        
+
         /// @brief If false, we don't know about the committed format.
-        /// 
+        ///
         /// This can be false on debian buster for example, because we don't
         /// have drmModeGetFB2 here, which is required for querying the pixel
         /// format of a framebuffer. When a plane is associated with our own
@@ -578,28 +577,30 @@ struct drm_plane {
 /**
  * @brief Callback that will be called on each iteration of
  * @ref drm_plane_foreach_modified_format.
- * 
+ *
  * Should return true if looping should continue. False if iterating should be
  * stopped.
- * 
+ *
  * @param plane The plane that was passed to @ref drm_plane_foreach_modified_format.
  * @param index The index of the pixel format. Is incremented for each call of the callback.
  * @param pixel_format The pixel format.
  * @param modifier The modifier of this pixel format.
  * @param userdata Userdata that was passed to @ref drm_plane_foreach_modified_format.
  */
-typedef bool (*drm_plane_modified_format_callback_t)(struct drm_plane *plane, int index, enum pixfmt pixel_format, uint64_t modifier, void *userdata);
+typedef bool (*drm_plane_modified_format_callback_t)(
+    struct drm_plane *plane,
+    int index,
+    enum pixfmt pixel_format,
+    uint64_t modifier,
+    void *userdata
+);
 
 /**
  * @brief Iterates over every supported pixel-format & modifier pair.
- * 
+ *
  * See @ref drm_plane_modified_format_callback_t for documentation on the callback.
  */
-void drm_plane_foreach_modified_format(
-    struct drm_plane *plane,
-    drm_plane_modified_format_callback_t callback,
-    void *userdata
-);
+void drm_plane_foreach_modified_format(struct drm_plane *plane, drm_plane_modified_format_callback_t callback, void *userdata);
 
 struct drmdev;
 struct _drmModeModeInfo;
