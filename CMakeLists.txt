@@ -381,15 +381,11 @@ endif()
 
 configure_file(config.h.in config.h @ONLY)
 
-# TODO: Just check if a C file with `-fmacro-prefix-map` compiles
-if (CMAKE_C_COMPILER_ID STREQUAL "GNU")
-  if (CMAKE_C_COMPILER_VERSION VERSION_GREATER_EQUAL "8.0")
-    target_compile_options(flutterpi_module PRIVATE "-fmacro-prefix-map=../src/=")
-  endif()
-elseif (CMAKE_C_COMPILER_ID STREQUAL "Clang")
-  if (CMAKE_C_COMPILER_VERSION VERSION_GREATER_EQUAL "10.0")
-    target_compile_options(flutterpi_module PRIVATE "-fmacro-prefix-map=../src/=")
-  endif()
+# TODO: make mapping portable
+# is mapping `../src/` to `` always gonna work?
+check_c_compiler_flag(-fmacro-prefix-map=.=. COMPILER_SUPPORTS_MACRO_PREFIX_MAP)
+if (COMPILER_SUPPORTS_MACRO_PREFIX_MAP)
+  target_compile_options(flutterpi_module PRIVATE "-fmacro-prefix-map=../src/=")
 endif()
 
 # Actual flutter-pi executable.
