@@ -18,8 +18,6 @@
 #include "texture_registry.h"
 #include "util/collection.h"
 
-FILE_DESCR("gstreamer video_player plugin")
-
 enum data_source_type { kDataSourceTypeAsset, kDataSourceTypeNetwork, kDataSourceTypeFile, kDataSourceTypeContentUri };
 
 struct gstplayer_meta {

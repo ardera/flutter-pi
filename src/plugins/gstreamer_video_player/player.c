@@ -23,8 +23,6 @@
 #include "texture_registry.h"
 #include "util/collection.h"
 
-FILE_DESCR("gstreamer video_player")
-
 #ifdef DEBUG
     #define DEBUG_TRACE_BEGIN(player, name) trace_begin(player, name)
     #define DEBUG_TRACE_END(player, name) trace_end(player, name)

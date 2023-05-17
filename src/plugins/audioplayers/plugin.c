@@ -6,8 +6,6 @@
 #include "plugins/audioplayers.h"
 #include "util/collection.h"
 
-FILE_DESCR("audioplayers plugin")
-
 #define AUDIOPLAYERS_LOCAL_CHANNEL "xyz.luan/audioplayers"
 #define AUDIOPLAYERS_GLOBAL_CHANNEL "xyz.luan/audioplayers.global"
 

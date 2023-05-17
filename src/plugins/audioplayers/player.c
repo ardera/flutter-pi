@@ -9,8 +9,6 @@
 #include "platformchannel.h"
 #include "plugins/audioplayers.h"
 
-FILE_DESCR("audioplayers player")
-
 struct audio_player {
     GstElement *playbin;
     GstBus *bus;

@@ -25,8 +25,6 @@
 #include "util/collection.h"
 #include "vk_renderer.h"
 
-FILE_DESCR("gbm/vulkan render surface")
-
 struct vk_gbm_render_surface;
 struct vk_renderer;
 

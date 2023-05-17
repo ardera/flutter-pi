@@ -50,8 +50,6 @@
     #include "vk_renderer.h"
 #endif
 
-FILE_DESCR("compositor-ng")
-
 /**
  * @brief A nicer, ref-counted version of the FlutterLayer's passed by the engine to the present layer callback.
  *

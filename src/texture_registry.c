@@ -11,8 +11,6 @@
 
 #include "flutter-pi.h"
 
-FILE_DESCR("texture registry")
-
 struct texture_registry {
     struct texture_registry_interface interface;
     void *userdata;

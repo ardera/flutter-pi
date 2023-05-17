@@ -13,8 +13,6 @@
 
 #include "util/collection.h"
 
-FILE_DESCR("tracing")
-
 struct tracer {
     refcount_t n_refs;
     atomic_bool has_cbs;

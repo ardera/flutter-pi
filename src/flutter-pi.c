@@ -76,8 +76,6 @@
     #include <mcheck.h>
 #endif
 
-FILE_DESCR("flutter-pi")
-
 #define PIXFMT_ARG_NAME(_name, _arg_name, ...) _arg_name ", "
 
 const char *const usage =
