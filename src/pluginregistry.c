@@ -19,8 +19,6 @@
 #include "util/collection.h"
 #include "util/dynarray.h"
 
-FILE_DESCR("plugin registry")
-
 /**
  * @brief details of a plugin for flutter-pi.
  *

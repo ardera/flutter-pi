@@ -19,8 +19,6 @@ struct evloop {
     pthread_t owning_thread;
 };
 
-FILE_DESCR("event_loop.c")
-
 DEFINE_STATIC_LOCK_OPS(evloop, mutex)
 
 static int on_wakeup_event_loop(sd_event_source *s, int fd, uint32_t revents, void *userdata) {

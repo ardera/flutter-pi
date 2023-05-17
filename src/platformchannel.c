@@ -14,8 +14,6 @@
 #include "flutter-pi.h"
 #include "jsmn.h"
 
-FILE_DESCR("platform messages")
-
 struct platch_msg_resp_handler_data {
     enum platch_codec codec;
     platch_msg_resp_callback on_response;

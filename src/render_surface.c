@@ -19,8 +19,6 @@
 #include "tracer.h"
 #include "util/collection.h"
 
-FILE_DESCR("flutter render surface")
-
 // just so we can be sure &render_surface->surface is the same as (struct surface*) render_surface
 COMPILE_ASSERT(offsetof(struct render_surface, surface) == 0);
 

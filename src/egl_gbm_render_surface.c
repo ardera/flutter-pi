@@ -23,8 +23,6 @@
 #include "tracer.h"
 #include "util/collection.h"
 
-FILE_DESCR("EGL/GBM render surface")
-
 struct egl_gbm_render_surface;
 
 struct locked_fb {

@@ -19,8 +19,6 @@
 #include "flutter-pi.h"
 #include "util/collection.h"
 
-FILE_DESCR("fs layout")
-
 static bool path_exists(const char *path) {
     return access(path, R_OK) == 0;
 }

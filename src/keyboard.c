@@ -22,8 +22,6 @@
 
 #include "util/collection.h"
 
-FILE_DESCR("keyboard")
-
 static int find_var_offset_in_string(const char *varname, const char *buffer, regmatch_t *match) {
     regmatch_t matches[2];
     char *pattern;

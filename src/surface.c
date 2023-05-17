@@ -21,8 +21,6 @@
 #include "tracer.h"
 #include "util/collection.h"
 
-FILE_DESCR("rendering surfaces")
-
 void surface_deinit(struct surface *s);
 
 #ifdef DEBUG

@@ -21,8 +21,6 @@
 #include "util/list.h"
 #include "util/macros.h"
 
-FILE_DESCR("modesetting")
-
 struct drm_fb {
     struct list_head entry;
 

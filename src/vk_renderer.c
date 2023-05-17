@@ -16,8 +16,6 @@
 
 #define VALIDATION_LAYER_NAME "VK_LAYER_KHRONOS_validation"
 
-FILE_DESCR("vulkan renderer")
-
 UNUSED static VkLayerProperties *get_layer_props(int n_layers, VkLayerProperties *layers, const char *layer_name) {
     for (int i = 0; i < n_layers; i++) {
         if (streq(layers[i].layerName, layer_name)) {
