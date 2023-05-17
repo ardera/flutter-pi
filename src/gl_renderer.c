@@ -19,8 +19,6 @@
 #include "tracer.h"
 #include "util/collection.h"
 
-FILE_DESCR("EGL/GL renderer")
-
 struct gl_renderer {
     refcount_t n_refs;
 

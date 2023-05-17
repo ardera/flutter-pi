@@ -381,6 +381,9 @@ endif()
 
 configure_file(config.h.in config.h @ONLY)
 
+# TODO: Make this portable
+target_compile_options(flutterpi_module PRIVATE "-fmacro-prefix-map=../src/=")
+
 # Actual flutter-pi executable.
 add_executable(
   flutter-pi

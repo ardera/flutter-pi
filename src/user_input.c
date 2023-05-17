@@ -19,8 +19,6 @@
 #include "keyboard.h"
 #include "util/collection.h"
 
-FILE_DESCR("user input")
-
 #define LIBINPUT_VER(major, minor, patch) ((((major) &0xFF) << 16) | (((minor) &0xFF) << 8) | ((patch) &0xFF))
 #define THIS_LIBINPUT_VER LIBINPUT_VER(LIBINPUT_VERSION_MAJOR, LIBINPUT_VERSION_MINOR, LIBINPUT_VERSION_PATCH)
 

@@ -18,6 +18,7 @@
 #include <features.h>
 
 #include "geometry.h"
+#include "logging.h"
 #include "macros.h"
 #include "refcounting.h"
 #include "uuid.h"
@@ -285,29 +286,8 @@ static inline uint64_t get_monotonic_time(void) {
     return time.tv_nsec + time.tv_sec * 1000000000ull;
 }
 
-#define FILE_DESCR(_logging_name) static const char *__attribute__((unused)) __file_logging_name = _logging_name;
-
-#ifdef DEBUG
-    #define ASSERT_MSG(__cond, __msg) assert((__cond) && (__msg))
-    #define LOG_ERROR(fmtstring, ...) fprintf(stderr, "[%s] " fmtstring, __file_logging_name, ##__VA_ARGS__)
-    #define LOG_ERROR_UNPREFIXED(fmtstring, ...) fprintf(stderr, fmtstring, ##__VA_ARGS__)
-    #define LOG_DEBUG(fmtstring, ...) fprintf(stderr, "[%s] " fmtstring, __file_logging_name, ##__VA_ARGS__)
-    #define LOG_DEBUG_UNPREFIXED(fmtstring, ...) fprintf(stderr, fmtstring, ##__VA_ARGS__)
-#else
-    #define ASSERT_MSG(__cond, __msg) \
-        do {                          \
-        } while (0)
-    #define LOG_ERROR(fmtstring, ...) fprintf(stderr, "[%s] " fmtstring, __file_logging_name, ##__VA_ARGS__)
-    #define LOG_ERROR_UNPREFIXED(fmtstring, ...) fprintf(stderr, fmtstring, ##__VA_ARGS__)
-    #define LOG_DEBUG(fmtstring, ...) \
-        do {                          \
-        } while (0)
-    #define LOG_DEBUG_UNPREFIXED(fmtstring, ...) \
-        do {                                     \
-        } while (0)
-#endif
-
 #define ASSERT assert
+#define ASSERT_MSG(__cond, __msg) assert((__cond) && (__msg))
 #define ASSERT_NOT_NULL(__var) assert(__var != NULL)
 #define ASSERT_NOT_NULL_MSG(__var, __msg) ASSERT_MSG(__var != NULL, __msg)
 #define ASSERT_EQUALS(__a, __b) assert((__a) == (__b))

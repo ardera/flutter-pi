@@ -38,8 +38,6 @@
     #include "vk_renderer.h"
 #endif
 
-FILE_DESCR("native windows")
-
 struct window {
     pthread_mutex_t lock;
     refcount_t n_refs;

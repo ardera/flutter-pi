@@ -47,8 +47,6 @@
 
 #include "config.h"
 
-FILE_DESCR("dmabuf surface")
-
 struct refcounted_dmabuf {
     refcount_t n_refs;
     struct dmabuf buf;
