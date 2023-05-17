@@ -41,7 +41,7 @@ int render_surface_init(struct render_surface *surface, struct tracer *tracer, s
     surface->surface.deinit = render_surface_deinit;
     surface->surface.present_kms = NULL;
     surface->surface.present_fbdev = NULL;
-    
+
 #ifdef DEBUG
     uuid_copy(&surface->uuid, uuid);
 #endif

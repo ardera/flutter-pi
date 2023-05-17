@@ -9,6 +9,8 @@
  */
 
 #define _GNU_SOURCE
+#include "compositor_ng.h"
+
 #include <inttypes.h>
 #include <math.h>
 #include <stdlib.h>
@@ -19,7 +21,6 @@
 #include <flutter_embedder.h>
 #include <systemd/sd-event.h>
 
-#include "compositor_ng.h"
 #include "flutter-pi.h"
 #include "frame_scheduler.h"
 #include "modesetting.h"
@@ -31,6 +32,8 @@
 #include "util/collection.h"
 #include "util/dynarray.h"
 #include "window.h"
+
+#include "config.h"
 
 #ifdef HAVE_GBM
     #include <gbm.h>

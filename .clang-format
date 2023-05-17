@@ -92,13 +92,18 @@ IncludeCategories:
   # POSIX headers
   - Regex: '^<(ctype|dlfcn|fcntl|glob|limits|locale|poll|pthread|regex|semaphore|unistd|sys/mman|sys/stat|sys/types|sys/select)\.h>$'
     Priority: 2
-  # everything else
+  # all <> includes
   - Regex: '^<[^>]*>$'
     Priority: 3
-  - Regex: '^"[^"]*"$'
-    Priority: 6
-  - Regex: '.*'
+  # config header should go last
+  - Regex: '^"config\.h"$'
     Priority: 5
+  # all "" includes
+  - Regex: '^"[^"]*"$'
+    Priority: 4
+  # all other includes
+  - Regex: '^.*$'
+    Priority: 4
 
 IncludeIsMainRegex: '(_test)?$'
 IndentCaseLabels: true

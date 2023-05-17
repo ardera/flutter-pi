@@ -45,6 +45,8 @@
 #include "texture_registry.h"
 #include "util/collection.h"
 
+#include "config.h"
+
 FILE_DESCR("dmabuf surface")
 
 struct refcounted_dmabuf {

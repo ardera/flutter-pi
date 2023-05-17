@@ -17,11 +17,14 @@
 #ifndef _FLUTTERPI_INCLUDE_VK_RENDERER_H
 #define _FLUTTERPI_INCLUDE_VK_RENDERER_H
 
+#include "util/collection.h"
+
+#include "config.h"
+
 #ifndef HAVE_VULKAN
     #error "vk_renderer.h was included but Vulkan support is disabled."
 #endif
 
-#include "util/collection.h"
 #include "vulkan.h"
 
 struct vk_renderer;

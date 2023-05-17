@@ -3,6 +3,8 @@
 
 #include "util/collection.h"
 
+#include "config.h"
+
 #if !defined(HAVE_EGL_GLES2)
     #error "gstreamer video player requires EGL and OpenGL ES2 support."
 #else

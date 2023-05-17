@@ -1,5 +1,7 @@
 #include "pixel_format.h"
 
+#include "config.h"
+
 #ifdef HAVE_FBDEV
     #define FBDEV_FORMAT_FIELD_INITIALIZER(r_length, r_offset, g_length, g_offset, b_length, b_offset, a_length, a_offset) \
         .fbdev_format = {                                                                                                  \
