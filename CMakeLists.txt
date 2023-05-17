@@ -381,8 +381,16 @@ endif()
 
 configure_file(config.h.in config.h @ONLY)
 
-# TODO: Make this portable
-target_compile_options(flutterpi_module PRIVATE "-fmacro-prefix-map=../src/=")
+# TODO: Just check if a C file with `-fmacro-prefix-map` compiles
+if (CMAKE_C_COMPILER_ID STREQUAL "GNU")
+  if (CMAKE_C_COMPILER_VERSION VERSION_GREATER_EQUAL "8.0")
+    target_compile_options(flutterpi_module PRIVATE "-fmacro-prefix-map=../src/=")
+  endif()
+elseif (CMAKE_C_COMPILER_ID STREQUAL "Clang")
+  if (CMAKE_C_COMPILER_VERSION VERSION_GREATER_EQUAL "10.0")
+    target_compile_options(flutterpi_module PRIVATE "-fmacro-prefix-map=../src/=")
+  endif()
+endif()
 
 # Actual flutter-pi executable.
 add_executable(
