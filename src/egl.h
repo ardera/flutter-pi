@@ -11,6 +11,8 @@
 #include <stdbool.h>
 #include <string.h>
 
+#include "config.h"
+
 #ifndef HAVE_EGL
     #error "egl.h was included but EGL support is disabled."
 #endif
@@ -399,16 +401,32 @@
 // For functions part of EGL 1.5 we dynamically resolve the functions at
 // runtime, since we can't be sure they're actually present.
 #if defined(EGL_VERSION_1_5) && !defined(EGL_EGL_PROTOTYPES)
-    typedef EGLSync (EGLAPIENTRYP PFNEGLCREATESYNCPROC) (EGLDisplay dpy, EGLenum type, const EGLAttrib *attrib_list);
-    typedef EGLBoolean (EGLAPIENTRYP PFNEGLDESTROYSYNCPROC) (EGLDisplay dpy, EGLSync sync);
-    typedef EGLint (EGLAPIENTRYP PFNEGLCLIENTWAITSYNCPROC) (EGLDisplay dpy, EGLSync sync, EGLint flags, EGLTime timeout);
-    typedef EGLBoolean (EGLAPIENTRYP PFNEGLGETSYNCATTRIBPROC) (EGLDisplay dpy, EGLSync sync, EGLint attribute, EGLAttrib *value);
-    typedef EGLImage (EGLAPIENTRYP PFNEGLCREATEIMAGEPROC) (EGLDisplay dpy, EGLContext ctx, EGLenum target, EGLClientBuffer buffer, const EGLAttrib *attrib_list);
-    typedef EGLBoolean (EGLAPIENTRYP PFNEGLDESTROYIMAGEPROC) (EGLDisplay dpy, EGLImage image);
-    typedef EGLDisplay (EGLAPIENTRYP PFNEGLGETPLATFORMDISPLAYPROC) (EGLenum platform, void *native_display, const EGLAttrib *attrib_list);
-    typedef EGLSurface (EGLAPIENTRYP PFNEGLCREATEPLATFORMWINDOWSURFACEPROC) (EGLDisplay dpy, EGLConfig config, void *native_window, const EGLAttrib *attrib_list);
-    typedef EGLSurface (EGLAPIENTRYP PFNEGLCREATEPLATFORMPIXMAPSURFACEPROC) (EGLDisplay dpy, EGLConfig config, void *native_pixmap, const EGLAttrib *attrib_list);
-    typedef EGLBoolean (EGLAPIENTRYP PFNEGLWAITSYNCPROC) (EGLDisplay dpy, EGLSync sync, EGLint flags);
+typedef EGLSync(EGLAPIENTRYP PFNEGLCREATESYNCPROC)(EGLDisplay dpy, EGLenum type, const EGLAttrib *attrib_list);
+typedef EGLBoolean(EGLAPIENTRYP PFNEGLDESTROYSYNCPROC)(EGLDisplay dpy, EGLSync sync);
+typedef EGLint(EGLAPIENTRYP PFNEGLCLIENTWAITSYNCPROC)(EGLDisplay dpy, EGLSync sync, EGLint flags, EGLTime timeout);
+typedef EGLBoolean(EGLAPIENTRYP PFNEGLGETSYNCATTRIBPROC)(EGLDisplay dpy, EGLSync sync, EGLint attribute, EGLAttrib *value);
+typedef EGLImage(EGLAPIENTRYP PFNEGLCREATEIMAGEPROC)(
+    EGLDisplay dpy,
+    EGLContext ctx,
+    EGLenum target,
+    EGLClientBuffer buffer,
+    const EGLAttrib *attrib_list
+);
+typedef EGLBoolean(EGLAPIENTRYP PFNEGLDESTROYIMAGEPROC)(EGLDisplay dpy, EGLImage image);
+typedef EGLDisplay(EGLAPIENTRYP PFNEGLGETPLATFORMDISPLAYPROC)(EGLenum platform, void *native_display, const EGLAttrib *attrib_list);
+typedef EGLSurface(EGLAPIENTRYP PFNEGLCREATEPLATFORMWINDOWSURFACEPROC)(
+    EGLDisplay dpy,
+    EGLConfig config,
+    void *native_window,
+    const EGLAttrib *attrib_list
+);
+typedef EGLSurface(EGLAPIENTRYP PFNEGLCREATEPLATFORMPIXMAPSURFACEPROC)(
+    EGLDisplay dpy,
+    EGLConfig config,
+    void *native_pixmap,
+    const EGLAttrib *attrib_list
+);
+typedef EGLBoolean(EGLAPIENTRYP PFNEGLWAITSYNCPROC)(EGLDisplay dpy, EGLSync sync, EGLint flags);
 #endif
 
 #ifdef HAVE_EGL
@@ -432,7 +450,6 @@ static inline bool check_egl_extension(const char *client_ext_string, const char
     return false;
 }
 
-
 static inline const char *egl_strerror(EGLenum result) {
     switch (result) {
         case EGL_SUCCESS: return "EGL_SUCCESS";
@@ -454,7 +471,7 @@ static inline const char *egl_strerror(EGLenum result) {
     }
 }
 
-#define LOG_EGL_ERROR(result, fmt, ...) LOG_ERROR(fmt ": %s\n", __VA_ARGS__ egl_strerror(result))
+    #define LOG_EGL_ERROR(result, fmt, ...) LOG_ERROR(fmt ": %s\n", __VA_ARGS__ egl_strerror(result))
 #endif
 
 #endif  // _FLUTTERPI_INCLUDE_EGL_H

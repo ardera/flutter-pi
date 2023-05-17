@@ -244,7 +244,7 @@ struct gl_renderer *gl_renderer_new_from_gbm_device(
         if (failed_before) {
             LOG_DEBUG("Attempting eglGetDisplay...\n");
         }
-        
+
         egl_display = eglGetDisplay((void *) gbm_device);
         if (egl_display == EGL_NO_DISPLAY) {
             LOG_EGL_ERROR(eglGetError(), "Could not get EGL display from GBM device. eglGetDisplay");

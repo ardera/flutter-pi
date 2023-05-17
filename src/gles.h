@@ -8,6 +8,8 @@
 #ifndef _FLUTTERPI_INCLUDE_GLES_H
 #define _FLUTTERPI_INCLUDE_GLES_H
 
+#include "config.h"
+
 #if !defined(HAVE_GLES2)
     #error "gles.h was included but OpenGLES2 support is disabled."
 #endif

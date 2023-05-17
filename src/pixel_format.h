@@ -3,6 +3,8 @@
 
 #include "util/collection.h"
 
+#include "config.h"
+
 #ifdef HAVE_FBDEV
     #include <linux/fb.h>
 

@@ -14,6 +14,8 @@
 #include "modesetting.h"
 #include "pixel_format.h"
 
+#include "config.h"
+
 struct surface;
 struct window;
 struct tracer;
