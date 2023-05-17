@@ -14,13 +14,16 @@
 #ifndef _FLUTTERPI_INCLUDE_EGL_GL_RENDERER_H
 #define _FLUTTERPI_INCLUDE_EGL_GL_RENDERER_H
 
+#include "pixel_format.h"
+#include "util/collection.h"
+
+#include "config.h"
+
 #if !defined(HAVE_EGL_GLES2)
     #error "gl_renderer requires EGL and OpenGL ES support."
 #endif
 
 #include "egl.h"
-#include "pixel_format.h"
-#include "util/collection.h"
 
 struct tracer;
 
@@ -73,6 +76,12 @@ ATTR_PURE EGLConfig gl_renderer_choose_config(struct gl_renderer *renderer, bool
 
 ATTR_PURE EGLConfig gl_renderer_choose_config_direct(struct gl_renderer *renderer, enum pixfmt pixel_format);
 
-EGLSurface gl_renderer_create_gbm_window_surface(struct gl_renderer *renderer, EGLConfig config, struct gbm_surface *gbm_surface, const EGLAttribKHR *attrib_list, const EGLint *int_attrib_list);
+EGLSurface gl_renderer_create_gbm_window_surface(
+    struct gl_renderer *renderer,
+    EGLConfig config,
+    struct gbm_surface *gbm_surface,
+    const EGLAttribKHR *attrib_list,
+    const EGLint *int_attrib_list
+);
 
 #endif  // _FLUTTERPI_INCLUDE_EGL_GL_RENDERER_H

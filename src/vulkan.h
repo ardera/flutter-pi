@@ -8,6 +8,8 @@
 #ifndef _FLUTTERPI_INCLUDE_VULKAN_H
 #define _FLUTTERPI_INCLUDE_VULKAN_H
 
+#include "config.h"
+
 #ifndef HAVE_VULKAN
     #error "vulkan.h was included but Vulkan support is disabled."
 #endif

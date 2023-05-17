@@ -1,5 +1,7 @@
 #define _GNU_SOURCE
 
+#include "flutter-pi.h"
+
 #include <assert.h>
 #include <ctype.h>
 #include <errno.h>
@@ -26,6 +28,7 @@
 #include <drm_fourcc.h>
 #include <elf.h>
 #include <features.h>
+#include <flutter_embedder.h>
 #include <gbm.h>
 #include <getopt.h>
 #include <langinfo.h>
@@ -37,11 +40,8 @@
 #include <xf86drm.h>
 #include <xf86drmMode.h>
 
-#include <flutter_embedder.h>
-
 #include "compositor_ng.h"
 #include "filesystem_layout.h"
-#include "flutter-pi.h"
 #include "frame_scheduler.h"
 #include "keyboard.h"
 #include "locales.h"
@@ -54,8 +54,9 @@
 #include "texture_registry.h"
 #include "tracer.h"
 #include "user_input.h"
-
 #include "window.h"
+
+#include "config.h"
 
 #ifdef HAVE_LIBSEAT
     #include <libseat.h>
@@ -63,8 +64,8 @@
 
 #ifdef HAVE_EGL_GLES2
     #include "egl.h"
-    #include "gles.h"
     #include "gl_renderer.h"
+    #include "gles.h"
 #endif
 
 #ifdef HAVE_VULKAN
@@ -1969,7 +1970,7 @@ static int on_drmdev_open(const char *path, int flags, void **fd_metadata_out, v
     ASSERT_NOT_NULL(fd_metadata_out);
     (void) userdata;
 
-#if HAVE_LIBSEAT
+#ifdef HAVE_LIBSEAT
     struct libseat *libseat = userdata;
     if (libseat != NULL) {
         ok = libseat_open_device(libseat, path, &fd);

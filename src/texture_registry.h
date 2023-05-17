@@ -3,6 +3,8 @@
 
 #include <flutter_embedder.h>
 
+#include "config.h"
+
 #ifdef HAVE_EGL_GLES2
     #include "gles.h"
 #endif

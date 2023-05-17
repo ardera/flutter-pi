@@ -129,6 +129,7 @@ target_link_libraries(flutterpi_module PUBLIC
 target_include_directories(flutterpi_module PUBLIC
   ${CMAKE_SOURCE_DIR}/third_party/flutter_embedder_header/include
   ${CMAKE_SOURCE_DIR}/src
+  ${CMAKE_BINARY_DIR}
 )
 
 target_compile_options(flutterpi_module PUBLIC
@@ -152,23 +153,18 @@ list(GET LIBINPUT_VERSION_AS_LIST 0 LIBINPUT_VERSION_MAJOR)
 list(GET LIBINPUT_VERSION_AS_LIST 1 LIBINPUT_VERSION_MINOR)
 list(GET LIBINPUT_VERSION_AS_LIST 2 LIBINPUT_VERSION_PATCH)
 
-target_compile_definitions(flutterpi_module PUBLIC
-  LIBINPUT_VERSION_MAJOR=${LIBINPUT_VERSION_MAJOR}
-  LIBINPUT_VERSION_MINOR=${LIBINPUT_VERSION_MINOR}
-  LIBINPUT_VERSION_PATCH=${LIBINPUT_VERSION_PATCH}
-)
-
 # TODO: Just unconditionally define those, make them optional later
-target_compile_definitions(flutterpi_module PUBLIC HAVE_KMS HAVE_GBM HAVE_FBDEV)
+set(HAVE_KMS ON)
+set(HAVE_GBM ON)
+set(HAVE_FBDEV ON)
 
-# OpenGL
-pkg_check_modules(EGL IMPORTED_TARGET egl)
-pkg_check_modules(GLES2 IMPORTED_TARGET glesv2)
-
+# OpenGL support
 set(HAVE_EGL OFF)
 set(HAVE_GLES2 OFF)
 set(HAVE_EGL_GLES2 OFF)
 
+pkg_check_modules(EGL IMPORTED_TARGET egl)
+pkg_check_modules(GLES2 IMPORTED_TARGET glesv2)
 if (ENABLE_OPENGL)
   if (EGL_FOUND AND GLES2_FOUND)
     target_sources(flutterpi_module PRIVATE
@@ -179,10 +175,10 @@ if (ENABLE_OPENGL)
       PkgConfig::EGL
       PkgConfig::GLES2
     )
+
     set(HAVE_EGL ON)
     set(HAVE_GLES2 ON)
     set(HAVE_EGL_GLES2 ON)
-    target_compile_definitions(flutterpi_module PUBLIC HAVE_EGL HAVE_GLES2 HAVE_EGL_GLES2)
   elseif (TRY_ENABLE_OPENGL)
     message("EGL and/or OpenGL was not found. Flutter-pi will build without EGL/OpenGL rendering support.")
   else()
@@ -192,16 +188,12 @@ endif()
 
 message(STATUS "EGL/GLES support ....... ${HAVE_EGL_GLES2}")
 
-if (LINT_EGL_HEADERS)
-  target_compile_definitions(flutterpi_module PUBLIC LINT_EGL_HEADERS)
-  message(STATUS "Lint EGL headers ....... ON")
-else()
-  message(STATUS "Lint EGL headers ....... OFF")
-endif()
+message(STATUS "Lint EGL headers ....... ${LINT_EGL_HEADERS}")
+
+# Vulkan support
+set(HAVE_VULKAN OFF)
 
 pkg_check_modules(VULKAN IMPORTED_TARGET vulkan)
-
-set(HAVE_VULKAN OFF)
 if (ENABLE_VULKAN)
   if (VULKAN_FOUND)
     target_sources(flutterpi_module PRIVATE
@@ -211,8 +203,8 @@ if (ENABLE_VULKAN)
     target_link_libraries(flutterpi_module PUBLIC
       PkgConfig::VULKAN
     )
+
     set(HAVE_VULKAN ON)
-    target_compile_definitions(flutterpi_module PUBLIC HAVE_VULKAN)
   elseif (TRY_ENABLE_VULKAN)
     message("Vulkan was not found. Flutter-pi will build without vulkan rendering support.")
   else()
@@ -222,6 +214,7 @@ endif()
 
 message(STATUS "Vulkan support ......... ${HAVE_VULKAN}")
 
+# We need at least one renderer
 if (NOT HAVE_VULKAN AND NOT HAVE_EGL_GLES2)
   message(SEND_ERROR "At least one of the EGL/GLES2 and Vulkan backends must be enabled.")
 endif()
@@ -234,14 +227,17 @@ if(NOT FILESYSTEM_LAYOUT IN_LIST FILESYSTEM_LAYOUTS)
 endif()
 
 message(STATUS "Filesystem Layout ...... ${FILESYSTEM_LAYOUT}")
+
+# config.h takes the defines in form of #cmakedefine FILESYSTEM_LAYOUT_DEFAULT, ...
 if(FILESYSTEM_LAYOUT STREQUAL default)
-  target_compile_definitions(flutterpi_module PUBLIC "FILESYSTEM_LAYOUT_DEFAULT")
+  set(FILESYSTEM_LAYOUT_DEFAULT ON)
 elseif(FILESYSTEM_LAYOUT STREQUAL meta-flutter)
-  target_compile_definitions(flutterpi_module PUBLIC "FILESYSTEM_LAYOUT_METAFLUTTER")
+  set(FILESYSTEM_LAYOUT_METAFLUTTER ON)
 endif()
 
 # Session switching support (using libseat)
-message(STATUS "Session switching ...... ${ENABLE_SESSION_SWITCHING}")
+set(HAVE_LIBSEAT OFF)
+
 if (ENABLE_SESSION_SWITCHING)
   if (TRY_ENABLE_SESSION_SWITCHING)
     pkg_check_modules(LIBSEAT IMPORTED_TARGET libseat)
@@ -251,30 +247,22 @@ if (ENABLE_SESSION_SWITCHING)
 
   if (LIBSEAT_FOUND)
     target_link_libraries(flutterpi_module PUBLIC PkgConfig::LIBSEAT)
-    target_compile_definitions(flutterpi_module PUBLIC HAVE_LIBSEAT)
+    set(HAVE_LIBSEAT ON)
   else()
     message("libseat was not found. flutter-pi will be built without session switching support.")
   endif()
 endif()
 
-if (DEBUG_DRM_PLANE_ALLOCATIONS)
-  target_compile_definitions(flutterpi_module PUBLIC DEBUG_DRM_PLANE_ALLOCATIONS)
-endif()
-
-if (USE_LEGACY_KMS)
-  target_compile_definitions(flutterpi_module PUBLIC USE_LEGACY_KMS)
-endif()
+message(STATUS "Session switching ...... ${HAVE_LIBSEAT}")
 
 # TODO: We actually don't need the compile definitions anymore, except for
 # text input and raw keyboard plugin (because those have special treatment
 # in flutter-pi.c)
 if (BUILD_TEXT_INPUT_PLUGIN)
   target_sources(flutterpi_module PRIVATE src/plugins/text_input.c)
-  target_compile_definitions(flutterpi_module PUBLIC "BUILD_TEXT_INPUT_PLUGIN")
 endif()
 if (BUILD_RAW_KEYBOARD_PLUGIN)
   target_sources(flutterpi_module PRIVATE src/plugins/raw_keyboard.c)
-  target_compile_definitions(flutterpi_module PUBLIC "BUILD_RAW_KEYBOARD_PLUGIN")
 endif()
 if (BUILD_TEST_PLUGIN)
   target_sources(flutterpi_module PRIVATE src/plugins/testplugin.c)
@@ -305,11 +293,6 @@ if (BUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN)
       list(GET LIBGSTREAMER_VERSION_AS_LIST 1 LIBGSTREAMER_VERSION_MINOR)
       list(GET LIBGSTREAMER_VERSION_AS_LIST 2 LIBGSTREAMER_VERSION_PATCH)
 
-      target_compile_definitions(flutterpi_module PUBLIC
-        LIBGSTREAMER_VERSION_MAJOR=${LIBGSTREAMER_VERSION_MAJOR}
-        LIBGSTREAMER_VERSION_MINOR=${LIBGSTREAMER_VERSION_MINOR}
-        LIBGSTREAMER_VERSION_PATCH=${LIBGSTREAMER_VERSION_PATCH}
-      )
       target_sources(flutterpi_module PRIVATE
         src/plugins/gstreamer_video_player/plugin.c
         src/plugins/gstreamer_video_player/player.c
@@ -359,10 +342,16 @@ endif()
 target_link_options(flutterpi_module PUBLIC -rdynamic)
 
 # Define VULKAN_DEBUG if it was set to On, or if it was set to AUTO and we're using debug mode.
-if (VULKAN_DEBUG STREQUAL "AUTO")
-  target_compile_definitions(flutterpi_module PUBLIC $<$<CONFIG:Debug>:VULKAN_DEBUG>)
-elseif (VULKAN_DEBUG)
-  target_compile_definitions(flutterpi_module PUBLIC VULKAN_DEBUG)
+if (VULKAN_DEBUG MATCHES AUTO)
+  if (CMAKE_BUILD_TYPE MATCHES DEBUG)
+    set(VULKAN_DEBUG ON)
+  else()
+    set(VULKAN_DEBUG OFF)
+  endif()
+elseif (VULKAN_DEBUG MATCHES "OFF")
+  set(VULKAN_DEBUG OFF)
+elseif (VULKAN_DEBUG MATCHES "ON")
+  set(VULKAN_DEBUG ON)
 endif()
 
 # Some sanitizer configs.
@@ -389,9 +378,8 @@ if (ENABLE_UBSAN)
   target_link_options(flutterpi_module PUBLIC -fsanitize=undefined)
   target_compile_options(flutterpi_module PUBLIC -fsanitize=undefined)
 endif()
-if (ENABLE_MTRACE)
-  target_compile_definitions(flutterpi_module PUBLIC "ENABLE_MTRACE")
-endif()
+
+configure_file(config.h.in config.h @ONLY)
 
 # Actual flutter-pi executable.
 add_executable(

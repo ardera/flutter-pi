@@ -26,6 +26,8 @@
 #include "tracer.h"
 #include "util/collection.h"
 
+#include "config.h"
+
 #ifdef HAVE_EGL_GLES2
     #include "egl_gbm_render_surface.h"
     #include "gl_renderer.h"

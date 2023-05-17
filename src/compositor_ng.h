@@ -18,6 +18,8 @@
 #include "pixel_format.h"
 #include "util/collection.h"
 
+#include "config.h"
+
 #ifdef HAVE_EGL_GLES2
     #include "egl.h"
 #endif
