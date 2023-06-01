@@ -199,7 +199,7 @@ struct frame_interface *frame_interface_new(struct gl_renderer *renderer) {
     }
 
     if (gl_renderer_supports_egl_extension(renderer, "EGL_EXT_image_dma_buf_import_modifiers")) {
-#ifdef EGL_EXT_image_dma_buf_import_modifiers
+#ifndef EGL_EXT_image_dma_buf_import_modifiers
         LOG_ERROR(
             "EGL supports EGL_EXT_image_dma_buf_import_modifiers, "
             "but EGL headers didn't contain definitions for EGL_EXT_image_dma_buf_import_modifiers."
