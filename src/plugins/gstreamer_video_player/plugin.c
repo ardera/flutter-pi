@@ -585,7 +585,7 @@ invalid_format_hint:
     }
 
     // set a receiver on the videoEvents event channel
-    ok = plugin_registry_set_receiver_locked(meta->event_channel_name, kStandardMethodCall, on_receive_evch);
+    ok = plugin_registry_set_receiver(meta->event_channel_name, kStandardMethodCall, on_receive_evch);
     if (ok != 0) {
         goto fail_remove_player;
     }
