@@ -193,7 +193,7 @@ struct frame_interface *frame_interface_new(struct gl_renderer *renderer) {
         return NULL;
     }
 
-    if (gl_renderer_supports_egl_extension(renderer, "EGL_EXT_image_dma_buf_import")) {
+    if (!gl_renderer_supports_egl_extension(renderer, "EGL_EXT_image_dma_buf_import")) {
         LOG_ERROR("EGL does not support EGL_EXT_image_dma_buf_import extension. Video frames cannot be uploaded.\n");
         goto fail_free;
     }
