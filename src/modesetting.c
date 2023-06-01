@@ -1235,7 +1235,7 @@ void drmdev_unmap_dumb_buffer(struct drmdev *drmdev, void *map, size_t size) {
 
     ok = munmap(map, size);
     if (ok < 0) {
-        LOG_ERROR("Couldn't unmap dumb buffer. munmap: %s\n", strerror(ok));
+        LOG_ERROR("Couldn't unmap dumb buffer. munmap: %s\n", strerror(errno));
     }
 }
 
@@ -1742,6 +1742,16 @@ fail_free_device:
 fail_unlock:
     drmdev_unlock(drmdev);
     return ok;
+}
+
+int drmdev_move_cursor(struct drmdev *drmdev, uint32_t crtc_id, struct vec2i pos) {
+    int ok = drmModeMoveCursor(drmdev->master_fd, crtc_id, pos.x, pos.y);
+    if (ok < 0) {
+        LOG_ERROR("Couldn't move mouse cursor. drmModeMoveCursor: %s\n", strerror(-ok));
+        return -ok;
+    }
+
+    return 0;
 }
 
 static void drmdev_set_scanout_callback_locked(

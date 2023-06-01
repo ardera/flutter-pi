@@ -701,6 +701,8 @@ void drmdev_suspend(struct drmdev *drmdev);
 
 int drmdev_resume(struct drmdev *drmdev);
 
+int drmdev_move_cursor(struct drmdev *drmdev, uint32_t crtc_id, struct vec2i pos);
+
 static inline double mode_get_vrefresh(const drmModeModeInfo *mode) {
     return mode->clock * 1000.0 / (mode->htotal * mode->vtotal);
 }
