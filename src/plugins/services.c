@@ -208,7 +208,7 @@ static void on_receive_platform(void *userdata, const FlutterPlatformMessage *me
          *      systemNavigationBarIconBrightness: null / Brightness
          */
     } else if (streq(object.method, "SystemNavigator.pop")) {
-        LOG_FLUTTERPI_ERROR("received SystemNavigator.pop. Exiting...\n");
+        LOG_DEBUG("received SystemNavigator.pop. Exiting...\n");
         flutterpi_schedule_exit(flutterpi);
     }
 
