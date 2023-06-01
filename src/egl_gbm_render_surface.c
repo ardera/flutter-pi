@@ -404,7 +404,7 @@ static int egl_gbm_render_surface_present_kms(struct surface *s, const struct fl
             gbm_bo_get_handle(bo).u32,
             gbm_bo_get_stride(bo),
             gbm_bo_get_offset(bo, 0),
-            true,
+            gbm_bo_get_modifier(bo) != DRM_FORMAT_MOD_INVALID,
             gbm_bo_get_modifier(bo)
         );
         TRACER_END(egl_surface->surface.tracer, "drmdev_add_fb (non-opaque)");
