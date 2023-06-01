@@ -1391,6 +1391,9 @@ uint32_t drmdev_add_fb_multiplanar_locked(
     uint32_t fb_id;
     int ok;
 
+    /// TODO: Code in https://elixir.bootlin.com/linux/latest/source/drivers/gpu/drm/drm_framebuffer.c#L257
+    ///  assumes handles, pitches, offsets and modifiers for unused planes are zero. Make sure that's the
+    ///  case here.
     ASSERT_NOT_NULL(drmdev);
     assert(width > 0 && height > 0);
     assert(bo_handles[0] != 0);
