@@ -660,7 +660,7 @@ UNUSED static struct cursor_buffer *cursor_buffer_new(struct drmdev *drmdev, enu
         }
     }
 
-    drmdev_unmap_dumb_buffer(drmdev, map_void, size);
+    drmdev_unmap_dumb_buffer(drmdev, map_void, buffer_size);
 
     fb_id = drmdev_add_fb(drmdev, pixel_size, pixel_size, kARGB8888_FpiPixelFormat, gem_handle, pitch, 0, true, DRM_FORMAT_MOD_LINEAR);
     if (fb_id == 0) {
@@ -1496,6 +1496,6 @@ static int kms_window_move_cursor_locked(struct window *window, struct vec2i pos
     window->cursor_pos = pos;
 
     /// TODO: Draw a new frame or redraw the last frame with new cursor pos here.
-
+    drmdev_move_cursor(window->kms.drmdev, window->kms.crtc->id, pos);
     return 0;
 }
