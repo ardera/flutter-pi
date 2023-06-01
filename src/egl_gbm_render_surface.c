@@ -257,6 +257,9 @@ fail_destroy_gbm_surface:
  * @param renderer The EGL/OpenGL used to create any GL surfaces.
  * @param pixel_format The pixel format to be used by the framebuffers of the surface.
  * @param egl_config The EGLConfig used for creating the EGLSurface.
+ * @param allowed_modifiers The list of modifiers that gbm_surface_create_with_modifiers can choose from.
+ *                          NULL if not specified. (In that case, gbm_surface_create will be used)
+ * @param n_allowed_modifiers The number of modifiers in @param allowed_modifiers.
  * @return struct egl_gbm_render_surface*
  */
 struct egl_gbm_render_surface *egl_gbm_render_surface_new_with_egl_config(
