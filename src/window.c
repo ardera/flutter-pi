@@ -1331,7 +1331,17 @@ static struct render_surface *kms_window_get_render_surface_internal(struct wind
         size = VEC2I(window->kms.mode->hdisplay, window->kms.mode->vdisplay);
     }
 
-    enum pixfmt pixel_format = window->has_forced_pixel_format ? window->forced_pixel_format : kARGB8888_FpiPixelFormat;
+    enum pixfmt pixel_format;
+    if (window->has_forced_pixel_format) {
+        pixel_format = window->forced_pixel_format;
+    } else {
+        // Actually, more devices support ARGB8888 might sometimes not be supported by devices,
+        // for example for primary planes. But we can just cast ARGB8888 to XRGB8888 if we need to,
+        // and ARGB8888 is still a good default choice because casting XRGB to ARGB might not work,
+        // and sometimes we need alpha for overlay planes.
+        // Also vulkan doesn't work with XRGB yet so we definitely need to use ARGB to vulkan too.
+        pixel_format = kARGB8888_FpiPixelFormat;
+    }
 
     // Possibly populate this with the supported modifiers for this pixel format.
     // If no plane lists modifiers for this pixel format, this will be left at NULL,
@@ -1402,7 +1412,7 @@ static struct render_surface *kms_window_get_render_surface_internal(struct wind
             size,
             gl_renderer_get_gbm_device(window->gl_renderer),
             window->gl_renderer,
-            window->has_forced_pixel_format ? window->forced_pixel_format : kARGB8888_FpiPixelFormat,
+            pixel_format,
             EGL_NO_CONFIG_KHR,
             allowed_modifiers,
             n_allowed_modifiers
@@ -1422,13 +1432,8 @@ static struct render_surface *kms_window_get_render_surface_internal(struct wind
 
         // vulkan
 #ifdef HAVE_VULKAN
-        struct vk_gbm_render_surface *vk_surface = vk_gbm_render_surface_new(
-            window->tracer,
-            size,
-            drmdev_get_gbm_device(window->kms.drmdev),
-            window->vk_renderer,
-            window->has_forced_pixel_format ? window->forced_pixel_format : kARGB8888_FpiPixelFormat
-        );
+        struct vk_gbm_render_surface *vk_surface =
+            vk_gbm_render_surface_new(window->tracer, size, drmdev_get_gbm_device(window->kms.drmdev), window->vk_renderer, pixel_format);
         if (vk_surface == NULL) {
             LOG_ERROR("Couldn't create Vulkan GBM rendering surface.\n");
             render_surface = NULL;
