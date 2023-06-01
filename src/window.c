@@ -1482,11 +1482,13 @@ static int kms_window_enable_cursor_locked(struct window *window, struct vec2i p
     window->cursor_pos = pos;
 
     window->kms.cursor = cursor;
+    window->cursor_enabled = true;
     return 0;
 }
 
 static int kms_window_disable_cursor_locked(struct window *window) {
     cursor_buffer_unrefp(&window->kms.cursor);
+    window->cursor_enabled = false;
     return 0;
 }
 
