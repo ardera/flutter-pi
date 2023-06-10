@@ -515,9 +515,9 @@ static bool calculate_plane_size(const GstVideoInfo *info, int plane_index, size
 
     #if THIS_GSTREAMER_VER >= GSTREAMER_VER(1, 21, 3)
     if (GST_VIDEO_FORMAT_INFO_IS_TILED(info->finfo)) {
-        guint x_tiles = GST_VIDEO_TILE_X_TILES(info->stride[i]);
-        guint y_tiles = GST_VIDEO_TILE_Y_TILES(info->stride[i]);
-        return x_tiles * y_tiles * GST_VIDEO_FORMAT_INFO_TILE_SIZE(info->finfo, i);
+        guint x_tiles = GST_VIDEO_TILE_X_TILES(info->stride[plane_index]);
+        guint y_tiles = GST_VIDEO_TILE_Y_TILES(info->stride[plane_index]);
+        return x_tiles * y_tiles * GST_VIDEO_FORMAT_INFO_TILE_SIZE(info->finfo, plane_index);
     }
     #endif
 
