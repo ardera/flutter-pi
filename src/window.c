@@ -606,7 +606,9 @@ static void write_cursor_icon(
         memcpy(map_void, icon->data, buffer_size);
         hot_x = icon->hot_x;
         hot_y = icon->hot_y;
-    } else if (rotation.rotate_90 || rotation.rotate_180 || rotation.rotate_270) {
+    } else {
+        ASSUME(rotation.rotate_90 || rotation.rotate_180 || rotation.rotate_270);
+        
         uint32_t *map_uint32 = (uint32_t *) map_void;
 
         for (int y = 0; y < pixel_size; y++) {
