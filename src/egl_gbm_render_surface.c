@@ -336,22 +336,23 @@ void egl_gbm_render_surface_deinit(struct surface *s) {
 struct gbm_bo_meta {
     struct drmdev *drmdev;
     uint32_t fb_id;
+
+    bool has_opaque_fb_id;
+    uint32_t opaque_fb_id;
 };
 
 static void on_destroy_gbm_bo_meta(struct gbm_bo *bo, void *meta_void) {
     struct gbm_bo_meta *meta;
-    int ok;
 
     ASSERT_NOT_NULL(bo);
     ASSERT_NOT_NULL(meta_void);
     (void) bo;
     meta = meta_void;
 
-    ok = drmdev_rm_fb(meta->drmdev, meta->fb_id);
-    if (ok != 0) {
-        LOG_ERROR("Couldn't remove DRM framebuffer.\n");
+    drmdev_rm_fb(meta->drmdev, meta->fb_id);
+    if (meta->has_opaque_fb_id) {
+        drmdev_rm_fb(meta->drmdev, meta->opaque_fb_id);
     }
-
     drmdev_unref(meta->drmdev);
     free(meta);
 }
@@ -371,7 +372,7 @@ static int egl_gbm_render_surface_present_kms(struct surface *s, const struct fl
     struct drmdev *drmdev;
     struct gbm_bo *bo;
     enum pixfmt pixel_format;
-    uint32_t fb_id;
+    uint32_t fb_id, opaque_fb_id;
     int ok;
 
     egl_surface = CAST_THIS(s);
@@ -417,6 +418,32 @@ static int egl_gbm_render_surface_present_kms(struct surface *s, const struct fl
             LOG_ERROR("Couldn't add GBM buffer as DRM framebuffer.\n");
             goto fail_free_meta;
         }
+        
+        // if this EGL surface is non-opaque and has an opaque equivalent
+        if (!get_pixfmt_info(egl_surface->pixel_format)->is_opaque && pixfmt_opaque(egl_surface->pixel_format) != egl_surface->pixel_format) {
+            opaque_fb_id = drmdev_add_fb(
+                drmdev,
+                gbm_bo_get_width(bo),
+                gbm_bo_get_height(bo),
+                pixfmt_opaque(egl_surface->pixel_format),
+                gbm_bo_get_handle(bo).u32,
+                gbm_bo_get_stride(bo),
+                gbm_bo_get_offset(bo, 0),
+                gbm_bo_get_modifier(bo) != DRM_FORMAT_MOD_INVALID,
+                gbm_bo_get_modifier(bo)
+            );
+            if (opaque_fb_id == 0) {
+                ok = EIO;
+                LOG_ERROR("Couldn't add GBM buffer as opaque DRM framebuffer.\n");
+                goto fail_remove_fb;
+            }
+
+            meta->has_opaque_fb_id = true;
+            meta->opaque_fb_id = opaque_fb_id;
+        } else {
+            meta->has_opaque_fb_id = false;
+            meta->opaque_fb_id = 0;
+        }
 
         meta->drmdev = drmdev_ref(drmdev);
         meta->fb_id = fb_id;
@@ -445,12 +472,16 @@ static int egl_gbm_render_surface_present_kms(struct surface *s, const struct fl
     );
     */
 
-    // The bottom-most layer should preferably be an opaque layer.
-    // For example, on Pi 4, even though ARGB8888 is listed as supported for the primary plane,
-    // rendering is completely off.
     // So we just cast our fb to an XRGB8888 framebuffer and scanout that instead.
     fb_id = meta->fb_id;
     pixel_format = egl_surface->pixel_format;
+
+    // The bottom-most layer should preferably be an opaque layer.
+    // We could also try non-opaque first and fallback to opaque if not supported though.
+    if (kms_req_builder_prefer_next_layer_opaque(builder) && meta->has_opaque_fb_id) {
+        fb_id = meta->opaque_fb_id;
+        pixel_format = pixfmt_opaque(egl_surface->pixel_format);
+    }
 
     TRACER_BEGIN(egl_surface->surface.tracer, "kms_req_builder_push_fb_layer");
     ok = kms_req_builder_push_fb_layer(
@@ -492,6 +523,9 @@ static int egl_gbm_render_surface_present_kms(struct surface *s, const struct fl
 fail_unref_locked_fb:
     locked_fb_unref(egl_surface->locked_front_fb);
     goto fail_unlock;
+
+fail_remove_fb:
+    drmdev_rm_fb(drmdev, fb_id);
 
 fail_free_meta:
     free(meta);
