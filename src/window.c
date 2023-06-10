@@ -556,7 +556,7 @@ struct cursor_buffer {
 
     struct gbm_bo *bo;
 
-    int hot_x, hot_y;
+    struct vec2i hotspot;
 };
 
 static const int pixel_size_for_cursor_size[] = {
@@ -581,82 +581,43 @@ UNUSED static enum cursor_size cursor_size_from_pixel_ratio(double device_pixel_
     return size;
 }
 
-static void write_cursor_icon(
-    void *map_void,
+static struct vec2i get_cursor_hotspot(
     enum cursor_size size,
-    uint32_t pitch,
-    size_t buffer_size,
-    drm_plane_transform_t rotation,
-    int *hot_x_out,
-    int *hot_y_out
+    drm_plane_transform_t rotation
 ) {
     const struct cursor_icon *icon;
     int pixel_size;
     int hot_x, hot_y;
-
-    ASSERT_NOT_NULL(map_void);
+    
     assert(PLANE_TRANSFORM_IS_ONLY_ROTATION(rotation));
     icon = cursors + size;
     pixel_size = pixel_size_for_cursor_size[size];
-    ASSERT_EQUALS(pixel_size, icon->width);
-    ASSERT_EQUALS(pixel_size, icon->height);
 
-    if (rotation.rotate_0 == 0) {
-        ASSERT_EQUALS(pixel_size * 4, pitch);
-        memcpy(map_void, icon->data, buffer_size);
+    if (rotation.rotate_0) {
         hot_x = icon->hot_x;
         hot_y = icon->hot_y;
+    } else if (rotation.rotate_90) {
+        hot_x = pixel_size - icon->hot_y - 1;
+        hot_y = icon->hot_x;
+    } else if (rotation.rotate_180) {
+        hot_x = pixel_size - icon->hot_x - 1;
+        hot_y = pixel_size - icon->hot_y - 1;
     } else {
-        ASSUME(rotation.rotate_90 || rotation.rotate_180 || rotation.rotate_270);
-        
-        uint32_t *map_uint32 = (uint32_t *) map_void;
-
-        for (int y = 0; y < pixel_size; y++) {
-            for (int x = 0; x < pixel_size; x++) {
-                int buffer_x, buffer_y;
-                if (rotation.rotate_90) {
-                    buffer_x = pixel_size - y - 1;
-                    buffer_y = x;
-                } else if (rotation.rotate_180) {
-                    buffer_x = pixel_size - y - 1;
-                    buffer_y = pixel_size - x - 1;
-                } else {
-                    assert(rotation.rotate_270);
-                    buffer_x = y;
-                    buffer_y = pixel_size - x - 1;
-                }
-
-                int buffer_offset = pitch * buffer_y + 4 * buffer_x;
-                int cursor_offset = pixel_size * y + x;
-
-                map_uint32[buffer_offset / 4] = icon->data[cursor_offset];
-            }
-        }
-
-        if (rotation.rotate_90) {
-            hot_x = pixel_size - icon->hot_y - 1;
-            hot_y = icon->hot_x;
-        } else if (rotation.rotate_180) {
-            hot_x = pixel_size - icon->hot_x - 1;
-            hot_y = pixel_size - icon->hot_y - 1;
-        } else {
-            assert(rotation.rotate_270);
-            hot_x = icon->hot_y;
-            hot_y = pixel_size - icon->hot_x - 1;
-        }
+        ASSUME(rotation.rotate_270);
+        hot_x = icon->hot_y;
+        hot_y = pixel_size - icon->hot_x - 1;
     }
 
-    *hot_x_out = hot_x;
-    *hot_y_out = hot_y;
+    return VEC2I(hot_x, hot_y);
 }
 
-static struct cursor_buffer *cursor_buffer_new_using_gbm_bo(struct drmdev *drmdev, enum cursor_size size, drm_plane_transform_t rotation) {
+static struct cursor_buffer *cursor_buffer_new(struct drmdev *drmdev, enum cursor_size size, drm_plane_transform_t rotation) {
+    const struct cursor_icon *icon;
     struct cursor_buffer *b;
     struct gbm_bo *bo;
-    uint32_t stride;
     uint32_t fb_id;
-    void *mapdata, *map;
-    int pixel_size, hot_x, hot_y;
+    int pixel_size;
+    int ok;
 
     ASSERT_NOT_NULL(drmdev);
     assert(PLANE_TRANSFORM_IS_ONLY_ROTATION(rotation));
@@ -680,15 +641,60 @@ static struct cursor_buffer *cursor_buffer_new_using_gbm_bo(struct drmdev *drmde
         goto fail_free_b;
     }
 
-    map = gbm_bo_map(bo, 0, 0, pixel_size, pixel_size, GBM_BO_TRANSFER_READ | GBM_BO_TRANSFER_WRITE, &stride, &mapdata);
-    if (map == NULL) {
-        LOG_ERROR("Couldn't map GBM bo for uploading mouse cursor icon. gbm_bo_map: %s\n", strerror(errno));
+    if (gbm_bo_get_stride(bo) != pixel_size * 4) {
+        LOG_ERROR("GBM BO has unsupported framebuffer stride %u, expected was: %d\n", gbm_bo_get_stride(bo), pixel_size * 4);
         goto fail_destroy_bo;
     }
 
-    write_cursor_icon(map, size, stride, stride * pixel_size, rotation, &hot_x, &hot_y);
+    icon = cursors + size;
+    ASSERT_EQUALS(pixel_size, icon->width);
+    ASSERT_EQUALS(pixel_size, icon->height);
 
-    gbm_bo_unmap(bo, mapdata);
+    if (rotation.rotate_0) {
+        ok = gbm_bo_write(bo, icon->data, gbm_bo_get_stride(bo) * pixel_size);
+        if (ok != 0) {
+            LOG_ERROR("Couldn't write cursor icon to GBM BO. gbm_bo_write: %s\n", strerror(errno));
+            goto fail_destroy_bo;
+        }
+    } else {
+        ASSUME(rotation.rotate_90 || rotation.rotate_180 || rotation.rotate_270);
+
+        uint32_t *rotated = malloc(pixel_size * pixel_size * 4);
+        if (rotated == NULL) {
+            goto fail_destroy_bo;
+        }
+
+        for (int y = 0; y < pixel_size; y++) {
+            for (int x = 0; x < pixel_size; x++) {
+                int buffer_x, buffer_y;
+                if (rotation.rotate_90) {
+                    buffer_x = pixel_size - y - 1;
+                    buffer_y = x;
+                } else if (rotation.rotate_180) {
+                    buffer_x = pixel_size - y - 1;
+                    buffer_y = pixel_size - x - 1;
+                } else {
+                    ASSUME(rotation.rotate_270);
+                    buffer_x = y;
+                    buffer_y = pixel_size - x - 1;
+                }
+
+                int buffer_offset = pixel_size * buffer_y + buffer_x;
+                int cursor_offset = pixel_size * y + x;
+
+                rotated[buffer_offset] = icon->data[cursor_offset];
+            }
+        }
+
+        ok = gbm_bo_write(bo, rotated, pixel_size * pixel_size * 4);
+
+        free(rotated);
+
+        if (ok != 0) {
+            LOG_ERROR("Couldn't write rotated cursor icon to GBM BO. gbm_bo_write: %s\n", strerror(errno));
+            goto fail_destroy_bo;
+        }
+    }
 
     fb_id = drmdev_add_fb(
         drmdev,
@@ -715,8 +721,7 @@ static struct cursor_buffer *cursor_buffer_new_using_gbm_bo(struct drmdev *drmde
     b->gem_handle = gbm_bo_get_handle(bo).u32;
     b->drm_fb_id = fb_id;
     b->bo = bo;
-    b->hot_x = hot_x;
-    b->hot_y = hot_y;
+    b->hotspot = get_cursor_hotspot(size, rotation);
     return b;
 
 fail_destroy_bo:
@@ -725,98 +730,6 @@ fail_destroy_bo:
 fail_free_b:
     free(b);
     return NULL;
-}
-
-static struct cursor_buffer *
-cursor_buffer_new_using_kms_dumb_buffers(struct drmdev *drmdev, enum cursor_size size, drm_plane_transform_t rotation) {
-    const struct cursor_icon *icon;
-    struct cursor_buffer *b;
-    uint32_t gem_handle, pitch;
-    uint32_t fb_id;
-    size_t buffer_size;
-    void *map_void;
-    int pixel_size, hot_x, hot_y;
-    int ok;
-
-    ASSERT_NOT_NULL(drmdev);
-    assert(PLANE_TRANSFORM_IS_ONLY_ROTATION(rotation));
-
-    if (!drmdev_supports_dumb_buffers(drmdev)) {
-        LOG_ERROR("KMS doesn't support dumb buffers. Can't upload mouse cursor icon.\n");
-        return NULL;
-    }
-
-    b = malloc(sizeof *b);
-    if (b == NULL) {
-        return NULL;
-    }
-
-    pixel_size = pixel_size_for_cursor_size[size];
-
-    ok = drmdev_create_dumb_buffer(drmdev, pixel_size, pixel_size, 32, &gem_handle, &pitch, &buffer_size);
-    if (ok != 0) {
-        goto fail_free_b;
-    }
-
-    fb_id = drmdev_add_fb(drmdev, pixel_size, pixel_size, kARGB8888_FpiPixelFormat, gem_handle, pitch, 0, true, DRM_FORMAT_MOD_LINEAR);
-    if (fb_id == 0) {
-        LOG_ERROR("Couldn't add mouse cursor buffer as KMS framebuffer.\n");
-        goto fail_destroy_dumb_buffer;
-    }
-
-    map_void = drmdev_map_dumb_buffer(drmdev, gem_handle, buffer_size);
-    if (map_void == NULL) {
-        goto fail_rm_fb;
-    }
-
-    icon = cursors + size;
-    ASSERT_EQUALS(pixel_size, icon->width);
-    ASSERT_EQUALS(pixel_size, icon->height);
-
-    write_cursor_icon(map_void, size, pitch, buffer_size, rotation, &hot_x, &hot_y);
-
-    drmdev_unmap_dumb_buffer(drmdev, map_void, buffer_size);
-
-    b->n_refs = REFCOUNT_INIT_1;
-    b->format = kARGB8888_FpiPixelFormat;
-    b->width = pixel_size;
-    b->height = pixel_size;
-    b->size = size;
-    b->rotation = rotation;
-    b->drmdev = drmdev_ref(drmdev);
-    b->gem_handle = gem_handle;
-    b->drm_fb_id = fb_id;
-    b->bo = NULL;
-    b->hot_x = hot_x;
-    b->hot_y = hot_y;
-    return b;
-
-fail_rm_fb:
-    drmdev_rm_fb(drmdev, fb_id);
-
-fail_destroy_dumb_buffer:
-    drmdev_destroy_dumb_buffer(drmdev, gem_handle);
-
-fail_free_b:
-    free(b);
-    return NULL;
-}
-
-static struct cursor_buffer *cursor_buffer_new(struct drmdev *drmdev, enum cursor_size size, drm_plane_transform_t rotation) {
-    struct cursor_buffer *b;
-
-    b = cursor_buffer_new_using_kms_dumb_buffers(drmdev, size, rotation);
-
-    if (b == NULL) {
-        b = cursor_buffer_new_using_gbm_bo(drmdev, size, rotation);
-    }
-
-    if (b == NULL) {
-        LOG_ERROR("Couldn't upload mouse cursor icon using any method.\n");
-        return NULL;
-    }
-
-    return b;
 }
 
 static void cursor_buffer_destroy(struct cursor_buffer *buffer) {
@@ -1295,8 +1208,8 @@ static int kms_window_push_composition(struct window *window, struct fl_layer_co
                 .src_y = 0,
                 .src_w = ((uint16_t) window->kms.cursor->width) << 16,
                 .src_h = ((uint16_t) window->kms.cursor->height) << 16,
-                .dst_x = window->cursor_pos.x - window->kms.cursor->hot_x,
-                .dst_y = window->cursor_pos.y - window->kms.cursor->hot_y,
+                .dst_x = window->cursor_pos.x - window->kms.cursor->hotspot.x,
+                .dst_y = window->cursor_pos.y - window->kms.cursor->hotspot.y,
                 .dst_w = window->kms.cursor->width,
                 .dst_h = window->kms.cursor->height,
                 .has_rotation = false,
@@ -1626,6 +1539,6 @@ static int kms_window_move_cursor_locked(struct window *window, struct vec2i pos
     window->cursor_pos = pos;
 
     /// TODO: Draw a new frame or redraw the last frame with new cursor pos here.
-    drmdev_move_cursor(window->kms.drmdev, window->kms.crtc->id, pos);
+    drmdev_move_cursor(window->kms.drmdev, window->kms.crtc->id, vec2i_sub(pos, window->kms.cursor->hotspot));
     return 0;
 }

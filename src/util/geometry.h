@@ -18,11 +18,24 @@ ATTR_CONST static inline struct vec2f vec2f_add(struct vec2f a, struct vec2f b) 
     return VEC2F(a.x + b.x, a.y + b.y);
 }
 
+ATTR_CONST static inline struct vec2f vec2f_sub(struct vec2f a, struct vec2f b) {
+    return VEC2F(a.x - b.x, a.y - b.y);
+}
+
+
 struct vec2i {
     int x, y;
 };
 
 #define VEC2I(_x, _y) ((struct vec2i){ .x = (_x), .y = (_y) })
+
+ATTR_CONST static inline struct vec2i vec2i_add(struct vec2i a, struct vec2i b) {
+    return VEC2I(a.x + b.x, a.y + b.y);
+}
+
+ATTR_CONST static inline struct vec2i vec2i_sub(struct vec2i a, struct vec2i b) {
+    return VEC2I(a.x - b.x, a.y - b.y);
+}
 
 /**
  * @brief A quadrilateral with 4 2-dimensional float coordinates.
