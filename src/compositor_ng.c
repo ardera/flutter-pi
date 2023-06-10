@@ -125,7 +125,6 @@ struct compositor {
 
     FlutterCompositor flutter_compositor;
 
-    bool cursor_enabled;
     struct vec2f cursor_pos;
 };
 
@@ -170,6 +169,7 @@ MUST_CHECK struct compositor *compositor_new(struct tracer *tracer, struct windo
         .avoid_backing_store_cache = true,
     };
     compositor->tracer = tracer_ref(tracer);
+    compositor->cursor_pos = VEC2F(0, 0);
     return compositor;
 
 fail_free_compositor:
@@ -529,36 +529,22 @@ void compositor_set_cursor(struct compositor *compositor, bool has_enabled, bool
 
     compositor_lock(compositor);
 
-    if (has_enabled) {
-        if (enabled && !compositor->cursor_enabled) {
-            // enable cursor
-        } else if (!enabled && compositor->cursor_enabled) {
-            // disable cursor
-        }
-    }
-
     if (has_delta) {
-        if (compositor->cursor_enabled) {
-            // move cursor
-            compositor->cursor_pos = vec2f_add(compositor->cursor_pos, delta);
+        // move cursor
+        compositor->cursor_pos = vec2f_add(compositor->cursor_pos, delta);
 
-            struct view_geometry viewgeo = window_get_view_geometry(compositor->main_window);
+        struct view_geometry viewgeo = window_get_view_geometry(compositor->main_window);
 
-            if (compositor->cursor_pos.x < 0.0f) {
-                compositor->cursor_pos.x = 0.0f;
-            } else if (compositor->cursor_pos.x > viewgeo.view_size.x) {
-                compositor->cursor_pos.x = viewgeo.view_size.x;
-            }
+        if (compositor->cursor_pos.x < 0.0f) {
+            compositor->cursor_pos.x = 0.0f;
+        } else if (compositor->cursor_pos.x > viewgeo.view_size.x) {
+            compositor->cursor_pos.x = viewgeo.view_size.x;
+        }
 
-            if (compositor->cursor_pos.y < 0.0f) {
-                compositor->cursor_pos.y = 0.0f;
-            } else if (compositor->cursor_pos.y > viewgeo.view_size.y) {
-                compositor->cursor_pos.y = viewgeo.view_size.y;
-            }
-        } else {
-            // !enabled && !window->cursor_enabled
-            // move cursor while cursor is disabled
-            LOG_ERROR("Attempted to move cursor while cursor is disabled.\n");
+        if (compositor->cursor_pos.y < 0.0f) {
+            compositor->cursor_pos.y = 0.0f;
+        } else if (compositor->cursor_pos.y > viewgeo.view_size.y) {
+            compositor->cursor_pos.y = viewgeo.view_size.y;
         }
     }
 
