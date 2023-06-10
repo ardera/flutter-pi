@@ -1219,7 +1219,7 @@ fail_destroy_event:
 }
 
 int user_input_on_fd_ready(struct user_input *input) {
-    unsigned int cursor_x, cursor_y, cursor_x_before, cursor_y_before;
+    int cursor_x, cursor_y, cursor_x_before, cursor_y_before;
     uint64_t timestamp;
     bool cursor_enabled, cursor_enabled_before;
     int ok;
@@ -1240,8 +1240,8 @@ int user_input_on_fd_ready(struct user_input *input) {
 
     // record cursor state before handling events
     cursor_enabled_before = input->n_cursor_devices > 0;
-    cursor_x_before = (unsigned int) round(input->cursor_x);
-    cursor_y_before = (unsigned int) round(input->cursor_y);
+    cursor_x_before = round(input->cursor_x);
+    cursor_y_before = round(input->cursor_y);
 
     // handle all available libinput events
     ok = process_libinput_events(input, timestamp);
@@ -1252,8 +1252,8 @@ int user_input_on_fd_ready(struct user_input *input) {
 
     // record cursor state after handling events
     cursor_enabled = input->n_cursor_devices > 0;
-    cursor_x = (unsigned int) round(input->cursor_x);
-    cursor_y = (unsigned int) round(input->cursor_y);
+    cursor_x = round(input->cursor_x);
+    cursor_y = round(input->cursor_y);
 
     // make sure we've dispatched all the flutter pointer events
     flush_pointer_events(input);
