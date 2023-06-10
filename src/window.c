@@ -507,10 +507,16 @@ int window_set_cursor(struct window *window, bool has_enabled, bool enabled, boo
             // enable cursor
             ASSERT_NOT_NULL(window->enable_cursor_locked);
             ok = window->enable_cursor_locked(window, pos);
+            if (ok != 0) {
+                goto fail_unlock;
+            }
         } else if (!enabled && window->cursor_enabled) {
             // disable cursor
             ASSERT_NOT_NULL(window->disable_cursor_locked);
             ok = window->disable_cursor_locked(window);
+            if (ok != 0) {
+                goto fail_unlock;
+            }
         }
     }
 
@@ -519,14 +525,23 @@ int window_set_cursor(struct window *window, bool has_enabled, bool enabled, boo
             // move cursor
             ASSERT_NOT_NULL(window->move_cursor_locked);
             ok = window->move_cursor_locked(window, pos);
+            if (ok != 0) {
+                goto fail_unlock;
+            }
         } else {
             // !enabled && !window->cursor_enabled
             // move cursor while cursor is disabled
             LOG_ERROR("Attempted to move cursor while cursor is disabled.\n");
             ok = EINVAL;
+            goto fail_unlock;
         }
     }
 
+    window_unlock(window);
+    return 0;
+
+
+    fail_unlock:
     window_unlock(window);
     return ok;
 }
@@ -551,9 +566,7 @@ struct cursor_buffer {
     drm_plane_transform_t rotation;
 
     struct drmdev *drmdev;
-    uint32_t gem_handle;
     int drm_fb_id;
-
     struct gbm_bo *bo;
 
     struct vec2i hotspot;
@@ -718,7 +731,6 @@ static struct cursor_buffer *cursor_buffer_new(struct drmdev *drmdev, enum curso
     b->size = size;
     b->rotation = rotation;
     b->drmdev = drmdev_ref(drmdev);
-    b->gem_handle = gbm_bo_get_handle(bo).u32;
     b->drm_fb_id = fb_id;
     b->bo = bo;
     b->hotspot = get_cursor_hotspot(size, rotation);
@@ -734,7 +746,7 @@ fail_free_b:
 
 static void cursor_buffer_destroy(struct cursor_buffer *buffer) {
     drmdev_rm_fb(buffer->drmdev, buffer->drm_fb_id);
-    drmdev_destroy_dumb_buffer(buffer->drmdev, buffer->gem_handle);
+    gbm_bo_destroy(buffer->bo);
     drmdev_unref(buffer->drmdev);
     free(buffer);
 }
@@ -1135,7 +1147,7 @@ static void on_cancel_frame(void *userdata) {
     free(frame);
 }
 
-static int kms_window_push_composition(struct window *window, struct fl_layer_composition *composition) {
+static int kms_window_push_composition_locked(struct window *window, struct fl_layer_composition *composition) {
     struct kms_req_builder *builder;
     struct kms_req *req;
     struct frame *frame;
@@ -1159,15 +1171,13 @@ static int kms_window_push_composition(struct window *window, struct fl_layer_co
     //     }
     // }
 
-    window_lock(window);
-
     /// TODO: If we don't have new revisions, we don't need to scanout anything.
     fl_layer_composition_swap_ptrs(&window->composition, composition);
 
     builder = drmdev_create_request_builder(window->kms.drmdev, window->kms.crtc->id);
     if (builder == NULL) {
         ok = ENOMEM;
-        goto fail_unlock;
+        goto fail_unref_builder;
     }
 
     // We only set the mode once, at the first atomic request.
@@ -1294,8 +1304,6 @@ static int kms_window_push_composition(struct window *window, struct fl_layer_co
     //     }
     // }
 
-    window_unlock(window);
-
     // KMS Req is committed now and drmdev keeps a ref
     // on it internally, so we don't need to keep this one.
     // kms_req_unref(req);
@@ -1306,13 +1314,22 @@ static int kms_window_push_composition(struct window *window, struct fl_layer_co
 
 fail_unref_req:
     kms_req_unref(req);
-    goto fail_unlock;
+    return ok;
 
 fail_unref_builder:
     kms_req_builder_unref(builder);
+    return ok;
+}
 
-fail_unlock:
+static int kms_window_push_composition(struct window *window, struct fl_layer_composition *composition) {
+    int ok;
+
+    window_lock(window);
+
+    ok = kms_window_push_composition_locked(window, composition);
+
     window_unlock(window);
+
     return ok;
 }
 
@@ -1526,6 +1543,11 @@ static int kms_window_enable_cursor_locked(struct window *window, struct vec2i p
 
     window->kms.cursor = cursor;
     window->cursor_enabled = true;
+
+    if (window->composition != NULL) {
+        kms_window_push_composition_locked(window, window->composition);
+    }
+
     return 0;
 }
 

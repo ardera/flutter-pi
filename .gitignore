@@ -5,3 +5,4 @@
 /CMakePresets.json
 /cross-pi4-toolchain.cmake
 /cross-pi4-64-toolchain.cmake
+/cross-pi3-toolchain.cmake
