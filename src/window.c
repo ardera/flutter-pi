@@ -771,48 +771,7 @@ cursor_buffer_new_using_kms_dumb_buffers(struct drmdev *drmdev, enum cursor_size
     ASSERT_EQUALS(pixel_size, icon->width);
     ASSERT_EQUALS(pixel_size, icon->height);
 
-    if (rotation.rotate_0 == 0) {
-        ASSERT_EQUALS(pixel_size * 4, pitch);
-        memcpy(map_void, icon->data, buffer_size);
-        hot_x = icon->hot_x;
-        hot_y = icon->hot_y;
-    } else if (rotation.rotate_90 || rotation.rotate_180 || rotation.rotate_270) {
-        uint32_t *map_uint32 = (uint32_t *) map_void;
-
-        for (int y = 0; y < pixel_size; y++) {
-            for (int x = 0; x < pixel_size; x++) {
-                int buffer_x, buffer_y;
-                if (rotation.rotate_90) {
-                    buffer_x = pixel_size - y - 1;
-                    buffer_y = x;
-                } else if (rotation.rotate_180) {
-                    buffer_x = pixel_size - y - 1;
-                    buffer_y = pixel_size - x - 1;
-                } else {
-                    assert(rotation.rotate_270);
-                    buffer_x = y;
-                    buffer_y = pixel_size - x - 1;
-                }
-
-                int buffer_offset = pitch * buffer_y + 4 * buffer_x;
-                int cursor_offset = pixel_size * y + x;
-
-                map_uint32[buffer_offset / 4] = icon->data[cursor_offset];
-            }
-        }
-
-        if (rotation.rotate_90) {
-            hot_x = pixel_size - icon->hot_y - 1;
-            hot_y = icon->hot_x;
-        } else if (rotation.rotate_180) {
-            hot_x = pixel_size - icon->hot_x - 1;
-            hot_y = pixel_size - icon->hot_y - 1;
-        } else {
-            assert(rotation.rotate_270);
-            hot_x = icon->hot_y;
-            hot_y = pixel_size - icon->hot_x - 1;
-        }
-    }
+    write_cursor_icon(map_void, size, pitch, buffer_size, rotation, &hot_x, &hot_y);
 
     drmdev_unmap_dumb_buffer(drmdev, map_void, buffer_size);
 
