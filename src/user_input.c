@@ -784,7 +784,7 @@ static int on_mouse_axis_event(struct user_input *input, struct libinput_event *
                           libinput_event_pointer_get_axis_value(pointer_event, LIBINPUT_POINTER_AXIS_SCROLL_HORIZONTAL) :
                           0.0;
 
-    double scroll_y = libinput_event_pointer_get_axis_value(pointer_event, LIBINPUT_POINTER_AXIS_SCROLL_VERTICAL) ?
+    double scroll_y = libinput_event_pointer_has_axis(pointer_event, LIBINPUT_POINTER_AXIS_SCROLL_VERTICAL) ?
                           libinput_event_pointer_get_axis_value(pointer_event, LIBINPUT_POINTER_AXIS_SCROLL_VERTICAL) :
                           0.0;
 
