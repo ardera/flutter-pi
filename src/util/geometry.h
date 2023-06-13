@@ -37,6 +37,10 @@ ATTR_CONST static inline struct vec2i vec2i_sub(struct vec2i a, struct vec2i b) 
     return VEC2I(a.x - b.x, a.y - b.y);
 }
 
+ATTR_CONST static inline struct vec2i vec2i_swap_xy(const struct vec2i point) {
+    return VEC2I(point.y, point.x);
+}
+
 /**
  * @brief A quadrilateral with 4 2-dimensional float coordinates.
  *
