@@ -165,6 +165,8 @@ struct window {
         drmModeModeInfo *mode;
 
         bool should_apply_mode;
+
+        const struct pointer_icon *pointer_icon;
         struct cursor_buffer *cursor;
     } kms;
 
@@ -225,9 +227,7 @@ struct window {
     EGLSurface (*get_egl_surface)(struct window *window);
 #endif
 
-    int (*enable_cursor_locked)(struct window *window, struct vec2i pos);
-    int (*disable_cursor_locked)(struct window *window);
-    int (*move_cursor_locked)(struct window *window, struct vec2i pos);
+    int (*set_cursor_locked)(struct window *window, bool has_enabled, bool enabled, bool has_kind, enum pointer_kind kind, bool has_pos, struct vec2i pos);
     void (*deinit)(struct window *window);
 };
 
@@ -403,9 +403,7 @@ static int window_init(
 #ifdef HAVE_EGL_GLES2
     window->get_egl_surface = NULL;
 #endif
-    window->enable_cursor_locked = NULL;
-    window->disable_cursor_locked = NULL;
-    window->move_cursor_locked = NULL;
+    window->set_cursor_locked = NULL;
     window->deinit = window_deinit;
     return 0;
 }
@@ -491,78 +489,33 @@ bool window_is_cursor_enabled(struct window *window) {
     return enabled;
 }
 
-int window_set_cursor(struct window *window, bool has_enabled, bool enabled, bool has_pos, struct vec2i pos) {
+int window_set_cursor(
+    // clang-format off
+    struct window *window,
+    bool has_enabled, bool enabled,
+    bool has_kind, enum pointer_kind kind,
+    bool has_pos, struct vec2i pos
+    // clang-format on
+) {
     int ok;
 
     ASSERT_NOT_NULL(window);
 
-    if (!has_enabled && !has_pos) {
-        return 0;
-    }
-
     window_lock(window);
 
-    if (has_enabled) {
-        if (enabled && !window->cursor_enabled) {
-            // enable cursor
-            ASSERT_NOT_NULL(window->enable_cursor_locked);
-            ok = window->enable_cursor_locked(window, pos);
-            if (ok != 0) {
-                goto fail_unlock;
-            }
-        } else if (!enabled && window->cursor_enabled) {
-            // disable cursor
-            ASSERT_NOT_NULL(window->disable_cursor_locked);
-            ok = window->disable_cursor_locked(window);
-            if (ok != 0) {
-                goto fail_unlock;
-            }
-        }
-    }
-
-    if (has_pos) {
-        if (window->cursor_enabled) {
-            // move cursor
-            ASSERT_NOT_NULL(window->move_cursor_locked);
-            ok = window->move_cursor_locked(window, pos);
-            if (ok != 0) {
-                goto fail_unlock;
-            }
-        } else {
-            // !enabled && !window->cursor_enabled
-            // move cursor while cursor is disabled
-            LOG_ERROR("Attempted to move cursor while cursor is disabled.\n");
-            ok = EINVAL;
-            goto fail_unlock;
-        }
-    }
+    ok = window->set_cursor_locked(window, has_enabled, enabled, has_kind, kind, has_pos, pos);
 
     window_unlock(window);
-    return 0;
-
-
-    fail_unlock:
-    window_unlock(window);
+    
     return ok;
 }
-
-enum cursor_size {
-    k32x32_CursorSize,
-    k48x48_CursorSize,
-    k64x64_CursorSize,
-    k96x96_CursorSize,
-    k128x128_CursorSize,
-
-    kMax_CursorSize = k128x128_CursorSize,
-    kCount_CursorSize = kMax_CursorSize + 1
-};
 
 struct cursor_buffer {
     refcount_t n_refs;
 
+    const struct pointer_icon *icon;
     enum pixfmt format;
     int width, height;
-    enum cursor_size size;
     drm_plane_transform_t rotation;
 
     struct drmdev *drmdev;
@@ -572,80 +525,80 @@ struct cursor_buffer {
     struct vec2i hotspot;
 };
 
-static const int pixel_size_for_cursor_size[] = {
-    [k32x32_CursorSize] = 32, [k48x48_CursorSize] = 48, [k64x64_CursorSize] = 64, [k96x96_CursorSize] = 96, [k128x128_CursorSize] = 128,
-};
+// UNUSED static enum cursor_size cursor_size_from_pixel_ratio(double device_pixel_ratio) {
+//     double last_diff = INFINITY;
+//     enum cursor_size size;
 
-COMPILE_ASSERT(ARRAY_SIZE(pixel_size_for_cursor_size) == kCount_CursorSize);
+//     for (enum cursor_size size_iter = k32x32_CursorSize; size_iter < kCount_CursorSize; size_iter++) {
+//         double cursor_dpr = (pixel_size_for_cursor_size[size_iter] * 3 * 10.0) / (25.4 * 38);
+//         double cursor_screen_dpr_diff = device_pixel_ratio - cursor_dpr;
+//         if ((-last_diff < cursor_screen_dpr_diff) && (cursor_screen_dpr_diff < last_diff)) {
+//             size = size_iter;
+//             last_diff = cursor_screen_dpr_diff;
+//         }
+//     }
 
-UNUSED static enum cursor_size cursor_size_from_pixel_ratio(double device_pixel_ratio) {
-    double last_diff = INFINITY;
-    enum cursor_size size;
+//     return size;
+// }
 
-    for (enum cursor_size size_iter = k32x32_CursorSize; size_iter < kCount_CursorSize; size_iter++) {
-        double cursor_dpr = (pixel_size_for_cursor_size[size_iter] * 3 * 10.0) / (25.4 * 38);
-        double cursor_screen_dpr_diff = device_pixel_ratio - cursor_dpr;
-        if ((-last_diff < cursor_screen_dpr_diff) && (cursor_screen_dpr_diff < last_diff)) {
-            size = size_iter;
-            last_diff = cursor_screen_dpr_diff;
-        }
-    }
-
-    return size;
-}
-
-static struct vec2i get_cursor_hotspot(
-    enum cursor_size size,
+static struct vec2i get_rotated_hotspot(
+    const struct pointer_icon *icon,
     drm_plane_transform_t rotation
 ) {
-    const struct cursor_icon *icon;
-    int pixel_size;
-    int hot_x, hot_y;
+    struct vec2i size;
+    struct vec2i hotspot;
     
     assert(PLANE_TRANSFORM_IS_ONLY_ROTATION(rotation));
-    icon = cursors + size;
-    pixel_size = pixel_size_for_cursor_size[size];
+    size = pointer_icon_get_size(icon);
+    hotspot = pointer_icon_get_hotspot(icon);
 
     if (rotation.rotate_0) {
-        hot_x = icon->hot_x;
-        hot_y = icon->hot_y;
+        return hotspot;
     } else if (rotation.rotate_90) {
-        hot_x = pixel_size - icon->hot_y - 1;
-        hot_y = icon->hot_x;
+        return VEC2I(
+            size.y - hotspot.y - 1,
+            hotspot.x
+        );
     } else if (rotation.rotate_180) {
-        hot_x = pixel_size - icon->hot_x - 1;
-        hot_y = pixel_size - icon->hot_y - 1;
+        return VEC2I(
+            size.x - hotspot.x - 1,
+            size.y - hotspot.y - 1
+        );
     } else {
         ASSUME(rotation.rotate_270);
-        hot_x = icon->hot_y;
-        hot_y = pixel_size - icon->hot_x - 1;
+        return VEC2I(
+            hotspot.y,
+            size.x - hotspot.x - 1
+        );
     }
-
-    return VEC2I(hot_x, hot_y);
 }
 
-static struct cursor_buffer *cursor_buffer_new(struct drmdev *drmdev, enum cursor_size size, drm_plane_transform_t rotation) {
-    const struct cursor_icon *icon;
+static struct cursor_buffer *cursor_buffer_new(struct drmdev *drmdev, const struct pointer_icon *icon, drm_plane_transform_t rotation) {
     struct cursor_buffer *b;
     struct gbm_bo *bo;
     uint32_t fb_id;
-    int pixel_size;
+    struct vec2i size, rotated_size;
     int ok;
 
     ASSERT_NOT_NULL(drmdev);
     assert(PLANE_TRANSFORM_IS_ONLY_ROTATION(rotation));
 
-    pixel_size = pixel_size_for_cursor_size[size];
+    size = pointer_icon_get_size(icon);
+    rotated_size = size;
 
     b = malloc(sizeof *b);
     if (b == NULL) {
         return NULL;
     }
 
+    if (rotation.rotate_90 || rotation.rotate_270) {
+        rotated_size = vec2i_swap_xy(size);
+    }
+
     bo = gbm_bo_create(
         drmdev_get_gbm_device(drmdev),
-        pixel_size,
-        pixel_size,
+        rotated_size.x,
+        rotated_size.y,
         get_pixfmt_info(kARGB8888_FpiPixelFormat)->gbm_format,
         GBM_BO_USE_LINEAR | GBM_BO_USE_SCANOUT | GBM_BO_USE_WRITE | GBM_BO_USE_CURSOR
     );
@@ -654,65 +607,68 @@ static struct cursor_buffer *cursor_buffer_new(struct drmdev *drmdev, enum curso
         goto fail_free_b;
     }
 
-    if (gbm_bo_get_stride(bo) != pixel_size * 4) {
-        LOG_ERROR("GBM BO has unsupported framebuffer stride %u, expected was: %d\n", gbm_bo_get_stride(bo), pixel_size * 4);
+    if (gbm_bo_get_stride(bo) != rotated_size.x * 4) {
+        LOG_ERROR("GBM BO has unsupported framebuffer stride %u, expected was: %d\n", gbm_bo_get_stride(bo), size.x * 4);
         goto fail_destroy_bo;
     }
 
-    icon = cursors + size;
-    ASSERT_EQUALS(pixel_size, icon->width);
-    ASSERT_EQUALS(pixel_size, icon->height);
+    uint32_t *pixel_data = pointer_icon_dup_pixels(icon);
+    if (pixel_data == NULL) {
+        goto fail_destroy_bo;
+    }
 
     if (rotation.rotate_0) {
-        ok = gbm_bo_write(bo, icon->data, gbm_bo_get_stride(bo) * pixel_size);
+        ok = gbm_bo_write(bo, pixel_data, gbm_bo_get_stride(bo) * size.y);
         if (ok != 0) {
             LOG_ERROR("Couldn't write cursor icon to GBM BO. gbm_bo_write: %s\n", strerror(errno));
-            goto fail_destroy_bo;
+            goto fail_free_duped_pixel_data;
         }
     } else {
         ASSUME(rotation.rotate_90 || rotation.rotate_180 || rotation.rotate_270);
 
-        uint32_t *rotated = malloc(pixel_size * pixel_size * 4);
+        uint32_t *rotated = malloc(size.x * size.y * 4);
         if (rotated == NULL) {
-            goto fail_destroy_bo;
+            goto fail_free_duped_pixel_data;
         }
 
-        for (int y = 0; y < pixel_size; y++) {
-            for (int x = 0; x < pixel_size; x++) {
+        for (int y = 0; y < size.y; y++) {
+            for (int x = 0; x < size.x; x++) {
                 int buffer_x, buffer_y;
                 if (rotation.rotate_90) {
-                    buffer_x = pixel_size - y - 1;
+                    buffer_x = size.y - y - 1;
                     buffer_y = x;
                 } else if (rotation.rotate_180) {
-                    buffer_x = pixel_size - y - 1;
-                    buffer_y = pixel_size - x - 1;
+                    buffer_x = size.y - y - 1;
+                    buffer_y = size.x - x - 1;
                 } else {
                     ASSUME(rotation.rotate_270);
                     buffer_x = y;
-                    buffer_y = pixel_size - x - 1;
+                    buffer_y = size.x - x - 1;
                 }
 
-                int buffer_offset = pixel_size * buffer_y + buffer_x;
-                int cursor_offset = pixel_size * y + x;
+                int buffer_offset = rotated_size.x * buffer_y + buffer_x;
+                int cursor_offset = size.x * y + x;
 
-                rotated[buffer_offset] = icon->data[cursor_offset];
+                rotated[buffer_offset] = pixel_data[cursor_offset];
             }
         }
 
-        ok = gbm_bo_write(bo, rotated, pixel_size * pixel_size * 4);
+        ok = gbm_bo_write(bo, rotated, gbm_bo_get_stride(bo) * rotated_size.y);
 
         free(rotated);
 
         if (ok != 0) {
             LOG_ERROR("Couldn't write rotated cursor icon to GBM BO. gbm_bo_write: %s\n", strerror(errno));
-            goto fail_destroy_bo;
+            goto fail_free_duped_pixel_data;
         }
     }
 
+    free(pixel_data);
+
     fb_id = drmdev_add_fb(
         drmdev,
-        pixel_size,
-        pixel_size,
+        rotated_size.x,
+        rotated_size.y,
         kARGB8888_FpiPixelFormat,
         gbm_bo_get_handle(bo).u32,
         gbm_bo_get_stride(bo),
@@ -726,15 +682,17 @@ static struct cursor_buffer *cursor_buffer_new(struct drmdev *drmdev, enum curso
 
     b->n_refs = REFCOUNT_INIT_1;
     b->format = kARGB8888_FpiPixelFormat;
-    b->width = pixel_size;
-    b->height = pixel_size;
-    b->size = size;
+    b->width = rotated_size.x;
+    b->height = rotated_size.y;
     b->rotation = rotation;
     b->drmdev = drmdev_ref(drmdev);
     b->drm_fb_id = fb_id;
     b->bo = bo;
-    b->hotspot = get_cursor_hotspot(size, rotation);
+    b->hotspot = get_rotated_hotspot(icon, rotation);
     return b;
+
+fail_free_duped_pixel_data:
+    free(pixel_data);
 
 fail_destroy_bo:
     gbm_bo_destroy(bo);
@@ -908,9 +866,14 @@ static EGLSurface kms_window_get_egl_surface(struct window *window);
 #endif
 
 static void kms_window_deinit(struct window *window);
-static int kms_window_enable_cursor_locked(struct window *window, struct vec2i pos);
-static int kms_window_disable_cursor_locked(struct window *window);
-static int kms_window_move_cursor_locked(struct window *window, struct vec2i pos);
+static int kms_window_set_cursor_locked(
+    // clang-format off
+    struct window *window,
+    bool has_enabled, bool enabled,
+    bool has_kind, enum pointer_kind kind,
+    bool has_pos, struct vec2i pos
+    // clang-format on
+);
 
 MUST_CHECK struct window *kms_window_new(
     // clang-format off
@@ -1045,9 +1008,7 @@ MUST_CHECK struct window *kms_window_new(
     window->get_egl_surface = kms_window_get_egl_surface;
 #endif
     window->deinit = kms_window_deinit;
-    window->enable_cursor_locked = kms_window_enable_cursor_locked;
-    window->disable_cursor_locked = kms_window_disable_cursor_locked;
-    window->move_cursor_locked = kms_window_move_cursor_locked;
+    window->set_cursor_locked = kms_window_set_cursor_locked;
     return window;
 
 fail_free_window:
@@ -1079,6 +1040,9 @@ void kms_window_deinit(struct window *window) {
 
     kms_req_unref(req);
     */
+    if (window->kms.cursor != NULL) {
+        cursor_buffer_unref(window->kms.cursor);
+    }
     if (window->render_surface != NULL) {
         surface_unref(CAST_SURFACE(window->render_surface));
     }
@@ -1529,38 +1493,64 @@ static EGLSurface kms_window_get_egl_surface(struct window *window) {
 }
 #endif
 
-static int kms_window_enable_cursor_locked(struct window *window, struct vec2i pos) {
+static int kms_window_set_cursor_locked(
+    // clang-format off
+    struct window *window,
+    bool has_enabled, bool enabled,
+    bool has_kind, enum pointer_kind kind,
+    bool has_pos, struct vec2i pos
+    // clang-format on
+) {
+    const struct pointer_icon *icon;
     struct cursor_buffer *cursor;
 
-    ASSERT_EQUALS(window->kms.cursor, NULL);
-
-    cursor = cursor_buffer_new(window->kms.drmdev, cursor_size_from_pixel_ratio(window->pixel_ratio), window->rotation);
-    if (cursor == NULL) {
-        return EIO;
+    if (has_kind) {
+        if (window->kms.pointer_icon == NULL || pointer_icon_get_kind(window->kms.pointer_icon) != kind) {
+            window->kms.pointer_icon = pointer_icon_for_details(kind, window->pixel_ratio);
+            ASSERT_NOT_NULL(window->kms.pointer_icon);
+        }
     }
 
-    window->cursor_pos = pos;
+    enabled = has_enabled ? enabled : window->cursor_enabled;
+    icon = has_kind ? pointer_icon_for_details(kind, window->pixel_ratio) : window->kms.pointer_icon;
+    pos = has_pos ? pos : window->cursor_pos;
+    cursor = window->kms.cursor;
 
-    window->kms.cursor = cursor;
-    window->cursor_enabled = true;
-
-    if (window->composition != NULL) {
-        kms_window_push_composition_locked(window, window->composition);
+    if (enabled && icon == NULL) {
+        // default to the arrow icon.
+        icon = pointer_icon_for_details(POINTER_KIND_BASIC, window->pixel_ratio);
+        ASSERT_NOT_NULL(icon);
     }
 
-    return 0;
-}
+    if (window->kms.pointer_icon != icon) {
+        window->kms.pointer_icon = icon;
+    }
 
-static int kms_window_disable_cursor_locked(struct window *window) {
-    cursor_buffer_unrefp(&window->kms.cursor);
-    window->cursor_enabled = false;
-    return 0;
-}
+    if (enabled) {
+        if (cursor == NULL || icon != cursor->icon) {
+            cursor = cursor_buffer_new(window->kms.drmdev, window->kms.pointer_icon, window->rotation);
+            if (cursor == NULL) {
+                return EIO;
+            }
 
-static int kms_window_move_cursor_locked(struct window *window, struct vec2i pos) {
-    window->cursor_pos = pos;
+            cursor_buffer_swap_ptrs(&window->kms.cursor, cursor);
+            
+            // apply the new cursor icon & position by scanning out a new frame.
+            window->cursor_pos = pos;
+            if (window->composition != NULL) {
+                kms_window_push_composition_locked(window, window->composition);
+            }
+        } else if (has_pos) {
+            // apply the new cursor position using drmModeMoveCursor
+            window->cursor_pos = pos;
+            drmdev_move_cursor(window->kms.drmdev, window->kms.crtc->id, vec2i_sub(pos, window->kms.cursor->hotspot));
+        }
+    } else {
+        if (window->kms.cursor != NULL) {
+            cursor_buffer_unrefp(&window->kms.cursor);
+        }
+    }
 
-    /// TODO: Draw a new frame or redraw the last frame with new cursor pos here.
-    drmdev_move_cursor(window->kms.drmdev, window->kms.crtc->id, vec2i_sub(pos, window->kms.cursor->hotspot));
+    window->cursor_enabled = enabled;
     return 0;
 }
