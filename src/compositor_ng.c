@@ -32,6 +32,7 @@
 #include "util/collection.h"
 #include "util/dynarray.h"
 #include "window.h"
+#include "cursor.h"
 
 #include "config.h"
 
@@ -522,8 +523,8 @@ const FlutterCompositor *compositor_get_flutter_compositor(struct compositor *co
     return &compositor->flutter_compositor;
 }
 
-void compositor_set_cursor(struct compositor *compositor, bool has_enabled, bool enabled, bool has_delta, struct vec2f delta) {
-    if (!has_enabled && !has_delta) {
+void compositor_set_cursor(struct compositor *compositor, bool has_enabled, bool enabled, bool has_kind, enum pointer_kind kind, bool has_delta, struct vec2f delta) {
+    if (!has_enabled && !has_kind && !has_delta) {
         return;
     }
 
@@ -552,6 +553,8 @@ void compositor_set_cursor(struct compositor *compositor, bool has_enabled, bool
         compositor->main_window,
         has_enabled,
         enabled,
+        has_kind,
+        kind,
         has_delta,
         VEC2I((int) round(compositor->cursor_pos.x), (int) round(compositor->cursor_pos.y))
     );
