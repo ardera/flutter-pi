@@ -1011,6 +1011,10 @@ struct gl_renderer *flutterpi_get_gl_renderer(struct flutterpi *flutterpi) {
     return flutterpi->gl_renderer;
 }
 
+void flutterpi_set_pointer_kind(struct flutterpi *flutterpi, enum pointer_kind kind) {
+    return compositor_set_cursor(flutterpi->compositor, false, false, true, kind, false, VEC2F(0, 0));
+}
+
 void flutterpi_trace_event_instant(struct flutterpi *flutterpi, const char *name) {
     flutterpi->flutter.procs.TraceEventInstant(name);
 }
@@ -1650,7 +1654,7 @@ static void on_set_cursor_enabled(void *userdata, bool enabled) {
     flutterpi = userdata;
     (void) flutterpi;
 
-    compositor_set_cursor(flutterpi->compositor, true, enabled, false, VEC2F(0, 0));
+    compositor_set_cursor(flutterpi->compositor, true, enabled, false, POINTER_KIND_NONE, false, VEC2F(0, 0));
 }
 
 static void on_move_cursor(void *userdata, struct vec2f delta) {
@@ -1658,7 +1662,7 @@ static void on_move_cursor(void *userdata, struct vec2f delta) {
 
     flutterpi = userdata;
 
-    compositor_set_cursor(flutterpi->compositor, true, true, true, delta);
+    compositor_set_cursor(flutterpi->compositor, true, true, false, POINTER_KIND_NONE, true, delta);
 }
 
 static int on_user_input_open(const char *path, int flags, void *userdata) {
@@ -2001,13 +2005,13 @@ static int on_drmdev_open(const char *path, int flags, void **fd_metadata_out, v
 static void on_drmdev_close(int fd, void *fd_metadata, void *userdata) {
     int ok;
 
-    ASSERT_NOT_NULL(fd_metadata);
     (void) fd_metadata;
     (void) userdata;
 
 #ifdef HAVE_LIBSEAT
     struct libseat *libseat = userdata;
     if (libseat != NULL) {
+        ASSERT_NOT_NULL(fd_metadata);
         int device_id = (intptr_t) fd_metadata;
 
         ok = libseat_close_device(libseat, device_id);
@@ -2436,12 +2440,16 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
     if (input == NULL) {
         LOG_ERROR("Couldn't initialize user input. flutter-pi will run without user input.\n");
     } else {
-        ok = sd_event_add_io(event_loop, NULL, user_input_get_fd(input), EPOLLIN | EPOLLRDHUP | EPOLLPRI, on_user_input_fd_ready, input);
+        sd_event_source *user_input_event_source;
+
+        ok = sd_event_add_io(event_loop, &user_input_event_source, user_input_get_fd(input), EPOLLIN | EPOLLRDHUP | EPOLLPRI, on_user_input_fd_ready, input);
         if (ok < 0) {
             LOG_ERROR("Couldn't listen for user input. flutter-pi will run without user input. sd_event_add_io: %s\n", strerror(-ok));
             user_input_destroy(input);
             input = NULL;
         }
+
+        sd_event_source_set_priority(user_input_event_source, SD_EVENT_PRIORITY_IDLE - 10);
     }
 
     engine_handle = load_flutter_engine_lib(paths);
