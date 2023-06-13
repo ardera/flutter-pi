@@ -362,10 +362,6 @@ static void on_receive_mouse_cursor(ASSERTED void *userdata, const FlutterPlatfo
                 }
 
                 has_kind = true;
-
-                char *kind_str = raw_std_string_dup(value);
-                LOG_DEBUG("activateSystemCursor(device: %"PRId64", kind: %s)\n", device, kind_str);
-                free(kind_str);
             }
         }
 
