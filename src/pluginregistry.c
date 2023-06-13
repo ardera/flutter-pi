@@ -127,7 +127,7 @@ int plugin_registry_on_platform_message(struct plugin_registry *registry, const 
     plugin_registry_lock(registry);
 
     data = get_cb_data_by_channel_locked(registry, message->channel);
-    if (data == NULL || data->callback == NULL) {
+    if (data == NULL || (data->callback == NULL && data->callback_v2 == NULL)) {
         ok = platch_respond_not_implemented((FlutterPlatformMessageResponseHandle *) message->response_handle);
         goto fail_unlock;
     }
