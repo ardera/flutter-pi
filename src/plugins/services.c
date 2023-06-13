@@ -3,10 +3,11 @@
 
 #include "flutter-pi.h"
 #include "pluginregistry.h"
-//#include <compositor.h>
+#include "cursor.h"
 #include "plugins/services.h"
 
 struct plugin {
+    struct flutterpi *flutterpi;
     char label[256];
     uint32_t primary_color;  // ARGB8888 (blue is the lowest byte)
     char isolate_id[32];
@@ -235,6 +236,152 @@ static void on_receive_platform_views(ASSERTED void *userdata, const FlutterPlat
     platch_respond_not_implemented(message->response_handle);
 }
 
+static void on_receive_mouse_cursor(ASSERTED void *userdata, const FlutterPlatformMessage *message) {
+    const struct raw_std_value *method_call;
+    const struct raw_std_value *arg;
+    struct plugin *plugin;
+
+    ASSERT_NOT_NULL(userdata);
+    plugin = userdata;
+
+    method_call = (const struct raw_std_value*) (message->message);
+
+    if (!raw_std_method_call_check(method_call, message->message_size)) {
+        platch_respond_illegal_arg_std(message->response_handle, "Malformed platform message.");
+        return;
+    }
+    
+    arg = raw_std_method_call_get_arg(method_call);
+
+    if (raw_std_method_call_is_method(method_call, "activateSystemCursor")) {
+        if (!raw_std_value_is_map(arg)) {
+            platch_respond_illegal_arg_std(message->response_handle, "Expected `arg` to be a Map.");
+            return;
+        }
+
+        bool has_device = false;
+        UNUSED int64_t device;
+
+        bool has_kind = false;
+        enum pointer_kind kind;
+
+        for_each_entry_in_raw_std_map(key, value, arg) {
+            if (!raw_std_value_is_string(key)) {
+                continue;
+            }
+
+            if (raw_std_string_equals(key, "device")) {
+                if (!raw_std_value_is_int(value)) {
+                    platch_respond_illegal_arg_std(message->response_handle, "Expected `arg['device']` to be an int.");
+                    return;
+                }
+
+                has_device = true;
+                device = raw_std_value_as_int(value);
+            } else if (raw_std_string_equals(key, "kind")) {
+                if (!raw_std_value_is_string(value)) {
+                    platch_respond_illegal_arg_std(message->response_handle, "Expected `arg['kind']` to be a string.");
+                    return;
+                }
+
+                if (raw_std_string_equals(value, "none")) {
+                    kind = POINTER_KIND_NONE;
+                } else if (raw_std_string_equals(value, "basic")) {
+                    kind = POINTER_KIND_BASIC;
+                } else if (raw_std_string_equals(value, "click")) {
+                    kind = POINTER_KIND_CLICK;
+                } else if (raw_std_string_equals(value, "forbidden")) {
+                    kind = POINTER_KIND_FORBIDDEN;
+                } else if (raw_std_string_equals(value, "wait")) {
+                    kind = POINTER_KIND_WAIT;
+                } else if (raw_std_string_equals(value, "progress")) {
+                    kind = POINTER_KIND_PROGRESS;
+                } else if (raw_std_string_equals(value, "contextMenu")) {
+                    kind = POINTER_KIND_CONTEXT_MENU;
+                } else if (raw_std_string_equals(value, "help")) {
+                    kind = POINTER_KIND_HELP;
+                } else if (raw_std_string_equals(value, "text")) {
+                    kind = POINTER_KIND_TEXT;
+                } else if (raw_std_string_equals(value, "verticalText")) {
+                    kind = POINTER_KIND_VERTICAL_TEXT;
+                } else if (raw_std_string_equals(value, "cell")) {
+                    kind = POINTER_KIND_CELL;
+                } else if (raw_std_string_equals(value, "precise")) {
+                    kind = POINTER_KIND_PRECISE;
+                } else if (raw_std_string_equals(value, "move")) {
+                    kind = POINTER_KIND_MOVE;
+                } else if (raw_std_string_equals(value, "grab")) {
+                    kind = POINTER_KIND_GRAB;
+                } else if (raw_std_string_equals(value, "grabbing")) {
+                    kind = POINTER_KIND_GRABBING;
+                } else if (raw_std_string_equals(value, "noDrop")) {
+                    kind = POINTER_KIND_NO_DROP;
+                } else if (raw_std_string_equals(value, "alias")) {
+                    kind = POINTER_KIND_ALIAS;
+                } else if (raw_std_string_equals(value, "copy")) {
+                    kind = POINTER_KIND_COPY;
+                } else if (raw_std_string_equals(value, "disappearing")) {
+                    kind = POINTER_KIND_DISAPPEARING;
+                } else if (raw_std_string_equals(value, "allScroll")) {
+                    kind = POINTER_KIND_ALL_SCROLL;
+                } else if (raw_std_string_equals(value, "resizeLeftRight")) {
+                    kind = POINTER_KIND_RESIZE_LEFT_RIGHT;
+                } else if (raw_std_string_equals(value, "resizeUpDown")) {
+                    kind = POINTER_KIND_RESIZE_UP_DOWN;
+                } else if (raw_std_string_equals(value, "resizeUpLeftDownRight")) {
+                    kind = POINTER_KIND_RESIZE_UP_LEFT_DOWN_RIGHT;
+                } else if (raw_std_string_equals(value, "resizeUpRightDownLeft")) {
+                    kind = POINTER_KIND_RESIZE_UP_RIGHT_DOWN_LEFT;
+                } else if (raw_std_string_equals(value, "resizeUp")) {
+                    kind = POINTER_KIND_RESIZE_UP;
+                } else if (raw_std_string_equals(value, "resizeDown")) {
+                    kind = POINTER_KIND_RESIZE_DOWN;
+                } else if (raw_std_string_equals(value, "resizeLeft")) {
+                    kind = POINTER_KIND_RESIZE_LEFT;
+                } else if (raw_std_string_equals(value, "resizeRight")) {
+                    kind = POINTER_KIND_RESIZE_RIGHT;
+                } else if (raw_std_string_equals(value, "resizeUpLeft")) {
+                    kind = POINTER_KIND_RESIZE_UP_LEFT;
+                } else if (raw_std_string_equals(value, "resizeUpRight")) {
+                    kind = POINTER_KIND_RESIZE_UP_RIGHT;
+                } else if (raw_std_string_equals(value, "resizeDownLeft")) {
+                    kind = POINTER_KIND_RESIZE_DOWN_LEFT;
+                } else if (raw_std_string_equals(value, "resizeDownRight")) {
+                    kind = POINTER_KIND_RESIZE_DOWN_RIGHT;
+                } else if (raw_std_string_equals(value, "resizeColumn")) {
+                    kind = POINTER_KIND_RESIZE_COLUMN;
+                } else if (raw_std_string_equals(value, "resizeRow")) {
+                    kind = POINTER_KIND_RESIZE_ROW;
+                } else if (raw_std_string_equals(value, "zoomIn")) {
+                    kind = POINTER_KIND_ZOOM_IN;
+                } else if (raw_std_string_equals(value, "zoomOut")) {
+                    kind = POINTER_KIND_ZOOM_OUT;
+                } else {
+                    platch_respond_illegal_arg_std(message->response_handle, "Expected `arg['kind']` to be a valid mouse pointer kind.");
+                    return;
+                }
+
+                has_kind = true;
+
+                char *kind_str = raw_std_string_dup(value);
+                LOG_DEBUG("activateSystemCursor(device: %"PRId64", kind: %s)\n", device, kind_str);
+                free(kind_str);
+            }
+        }
+
+        if (!has_device || !has_kind) {
+            platch_respond_illegal_arg_std(message->response_handle, "Expected both `arg['device']` and `arg['kind']` to be non-null.");
+            return;
+        }
+
+        flutterpi_set_pointer_kind(plugin->flutterpi, kind);
+
+        platch_respond_success_std(message->response_handle, &STDNULL);
+    } else {
+        platch_respond_not_implemented(message->response_handle);
+    }
+}
+
 enum plugin_init_result services_init(struct flutterpi *flutterpi, void **userdata_out) {
     struct plugin_registry *registry;
     struct plugin *plugin;
@@ -249,39 +396,50 @@ enum plugin_init_result services_init(struct flutterpi *flutterpi, void **userda
         goto fail_return_error;
     }
 
+    plugin->flutterpi = flutterpi;
+
     ok = plugin_registry_set_receiver_v2_locked(registry, FLUTTER_NAVIGATION_CHANNEL, on_receive_navigation, plugin);
     if (ok != 0) {
-        fprintf(stderr, "[services-plugin] could not set \"" FLUTTER_NAVIGATION_CHANNEL "\" platform message receiver: %s\n", strerror(ok));
+        LOG_ERROR("Could not set \"" FLUTTER_NAVIGATION_CHANNEL "\" receiver. plugin_registry_set_receiver_v2_locked: %s\n", strerror(ok));
         goto fail_free_plugin;
     }
 
     ok = plugin_registry_set_receiver_v2_locked(registry, FLUTTER_ISOLATE_CHANNEL, on_receive_isolate, plugin);
     if (ok != 0) {
-        fprintf(stderr, "[services-plugin] could not set \"" FLUTTER_ISOLATE_CHANNEL "\" ChannelObject receiver: %s\n", strerror(ok));
+        LOG_ERROR("Could not set \"" FLUTTER_ISOLATE_CHANNEL "\" receiver. plugin_registry_set_receiver_v2_locked: %s\n", strerror(ok));
         goto fail_remove_navigation_receiver;
     }
 
     ok = plugin_registry_set_receiver_v2_locked(registry, FLUTTER_PLATFORM_CHANNEL, on_receive_platform, plugin);
     if (ok != 0) {
-        fprintf(stderr, "[services-plugin] could not set \"" FLUTTER_PLATFORM_CHANNEL "\" ChannelObject receiver: %s\n", strerror(ok));
+        LOG_ERROR("Could not set \"" FLUTTER_PLATFORM_CHANNEL "\" receiver. plugin_registry_set_receiver_v2_locked: %s\n", strerror(ok));
         goto fail_remove_isolate_receiver;
     }
 
     ok = plugin_registry_set_receiver_v2_locked(registry, FLUTTER_ACCESSIBILITY_CHANNEL, on_receive_accessibility, plugin);
     if (ok != 0) {
-        fprintf(stderr, "[services-plugin] could not set \"" FLUTTER_ACCESSIBILITY_CHANNEL "\" ChannelObject receiver: %s\n", strerror(ok));
+        LOG_ERROR("Could not set \"" FLUTTER_ACCESSIBILITY_CHANNEL "\" receiver. plugin_registry_set_receiver_v2_locked: %s\n", strerror(ok));
         goto fail_remove_platform_receiver;
     }
 
     ok = plugin_registry_set_receiver_v2_locked(registry, FLUTTER_PLATFORM_VIEWS_CHANNEL, on_receive_platform_views, plugin);
     if (ok != 0) {
-        fprintf(stderr, "[services-plugin] could not set \"" FLUTTER_PLATFORM_VIEWS_CHANNEL "\" ChannelObject receiver: %s\n", strerror(ok));
+        LOG_ERROR("Could not set \"" FLUTTER_PLATFORM_VIEWS_CHANNEL "\" receiver. plugin_registry_set_receiver_v2_locked: %s\n", strerror(ok));
         goto fail_remove_accessibility_receiver;
+    }
+
+    ok = plugin_registry_set_receiver_v2_locked(registry, FLUTTER_MOUSECURSOR_CHANNEL, on_receive_mouse_cursor, plugin);
+    if (ok != 0) {
+        LOG_ERROR("Could not set \"" FLUTTER_MOUSECURSOR_CHANNEL "\" receiver. plugin_registry_set_receiver_v2_locked: %s\n", strerror(ok));
+        goto fail_remove_platform_views_receiver;
     }
 
     *userdata_out = plugin;
 
     return 0;
+
+fail_remove_platform_views_receiver:
+    plugin_registry_remove_receiver_v2_locked(registry, FLUTTER_PLATFORM_VIEWS_CHANNEL);
 
 fail_remove_accessibility_receiver:
     plugin_registry_remove_receiver_v2_locked(registry, FLUTTER_ACCESSIBILITY_CHANNEL);
@@ -317,6 +475,7 @@ void services_deinit(struct flutterpi *flutterpi, void *userdata) {
     plugin_registry_remove_receiver_v2_locked(registry, FLUTTER_PLATFORM_CHANNEL);
     plugin_registry_remove_receiver_v2_locked(registry, FLUTTER_ACCESSIBILITY_CHANNEL);
     plugin_registry_remove_receiver_v2_locked(registry, FLUTTER_PLATFORM_VIEWS_CHANNEL);
+    plugin_registry_remove_receiver_v2_locked(registry, FLUTTER_MOUSECURSOR_CHANNEL);
     free(plugin);
 }
 

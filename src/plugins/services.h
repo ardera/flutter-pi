@@ -16,5 +16,6 @@
 #define FLUTTER_PLATFORM_CHANNEL "flutter/platform"
 #define FLUTTER_ACCESSIBILITY_CHANNEL "flutter/accessibility"
 #define FLUTTER_PLATFORM_VIEWS_CHANNEL "flutter/platform_views"
+#define FLUTTER_MOUSECURSOR_CHANNEL "flutter/mousecursor"
 
 #endif
