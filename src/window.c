@@ -985,6 +985,7 @@ MUST_CHECK struct window *kms_window_new(
     window->kms.mode = selected_mode;
     window->kms.should_apply_mode = true;
     window->kms.cursor = NULL;
+    window->kms.pointer_icon = NULL;
     window->renderer_type = renderer_type;
     if (gl_renderer != NULL) {
 #ifdef HAVE_EGL_GLES2
