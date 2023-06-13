@@ -2455,6 +2455,11 @@ ATTR_PURE const struct raw_std_value *raw_std_method_call_get_method(const struc
     return value;
 }
 
+ATTR_PURE bool raw_std_method_call_is_method(const struct raw_std_value *value, const char *method_name) {
+    assert(raw_std_value_is_string(value));
+    return raw_std_string_equals(value, method_name);
+}
+
 MALLOCLIKE MUST_CHECK char *raw_std_method_call_get_method_dup(const struct raw_std_value *value) {
     assert(raw_std_value_is_string(value));
     return raw_std_string_dup(value);
