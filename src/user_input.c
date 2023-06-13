@@ -300,7 +300,9 @@ static void maybe_enable_mouse_cursor(struct user_input *input, uint64_t timesta
     assert(input != NULL);
 
     if (input->n_cursor_devices == 1) {
-        input->cursor_flutter_device_id = input->next_unused_flutter_device_id++;
+        if (input->cursor_flutter_device_id == -1) {
+            input->cursor_flutter_device_id = input->next_unused_flutter_device_id++;
+        }
 
         emit_pointer_events(
             input,
@@ -358,7 +360,7 @@ static int on_device_added(struct user_input *input, struct libinput_event *even
         // even though they aren't mice. (My keyboard for example is a mouse smh)
 
         // reserve one id for the mouse pointer
-        input->next_unused_flutter_device_id++;
+        // input->next_unused_flutter_device_id++;
     }
     if (libinput_device_has_capability(device, LIBINPUT_DEVICE_CAP_TOUCH)) {
         // add all touch slots as individual touch devices to flutter
@@ -604,7 +606,7 @@ static int on_mouse_motion_event(struct user_input *input, struct libinput_event
     // send the pointer event to flutter.
     emit_pointer_events(
         input,
-        &FLUTTER_POINTER_MOUSE_MOVE_EVENT(timestamp, pos_view.x, pos_view.y, data->flutter_device_id_offset, data->buttons),
+        &FLUTTER_POINTER_MOUSE_MOVE_EVENT(timestamp, pos_view.x, pos_view.y, input->cursor_flutter_device_id, data->buttons),
         1
     );
 
@@ -658,7 +660,7 @@ static int on_mouse_motion_absolute_event(struct user_input *input, struct libin
 
     emit_pointer_events(
         input,
-        &FLUTTER_POINTER_MOUSE_MOVE_EVENT(timestamp, pos_view.x, pos_view.y, data->flutter_device_id_offset, data->buttons),
+        &FLUTTER_POINTER_MOUSE_MOVE_EVENT(timestamp, pos_view.x, pos_view.y, input->cursor_flutter_device_id, data->buttons),
         1
     );
 
@@ -746,7 +748,7 @@ static int on_mouse_button_event(struct user_input *input, struct libinput_event
                 timestamp,
                 pos_view.x,
                 pos_view.y,
-                data->flutter_device_id_offset,
+                input->cursor_flutter_device_id,
                 new_flutter_button_state
             ),
             1
@@ -792,7 +794,7 @@ static int on_mouse_axis_event(struct user_input *input, struct libinput_event *
             timestamp,
             pos_view.x,
             pos_view.y,
-            data->flutter_device_id_offset,
+            input->cursor_flutter_device_id,
             scroll_x / 15.0 * 53.0,
             scroll_y / 15.0 * 53.0,
             data->buttons
