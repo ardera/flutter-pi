@@ -2348,7 +2348,7 @@ check_arrays:
                 if (key == NULL) {
                     key = raw_std_map_get_first_key(value);
                 } else {
-                    value = raw_std_value_after(map_value);
+                    key = raw_std_value_after(map_value);
                 }
 
                 diff = (intptr_t) key - (intptr_t) value;
