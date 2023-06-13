@@ -118,6 +118,13 @@ struct render_surface *window_get_render_surface(struct window *window, struct v
 
 bool window_is_cursor_enabled(struct window *window);
 
-int window_set_cursor(struct window *window, bool has_enabled, bool enabled, bool has_pos, struct vec2i pos);
+int window_set_cursor(
+    // clang-format off
+    struct window *window,
+    bool has_enabled, bool enabled,
+    bool has_kind, enum pointer_kind kind,
+    bool has_pos, struct vec2i pos
+    // clang-format on
+);
 
 #endif  // _FLUTTERPI_INCLUDE_WINDOW_H
