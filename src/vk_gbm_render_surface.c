@@ -486,7 +486,7 @@ fail_deinit_previous_fbs:
     surface->front_fb = NULL;
     surface->pixel_format = pixel_format;
 #ifdef DEBUG
-    surface->n_locked_fbs = ATOMIC_VAR_INIT(0);
+    surface->n_locked_fbs = 0;
 #endif
     return 0;
 
