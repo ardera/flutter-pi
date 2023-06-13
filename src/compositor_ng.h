@@ -17,6 +17,7 @@
 #include "modesetting.h"
 #include "pixel_format.h"
 #include "util/collection.h"
+#include "cursor.h"
 
 #include "config.h"
 
@@ -182,7 +183,7 @@ int compositor_get_event_fd(struct compositor *compositor);
 
 int compositor_on_event_fd_ready(struct compositor *compositor);
 
-void compositor_set_cursor(struct compositor *compositor, bool has_enabled, bool enabled, bool has_delta, struct vec2f delta);
+void compositor_set_cursor(struct compositor *compositor, bool has_enabled, bool enabled, bool has_kind, enum pointer_kind kind, bool has_delta, struct vec2f delta);
 
 struct fl_layer_composition;
 
