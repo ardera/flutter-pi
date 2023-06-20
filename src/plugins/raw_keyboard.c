@@ -231,6 +231,11 @@ ATTR_CONST static uint64_t physical_key_for_evdev_keycode(uint16_t evdev_keycode
         [KEY_PAUSECD] = 0x000c00b1,  // mediaPause
         [KEY_PROG3] = 0,
         [KEY_PROG4] = 0,
+
+// present since kernel 5.17
+#ifndef KEY_ALL_APPLICATIONS
+    #define KEY_ALL_APPLICATIONS 204
+#endif
         [KEY_ALL_APPLICATIONS] = 0,
         [KEY_SUSPEND] = 0,
         [KEY_CLOSE] = 0x000c0203,  // close
@@ -363,18 +368,27 @@ ATTR_CONST static uint64_t physical_key_for_evdev_keycode(uint16_t evdev_keycode
         [KEY_APPSELECT] = 0x000c01a2,  // selectTask
         [KEY_SCREENSAVER] = 0x000c01b1,  // launchScreenSaver
         [KEY_VOICECOMMAND] = 0x000c00cf,  // speechInputToggle
+
+// present since kernel 4.13
+#ifndef KEY_ASSISTANT
+    #define KEY_ASSISTANT 0x247
+#endif
+
         [KEY_ASSISTANT] = 0x000c01cb,  // launchAssistant
 
+// present since kernel 5.2
 #ifndef KEY_KBD_LAYOUT_NEXT
 #   define KEY_KBD_LAYOUT_NEXT 0x248
 #endif
         [KEY_KBD_LAYOUT_NEXT] = 0x000c029d,  // keyboardLayoutSelect
 
+// present since kernel 5.13
 #ifndef KEY_EMOJI_PICKER
 #   define KEY_EMOJI_PICKER 0x249
 #endif
         [KEY_EMOJI_PICKER] = 0,
 
+// present since kernel 5.17
 #ifndef KEY_DICTATE
 #   define KEY_DICTATE 0x24a
 #endif
@@ -385,6 +399,7 @@ ATTR_CONST static uint64_t physical_key_for_evdev_keycode(uint16_t evdev_keycode
         [KEY_BRIGHTNESS_MAX] = 0x000c0074,  // brightnessMaximum
         // KEY_KBDINPUTASSIST_PREV ... KEY_ONSCREEN_KEYBOARD
 
+// present since kernel 5.5
 #ifndef KEY_PRIVACY_SCREEN_TOGGLE
 #   define KEY_PRIVACY_SCREEN_TOGGLE 0x279
 #endif
