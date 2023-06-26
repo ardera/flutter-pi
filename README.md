@@ -1,4 +1,9 @@
 ## 📰 NEWS
+- There's now flutterpi tool to make building the app easier: https://pub.dev/packages/flutterpi_tool
+  - Currently only supported on linux at the moment.
+  - Requires flutter SDK > 3.10.5
+  - Engine binaries no longer need to be installed on the target system.
+  - See updated [Configuring your Raspberry Pi](#configuring-your-raspberry-pi) and [Building the App](#building-the-app-new-method-linux-only) sections below.
 - There's now a new video player based on gstreamer. See [gstreamer video player](#gstreamer-video-player) section.
 - The new latest flutter gallery commit for flutter 3.7 is `9776b9fd916635e10a32bd426fcd7a20c3841faf`
 
@@ -32,10 +37,9 @@ If you encounter issues running flutter-pi on any of the supported platforms lis
 1.2 [Compiling](#compiling)  
 2. **[Running your App on the Raspberry Pi](#-running-your-app-on-the-raspberry-pi)**  
 2.1 [Configuring your Raspberry Pi](#configuring-your-raspberry-pi)  
-2.2 [Building the Asset bundle](#building-the-asset-bundle)  
-2.3 [Building the `app.so` (for running your app in Release/Profile mode)](#building-the-appso-for-running-your-app-in-releaseprofile-mode)  
-2.4 [Running your App with flutter-pi](#running-your-app-with-flutter-pi)  
-2.5 [gstreamer video player](#gstreamer-video-player)
+2.2 [Building the App](#building-the-app-new-method-linux-only)  
+2.3 [Running your App with flutter-pi](#running-your-app-with-flutter-pi)  
+2.4 [gstreamer video player](#gstreamer-video-player)  
 3. **[Performance](#-performance)**  
 3.1 [Graphics Performance](#graphics-performance)  
 3.2 [Touchscreen latency](#touchscreen-latency)  
@@ -146,20 +150,24 @@ If you encounter issues running flutter-pi on any of the supported platforms lis
 </details>
 
 ### Building the App (New Method, Linux-only)
-- The asset bundle must be built on your development machine. Note that you can't use a Raspberry Pi as your development machine.
+The app must be built on your development machine. Note that you can't use a Raspberry Pi as your development machine.
 
 _One-time setup:_
-1. Make sure you've installed the flutter SDK. Only flutter SDK >= 3.10.5 is supported for the new way at the moment.
+1. Make sure you've installed the flutter SDK. Only flutter SDK >= 3.10.5 is supported for the new method at the moment.
 2. Install the [flutterpi_tool](https://pub.dev/packages/flutterpi_tool):
    Run `flutter pub global activate flutterpi_tool` (One time only)
+3. If running `flutterpi_tool` directly doesn't work, follow https://dart.dev/tools/pub/cmd/pub-global#running-a-script-from-your-path
+   to add the dart global bin directory to your path.  
+   Alternatively, you can launch the tool via:
+   `flutter pub global run flutterpi_tool ...`
 
 _Building the app bundle:_
 1. Open terminal or commandline and `cd` into your app directory.
 2. Run `flutterpi_tool build` to build the app.
     - This will build the app for ARM 32-bit debug mode.
     - `flutterpi_tool build --help` gives more usage information.
-    - For example, to build for 64-bit ARM, release mode, with a Raspberry Pi 4 tuned engine, use:
-      - `flutterpi_tool build --arch=arm64 --cpu=pi4 --release`
+    - For example, to build for 64-bit ARM, release mode, with a Raspberry Pi 4 tuned engine, use:  
+       `flutterpi_tool build --arch=arm64 --cpu=pi4 --release`
 3. Deploy the bundle to the Raspberry Pi using `rsync` or `scp`:
     - Using `rsync` (available on linux and macOS or on Windows when using [WSL](https://docs.microsoft.com/de-de/windows/wsl/install-win10))
        ```bash
@@ -171,7 +179,6 @@ _Building the app bundle:_
        ```
 
 _Example:_
-
 1. We'll build the asset bundle for `flutter_gallery` and deploy it using `rsync` to a Raspberry Pi 4 in this example.
 ```bash
 git clone https://github.com/flutter/gallery.git flutter_gallery
