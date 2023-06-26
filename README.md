@@ -327,15 +327,24 @@ rsync -a ./build/flutter_assets/ pi@raspberrypi:/home/pi/flutter_gallery/
 
 ### Running your App with flutter-pi
 ```txt
+pi@hpi4:~ $ flutter-pi --help
+flutter-pi - run flutter apps on your Raspberry Pi.
+
 USAGE:
-  flutter-pi [options] <asset bundle path> [flutter engine options]
+  flutter-pi [options] <bundle path> [flutter engine options]
 
 OPTIONS:
   --release                  Run the app in release mode. The AOT snapshot
-                             of the app ("app.so") must be located inside the
-                             asset bundle directory.
+                             of the app must be located inside the bundle directory.
                              This also requires a libflutter_engine.so that was
                              built with --runtime-mode=release.
+
+  --profile                  Run the app in profile mode. The AOT snapshot
+                             of the app must be located inside the bundle directory.
+                             This also requires a libflutter_engine.so that was
+                             built with --runtime-mode=profile.
+
+  --vulkan                   Use vulkan for rendering.
 
   -o, --orientation <orientation>  Start the app in this orientation. Valid
                              for <orientation> are: portrait_up, landscape_left,
@@ -359,23 +368,14 @@ OPTIONS:
                              to calculate the flutter device-pixel-ratio, which
                              in turn basically "scales" the UI.
 
-  -i, --input <glob pattern> Appends all files matching this glob pattern to the
-                             list of input (touchscreen, mouse, touchpad,
-                             keyboard) devices. Brace and tilde expansion is
-                             enabled.
-                             Every file that matches this pattern, but is not
-                             a valid touchscreen / -pad, mouse or keyboard is
-                             silently ignored.
-                             If no -i options are given, flutter-pi will try to
-                             use all input devices assigned to udev seat0.
-                             If that fails, or udev is not installed, flutter-pi
-                             will fallback to using all devices matching
-                             "/dev/input/event*" as inputs.
-                             In most cases, there's no need to specify this
-                             option.
-                             Note that you need to properly escape each glob
-                             pattern you use as a parameter so it isn't
-                             implicitly expanded by your shell.
+  --pixelformat <format>     Selects the pixel format to use for the framebuffers.
+                             If this is not specified, a good pixel format will
+                             be selected automatically.
+                             Available pixel formats: RGB565, ARGB4444, XRGB4444, ARGB1555, XRGB1555, ARGB8888, XRGB8888, BGRA8888, BGRX8888, RGBA8888, RGBX8888, 
+  --videomode widthxheight
+  --videomode widthxheight@hz  Uses an output videomode that satisfies the argument.
+                             If no hz value is given, the highest possible refreshrate
+                             will be used.
 
   -h, --help                 Show this help and exit.
 
@@ -385,6 +385,8 @@ EXAMPLES:
   flutter-pi -o portrait_up ./my_app
   flutter-pi -r 90 ./my_app
   flutter-pi -d "155, 86" ./my_app
+  flutter-pi --videomode 1920x1080 ./my_app
+  flutter-pi --videomode 1280x720@60 ./my_app
 
 SEE ALSO:
   Author:  Hannes Winkler, a.k.a ardera
@@ -392,9 +394,9 @@ SEE ALSO:
   License: MIT
 
   For instructions on how to build an asset bundle or an AOT snapshot
-    of your app, please see the linked git repository.
+    of your app, please see the linked github repository.
   For a list of options you can pass to the flutter engine, look here:
-    https://github.com/flutter/engine/blob/master/shell/common/switches.h
+    https://github.com/flutter/engine/blob/main/shell/common/switches.h
 ```
 
 `<asset bundle path>` is the path of the flutter asset bundle directory (i.e. the directory containing `kernel_blob.bin`)
