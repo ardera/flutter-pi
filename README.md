@@ -4,7 +4,7 @@
   - Requires flutter SDK > 3.10.5
   - Engine binaries no longer need to be installed on the target system.
   - See updated [Building flutter-pi on the Raspberry Pi](#-building-flutter-pi-on-the-raspberry-pi) and [Building the App](#building-the-app-new-method-linux-only) sections below.
-- Added a section for useful dart packages, See (Useful Dart Packages)[#-useful-dart-packages]
+- Added a section for useful dart packages, See [Useful Dart Packages](#-useful-dart-packages)
 - There's now a new video player based on gstreamer. See [gstreamer video player](#gstreamer-video-player) section.
 - The new latest flutter gallery commit for flutter 3.10 is `d77920b4ced4a105ad35659fbe3958800d418fb9`
 
@@ -44,7 +44,7 @@ If you encounter issues running flutter-pi on any of the supported platforms lis
 3. **[Performance](#-performance)**  
 3.1 [Graphics Performance](#graphics-performance)  
 3.2 [Touchscreen latency](#touchscreen-latency)
-4. **[Useful Dart Packages](#-useful-dart-packages]**
+4. **[Useful Dart Packages](#-useful-dart-packages)**
 5. **[Discord](#-discord)**
 
 ## 🛠 Building flutter-pi on the Raspberry Pi
