@@ -4,6 +4,7 @@
   - Requires flutter SDK > 3.10.5
   - Engine binaries no longer need to be installed on the target system.
   - See updated [Building flutter-pi on the Raspberry Pi](#-building-flutter-pi-on-the-raspberry-pi) and [Building the App](#building-the-app-new-method-linux-only) sections below.
+- Added a section for useful dart packages, See (Useful Dart Packages)[#-useful-dart-packages]
 - There's now a new video player based on gstreamer. See [gstreamer video player](#gstreamer-video-player) section.
 - The new latest flutter gallery commit for flutter 3.10 is `d77920b4ced4a105ad35659fbe3958800d418fb9`
 
@@ -42,8 +43,9 @@ If you encounter issues running flutter-pi on any of the supported platforms lis
 2.4 [gstreamer video player](#gstreamer-video-player)  
 3. **[Performance](#-performance)**  
 3.1 [Graphics Performance](#graphics-performance)  
-3.2 [Touchscreen latency](#touchscreen-latency)  
-4. **[Discord](#-discord)**
+3.2 [Touchscreen latency](#touchscreen-latency)
+4. **[Useful Dart Packages](#-useful-dart-packages]**
+5. **[Discord](#-discord)**
 
 ## 🛠 Building flutter-pi on the Raspberry Pi
 - If you want to update flutter-pi, you check out the latest commit using `git pull && git checkout origin/master` and continue with [compiling](#compiling), step 2.
@@ -419,6 +421,17 @@ Graphics performance is actually pretty good. With most of the apps inside the `
 Due to the way the touchscreen driver works in raspbian, there's some delta between an actual touch of the touchscreen and a touch event arriving at userspace. The touchscreen driver in the raspbian kernel actually just repeatedly polls some buffer shared with the firmware running on the VideoCore, and the videocore repeatedly polls the touchscreen. (both at 60Hz) So on average, there's a delay of 17ms (minimum 0ms, maximum 34ms). Actually, the firmware is polling correctly at ~60Hz, but the linux driver is not because there's a bug. The linux side actually polls at 25Hz, which makes touch applications look terrible. (When you drag something in a touch application, but the application only gets new touch data at 25Hz, it'll look like the application itself is _redrawing_ at 25Hz, making it look very laggy) The github issue for this raspberry pi kernel bug is [here](https://github.com/raspberrypi/linux/issues/3777). Leave a like on the issue if you'd like to see this fixed in the kernel.
 
 This is why I created my own (userspace) touchscreen driver, for improved latency & polling rate. See [this repo](https://github.com/ardera/raspberrypi-fast-ts) for details. The driver is very easy to use and the difference is noticeable, flutter apps look and feel a lot better with this driver.
+
+## 📦 Useful Dart Packages
+
+| Package | Category    | Author | Description |
+| - | - | - | - |
+| flutterpi_tool ([package](https://pub.dev/packages/flutterpi_tool/)) ([repo](https://github.com/ardera/flutterpi_tool)) | 🔧 tooling | Hannes Winkler (me) | Tool to make developing & distributing apps for flutter-pi easier. |
+| flutter_gpiod ([package](https://pub.dev/packages/flutter_gpiod/)) ([repo](https://github.com/ardera/flutter_packages/tree/main/packages/flutter_gpiod)) | 🖨 peripherals | Hannes Winkler | GPIO control support for dart/flutter, uses kernel interfaces directly for more performance. |
+| linux_serial ([package](https://pub.dev/packages/linux_serial/)) ([repo](https://github.com/ardera/flutter_packages/tree/main/packages/linux_serial)) | 🖨 peripherals | Hannes Winkler | Serial Port support for dart/flutter, uses kernel interfaces directly for more performance. |
+| linux_spidev ([package](https://pub.dev/packages/linux_spidev/)) ([repo](https://github.com/ardera/flutter_packages/tree/main/packages/linux_spidev)) | 🖨 peripherals | Hannes Winkler | SPI bus support for dart/flutter, uses kernel interfaces directly for more performance. |
+| dart_periphery ([package](https://pub.dev/packages/dart_periphery)) ([repo](https://github.com/pezi/dart_periphery)) | 🖨 peripherals | [Peter Sauer](https://github.com/pezi/) | All-in-one package GPIO, I2C, SPI, Serial, PWM, Led, MMIO support using c-periphery. |
+| flutterpi_gstreamer_video_player ([package](https://pub.dev/packages/flutterpi_gstreamer_video_player)) ([repo](https://github.com/ardera/flutter_packages/tree/main/packages/flutterpi_gstreamer_video_player)) | ⏯️ multimedia | Hannes Winkler | Official video player implementation for flutter-pi. See [GStreamer video player](#gstreamer-video-player) section above. |
 
 ## 💬 Discord
 There a `#custom-embedders` channel on the [flutter discord](https://github.com/flutter/flutter/wiki/Chat) which you can use if you have any questions regarding flutter-pi or generally, anything related to embedding the engine for which you don't want to open issue about or write an email.
