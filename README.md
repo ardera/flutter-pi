@@ -45,19 +45,30 @@ If you encounter issues running flutter-pi on any of the supported platforms lis
 - If you want to update flutter-pi, you check out the latest commit using `git pull && git checkout origin/master` and continue with [compiling](#compiling), step 2.
 
 ### Dependencies
-1. Install the flutter engine binaries using the instructions in the [in the _flutter-engine-binaries-for-arm_ repo.](https://github.com/ardera/flutter-engine-binaries-for-arm).
-    <details>
-      <summary>More Info</summary>
 
-      flutter-pi needs flutters `flutter_embedder.h` to compile and `icudtl.dat` at runtime. It also needs `libflutter_engine.so.release` at runtime when invoked with the `--release` flag and `libflutter_engine.so.debug` when invoked without.
+1. ~~Install the engine-binaries~~ (not required anymore, except when using the old method to build the app bundle, see below)
+
+    <details>
+
+    <summary>Instructions</summary>
+
+    - Follow the instructions [in the _flutter-engine-binaries-for-arm_ repo.](https://github.com/ardera/flutter-engine-binaries-for-arm).
+
+      <details>
+      <summary>More Info</summary>
+    
+      flutter-pi needs flutters `icudtl.dat` and `libflutter_engine.so.{debug,profile,release}` at runtime, depending on the runtime mode used.
       You actually have two options here:
 
       - you build the engine yourself. takes a lot of time, and it most probably won't work on the first try. But once you have it set up, you have unlimited freedom on which engine version you want to use. You can find some rough guidelines [here](https://medium.com/flutter/flutter-on-raspberry-pi-mostly-from-scratch-2824c5e7dcb1).
       - you can use the pre-built engine binaries I am providing [in the _flutter-engine-binaries-for-arm_ repo.](https://github.com/ardera/flutter-engine-binaries-for-arm). I will only provide binaries for some engine versions though (most likely the stable ones).
 
+      </details>
+
+    
     </details>
 
-2. Install cmake, graphics, system libraries and fonts:
+3. Install cmake, graphics, system libraries and fonts:
     ```shell
     $ sudo apt install cmake libgl1-mesa-dev libgles2-mesa-dev libegl1-mesa-dev libdrm-dev libgbm-dev ttf-mscorefonts-installer fontconfig libsystemd-dev libinput-dev libudev-dev  libxkbcommon-dev
     ```
@@ -77,7 +88,7 @@ If you encounter issues running flutter-pi on any of the supported platforms lis
       - `gpiod` and `libgpiod-dev` where required in the past, but aren't anymore since the `flutter_gpiod` plugin will directly access the kernel interface.
     </details>
     
-3. Update the system fonts.
+4. Update the system fonts.
     ```bash
     sudo fc-cache
     ```
@@ -134,9 +145,50 @@ If you encounter issues running flutter-pi on any of the supported platforms lis
   - `pi` isn't allowed to directly access the GPU because IIRC this has some privilege escalation bugs. Raspberry Pi has quite a lot of system-critical, not graphics-related stuff running on the GPU. I read somewhere it's easily possible to gain control of the GPU by writing malicious shaders. From there you can gain control of the CPU and thus the linux kernel. So basically the `pi` user could escalate privileges and become `root` just by directly accessing the GPU. But maybe this has already been fixed, I'm not sure.
 </details>
 
-### Building the Asset bundle
+### Building the App (New Method, Linux-only)
 - The asset bundle must be built on your development machine. Note that you can't use a Raspberry Pi as your development machine.
 
+_One-time setup:_
+1. Make sure you've installed the flutter SDK. Only flutter SDK >= 3.10.5 is supported for the new way at the moment.
+2. Install the [flutterpi_tool](https://pub.dev/packages/flutterpi_tool):
+   Run `flutter pub global activate flutterpi_tool` (One time only)
+
+_Building the app bundle:_
+1. Open terminal or commandline and `cd` into your app directory.
+2. Run `flutterpi_tool build` to build the app.
+    - This will build the app for ARM 32-bit debug mode.
+    - `flutterpi_tool build --help` gives more usage information.
+    - For example, to build for 64-bit ARM, release mode, with a Raspberry Pi 4 tuned engine, use:
+      - `flutterpi_tool build --arch=arm64 --cpu=pi4 --release`
+3. Deploy the bundle to the Raspberry Pi using `rsync` or `scp`:
+    - Using `rsync` (available on linux and macOS or on Windows when using [WSL](https://docs.microsoft.com/de-de/windows/wsl/install-win10))
+       ```bash
+       rsync -a --info=progress2 ./build/flutter_assets/ pi@raspberrypi:/home/pi/my_apps_flutter_assets
+       ```
+     - Using `scp` (available on linux, macOS and Windows)
+       ```bash
+       scp -r ./build/flutter_assets/ pi@raspberrypi:/home/pi/my_apps_flutter_assets
+       ```
+
+_Example:_
+
+1. We'll build the asset bundle for `flutter_gallery` and deploy it using `rsync` to a Raspberry Pi 4 in this example.
+```bash
+git clone https://github.com/flutter/gallery.git flutter_gallery
+cd flutter_gallery
+git checkout 9776b9fd916635e10a32bd426fcd7a20c3841faf
+flutterpi_tool build --release --cpu=pi4
+rsync -a ./build/flutter_assets/ pi@raspberrypi:/home/pi/flutter_gallery/
+```
+
+2. Done. You can now run this app in release mode using `flutter-pi --release /home/pi/flutter_gallery`.
+
+### Building the App (old method, linux or windows)
+
+<details>
+
+<summary>Instructions</summary>
+    
 1. Make sure you've installed the flutter SDK. **You must** use a flutter SDK that's compatible to the installed engine binaries.
    - for the flutter SDK, use flutter stable and keep it up to date.  
    - always use the latest available [engine binaries](https://github.com/ardera/flutter-engine-binaries-for-arm)  
@@ -263,6 +315,8 @@ rsync -a ./build/flutter_assets/ pi@raspberrypi:/home/pi/flutter_gallery/
     exit
     ```
 3. Done. You can now run this app in release mode using `flutter-pi --release /home/pi/flutter_gallery`.
+
+</details>
 
 ### Running your App with flutter-pi
 ```txt
