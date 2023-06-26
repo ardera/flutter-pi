@@ -3,7 +3,7 @@
   - Currently only supported on linux at the moment.
   - Requires flutter SDK > 3.10.5
   - Engine binaries no longer need to be installed on the target system.
-  - See updated [Configuring your Raspberry Pi](#configuring-your-raspberry-pi) and [Building the App](#building-the-app-new-method-linux-only) sections below.
+  - See updated [Building flutter-pi on the Raspberry Pi](#-building-flutter-pi-on-the-raspberry-pi) and [Building the App](#building-the-app-new-method-linux-only) sections below.
 - There's now a new video player based on gstreamer. See [gstreamer video player](#gstreamer-video-player) section.
 - The new latest flutter gallery commit for flutter 3.7 is `9776b9fd916635e10a32bd426fcd7a20c3841faf`
 
