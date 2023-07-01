@@ -219,7 +219,7 @@ void audio_player_on_media_error(struct audio_player *self, GError *error, gchar
             self->channel,
             "audio.onError",
             &STDMAP2(
-                STDSTRING("player_id"),
+                STDSTRING("playerId"),
                 STDSTRING(self->player_id),
                 STDSTRING("value"),
                 STDSTRING(error_message)
@@ -251,7 +251,7 @@ void audio_player_on_position_update(struct audio_player *self) {
             self->channel,
             "audio.onCurrentPosition",
             &STDMAP2(
-                STDSTRING("player_id"),
+                STDSTRING("playerId"),
                 STDSTRING(self->player_id),
                 STDSTRING("value"),
                 STDINT64(audio_player_get_position(self))
@@ -269,7 +269,7 @@ void audio_player_on_duration_update(struct audio_player *self) {
             self->channel,
             "audio.onDuration",
             &STDMAP2(
-                STDSTRING("player_id"),
+                STDSTRING("playerId"),
                 STDSTRING(self->player_id),
                 STDSTRING("value"),
                 STDINT64(audio_player_get_duration(self))
@@ -288,7 +288,7 @@ void audio_player_on_seek_completed(struct audio_player *self) {
             self->channel,
             "audio.onSeekComplete",
             &STDMAP2(
-                STDSTRING("player_id"),
+                STDSTRING("playerId"),
                 STDSTRING(self->player_id),
                 STDSTRING("value"),
                 STDBOOL(true)
@@ -310,7 +310,7 @@ void audio_player_on_playback_ended(struct audio_player *self) {
             self->channel,
             "audio.onComplete",
             &STDMAP2(
-                STDSTRING("player_id"),
+                STDSTRING("playerId"),
                 STDSTRING(self->player_id),
                 STDSTRING("value"),
                 STDBOOL(true)
