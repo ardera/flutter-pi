@@ -35,10 +35,10 @@ static int on_local_method_call(char *channel, struct platch_obj *object, Flutte
         return platch_respond_illegal_arg_std(responsehandle, "Expected `arg` to be a map.");
     }
 
-    tmp = stdmap_get_str(&object->std_arg, "player_id");
+    tmp = stdmap_get_str(&object->std_arg, "playerId");
     if (tmp == NULL || !STDVALUE_IS_STRING(*tmp)) {
         LOG_ERROR("Call missing mandatory parameter player_id.\n");
-        return platch_respond_illegal_arg_std(responsehandle, "Expected `arg['player_id'] to be a string.");
+        return platch_respond_illegal_arg_std(responsehandle, "Expected `arg['playerId'] to be a string.");
     }
     player_id = STDVALUE_AS_STRING(*tmp);
     tmp = stdmap_get_str(args, "mode");
