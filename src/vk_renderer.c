@@ -317,6 +317,8 @@ MUST_CHECK struct vk_renderer *vk_renderer_new() {
         }
     } else {
         debug_utils_messenger = VK_NULL_HANDLE;
+        create_debug_utils_messenger = NULL;
+        destroy_debug_utils_messenger = NULL;
     }
 
     ok = vkEnumeratePhysicalDevices(instance, &n_physical_devices, NULL);

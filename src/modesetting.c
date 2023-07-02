@@ -2233,6 +2233,7 @@ int kms_req_builder_push_fb_layer(
 ) {
     struct drm_plane *plane;
     int64_t zpos;
+    bool has_zpos;
     bool close_in_fence_fd_after;
     int ok, index;
 
@@ -2363,11 +2364,15 @@ int kms_req_builder_push_fb_layer(
     // that's both higher than the last layers zpos and
     // also supported by the plane.
     // This will also work for planes with hardcoded zpos.
-    if (plane->has_zpos) {
+    has_zpos = plane->has_zpos;
+    if (has_zpos) {
         zpos = builder->next_zpos;
         if (plane->min_zpos > zpos) {
             zpos = plane->min_zpos;
         }
+    } else {
+        // just to silence an uninitialized use warning below.
+        zpos = 0;
     }
 
     if (builder->use_legacy) {
@@ -2421,13 +2426,13 @@ int kms_req_builder_push_fb_layer(
     /// when specified in the fb layer. Ideally we would check for updates
     /// on commit and only add to the atomic request when zpos / rotation changed.
     builder->n_layers++;
-    if (plane->has_zpos) {
+    if (has_zpos) {
         builder->next_zpos = zpos + 1;
     }
     builder->layers[index].layer = *layer;
     builder->layers[index].plane_id = plane->id;
     builder->layers[index].plane = plane;
-    builder->layers[index].set_zpos = plane->has_zpos;
+    builder->layers[index].set_zpos = has_zpos;
     builder->layers[index].zpos = zpos;
     builder->layers[index].set_rotation = layer->has_rotation;
     builder->layers[index].rotation = layer->rotation;
