@@ -370,6 +370,7 @@ static void on_receive_mouse_cursor(ASSERTED void *userdata, const FlutterPlatfo
             return;
         }
 
+#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
         flutterpi_set_pointer_kind(plugin->flutterpi, kind);
 
         platch_respond_success_std(message->response_handle, &STDNULL);
