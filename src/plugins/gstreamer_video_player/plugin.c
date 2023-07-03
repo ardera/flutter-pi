@@ -1638,40 +1638,40 @@ enum plugin_init_result gstplayer_plugin_init(struct flutterpi *flutterpi, void 
     return PLUGIN_INIT_RESULT_INITIALIZED;
 
 fail_remove_advancedControls_receiver:
-    plugin_registry_remove_receiver("flutter.io/videoPlayer/gstreamerVideoPlayer/advancedControls");
+    plugin_registry_remove_receiver_locked("flutter.io/videoPlayer/gstreamerVideoPlayer/advancedControls");
 
 fail_remove_setMixWithOthers_receiver:
-    plugin_registry_remove_receiver("dev.flutter.pigeon.VideoPlayerApi.setMixWithOthers");
+    plugin_registry_remove_receiver_locked("dev.flutter.pigeon.VideoPlayerApi.setMixWithOthers");
 
 fail_remove_pause_receiver:
-    plugin_registry_remove_receiver("dev.flutter.pigeon.VideoPlayerApi.pause");
+    plugin_registry_remove_receiver_locked("dev.flutter.pigeon.VideoPlayerApi.pause");
 
 fail_remove_seekTo_receiver:
-    plugin_registry_remove_receiver("dev.flutter.pigeon.VideoPlayerApi.seekTo");
+    plugin_registry_remove_receiver_locked("dev.flutter.pigeon.VideoPlayerApi.seekTo");
 
 fail_remove_position_receiver:
-    plugin_registry_remove_receiver("dev.flutter.pigeon.VideoPlayerApi.position");
+    plugin_registry_remove_receiver_locked("dev.flutter.pigeon.VideoPlayerApi.position");
 
 fail_remove_play_receiver:
-    plugin_registry_remove_receiver("dev.flutter.pigeon.VideoPlayerApi.play");
+    plugin_registry_remove_receiver_locked("dev.flutter.pigeon.VideoPlayerApi.play");
 
 fail_remove_setPlaybackSpeed_receiver:
-    plugin_registry_remove_receiver("dev.flutter.pigeon.VideoPlayerApi.setPlaybackSpeed");
+    plugin_registry_remove_receiver_locked("dev.flutter.pigeon.VideoPlayerApi.setPlaybackSpeed");
 
 fail_remove_setVolume_receiver:
-    plugin_registry_remove_receiver("dev.flutter.pigeon.VideoPlayerApi.setVolume");
+    plugin_registry_remove_receiver_locked("dev.flutter.pigeon.VideoPlayerApi.setVolume");
 
 fail_remove_setLooping_receiver:
-    plugin_registry_remove_receiver("dev.flutter.pigeon.VideoPlayerApi.setLooping");
+    plugin_registry_remove_receiver_locked("dev.flutter.pigeon.VideoPlayerApi.setLooping");
 
 fail_remove_dispose_receiver:
-    plugin_registry_remove_receiver("dev.flutter.pigeon.VideoPlayerApi.dispose");
+    plugin_registry_remove_receiver_locked("dev.flutter.pigeon.VideoPlayerApi.dispose");
 
 fail_remove_create_receiver:
-    plugin_registry_remove_receiver("dev.flutter.pigeon.VideoPlayerApi.create");
+    plugin_registry_remove_receiver_locked("dev.flutter.pigeon.VideoPlayerApi.create");
 
 fail_remove_initialize_receiver:
-    plugin_registry_remove_receiver("dev.flutter.pigeon.VideoPlayerApi.initialize");
+    plugin_registry_remove_receiver_locked("dev.flutter.pigeon.VideoPlayerApi.initialize");
 
 fail_destroy_lock:
     pthread_mutex_destroy(&plugin.lock);
@@ -1691,19 +1691,19 @@ void gstplayer_plugin_deinit(struct flutterpi *flutterpi, void *userdata) {
 
     plugin_unlock(&plugin);
 
-    plugin_registry_remove_receiver("flutter-pi/gstreamerVideoPlayer");
-    plugin_registry_remove_receiver("flutter.io/videoPlayer/gstreamerVideoPlayer/advancedControls");
-    plugin_registry_remove_receiver("dev.flutter.pigeon.VideoPlayerApi.setMixWithOthers");
-    plugin_registry_remove_receiver("dev.flutter.pigeon.VideoPlayerApi.pause");
-    plugin_registry_remove_receiver("dev.flutter.pigeon.VideoPlayerApi.seekTo");
-    plugin_registry_remove_receiver("dev.flutter.pigeon.VideoPlayerApi.position");
-    plugin_registry_remove_receiver("dev.flutter.pigeon.VideoPlayerApi.play");
-    plugin_registry_remove_receiver("dev.flutter.pigeon.VideoPlayerApi.setPlaybackSpeed");
-    plugin_registry_remove_receiver("dev.flutter.pigeon.VideoPlayerApi.setVolume");
-    plugin_registry_remove_receiver("dev.flutter.pigeon.VideoPlayerApi.setLooping");
-    plugin_registry_remove_receiver("dev.flutter.pigeon.VideoPlayerApi.dispose");
-    plugin_registry_remove_receiver("dev.flutter.pigeon.VideoPlayerApi.create");
-    plugin_registry_remove_receiver("dev.flutter.pigeon.VideoPlayerApi.initialize");
+    plugin_registry_remove_receiver_locked("flutter-pi/gstreamerVideoPlayer");
+    plugin_registry_remove_receiver_locked("flutter.io/videoPlayer/gstreamerVideoPlayer/advancedControls");
+    plugin_registry_remove_receiver_locked("dev.flutter.pigeon.VideoPlayerApi.setMixWithOthers");
+    plugin_registry_remove_receiver_locked("dev.flutter.pigeon.VideoPlayerApi.pause");
+    plugin_registry_remove_receiver_locked("dev.flutter.pigeon.VideoPlayerApi.seekTo");
+    plugin_registry_remove_receiver_locked("dev.flutter.pigeon.VideoPlayerApi.position");
+    plugin_registry_remove_receiver_locked("dev.flutter.pigeon.VideoPlayerApi.play");
+    plugin_registry_remove_receiver_locked("dev.flutter.pigeon.VideoPlayerApi.setPlaybackSpeed");
+    plugin_registry_remove_receiver_locked("dev.flutter.pigeon.VideoPlayerApi.setVolume");
+    plugin_registry_remove_receiver_locked("dev.flutter.pigeon.VideoPlayerApi.setLooping");
+    plugin_registry_remove_receiver_locked("dev.flutter.pigeon.VideoPlayerApi.dispose");
+    plugin_registry_remove_receiver_locked("dev.flutter.pigeon.VideoPlayerApi.create");
+    plugin_registry_remove_receiver_locked("dev.flutter.pigeon.VideoPlayerApi.initialize");
     pthread_mutex_destroy(&plugin.lock);
 }
 

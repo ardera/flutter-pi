@@ -385,6 +385,15 @@ int plugin_registry_remove_receiver_v2(struct plugin_registry *registry, const c
     return ok;
 }
 
+int plugin_registry_remove_receiver_locked(const char *channel) {
+    struct plugin_registry *registry;
+
+    registry = flutterpi_get_plugin_registry(flutterpi);
+    ASSUME(registry != NULL);
+
+    return plugin_registry_remove_receiver_v2_locked(registry, channel);
+}
+
 int plugin_registry_remove_receiver(const char *channel) {
     struct plugin_registry *registry;
 
