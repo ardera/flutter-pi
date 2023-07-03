@@ -1,10 +1,11 @@
+#include "plugins/services.h"
+
 #include <ctype.h>
 #include <errno.h>
 
+#include "cursor.h"
 #include "flutter-pi.h"
 #include "pluginregistry.h"
-#include "cursor.h"
-#include "plugins/services.h"
 
 struct plugin {
     struct flutterpi *flutterpi;
@@ -244,13 +245,13 @@ static void on_receive_mouse_cursor(ASSERTED void *userdata, const FlutterPlatfo
     ASSERT_NOT_NULL(userdata);
     plugin = userdata;
 
-    method_call = (const struct raw_std_value*) (message->message);
+    method_call = (const struct raw_std_value *) (message->message);
 
     if (!raw_std_method_call_check(method_call, message->message_size)) {
         platch_respond_illegal_arg_std(message->response_handle, "Malformed platform message.");
         return;
     }
-    
+
     arg = raw_std_method_call_get_arg(method_call);
 
     if (raw_std_method_call_is_method(method_call, "activateSystemCursor")) {
@@ -263,7 +264,7 @@ static void on_receive_mouse_cursor(ASSERTED void *userdata, const FlutterPlatfo
         UNUSED int64_t device;
 
         bool has_kind = false;
-        enum pointer_kind kind;
+        enum pointer_kind kind = POINTER_KIND_BASIC;
 
         for_each_entry_in_raw_std_map(key, value, arg) {
             if (!raw_std_value_is_string(key)) {
@@ -370,7 +371,6 @@ static void on_receive_mouse_cursor(ASSERTED void *userdata, const FlutterPlatfo
             return;
         }
 
-#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
         flutterpi_set_pointer_kind(plugin->flutterpi, kind);
 
         platch_respond_success_std(message->response_handle, &STDNULL);
@@ -415,13 +415,19 @@ enum plugin_init_result services_init(struct flutterpi *flutterpi, void **userda
 
     ok = plugin_registry_set_receiver_v2_locked(registry, FLUTTER_ACCESSIBILITY_CHANNEL, on_receive_accessibility, plugin);
     if (ok != 0) {
-        LOG_ERROR("Could not set \"" FLUTTER_ACCESSIBILITY_CHANNEL "\" receiver. plugin_registry_set_receiver_v2_locked: %s\n", strerror(ok));
+        LOG_ERROR(
+            "Could not set \"" FLUTTER_ACCESSIBILITY_CHANNEL "\" receiver. plugin_registry_set_receiver_v2_locked: %s\n",
+            strerror(ok)
+        );
         goto fail_remove_platform_receiver;
     }
 
     ok = plugin_registry_set_receiver_v2_locked(registry, FLUTTER_PLATFORM_VIEWS_CHANNEL, on_receive_platform_views, plugin);
     if (ok != 0) {
-        LOG_ERROR("Could not set \"" FLUTTER_PLATFORM_VIEWS_CHANNEL "\" receiver. plugin_registry_set_receiver_v2_locked: %s\n", strerror(ok));
+        LOG_ERROR(
+            "Could not set \"" FLUTTER_PLATFORM_VIEWS_CHANNEL "\" receiver. plugin_registry_set_receiver_v2_locked: %s\n",
+            strerror(ok)
+        );
         goto fail_remove_accessibility_receiver;
     }
 
