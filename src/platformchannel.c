@@ -217,6 +217,7 @@ int platch_free_json_value(struct json_value *value, bool shallow) {
             }
 
             free(value->keys);
+            free(value->values);
             break;
         default: break;
     }

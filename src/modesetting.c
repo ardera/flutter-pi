@@ -829,9 +829,9 @@ fail_free_plane:
 }
 
 static void free_plane(UNUSED struct drm_plane *plane) {
-    // if (plane->supported_modified_formats != NULL) {
-    //     free(plane->supported_modified_formats);
-    // }
+    if (plane->supported_modified_formats_blob != NULL) {
+        free(plane->supported_modified_formats_blob);
+    }
 }
 
 static int fetch_planes(struct drmdev *drmdev, struct drm_plane **planes_out, size_t *n_planes_out) {

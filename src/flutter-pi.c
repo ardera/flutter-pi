@@ -2473,6 +2473,9 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
         }
 
         sd_event_source_set_priority(user_input_event_source, SD_EVENT_PRIORITY_IDLE - 10);
+
+        sd_event_source_set_floating(user_input_event_source, true);
+        sd_event_source_unref(user_input_event_source);
     }
 
     engine_handle = load_flutter_engine_lib(paths);
@@ -2585,6 +2588,8 @@ fail_unload_engine:
 fail_destroy_user_input:
     user_input_destroy(input);
 
+    pset_deinit(&fpi->fd_for_device_id);
+
 fail_unref_compositor:
     compositor_unref(compositor);
 
@@ -2655,6 +2660,7 @@ void flutterpi_destroy(struct flutterpi *flutterpi) {
     plugin_registry_destroy(flutterpi->plugin_registry);
     unload_flutter_engine_lib(flutterpi->flutter.engine_handle);
     user_input_destroy(flutterpi->user_input);
+    pset_deinit(&flutterpi->fd_for_device_id);
     compositor_unref(flutterpi->compositor);
     if (flutterpi->gl_renderer) {
 #ifdef HAVE_EGL_GLES2
