@@ -2553,7 +2553,7 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
     frame_scheduler_unref(scheduler);
     window_unref(window);
 
-    pthread_mutex_init(&fpi->event_loop_mutex, NULL);
+    pthread_mutex_init(&fpi->event_loop_mutex, get_default_mutex_attrs());
     fpi->event_loop_thread = pthread_self();
     fpi->wakeup_event_loop_fd = wakeup_fd;
     fpi->event_loop = event_loop;
