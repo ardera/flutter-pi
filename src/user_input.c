@@ -189,12 +189,37 @@ fail_return_null:
     return NULL;
 }
 
+static int on_device_removed(struct user_input *input, struct libinput_event *event, uint64_t timestamp, bool emit_flutter_events);
+
 void user_input_destroy(struct user_input *input) {
+    enum libinput_event_type event_type;
+    struct libinput_event *event;
+    int ok;
+
     assert(input != NULL);
 
     /// TODO: Destroy all the input device data, maybe add an additional
     /// parameter to indicate whether any flutter device removal events should be
     /// emitted.
+
+    libinput_suspend(input->libinput);
+    libinput_dispatch(input->libinput);
+
+    // handle all device removal events
+    while (libinput_next_event_type(input->libinput) != LIBINPUT_EVENT_NONE) {
+        event = libinput_get_event(input->libinput);
+        event_type = libinput_event_get_type(event);
+
+        switch (event_type) {
+            case LIBINPUT_EVENT_DEVICE_REMOVED:
+                ok = on_device_removed(input, event, 0, false);
+                ASSERT_ZERO(ok);
+                break;
+            default: break;
+        }
+
+        libinput_event_destroy(event);
+    }
 
     if (input->kbdcfg != NULL) {
         keyboard_config_destroy(input->kbdcfg);
@@ -389,7 +414,7 @@ static int on_device_added(struct user_input *input, struct libinput_event *even
     return 0;
 }
 
-static int on_device_removed(struct user_input *input, struct libinput_event *event, uint64_t timestamp) {
+static int on_device_removed(struct user_input *input, struct libinput_event *event, uint64_t timestamp, bool emit_flutter_events) {
     struct input_device_data *data;
     struct libinput_device *device;
 
@@ -397,20 +422,40 @@ static int on_device_removed(struct user_input *input, struct libinput_event *ev
     assert(event != NULL);
 
     device = libinput_event_get_device(event);
+
     data = libinput_device_get_user_data(device);
 
+    // on_device_removed is special here because it's also invoked
+    // outside the normal user_input_on_fd_ready function as well,
+    // in user_input_destroy.
+    //
+    // user_input_destroy calls libinput_suspend and then handles all events,
+    // but only the DEVICE_REMOVED events, so it could be we skip some
+    // DEVICE_ADDED events as well
+    //
+    // so it might be the data is null here because on_device_added
+    // was never called for this device.
+    if (data == NULL) {
+        return 0;
+    }
+
     if (libinput_device_has_capability(device, LIBINPUT_DEVICE_CAP_POINTER)) {
-        // if we don't have a mouse cursor added to flutter yet, add one
         if (data->has_emitted_pointer_events) {
             input->n_cursor_devices--;
-            maybe_disable_mouse_cursor(input, timestamp);
+            if (emit_flutter_events) {
+                maybe_disable_mouse_cursor(input, timestamp);
+            }
         }
-    } else if (libinput_device_has_capability(device, LIBINPUT_DEVICE_CAP_TOUCH)) {
+    }
+    if (libinput_device_has_capability(device, LIBINPUT_DEVICE_CAP_TOUCH)) {
         // add all touch slots as individual touch devices to flutter
-        for (int i = 0; i < libinput_device_touch_get_touch_count(device); i++) {
-            emit_pointer_events(input, &FLUTTER_POINTER_TOUCH_REMOVE_EVENT(timestamp, 0.0, 0.0, data->flutter_device_id_offset + i), 1);
+        if (emit_flutter_events) {
+            for (int i = 0; i < libinput_device_touch_get_touch_count(device); i++) {
+                emit_pointer_events(input, &FLUTTER_POINTER_TOUCH_REMOVE_EVENT(timestamp, 0.0, 0.0, data->flutter_device_id_offset + i), 1);
+            }
         }
-    } else if (libinput_device_has_capability(device, LIBINPUT_DEVICE_CAP_KEYBOARD)) {
+    }
+    if (libinput_device_has_capability(device, LIBINPUT_DEVICE_CAP_KEYBOARD)) {
         // create a new keyboard state for this keyboard
         if (data->keyboard_state != NULL) {
             keyboard_state_destroy(data->keyboard_state);
@@ -1092,7 +1137,7 @@ static int process_libinput_events(struct user_input *input, uint64_t timestamp)
                 }
                 break;
             case LIBINPUT_EVENT_DEVICE_REMOVED:
-                ok = on_device_removed(input, event, timestamp);
+                ok = on_device_removed(input, event, timestamp, true);
                 if (ok != 0) {
                     goto fail_destroy_event;
                 }
