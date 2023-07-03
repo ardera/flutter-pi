@@ -365,7 +365,7 @@ if (ENABLE_ASAN)
   # and something in the dynamically loaded library triggers asan, it'll throw an error because it hasn't
   # intercepted stdc++ yet.
   # Also disable --as-needed so we _actually_ link against c++, even though we don't use any symbols from it.
-  target_link_libraries(flutterpi_module stdc++)
+  target_link_libraries(flutterpi_module PUBLIC stdc++)
   target_link_options(flutterpi_module PUBLIC -fsanitize=address -fno-omit-frame-pointer -Wl,--no-as-needed)
   target_compile_options(flutterpi_module PUBLIC -fsanitize=address)
 
