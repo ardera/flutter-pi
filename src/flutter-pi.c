@@ -886,7 +886,7 @@ int flutterpi_respond_to_platform_message(
     FlutterEngineResult result;
     int ok;
 
-    if (runs_platform_tasks_on_current_thread(&flutterpi)) {
+    if (flutterpi_runs_platform_tasks_on_current_thread(flutterpi)) {
         result = flutterpi->flutter.procs.SendPlatformMessageResponse(flutterpi->flutter.engine, handle, message, message_size);
         if (result != kSuccess) {
             LOG_ERROR(
