@@ -163,7 +163,7 @@ enum plugin_init_result audioplayers_plugin_init(struct flutterpi *flutterpi, vo
     return PLUGIN_INIT_RESULT_INITIALIZED;
 
 fail_remove_global_receiver:
-    plugin_registry_remove_receiver(AUDIOPLAYERS_GLOBAL_CHANNEL);
+    plugin_registry_remove_receiver_locked(AUDIOPLAYERS_GLOBAL_CHANNEL);
 
 fail_deinit_cpset:
     cpset_deinit(&plugin.players);
@@ -174,8 +174,8 @@ fail_deinit_cpset:
 void audioplayers_plugin_deinit(struct flutterpi *flutterpi, void *userdata) {
     (void) flutterpi;
     (void) userdata;
-    plugin_registry_remove_receiver(AUDIOPLAYERS_GLOBAL_CHANNEL);
-    plugin_registry_remove_receiver(AUDIOPLAYERS_LOCAL_CHANNEL);
+    plugin_registry_remove_receiver_locked(AUDIOPLAYERS_GLOBAL_CHANNEL);
+    plugin_registry_remove_receiver_locked(AUDIOPLAYERS_LOCAL_CHANNEL);
 
     struct audio_player *ptr;
     for_each_pointer_in_cpset(&plugin.players, ptr) {

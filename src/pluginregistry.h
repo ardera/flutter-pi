@@ -125,6 +125,12 @@ int plugin_registry_remove_receiver_v2(struct plugin_registry *registry, const c
  * @brief Removes the callback for platform channel `channel`.
  *
  */
+int plugin_registry_remove_receiver_locked(const char *channel);
+
+/**
+ * @brief Removes the callback for platform channel `channel`.
+ *
+ */
 int plugin_registry_remove_receiver(const char *channel);
 
 void *plugin_registry_get_plugin_userdata(struct plugin_registry *registry, const char *plugin_name);
@@ -147,16 +153,18 @@ void static_plugin_registry_add_plugin(const struct flutterpi_plugin_v2 *plugin)
 
 void static_plugin_registry_remove_plugin(const char *plugin_name);
 
-#define FLUTTERPI_PLUGIN(_name, _identifier_name, _init, _deinit)                \
-    __attribute__((constructor)) static void __reg_plugin_##_identifier_name() { \
-        static struct flutterpi_plugin_v2 plugin = {                             \
-            .name = (_name),                                                     \
-            .init = (_init),                                                     \
-            .deinit = (_deinit),                                                 \
-        };                                                                       \
-        static_plugin_registry_add_plugin(&plugin);                              \
-    }                                                                            \
-                                                                                 \
-    __attribute__((destructor)) static void __unreg_plugin_##_identifier_name() { static_plugin_registry_remove_plugin(_name); }
+#define FLUTTERPI_PLUGIN(_name, _identifier_name, _init, _deinit)                 \
+    __attribute__((constructor)) static void __reg_plugin_##_identifier_name() {  \
+        static struct flutterpi_plugin_v2 plugin = {                              \
+            .name = (_name),                                                      \
+            .init = (_init),                                                      \
+            .deinit = (_deinit),                                                  \
+        };                                                                        \
+        static_plugin_registry_add_plugin(&plugin);                               \
+    }                                                                             \
+                                                                                  \
+    __attribute__((destructor)) static void __unreg_plugin_##_identifier_name() { \
+        static_plugin_registry_remove_plugin(_name);                              \
+    }
 
 #endif

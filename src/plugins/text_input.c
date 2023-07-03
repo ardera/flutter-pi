@@ -831,8 +831,7 @@ enum plugin_init_result textin_init(struct flutterpi *flutterpi, void **userdata
 }
 
 void textin_deinit(struct flutterpi *flutterpi, void *userdata) {
-    (void) flutterpi;
-    plugin_registry_remove_receiver(TEXT_INPUT_CHANNEL);
+    plugin_registry_remove_receiver_v2_locked(flutterpi_get_plugin_registry(flutterpi), TEXT_INPUT_CHANNEL);
     free(userdata);
 }
 

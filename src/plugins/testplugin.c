@@ -313,18 +313,18 @@ enum plugin_init_result testp_init(struct flutterpi *flutterpi, void **userdata_
     return PLUGIN_INIT_RESULT_INITIALIZED;
 
 fail_remove_std_receiver:
-    plugin_registry_remove_receiver(TESTPLUGIN_CHANNEL_STD);
+    plugin_registry_remove_receiver_v2_locked(flutterpi_get_plugin_registry(flutterpi), TESTPLUGIN_CHANNEL_STD);
 
 fail_remove_json_receiver:
-    plugin_registry_remove_receiver(TESTPLUGIN_CHANNEL_JSON);
+    plugin_registry_remove_receiver_v2_locked(flutterpi_get_plugin_registry(flutterpi), TESTPLUGIN_CHANNEL_JSON);
 
     return PLUGIN_INIT_RESULT_ERROR;
 }
 
 void testp_deinit(struct flutterpi *flutterpi, void *userdata) {
-    plugin_registry_remove_receiver(TESTPLUGIN_CHANNEL_PING);
-    plugin_registry_remove_receiver(TESTPLUGIN_CHANNEL_STD);
-    plugin_registry_remove_receiver(TESTPLUGIN_CHANNEL_JSON);
+    plugin_registry_remove_receiver_v2_locked(flutterpi_get_plugin_registry(flutterpi), TESTPLUGIN_CHANNEL_PING);
+    plugin_registry_remove_receiver_v2_locked(flutterpi_get_plugin_registry(flutterpi), TESTPLUGIN_CHANNEL_STD);
+    plugin_registry_remove_receiver_v2_locked(flutterpi_get_plugin_registry(flutterpi), TESTPLUGIN_CHANNEL_JSON);
     return 0;
 }
 
