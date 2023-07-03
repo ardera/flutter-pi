@@ -227,7 +227,15 @@ struct window {
     EGLSurface (*get_egl_surface)(struct window *window);
 #endif
 
-    int (*set_cursor_locked)(struct window *window, bool has_enabled, bool enabled, bool has_kind, enum pointer_kind kind, bool has_pos, struct vec2i pos);
+    int (*set_cursor_locked)(
+        struct window *window,
+        bool has_enabled,
+        bool enabled,
+        bool has_kind,
+        enum pointer_kind kind,
+        bool has_pos,
+        struct vec2i pos
+    );
     void (*deinit)(struct window *window);
 };
 
@@ -409,6 +417,11 @@ static int window_init(
 }
 
 static void window_deinit(struct window *window) {
+    // It's possible we're destroying the window before any frame was presented.
+    if (window->composition != NULL) {
+        fl_layer_composition_unref(window->composition);
+    }
+
     frame_scheduler_unref(window->frame_scheduler);
     tracer_unref(window->tracer);
     pthread_mutex_destroy(&window->lock);
@@ -506,7 +519,7 @@ int window_set_cursor(
     ok = window->set_cursor_locked(window, has_enabled, enabled, has_kind, kind, has_pos, pos);
 
     window_unlock(window);
-    
+
     return ok;
 }
 
@@ -541,13 +554,10 @@ struct cursor_buffer {
 //     return size;
 // }
 
-static struct vec2i get_rotated_hotspot(
-    const struct pointer_icon *icon,
-    drm_plane_transform_t rotation
-) {
+static struct vec2i get_rotated_hotspot(const struct pointer_icon *icon, drm_plane_transform_t rotation) {
     struct vec2i size;
     struct vec2i hotspot;
-    
+
     assert(PLANE_TRANSFORM_IS_ONLY_ROTATION(rotation));
     size = pointer_icon_get_size(icon);
     hotspot = pointer_icon_get_hotspot(icon);
@@ -555,21 +565,12 @@ static struct vec2i get_rotated_hotspot(
     if (rotation.rotate_0) {
         return hotspot;
     } else if (rotation.rotate_90) {
-        return VEC2I(
-            size.y - hotspot.y - 1,
-            hotspot.x
-        );
+        return VEC2I(size.y - hotspot.y - 1, hotspot.x);
     } else if (rotation.rotate_180) {
-        return VEC2I(
-            size.x - hotspot.x - 1,
-            size.y - hotspot.y - 1
-        );
+        return VEC2I(size.x - hotspot.x - 1, size.y - hotspot.y - 1);
     } else {
         ASSUME(rotation.rotate_270);
-        return VEC2I(
-            hotspot.y,
-            size.x - hotspot.x - 1
-        );
+        return VEC2I(hotspot.y, size.x - hotspot.x - 1);
     }
 }
 
@@ -1041,6 +1042,7 @@ void kms_window_deinit(struct window *window) {
 
     kms_req_unref(req);
     */
+
     if (window->kms.cursor != NULL) {
         cursor_buffer_unref(window->kms.cursor);
     }
@@ -1535,7 +1537,7 @@ static int kms_window_set_cursor_locked(
             }
 
             cursor_buffer_swap_ptrs(&window->kms.cursor, cursor);
-            
+
             // apply the new cursor icon & position by scanning out a new frame.
             window->cursor_pos = pos;
             if (window->composition != NULL) {
