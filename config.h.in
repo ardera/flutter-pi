@@ -24,5 +24,6 @@
 #define LIBGSTREAMER_VERSION_PATCH @LIBGSTREAMER_VERSION_PATCH@
 #cmakedefine VULKAN_DEBUG
 #cmakedefine ENABLE_MTRACE
+#cmakedefine ENABLE_ASAN
 
 #endif

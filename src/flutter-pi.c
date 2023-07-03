@@ -1088,23 +1088,39 @@ on_gl_external_texture_frame_callback(void *userdata, int64_t texture_id, size_t
 
 static void *load_flutter_engine_lib(struct flutter_paths *paths) {
     void *engine_handle = NULL;
+    int dlopen_mode;
+
+#ifdef ENABLE_ASAN
+    // If address sanitizer is enabled, we specify RTLD_NODELETE so
+    // the library isn't really unloaded on dlclose(). (dlclose will actually
+    // do nothing)
+    //
+    // That enables asan to actually symbolize any backtraces for memory leaks
+    // it finds.
+    //
+    // Without RTLD_NODELETE it can't symbolize the backtraces because the
+    // library isn't present in memory anymore when asan tries to symbolize.
+    dlopen_mode = RTLD_LOCAL | RTLD_NOW | RTLD_NODELETE;
+#else
+    dlopen_mode = RTLD_LOCAL | RTLD_NOW;
+#endif
 
     if (paths->flutter_engine_path != NULL) {
-        engine_handle = dlopen(paths->flutter_engine_path, RTLD_LOCAL | RTLD_NOW);
+        engine_handle = dlopen(paths->flutter_engine_path, dlopen_mode);
         if (engine_handle == NULL) {
             LOG_DEBUG("Info: Could not load flutter engine from app bundle. dlopen(\"%s\"): %s.\n", paths->flutter_engine_path, dlerror());
         }
     }
 
     if (engine_handle == NULL && paths->flutter_engine_dlopen_name != NULL) {
-        engine_handle = dlopen(paths->flutter_engine_dlopen_name, RTLD_LOCAL | RTLD_NOW);
+        engine_handle = dlopen(paths->flutter_engine_dlopen_name, dlopen_mode);
         if (engine_handle == NULL) {
             LOG_DEBUG("Info: Could not load flutter engine. dlopen(\"%s\"): %s.\n", paths->flutter_engine_dlopen_name, dlerror());
         }
     }
 
     if (engine_handle == NULL && paths->flutter_engine_dlopen_name_fallback != NULL) {
-        engine_handle = dlopen(paths->flutter_engine_dlopen_name_fallback, RTLD_LOCAL | RTLD_NOW);
+        engine_handle = dlopen(paths->flutter_engine_dlopen_name_fallback, dlopen_mode);
         if (engine_handle == NULL) {
             LOG_DEBUG("Info: Could not load flutter engine. dlopen(\"%s\"): %s.\n", paths->flutter_engine_dlopen_name_fallback, dlerror());
         }
@@ -2442,7 +2458,14 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
     } else {
         sd_event_source *user_input_event_source;
 
-        ok = sd_event_add_io(event_loop, &user_input_event_source, user_input_get_fd(input), EPOLLIN | EPOLLRDHUP | EPOLLPRI, on_user_input_fd_ready, input);
+        ok = sd_event_add_io(
+            event_loop,
+            &user_input_event_source,
+            user_input_get_fd(input),
+            EPOLLIN | EPOLLRDHUP | EPOLLPRI,
+            on_user_input_fd_ready,
+            input
+        );
         if (ok < 0) {
             LOG_ERROR("Couldn't listen for user input. flutter-pi will run without user input. sd_event_add_io: %s\n", strerror(-ok));
             user_input_destroy(input);
