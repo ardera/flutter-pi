@@ -24,12 +24,13 @@ jobs:
     steps:
     - uses: actions/checkout@v2
 
-    - name: Install dependencies
-      run: |
-        sudo apt-get install -y \
-          cmake libgl1-mesa-dev libgles2-mesa-dev libegl1-mesa-dev libdrm-dev libgbm-dev \
-          ttf-mscorefonts-installer fontconfig libsystemd-dev libinput-dev libudev-dev \
-          libxkbcommon-dev ninja-build libgstreamer-plugins-base1.0-dev
+    # On the self-hosted runners, we assume those are already installed.
+    # - name: Install dependencies
+    #   run: |
+    #     sudo apt-get install -y \
+    #       cmake libgl1-mesa-dev libgles2-mesa-dev libegl1-mesa-dev libdrm-dev libgbm-dev \
+    #       ttf-mscorefonts-installer fontconfig libsystemd-dev libinput-dev libudev-dev \
+    #       libxkbcommon-dev ninja-build libgstreamer-plugins-base1.0-dev
 
     - name: Configure CMake
       # Configure CMake in a 'build' subdirectory. `CMAKE_BUILD_TYPE` is only required if you are using a single-configuration generator such as make.
