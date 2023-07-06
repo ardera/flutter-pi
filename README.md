@@ -42,6 +42,7 @@ If you encounter issues running flutter-pi on any of the supported platforms lis
 2.2 [Building the App](#building-the-app-new-method-linux-only)  
 2.3 [Running your App with flutter-pi](#running-your-app-with-flutter-pi)  
 2.4 [gstreamer video player](#gstreamer-video-player)  
+2.5 [audioplayers](#audioplayers)
 3. **[Performance](#-performance)**  
 3.1 [Graphics Performance](#graphics-performance)  
 3.2 [Touchscreen latency](#touchscreen-latency)
@@ -416,6 +417,18 @@ Gstreamer video player is a newer video player based on gstreamer.
 To use the gstreamer video player, just rebuild flutter-pi (delete your build folder and reconfigure) and make sure the necessary gstreamer packages are installed. (See [dependencies](#dependencies))
 
 And then, just use the stuff in the official [video_player](https://pub.dev/packages/video_player) package. (`VideoPlayer`, `VideoPlayerController`, etc, there's nothing specific you need to do on the dart-side)
+
+### audioplayers
+As of current moment flutter-pi implements plugin for `audioplayers: ^4.0.0`.
+There are several things you need to keep in mind:
+- As flutter-pi is intended for use on constrained systems like raspberry pi, you should avoid creating multiple temporary instances and instead prefer to use one global instance of `AudioPlayer`. There is limit you can easily hit if you're going to spam multiple instances of `AudioPlayer`
+- Plugin was tested to work with ALSA and `pulseaudio` might prevent the plugin from playing audio correctly:
+    - Hence please make sure you delete `pulseaudio` package from your system.
+    - Make sure you have `gstreamer1.0-alsa` package installed in addition to packages needed for gstreamer video player.
+    - Make sure you can list audio devices using command: `aplay -L`
+        - If there is error, please investigate why and fix it before using audio
+        - One of the common reasons is outdated ALSA config in which case you should delete existing config and replace it with up to date one
+- Finally, if you want to verify your audio setup is good, you can use `gst-launch` command to invoke `playbin` on audio file directly.
 
 ## 📊 Performance
 ### Graphics Performance
