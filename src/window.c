@@ -224,6 +224,7 @@ struct window {
     struct render_surface *(*get_render_surface)(struct window *window, struct vec2i size);
 
 #ifdef HAVE_EGL_GLES2
+    bool (*has_egl_surface)(struct window *window);
     EGLSurface (*get_egl_surface)(struct window *window);
 #endif
 
@@ -401,14 +402,12 @@ static int window_init(
     window->gl_renderer = NULL;
     window->vk_renderer = NULL;
     window->render_surface = NULL;
-#ifdef HAVE_EGL_GLES2
-    window->egl_surface = NULL;
-#endif
     window->cursor_enabled = false;
     window->cursor_pos = VEC2I(0, 0);
     window->push_composition = NULL;
     window->get_render_surface = NULL;
 #ifdef HAVE_EGL_GLES2
+    window->has_egl_surface = NULL;
     window->get_egl_surface = NULL;
 #endif
     window->set_cursor_locked = NULL;
@@ -477,6 +476,10 @@ int window_get_next_vblank(struct window *window, uint64_t *next_vblank_ns_out) 
 }
 
 #ifdef HAVE_EGL_GLES2
+bool window_has_egl_surface(struct window *window) {
+    return window->egl_surface;
+}
+
 EGLSurface window_get_egl_surface(struct window *window) {
     ASSERT_NOT_NULL(window);
     ASSERT_NOT_NULL(window->get_egl_surface);
@@ -863,6 +866,7 @@ static int kms_window_push_composition(struct window *window, struct fl_layer_co
 static struct render_surface *kms_window_get_render_surface(struct window *window, struct vec2i size);
 
 #ifdef HAVE_EGL_GLES2
+static bool kms_window_has_egl_surface(struct window *window);
 static EGLSurface kms_window_get_egl_surface(struct window *window);
 #endif
 
@@ -1007,6 +1011,7 @@ MUST_CHECK struct window *kms_window_new(
     window->push_composition = kms_window_push_composition;
     window->get_render_surface = kms_window_get_render_surface;
 #ifdef HAVE_EGL_GLES2
+    window->has_egl_surface = kms_window_has_egl_surface;
     window->get_egl_surface = kms_window_get_egl_surface;
 #endif
     window->deinit = kms_window_deinit;
@@ -1486,6 +1491,14 @@ static struct render_surface *kms_window_get_render_surface(struct window *windo
 }
 
 #ifdef HAVE_EGL_GLES2
+static bool kms_window_has_egl_surface(struct window *window) {
+    if (window->renderer_type == kOpenGL_RendererType) {
+        return window->render_surface != NULL;
+    } else {
+        return false;
+    }
+}
+
 static EGLSurface kms_window_get_egl_surface(struct window *window) {
     if (window->renderer_type == kOpenGL_RendererType) {
         struct render_surface *render_surface = kms_window_get_render_surface_internal(window, false, VEC2I(0, 0));

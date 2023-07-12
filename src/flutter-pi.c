@@ -283,6 +283,26 @@ static bool on_make_current(void *userdata) {
     flutterpi = userdata;
     ASSERT_NOT_NULL(flutterpi->gl_renderer);
 
+    // Ideally we don't make a surface current here at all.
+    // But that doesn't work right now.
+    // if (compositor_has_egl_surface(flutterpi->compositor)) {
+    //     surface = compositor_get_egl_surface(flutterpi->compositor);
+    //     if (surface == EGL_NO_SURFACE) {
+    //         /// TODO: Get a fake EGL Surface just for initialization.
+    //         LOG_ERROR("Couldn't get an EGL surface from the compositor.\n");
+    //         return false;
+    //     }
+    //     ok = gl_renderer_make_flutter_rendering_context_current(flutterpi->gl_renderer, surface);
+    //     if (ok != 0) {
+    //         return false;
+    //     }
+    // } else {
+    //     ok = gl_renderer_make_flutter_setup_context_current(flutterpi->gl_renderer);
+    //     if (ok != 0) {
+    //         return false;
+    //     }
+    // }
+
     surface = compositor_get_egl_surface(flutterpi->compositor);
     if (surface == EGL_NO_SURFACE) {
         /// TODO: Get a fake EGL Surface just for initialization.
