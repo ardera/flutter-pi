@@ -484,7 +484,7 @@ on_flutter_create_backing_store(const FlutterBackingStoreConfig *config, Flutter
     compositor = userdata;
 
     // this will not increase the refcount on the surface.
-    s = window_get_render_surface(compositor->main_window, VEC2I((int) config->size.width, (int) config->size.height));
+    s = window_create_render_surface(compositor->main_window, VEC2I((int) config->size.width, (int) config->size.height));
     if (s == NULL) {
         LOG_ERROR("Couldn't create render surface for flutter to render into.\n");
         return false;

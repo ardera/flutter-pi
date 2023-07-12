@@ -418,9 +418,10 @@ static int egl_gbm_render_surface_present_kms(struct surface *s, const struct fl
             LOG_ERROR("Couldn't add GBM buffer as DRM framebuffer.\n");
             goto fail_free_meta;
         }
-        
+
         // if this EGL surface is non-opaque and has an opaque equivalent
-        if (!get_pixfmt_info(egl_surface->pixel_format)->is_opaque && pixfmt_opaque(egl_surface->pixel_format) != egl_surface->pixel_format) {
+        if (!get_pixfmt_info(egl_surface->pixel_format)->is_opaque &&
+            pixfmt_opaque(egl_surface->pixel_format) != egl_surface->pixel_format) {
             opaque_fb_id = drmdev_add_fb(
                 drmdev,
                 gbm_bo_get_width(bo),
@@ -552,23 +553,28 @@ egl_gbm_render_surface_present_fbdev(struct surface *s, const struct fl_layer_pr
     return 0;
 }
 
+void on_make_current(void *userdata) {
+    struct egl_gbm_render_surface *s;
+    ASSERTED int ok;
+
+    ASSERT_NOT_NULL(userdata);
+    s = CAST_THIS(userdata);
+    
+    ok = gl_renderer_make_flutter_rendering_context_current(s->renderer, s->egl_surface);
+    ASSERT_ZERO(ok);
+}
+
 static int egl_gbm_render_surface_fill(struct render_surface *s, FlutterBackingStore *fl_store) {
     fl_store->type = kFlutterBackingStoreTypeOpenGL;
-    fl_store->open_gl = (FlutterOpenGLBackingStore
-    ){ .type = kFlutterOpenGLTargetTypeFramebuffer,
-       .framebuffer = { /* for some reason flutter wants this to be GL_BGRA8_EXT, contrary to what the docs say */
-                        .target = GL_BGRA8_EXT,
-
-                        /* 0 refers to the window surface, instead of to an FBO */
-                        .name = 0,
-
-                        /*
-             * even though the compositor will call surface_ref too to fill the FlutterBackingStore.user_data,
-             * we need to ref two times because flutter will call both this destruction callback and the
-             * compositor collect callback
-             */
-                        .user_data = surface_ref(CAST_SURFACE_UNCHECKED(s)),
-                        .destruction_callback = surface_unref_void } };
+    fl_store->open_gl = (FlutterOpenGLBackingStore) {
+        .type = kFlutterOpenGLTargetTypeSurface,
+        .surface = {
+            .struct_size = sizeof(FlutterOpenGLSurface),
+            .make_current_callback = on_make_current,
+            .destruction_callback = surface_unref_void,
+            .user_data = surface_ref(CAST_SURFACE_UNCHECKED(s)),
+        },
+    };
     return 0;
 }
 

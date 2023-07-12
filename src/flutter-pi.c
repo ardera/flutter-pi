@@ -276,7 +276,6 @@ static bool runs_platform_tasks_on_current_thread(void *userdata);
 /// rendering EGLContext should be made current.
 static bool on_make_current(void *userdata) {
     struct flutterpi *flutterpi;
-    EGLSurface surface;
     int ok;
 
     ASSERT_NOT_NULL(userdata);
@@ -292,6 +291,7 @@ static bool on_make_current(void *userdata) {
     //         LOG_ERROR("Couldn't get an EGL surface from the compositor.\n");
     //         return false;
     //     }
+    //
     //     ok = gl_renderer_make_flutter_rendering_context_current(flutterpi->gl_renderer, surface);
     //     if (ok != 0) {
     //         return false;
@@ -303,14 +303,20 @@ static bool on_make_current(void *userdata) {
     //     }
     // }
 
-    surface = compositor_get_egl_surface(flutterpi->compositor);
-    if (surface == EGL_NO_SURFACE) {
-        /// TODO: Get a fake EGL Surface just for initialization.
-        LOG_ERROR("Couldn't get an EGL surface from the compositor.\n");
-        return false;
-    }
+    // surface = compositor_get_egl_surface(flutterpi->compositor);
+    // if (surface == EGL_NO_SURFACE) {
+    //     /// TODO: Get a fake EGL Surface just for initialization.
+    //     LOG_ERROR("Couldn't get an EGL surface from the compositor.\n");
+    //     return false;
+    // }
+    //
+    // ok = gl_renderer_make_flutter_rendering_context_current(flutterpi->gl_renderer, surface);
+    // if (ok != 0) {
+    //     return false;
+    // }
 
-    ok = gl_renderer_make_flutter_rendering_context_current(flutterpi->gl_renderer, surface);
+    // The actual surface will be made current later.
+    ok = gl_renderer_make_flutter_setup_context_current(flutterpi->gl_renderer);
     if (ok != 0) {
         return false;
     }
