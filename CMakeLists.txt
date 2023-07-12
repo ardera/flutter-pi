@@ -386,6 +386,7 @@ configure_file(config.h.in config.h @ONLY)
 check_c_compiler_flag(-fmacro-prefix-map=.=. COMPILER_SUPPORTS_MACRO_PREFIX_MAP)
 if (COMPILER_SUPPORTS_MACRO_PREFIX_MAP)
   target_compile_options(flutterpi_module PRIVATE "-fmacro-prefix-map=../src/=")
+  target_compile_options(flutterpi_module PRIVATE "-fmacro-prefix-map=${CMAKE_CURRENT_SOURCE_DIR}/src/=")
 endif()
 
 # Actual flutter-pi executable.
