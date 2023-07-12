@@ -1426,7 +1426,9 @@ static int flutterpi_run(struct flutterpi *flutterpi) {
         goto fail_shutdown_engine;
     }
 
-    COMPILE_ASSERT(sizeof(FlutterEngineDisplay) == 32);
+    compositor_get_view_geometry(flutterpi->compositor, &geometry);
+
+    COMPILE_ASSERT(sizeof(FlutterEngineDisplay) == 48);
 
     engine_result = procs->NotifyDisplayUpdate(
         engine,
@@ -1436,6 +1438,9 @@ static int flutterpi_run(struct flutterpi *flutterpi) {
             .display_id = 0,
             .single_display = true,
             .refresh_rate = compositor_get_refresh_rate(flutterpi->compositor),
+            .width = geometry.display_size.x,
+            .height = geometry.display_size.y,
+            .device_pixel_ratio = geometry.device_pixel_ratio,
         },
         1
     );
@@ -1448,10 +1453,8 @@ static int flutterpi_run(struct flutterpi *flutterpi) {
         goto fail_shutdown_engine;
     }
 
-    compositor_get_view_geometry(flutterpi->compositor, &geometry);
-
     // just so we get an error if the window metrics event was expanded without us noticing
-    COMPILE_ASSERT(sizeof(FlutterWindowMetricsEvent) == 64 || sizeof(FlutterWindowMetricsEvent) == 80);
+    COMPILE_ASSERT(sizeof(FlutterWindowMetricsEvent) == 72 || sizeof(FlutterWindowMetricsEvent) == 88);
 
     // update window size
     engine_result = procs->SendWindowMetricsEvent(
@@ -1467,6 +1470,7 @@ static int flutterpi_run(struct flutterpi *flutterpi) {
             .physical_view_inset_right = 0,
             .physical_view_inset_bottom = 0,
             .physical_view_inset_left = 0,
+            .display_id = 0,
         }
     );
     if (engine_result != kSuccess) {
