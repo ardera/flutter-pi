@@ -1158,12 +1158,15 @@ void gstplayer_destroy(struct gstplayer *player) {
     notifier_deinit(&player->error_notifier);
     maybe_deinit(player);
     pthread_mutex_destroy(&player->lock);
-    if (player->headers != NULL)
+    if (player->headers != NULL) {
         gst_structure_free(player->headers);
-    if (player->video_uri != NULL)
+    }
+    if (player->video_uri != NULL) {
         free(player->video_uri);
-    if (player->pipeline_description != NULL)
+    }
+    if (player->pipeline_description != NULL) {
         free(player->pipeline_description);
+    }
     frame_interface_unref(player->frame_interface);
     texture_destroy(player->texture);
     free(player);
