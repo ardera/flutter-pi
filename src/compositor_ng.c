@@ -459,6 +459,10 @@ struct surface *compositor_get_view_by_id_locked(struct compositor *compositor, 
 }
 
 #ifdef HAVE_EGL_GLES2
+bool compositor_has_egl_surface(struct compositor *compositor) {
+    return window_has_egl_surface(compositor->main_window);
+}
+
 EGLSurface compositor_get_egl_surface(struct compositor *compositor) {
     return window_get_egl_surface(compositor->main_window);
 }
