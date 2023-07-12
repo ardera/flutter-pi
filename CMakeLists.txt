@@ -111,6 +111,7 @@ add_library(
   src/dmabuf_surface.c
   src/frame_scheduler.c
   src/window.c
+  src/dummy_render_surface.c
   src/plugins/services.c
 )
 

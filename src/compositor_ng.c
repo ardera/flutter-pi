@@ -33,6 +33,7 @@
 #include "util/dynarray.h"
 #include "window.h"
 #include "cursor.h"
+#include "dummy_render_surface.h"
 
 #include "config.h"
 
@@ -342,7 +343,10 @@ static int compositor_push_fl_layers(struct compositor *compositor, size_t n_fl_
             // if we're in debug mode, we actually check if the ID is a valid,
             // registered ID.
             /// TODO: Implement
-            layer->surface = surface_ref(compositor_get_view_by_id_locked(compositor, fl_layer->platform_view->identifier));
+            layer->surface = compositor_get_view_by_id_locked(compositor, fl_layer->platform_view->identifier);
+            if (layer->surface == NULL) {
+                layer->surface = CAST_SURFACE(dummy_render_surface_new(compositor->tracer, VEC2I(fl_layer->size.width, fl_layer->size.height)));
+            }
 #else
             // in release mode, we just assume the id is valid.
             // Since the surface constructs the ID by just casting the surface pointer to an int64_t,
