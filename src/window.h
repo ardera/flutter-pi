@@ -102,9 +102,9 @@ ATTR_PURE double window_get_refresh_rate(struct window *window);
  */
 int window_get_next_vblank(struct window *window, uint64_t *next_vblank_ns_out);
 
+#ifdef HAVE_EGL_GLES2
 bool window_has_egl_surface(struct window *window);
 
-#ifdef HAVE_EGL_GLES2
 EGLSurface window_get_egl_surface(struct window *window);
 #endif
 
