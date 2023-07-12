@@ -109,6 +109,12 @@ EGLSurface window_get_egl_surface(struct window *window);
 #endif
 
 /**
+ * @brief Creates a render surface, used as the backing store for an engine layer.
+ *
+ */
+struct render_surface *window_create_render_surface(struct window *window, struct vec2i size);
+
+/**
  * @brief Gets a render surface, used as the backing store for an engine layer.
  *
  * This only makes sense if there's a single UI (engine) layer. If there's multiple ones, lifetimes become weird.

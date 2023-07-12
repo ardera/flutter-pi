@@ -222,6 +222,7 @@ struct window {
 
     int (*push_composition)(struct window *window, struct fl_layer_composition *composition);
     struct render_surface *(*get_render_surface)(struct window *window, struct vec2i size);
+    struct render_surface *(*create_render_surface)(struct window *window, struct vec2i size);
 
 #ifdef HAVE_EGL_GLES2
     bool (*has_egl_surface)(struct window *window);
@@ -405,6 +406,7 @@ static int window_init(
     window->cursor_enabled = false;
     window->cursor_pos = VEC2I(0, 0);
     window->push_composition = NULL;
+    window->create_render_surface = NULL;
     window->get_render_surface = NULL;
 #ifdef HAVE_EGL_GLES2
     window->has_egl_surface = NULL;
@@ -487,6 +489,12 @@ EGLSurface window_get_egl_surface(struct window *window) {
 }
 #endif
 
+struct render_surface *window_create_render_surface(struct window *window, struct vec2i size) {
+    ASSERT_NOT_NULL(window);
+    ASSERT_NOT_NULL(window->create_render_surface);
+    return window->create_render_surface(window, size);
+}
+
 struct render_surface *window_get_render_surface(struct window *window, struct vec2i size) {
     ASSERT_NOT_NULL(window);
     ASSERT_NOT_NULL(window->get_render_surface);
@@ -540,22 +548,6 @@ struct cursor_buffer {
 
     struct vec2i hotspot;
 };
-
-// UNUSED static enum cursor_size cursor_size_from_pixel_ratio(double device_pixel_ratio) {
-//     double last_diff = INFINITY;
-//     enum cursor_size size;
-
-//     for (enum cursor_size size_iter = k32x32_CursorSize; size_iter < kCount_CursorSize; size_iter++) {
-//         double cursor_dpr = (pixel_size_for_cursor_size[size_iter] * 3 * 10.0) / (25.4 * 38);
-//         double cursor_screen_dpr_diff = device_pixel_ratio - cursor_dpr;
-//         if ((-last_diff < cursor_screen_dpr_diff) && (cursor_screen_dpr_diff < last_diff)) {
-//             size = size_iter;
-//             last_diff = cursor_screen_dpr_diff;
-//         }
-//     }
-
-//     return size;
-// }
 
 static struct vec2i get_rotated_hotspot(const struct pointer_icon *icon, drm_plane_transform_t rotation) {
     struct vec2i size;
@@ -863,6 +855,7 @@ static int select_mode(
 }
 
 static int kms_window_push_composition(struct window *window, struct fl_layer_composition *composition);
+static struct render_surface *kms_window_create_render_surface(struct window *window, struct vec2i size);
 static struct render_surface *kms_window_get_render_surface(struct window *window, struct vec2i size);
 
 #ifdef HAVE_EGL_GLES2
@@ -1009,6 +1002,7 @@ MUST_CHECK struct window *kms_window_new(
         window->vk_renderer = NULL;
     }
     window->push_composition = kms_window_push_composition;
+    window->create_render_surface = kms_window_create_render_surface;
     window->get_render_surface = kms_window_get_render_surface;
 #ifdef HAVE_EGL_GLES2
     window->has_egl_surface = kms_window_has_egl_surface;
@@ -1347,27 +1341,18 @@ static bool extract_modifiers_for_pixel_format(
     return true;
 }
 
-static struct render_surface *kms_window_get_render_surface_internal(struct window *window, bool has_size, UNUSED struct vec2i size) {
+static struct render_surface *kms_window_create_render_surface(struct window *window, struct vec2i size) {
     struct render_surface *render_surface;
+    uint64_t *allowed_modifiers;
+    size_t n_allowed_modifiers;
+    enum pixfmt pixel_format;
 
     ASSERT_NOT_NULL(window);
 
-    if (window->render_surface != NULL) {
-        return window->render_surface;
-    }
-
-    if (!has_size) {
-        // Flutter wants a render surface, but hasn't told us the backing store dimensions yet.
-        // Just make a good guess about the dimensions.
-        LOG_DEBUG("Flutter requested render surface before supplying surface dimensions.\n");
-        size = VEC2I(window->kms.mode->hdisplay, window->kms.mode->vdisplay);
-    }
-
-    enum pixfmt pixel_format;
     if (window->has_forced_pixel_format) {
         pixel_format = window->forced_pixel_format;
     } else {
-        // Actually, more devices support ARGB8888 might sometimes not be supported by devices,
+        // Actually, more devices support XRGB. ARGB8888 might sometimes not be supported by devices,
         // for example for primary planes. But we can just cast ARGB8888 to XRGB8888 if we need to,
         // and ARGB8888 is still a good default choice because casting XRGB to ARGB might not work,
         // and sometimes we need alpha for overlay planes.
@@ -1379,8 +1364,8 @@ static struct render_surface *kms_window_get_render_surface_internal(struct wind
     // If no plane lists modifiers for this pixel format, this will be left at NULL,
     // and egl_gbm_render_surface_new... will create the GBM surface using usage flags
     // (GBM_USE_SCANOUT | GBM_USE_RENDER) instead.
-    uint64_t *allowed_modifiers = NULL;
-    size_t n_allowed_modifiers = 0;
+    allowed_modifiers = NULL;
+    n_allowed_modifiers = 0;
 
     // For now just set the supported modifiers for the first plane that supports this pixel format
     // as the allowed modifiers.
@@ -1480,6 +1465,27 @@ static struct render_surface *kms_window_get_render_surface_internal(struct wind
     if (allowed_modifiers != NULL) {
         free(allowed_modifiers);
     }
+
+    return render_surface;
+}
+
+static struct render_surface *kms_window_get_render_surface_internal(struct window *window, bool has_size, UNUSED struct vec2i size) {
+    struct render_surface *render_surface;
+
+    ASSERT_NOT_NULL(window);
+
+    if (window->render_surface != NULL) {
+        return window->render_surface;
+    }
+
+    if (!has_size) {
+        // Flutter wants a render surface, but hasn't told us the backing store dimensions yet.
+        // Just make a good guess about the dimensions.
+        LOG_DEBUG("Flutter requested render surface before supplying surface dimensions.\n");
+        size = VEC2I(window->kms.mode->hdisplay, window->kms.mode->vdisplay);
+    }
+
+    render_surface = kms_window_create_render_surface(window, size);
 
     window->render_surface = render_surface;
     return render_surface;
