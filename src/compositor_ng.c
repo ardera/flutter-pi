@@ -245,7 +245,7 @@ static void fill_platform_view_layer_props(
         (struct aa_rect){ .offset.x = offset->x, .offset.y = offset->y, .size.x = size->width, .size.y = size->height }
     );
 
-    struct aa_rect rect = get_aa_bounding_rect(quad);
+    struct aa_rect rect = quad_get_aa_bounding_rect(quad);
 
     /**
 	 * inversion for
