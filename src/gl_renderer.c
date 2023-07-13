@@ -482,9 +482,9 @@ int gl_renderer_make_flutter_setup_context_current(struct gl_renderer *renderer)
 
     ASSERT_NOT_NULL(renderer);
 
-    TRACER_BEGIN(renderer->tracer, "gl_renderer_make_flutter_rendering_context_current");
+    TRACER_BEGIN(renderer->tracer, "gl_renderer_make_flutter_setup_context_current");
     egl_ok = eglMakeCurrent(renderer->egl_display, EGL_NO_SURFACE, EGL_NO_SURFACE, renderer->flutter_setup_context);
-    TRACER_END(renderer->tracer, "gl_renderer_make_flutter_rendering_context_current");
+    TRACER_END(renderer->tracer, "gl_renderer_make_flutter_setup_context_current");
 
     if (egl_ok != EGL_TRUE) {
         LOG_EGL_ERROR(eglGetError(), "Could not make the flutter setup EGL context current. eglMakeCurrent");
