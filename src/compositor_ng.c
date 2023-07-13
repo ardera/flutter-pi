@@ -168,7 +168,7 @@ MUST_CHECK struct compositor *compositor_new(struct tracer *tracer, struct windo
         .create_backing_store_callback = on_flutter_create_backing_store,
         .collect_backing_store_callback = on_flutter_collect_backing_store,
         .present_layers_callback = on_flutter_present_layers,
-        .avoid_backing_store_cache = true,
+        .avoid_backing_store_cache = false,
     };
     compositor->tracer = tracer_ref(tracer);
     compositor->cursor_pos = VEC2F(0, 0);
@@ -293,9 +293,8 @@ static void fill_platform_view_layer_props(
 
     rotation = fmod(rotation, 360.0);
 
-    /// TODO: Implement axis aligned rectangle detection
-    props_out->is_aa_rect = false;
-    props_out->aa_rect = AA_RECT_FROM_COORDS(0, 0, 0, 0);
+    props_out->is_aa_rect = quad_is_axis_aligned(quad);
+    props_out->aa_rect = quad_get_aa_bounding_rect(quad);
     props_out->quad = quad;
     props_out->opacity = opacity;
     props_out->rotation = rotation;
@@ -321,7 +320,6 @@ static int compositor_push_fl_layers(struct compositor *compositor, size_t n_fl_
         struct fl_layer *layer = fl_layer_composition_peek_layer(composition, i);
 
         if (fl_layer->type == kFlutterLayerContentTypeBackingStore) {
-            /// TODO: Implement
             layer->surface = surface_ref(CAST_SURFACE(fl_layer->backing_store->user_data));
 
             // Tell the surface that flutter has rendered into this framebuffer / texture / image.
@@ -340,12 +338,15 @@ static int compositor_push_fl_layers(struct compositor *compositor, size_t n_fl_
 
             /// TODO: Maybe always check if the ID is valid?
 #if DEBUG
-            // if we're in debug mode, we actually check if the ID is a valid,
+            // If we're in debug mode, we actually check if the ID is a valid,
             // registered ID.
             /// TODO: Implement
             layer->surface = compositor_get_view_by_id_locked(compositor, fl_layer->platform_view->identifier);
+            
+            // For now we just use the layer below if we don't have an actual surface associated with a platform view
+            /// FIXME: Throw an error here
             if (layer->surface == NULL) {
-                layer->surface = CAST_SURFACE(dummy_render_surface_new(compositor->tracer, VEC2I(fl_layer->size.width, fl_layer->size.height)));
+                layer->surface = surface_ref(fl_layer_composition_peek_layer(composition, i - 1)->surface);
             }
 #else
             // in release mode, we just assume the id is valid.
@@ -358,6 +359,9 @@ static int compositor_push_fl_layers(struct compositor *compositor, size_t n_fl_
             struct view_geometry geometry = window_get_view_geometry(compositor->main_window);
 
             // The coordinates flutter gives us are a bit buggy, so calculating the right geometry is really a problem on its own
+            /// NOTE: It's possible we get infinite fl_layer->size here if the PlatformSurface widget
+            ///  was given unbounded constraints. In that case we get a lot of NaNs
+            ///  afterwards. (Unhandled for now)
             /// TODO: Don't unconditionally take the geometry from the main window.
             fill_platform_view_layer_props(
                 &layer->props,
@@ -368,6 +372,26 @@ static int compositor_push_fl_layers(struct compositor *compositor, size_t n_fl_
                 &geometry.display_to_view_transform,
                 &geometry.view_to_display_transform,
                 geometry.device_pixel_ratio
+            );
+
+            LOG_DEBUG(
+                "fl_layer_props[%d]:\n"
+                "  is_aa_rect: %s\n"
+                "  aa_rect: offset: (%f, %f), size: (%f, %f)\n"
+                "  quad: top left: (%f, %f), top right: (%f, %f), bottom left: (%f, %f), bottom right: (%f, %f)\n"
+                "  opacity: %f\n"
+                "  rotation: %f\n"
+                "  n_clip_rects: %zu\n"
+                "  clip_rects: %p\n",
+                i,
+                layer->props.is_aa_rect ? "yes" : "no",
+                layer->props.aa_rect.offset.x, layer->props.aa_rect.offset.y, layer->props.aa_rect.size.x, layer->props.aa_rect.size.y,
+                layer->props.quad.top_left.x, layer->props.quad.top_left.y, layer->props.quad.top_right.x, layer->props.quad.top_right.y,
+                layer->props.quad.bottom_left.x, layer->props.quad.bottom_left.y, layer->props.quad.bottom_right.x, layer->props.quad.bottom_right.y,
+                layer->props.opacity,
+                layer->props.rotation,
+                layer->props.n_clip_rects,
+                layer->props.clip_rects
             );
         }
     }

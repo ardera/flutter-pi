@@ -458,20 +458,19 @@ static int egl_gbm_render_surface_present_kms(struct surface *s, const struct fl
         );
     }
 
-    /*
+    
     LOG_DEBUG(
         "egl_gbm_render_surface_present_kms:\n"
-        "    src_x, src_y, src_w, src_h: %f %f %f %f\n"
+        "    src_x, src_y, src_w, src_h: %d %d %d %d\n"
         "    dst_x, dst_y, dst_w, dst_h: %f %f %f %f\n",
-        0.0, 0.0,
-        s->render_surface.size.x,
-        s->render_surface.size.y,
+        0, 0,
+        egl_surface->render_surface.size.x,
+        egl_surface->render_surface.size.y,
         props->aa_rect.offset.x,
         props->aa_rect.offset.y,
         props->aa_rect.size.x,
         props->aa_rect.size.y
     );
-    */
 
     // So we just cast our fb to an XRGB8888 framebuffer and scanout that instead.
     fb_id = meta->fb_id;
@@ -589,7 +588,9 @@ static int egl_gbm_render_surface_queue_present(struct render_surface *s, const 
 
     surface_lock(CAST_SURFACE(s));
 
-    /// TODO: Handle fl_store->did_update == false here
+    /// TODO: Handle fl_store->did_update == false here.
+    ///  (Even though did_update will always be true right now since the engine
+    ///   hasn't implemented that yet)
 
     // Unref the old front fb so potentially one of the locked_fbs entries gets freed
     if (egl_surface->locked_front_fb != NULL) {
@@ -598,7 +599,15 @@ static int egl_gbm_render_surface_queue_present(struct render_surface *s, const 
 
     assert(gbm_surface_has_free_buffers(egl_surface->gbm_surface));
 
-    // create the in fence here
+    // According to EGL spec, the surface we call eglSwapBuffers with must be bound to the
+    // draw surface of the current threads context. So we need to make it current here.
+    /// TODO: Investigate the performance impacts of calling eglMakeCurrent frequently.
+    ok = gl_renderer_make_flutter_rendering_context_current(egl_surface->renderer, egl_surface->egl_surface);
+    if (ok != 0) {
+        return EIO;
+    }
+
+    /// TODO: Create the in fence here
     TRACER_BEGIN(s->surface.tracer, "eglSwapBuffers");
     egl_ok = eglSwapBuffers(egl_surface->egl_display, egl_surface->egl_surface);
     TRACER_END(s->surface.tracer, "eglSwapBuffers");
