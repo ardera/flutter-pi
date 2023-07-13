@@ -2,6 +2,9 @@
 #ifndef GEOMETRY_H
 #define GEOMETRY_H
 
+#include <math.h>
+#include <stdbool.h>
+
 #include "macros.h"
 
 /**
@@ -22,6 +25,13 @@ ATTR_CONST static inline struct vec2f vec2f_sub(struct vec2f a, struct vec2f b) 
     return VEC2F(a.x - b.x, a.y - b.y);
 }
 
+ATTR_CONST static inline bool vec2f_equals(struct vec2f a, struct vec2f b) {
+    return a.x == b.x && a.y == b.y;
+}
+
+ATTR_CONST static inline struct vec2f vec2f_round(struct vec2f a) {
+    return VEC2F(round(a.x), round(a.y));
+}
 
 struct vec2i {
     int x, y;
@@ -75,12 +85,28 @@ struct aa_rect {
         .size = VEC2F(width, height),                          \
     })
 
-ATTR_CONST static inline struct aa_rect get_aa_bounding_rect(const struct quad _rect) {
+ATTR_CONST static inline struct aa_rect quad_get_aa_bounding_rect(const struct quad _rect) {
     double l = MIN4(_rect.top_left.x, _rect.top_right.x, _rect.bottom_left.x, _rect.bottom_right.x);
     double r = MAX4(_rect.top_left.x, _rect.top_right.x, _rect.bottom_left.x, _rect.bottom_right.x);
     double t = MIN4(_rect.top_left.y, _rect.top_right.y, _rect.bottom_left.y, _rect.bottom_right.y);
     double b = MAX4(_rect.top_left.y, _rect.top_right.y, _rect.bottom_left.y, _rect.bottom_right.y);
     return AA_RECT_FROM_COORDS(l, t, r - l, b - t);
+}
+
+ATTR_CONST static inline struct vec2f aa_rect_top_left(const struct aa_rect rect) {
+    return rect.offset;
+}
+
+ATTR_CONST static inline struct vec2f aa_rect_top_right(const struct aa_rect rect) {
+    return VEC2F(rect.offset.x + rect.size.x, rect.offset.y);
+}
+
+ATTR_CONST static inline struct vec2f aa_rect_bottom_left(const struct aa_rect rect) {
+    return VEC2F(rect.offset.x, rect.offset.y + rect.size.y);
+}
+
+ATTR_CONST static inline struct vec2f aa_rect_bottom_right(const struct aa_rect rect) {
+    return vec2f_add(rect.offset, rect.size);
 }
 
 ATTR_CONST static inline struct quad get_quad(const struct aa_rect rect) {
@@ -93,6 +119,15 @@ ATTR_CONST static inline struct quad get_quad(const struct aa_rect rect) {
         .bottom_right.x = rect.offset.x + rect.size.x,
         .bottom_right.y = rect.offset.y + rect.size.y,
     };
+}
+
+ATTR_CONST static inline bool quad_is_axis_aligned(const struct quad quad) {
+    struct aa_rect aa = quad_get_aa_bounding_rect(quad);
+
+    return vec2f_equals(quad.top_left, aa_rect_top_left(aa)) &&
+        vec2f_equals(quad.top_right, aa_rect_top_right(aa)) &&
+        vec2f_equals(quad.bottom_left, aa_rect_bottom_left(aa)) &&
+        vec2f_equals(quad.bottom_right, aa_rect_bottom_right(aa));
 }
 
 struct mat3f {
