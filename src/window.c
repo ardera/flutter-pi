@@ -685,6 +685,7 @@ static struct cursor_buffer *cursor_buffer_new(struct drmdev *drmdev, const stru
     }
 
     b->n_refs = REFCOUNT_INIT_1;
+    b->icon = icon;
     b->format = kARGB8888_FpiPixelFormat;
     b->width = rotated_size.x;
     b->height = rotated_size.y;
