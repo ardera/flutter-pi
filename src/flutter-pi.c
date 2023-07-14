@@ -1260,6 +1260,8 @@ static FlutterEngine create_flutter_engine(
 
     // configure flutter rendering
     if (vk_renderer) {
+        COMPILE_ASSERT(sizeof(FlutterRendererConfig) == 60);
+        COMPILE_ASSERT(sizeof(FlutterVulkanRendererConfig) == 56);
 #ifdef HAVE_VULKAN
         renderer_config = (FlutterRendererConfig) {
             .type = kVulkan,
@@ -1284,6 +1286,8 @@ static FlutterEngine create_flutter_engine(
         UNREACHABLE();
 #endif
     } else {
+        COMPILE_ASSERT(sizeof(FlutterRendererConfig) == 60);
+        COMPILE_ASSERT(sizeof(FlutterOpenGLRendererConfig) == 52);
 #ifdef HAVE_EGL_GLES2
         renderer_config = (FlutterRendererConfig){
             .type = kOpenGL,
@@ -1297,6 +1301,9 @@ static FlutterEngine create_flutter_engine(
                 .gl_proc_resolver = proc_resolver,
                 .surface_transformation = on_get_transformation,
                 .gl_external_texture_frame_callback = on_gl_external_texture_frame_callback,
+                .fbo_with_frame_info_callback = NULL,
+                .present_with_info = NULL,
+                .populate_existing_damage = NULL,
             },
         };
 #else
@@ -1353,6 +1360,7 @@ static FlutterEngine create_flutter_engine(
         .log_tag = NULL,
         .on_pre_engine_restart_callback = NULL,
         .update_semantics_callback = NULL,
+        .update_semantics_callback2 = NULL,
     };
 
     // spin up the engine
