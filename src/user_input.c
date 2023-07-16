@@ -194,7 +194,7 @@ static int on_device_removed(struct user_input *input, struct libinput_event *ev
 void user_input_destroy(struct user_input *input) {
     enum libinput_event_type event_type;
     struct libinput_event *event;
-    int ok;
+    ASSERTED int ok;
 
     assert(input != NULL);
 
