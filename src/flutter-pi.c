@@ -350,8 +350,10 @@ static bool on_clear_current(void *userdata) {
 
 /// Called on some flutter internal thread when the flutter
 /// contents should be presented to the screen.
-/// (Won't be called since we're supplying a compositor,
-/// still needs to be present)
+///
+/// When using flutter with skia, this is never called since we're supplying a
+/// FlutterCompositor. With impeller, this is called anyway. So it needs to
+/// be a silent no-op.
 static bool on_present(void *userdata) {
     struct flutterpi *flutterpi;
     
@@ -366,9 +368,11 @@ static bool on_present(void *userdata) {
 }
 
 /// Called on some flutter internal thread to get the
-/// GL FBO id flutter should render into
-/// (Won't be called since we're supplying a compositor,
-/// still needs to be present)
+/// GL FBO id flutter should render into.
+///
+/// When using flutter with skia, this is never called since we're supplying a
+/// FlutterCompositor. With impeller, this is called anyway. So it needs to
+/// be a silent no-op.
 static uint32_t fbo_callback(void *userdata) {
     struct flutterpi *flutterpi;
 
