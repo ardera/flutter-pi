@@ -353,8 +353,16 @@ static bool on_clear_current(void *userdata) {
 /// (Won't be called since we're supplying a compositor,
 /// still needs to be present)
 static bool on_present(void *userdata) {
-    (void) userdata;
-    UNREACHABLE();
+    struct flutterpi *flutterpi;
+    
+    ASSERT_NOT_NULL(userdata);
+    flutterpi = userdata;
+    (void) flutterpi;
+
+    // Impeller actually calls on_present, even though it shouldn't.
+    // So we can't just put UNREACHABLE() here.
+    TRACER_INSTANT(flutterpi->tracer, "on_present");
+    return 0;
 }
 
 /// Called on some flutter internal thread to get the
