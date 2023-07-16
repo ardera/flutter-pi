@@ -458,7 +458,7 @@ static int egl_gbm_render_surface_present_kms(struct surface *s, const struct fl
         );
     }
 
-    
+    /*
     LOG_DEBUG(
         "egl_gbm_render_surface_present_kms:\n"
         "    src_x, src_y, src_w, src_h: %d %d %d %d\n"
@@ -471,6 +471,7 @@ static int egl_gbm_render_surface_present_kms(struct surface *s, const struct fl
         props->aa_rect.size.x,
         props->aa_rect.size.y
     );
+    */
 
     // So we just cast our fb to an XRGB8888 framebuffer and scanout that instead.
     fb_id = meta->fb_id;
