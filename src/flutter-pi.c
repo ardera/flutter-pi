@@ -316,7 +316,13 @@ static bool on_make_current(void *userdata) {
     // }
 
     // The actual surface will be made current later.
-    ok = gl_renderer_make_flutter_setup_context_current(flutterpi->gl_renderer);
+    // 
+    // We use the rendering context here instead of the setup context
+    // because this is called on the rasterizer thread, and the setup
+    // context might still be current on the main (platform) thread.
+    // (Because for impeller, we need to have a context current for
+    // FlutterEngineRunInitialized)
+    ok = gl_renderer_make_flutter_rendering_context_current(flutterpi->gl_renderer, EGL_NO_SURFACE);
     if (ok != 0) {
         return false;
     }
@@ -1420,11 +1426,41 @@ static int flutterpi_run(struct flutterpi *flutterpi) {
 
     flutterpi->flutter.engine = engine;
 
+    // When running with `--enable-impeller`, the GL context must be made current
+    // before calling `FlutterEngineRunInitialized`, because impeller
+    // resolves the GL procs inside RunInitialized.
+    if (flutterpi->gl_renderer != NULL) {
+#ifdef HAVE_EGL_GLES2
+        ok = gl_renderer_make_flutter_setup_context_current(flutterpi->gl_renderer);
+        if (ok != 0) {
+            goto fail_deinitialize_engine;
+        }
+#else
+        UNREACHABLE();
+#endif
+    }
+
     engine_result = procs->RunInitialized(engine);
     if (engine_result != kSuccess) {
         LOG_ERROR("Could not run the flutter engine. FlutterEngineRunInitialized: %s\n", FLUTTER_RESULT_TO_STRING(engine_result));
         ok = EIO;
         goto fail_deinitialize_engine;
+    }
+
+    // We need to clear the context because flutter then tries to make the
+    // rendering context current on a different (rasterizer) thread.
+    /// TODO: Is this a race condition (if we're not fast enough the clear the
+    ///  current context before the rasterizer thread tries to make the context
+    ///  current?)
+    if (flutterpi->gl_renderer != NULL) {
+#ifdef HAVE_EGL_GLES2
+        ok = gl_renderer_clear_current(flutterpi->gl_renderer);
+        if (ok != 0) {
+            goto fail_deinitialize_engine;
+        }
+#else
+        UNREACHABLE();
+#endif
     }
 
     ok = locales_add_to_fl_engine(flutterpi->locales, engine, procs->UpdateLocales);
