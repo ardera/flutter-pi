@@ -196,14 +196,22 @@
             assert(!str);            \
             __builtin_unreachable(); \
         } while (0)
-    #define UNREACHABLE() __builtin_unreachable()
+    #define UNREACHABLE()            \
+        do {                         \
+            assert(0);               \
+            __builtin_unreachable(); \
+        } while (0)
 #elif defined(_MSC_VER)
     #define UNREACHABLE_MSG(str) \
         do {                     \
             assert(!str);        \
             __assume(0);         \
         } while (0)
-    #define UNREACHABLE() __assume(0)
+    #define UNREACHABLE() \
+        do {              \
+            assert(0);    \
+            __assume(0);  \
+        } while (0)
 #else
     #define UNREACHABLE_MSG(str) assert(!str)
     #define UNREACHABLE() assert(0)
