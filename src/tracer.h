@@ -42,14 +42,22 @@ void tracer_set_cbs(
     #define TRACER_END(tracer, name) __tracer_end(tracer, name)
     #define TRACER_INSTANT(tracer, name) __tracer_instant(tracer, name)
 #else
+    // Cast tracer & name to void so we don't get unused variable warnings
+    // in release mode.
     #define TRACER_BEGIN(tracer, name) \
         do {                           \
+            (void) tracer; \
+            (void) name; \
         } while (0)
     #define TRACER_END(tracer, name) \
         do {                         \
+            (void) tracer; \
+            (void) name; \
         } while (0)
     #define TRACER_INSTANT(tracer, name) \
         do {                             \
+            (void) tracer; \
+            (void) name; \
         } while (0)
 #endif
 
