@@ -691,6 +691,8 @@ uint32_t drmdev_add_fb_from_dmabuf_multiplanar(
     const uint64_t modifiers[4]
 );
 
+int drmdev_rm_fb_locked(struct drmdev *drmdev, uint32_t fb_id);
+
 int drmdev_rm_fb(struct drmdev *drmdev, uint32_t fb_id);
 
 int drmdev_get_last_vblank(struct drmdev *drmdev, uint32_t crtc_id, uint64_t *last_vblank_ns_out);

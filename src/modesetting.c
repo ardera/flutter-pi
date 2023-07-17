@@ -1625,7 +1625,7 @@ uint32_t drmdev_add_fb_from_dmabuf_multiplanar(
     return fb;
 }
 
-static int drmdev_rm_fb_locked(struct drmdev *drmdev, uint32_t fb_id) {
+int drmdev_rm_fb_locked(struct drmdev *drmdev, uint32_t fb_id) {
     int ok;
 
     list_for_each_entry(struct drm_fb, fb, &drmdev->fbs, entry) {
