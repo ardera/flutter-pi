@@ -1190,6 +1190,11 @@ invalid_headers:
     // Create our actual player (this doesn't initialize it)
     if (asset != NULL) {
         player = gstplayer_new_from_asset(flutterpi, asset, package_name, NULL);
+        
+        // gstplayer_new_from_network will construct a file:// URI out of the
+        // asset path internally.
+        free(asset);
+        asset = NULL;
     } else if (uri != NULL) {
         player = gstplayer_new_from_network(flutterpi, uri, format_hint, NULL);
         
@@ -1198,6 +1203,10 @@ invalid_headers:
         uri = NULL;
     } else if (pipeline != NULL) {
         player = gstplayer_new_from_pipeline(flutterpi, pipeline, NULL);
+        
+        // gstplayer_new_from_network will dup the pipeline internally.
+        free(pipeline);
+        pipeline = NULL;
     } else {
         UNREACHABLE();
     }
