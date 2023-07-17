@@ -1551,6 +1551,12 @@ static int flutterpi_run(struct flutterpi *flutterpi) {
         pthread_mutex_unlock(&flutterpi->event_loop_mutex);
     }
 
+    // We deinitialize the plugins here so plugins don't attempt to use the
+    // flutter engine anymore.
+    // For example, otherwise the gstreamer video player might call
+    // texture_push_frame in another thread.
+    plugin_registry_ensure_plugins_deinitialized(flutterpi->plugin_registry);
+
     flutterpi->flutter.procs.Shutdown(engine);
     flutterpi->flutter.engine = NULL;
     return 0;
@@ -1571,6 +1577,22 @@ void flutterpi_schedule_exit(struct flutterpi *flutterpi) {
         pthread_mutex_lock(&flutterpi->event_loop_mutex);
     }
 
+    // There's a race condition here:
+    //
+    // Other threads can always call flutterpi_post_platform_task(). We can only
+    // be sure flutterpi_post_platform_task() will not be called anymore when
+    // FlutterEngineShutdown() has returned.
+    // 
+    // However, FlutterEngineShutdown() is blocking and should be called on the
+    // platform thread.
+    // 
+    // 1. If we process them all, that's basically just continuing to run the
+    //    application.
+    // 
+    // 2. If we don't process them and just error, that could result in memory
+    //    leaks.
+    //
+    // There's not really a nice solution here, but we use the 2nd option here.
     ok = sd_event_exit(flutterpi->event_loop, 0);
     if (ok < 0) {
         LOG_ERROR("Could not schedule application exit. sd_event_exit: %s\n", strerror(-ok));
