@@ -1874,13 +1874,13 @@ static struct flutter_paths *setup_paths(enum flutter_runtime_mode runtime_mode,
 
 static bool parse_cmd_args(int argc, char **argv, struct cmd_args *result_out) {
     bool finished_parsing_options;
-    int runtime_mode_int = kDebug;
+    int runtime_mode_int = FLUTTER_RUNTIME_MODE_DEBUG;
     int vulkan_int = false;
     int longopt_index = 0;
     int opt, ok;
 
     struct option long_options[] = {
-        { "release", no_argument, &runtime_mode_int, kRelease }, { "profile", no_argument, &runtime_mode_int, kProfile },
+        { "release", no_argument, &runtime_mode_int, FLUTTER_RUNTIME_MODE_RELEASE }, { "profile", no_argument, &runtime_mode_int, FLUTTER_RUNTIME_MODE_PROFILE },
         { "orientation", required_argument, NULL, 'o' },         { "rotation", required_argument, NULL, 'r' },
         { "dimensions", required_argument, NULL, 'd' },          { "help", no_argument, 0, 'h' },
         { "pixelformat", required_argument, NULL, 'p' },         { "vulkan", no_argument, &vulkan_int, true },
@@ -2283,7 +2283,7 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
         goto fail_free_fpi;
     }
 
-    runtime_mode = cmd_args.has_runtime_mode ? cmd_args.runtime_mode : kDebug;
+    runtime_mode = cmd_args.has_runtime_mode ? cmd_args.runtime_mode : FLUTTER_RUNTIME_MODE_DEBUG;
     bundle_path = cmd_args.bundle_path;
     engine_argc = cmd_args.engine_argc;
     engine_argv = cmd_args.engine_argv;

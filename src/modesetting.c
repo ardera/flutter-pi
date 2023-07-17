@@ -559,7 +559,7 @@ static int fetch_plane(int drm_fd, uint32_t plane_id, struct drm_plane *plane_ou
     uint16_t committed_alpha;
     int64_t min_zpos, max_zpos, hardcoded_zpos, committed_zpos;
     bool supported_blend_modes[kCount_DrmBlendMode] = { 0 };
-    bool supported_formats[kCount_PixFmt] = { 0 };
+    bool supported_formats[PIXFMT_COUNT] = { 0 };
     bool has_type, has_rotation, has_zpos, has_hardcoded_zpos, has_hardcoded_rotation, has_alpha, has_blend_mode;
     int ok;
 
@@ -747,7 +747,7 @@ static int fetch_plane(int drm_fd, uint32_t plane_id, struct drm_plane *plane_ou
     (void) has_type;
 
     for (int i = 0; i < plane->count_formats; i++) {
-        for (int j = 0; j < kCount_PixFmt; j++) {
+        for (int j = 0; j < PIXFMT_COUNT; j++) {
             if (get_pixfmt_info(j)->drm_format == plane->formats[i]) {
                 supported_formats[j] = true;
                 break;
@@ -756,7 +756,7 @@ static int fetch_plane(int drm_fd, uint32_t plane_id, struct drm_plane *plane_ou
     }
 
     bool has_format = false;
-    enum pixfmt format = kRGB565_FpiPixelFormat;
+    enum pixfmt format = PIXFMT_RGB565;
 
     // drmModeGetFB2 might not be present.
     // If __attribute__((weak)) is supported by the compiler, we redefine it as
@@ -766,7 +766,7 @@ static int fetch_plane(int drm_fd, uint32_t plane_id, struct drm_plane *plane_ou
     if (drmModeGetFB2 && drmModeFreeFB2) {
         struct drm_mode_fb2 *fb = (struct drm_mode_fb2 *) drmModeGetFB2(drm_fd, plane->fb_id);
         if (fb != NULL) {
-            for (int i = 0; i < kCount_PixFmt; i++) {
+            for (int i = 0; i < PIXFMT_COUNT; i++) {
                 if (get_pixfmt_info(i)->drm_format == fb->pixel_format) {
                     has_format = true;
                     format = i;

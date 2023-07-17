@@ -603,7 +603,7 @@ static struct cursor_buffer *cursor_buffer_new(struct drmdev *drmdev, const stru
         drmdev_get_gbm_device(drmdev),
         rotated_size.x,
         rotated_size.y,
-        get_pixfmt_info(kARGB8888_FpiPixelFormat)->gbm_format,
+        get_pixfmt_info(PIXFMT_ARGB8888)->gbm_format,
         GBM_BO_USE_LINEAR | GBM_BO_USE_SCANOUT | GBM_BO_USE_WRITE | GBM_BO_USE_CURSOR
     );
     if (bo == NULL) {
@@ -673,7 +673,7 @@ static struct cursor_buffer *cursor_buffer_new(struct drmdev *drmdev, const stru
         drmdev,
         rotated_size.x,
         rotated_size.y,
-        kARGB8888_FpiPixelFormat,
+        PIXFMT_ARGB8888,
         gbm_bo_get_handle(bo).u32,
         gbm_bo_get_stride(bo),
         gbm_bo_get_offset(bo, 0),
@@ -686,7 +686,7 @@ static struct cursor_buffer *cursor_buffer_new(struct drmdev *drmdev, const stru
 
     b->n_refs = REFCOUNT_INIT_1;
     b->icon = icon;
-    b->format = kARGB8888_FpiPixelFormat;
+    b->format = PIXFMT_ARGB8888;
     b->width = rotated_size.x;
     b->height = rotated_size.y;
     b->rotation = rotation;
@@ -1373,7 +1373,7 @@ static struct render_surface *kms_window_get_render_surface_internal(struct wind
         // and ARGB8888 is still a good default choice because casting XRGB to ARGB might not work,
         // and sometimes we need alpha for overlay planes.
         // Also vulkan doesn't work with XRGB yet so we definitely need to use ARGB to vulkan too.
-        pixel_format = kARGB8888_FpiPixelFormat;
+        pixel_format = PIXFMT_ARGB8888;
     }
 
     // Possibly populate this with the supported modifiers for this pixel format.

@@ -478,9 +478,9 @@ struct drm_plane {
     /// @brief The framebuffer formats this plane supports, assuming no
     /// (implicit) modifier.
     ///
-    /// For example, @ref kARGB8888_FpiPixelFormat is supported if
-    /// supported_formats[kARGB8888_FpiPixelFormat] is true.
-    bool supported_formats[kCount_PixFmt];
+    /// For example, @ref PIXFMT_ARGB8888 is supported if
+    /// supported_formats[PIXFMT_ARGB8888] is true.
+    bool supported_formats[PIXFMT_COUNT];
 
     /// @brief True if this plane has an IN_FORMATS property attached and
     /// supports scanning out buffers with explicit format modifiers.
