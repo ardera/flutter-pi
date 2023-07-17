@@ -1631,6 +1631,7 @@ int drmdev_rm_fb_locked(struct drmdev *drmdev, uint32_t fb_id) {
     list_for_each_entry(struct drm_fb, fb, &drmdev->fbs, entry) {
         if (fb->id == fb_id) {
             list_del(&fb->entry);
+            free(fb);
             break;
         }
     }
