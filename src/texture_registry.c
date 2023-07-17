@@ -303,7 +303,7 @@ texture_gl_external_texture_frame_callback(struct texture *texture, size_t width
     /// we need to call @ref texture_registry_engine_notify_frame_available again.
     texture->dirty = false;
 
-    if (!frame->is_resolved) {
+    if (frame != NULL && !frame->is_resolved) {
         // resolve the frame to an actual OpenGL frame.
         ok = frame->unresolved_frame.resolve(width, height, frame->unresolved_frame.userdata, &frame->frame);
         if (ok != 0) {
