@@ -714,7 +714,25 @@ static void cursor_buffer_destroy(struct cursor_buffer *buffer) {
     free(buffer);
 }
 
+static void cursor_buffer_destroy_with_locked_drmdev(struct cursor_buffer *buffer) {
+    drmdev_rm_fb_locked(buffer->drmdev, buffer->drm_fb_id);
+    gbm_bo_destroy(buffer->bo);
+    drmdev_unref(buffer->drmdev);
+    free(buffer);
+}
+
 DEFINE_STATIC_REF_OPS(cursor_buffer, n_refs)
+
+static void cursor_buffer_unref_with_locked_drmdev(void *userdata) {
+    struct cursor_buffer *cursor;
+
+    ASSERT_NOT_NULL(userdata);
+    cursor = userdata;
+
+    if (refcount_dec(&cursor->n_refs) == false) {
+        cursor_buffer_destroy_with_locked_drmdev(cursor);
+    }
+}
 
 static int select_mode(
     struct drmdev *drmdev,
@@ -1201,7 +1219,7 @@ static int kms_window_push_composition_locked(struct window *window, struct fl_l
                 .in_fence_fd = 0,
                 .prefer_cursor = true,
             },
-            cursor_buffer_unref_void,
+            cursor_buffer_unref_with_locked_drmdev,
             NULL,
             window->kms.cursor
         );
