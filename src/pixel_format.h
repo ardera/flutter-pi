@@ -382,5 +382,6 @@ ATTR_CONST static inline enum pixfmt get_pixfmt_for_drm_format(uint32_t fourcc) 
 COMPILE_ASSERT(PIXFMT_RGB565 == 0);
 
 #define ASSERT_PIXFMT_VALID(format) ASSERT_MSG(format >= PIXFMT_RGB565 && format <= PIXFMT_MAX, "Invalid pixel format")
+#define ASSUME_PIXFMT_VALID(format) ASSUME((format) >= PIXFMT_RGB565 && (format) <= PIXFMT_MAX)
 
 #endif  // _FLUTTERPI_INCLUDE_PIXEL_FORMAT_H
