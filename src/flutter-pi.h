@@ -71,10 +71,10 @@ enum device_orientation { kPortraitUp, kLandscapeLeft, kPortraitDown, kLandscape
 
 #define LIBINPUT_EVENT_IS_KEYBOARD(event_type) (((event_type) == LIBINPUT_EVENT_KEYBOARD_KEY))
 
-enum flutter_runtime_mode { kDebug, kProfile, kRelease };
+enum flutter_runtime_mode { FLUTTER_RUNTIME_MODE_DEBUG, FLUTTER_RUNTIME_MODE_PROFILE, FLUTTER_RUNTIME_MODE_RELEASE };
 
-#define FLUTTER_RUNTIME_MODE_IS_JIT(runtime_mode) ((runtime_mode) == kDebug)
-#define FLUTTER_RUNTIME_MODE_IS_AOT(runtime_mode) ((runtime_mode) == kProfile || (runtime_mode) == kRelease)
+#define FLUTTER_RUNTIME_MODE_IS_JIT(runtime_mode) ((runtime_mode) == FLUTTER_RUNTIME_MODE_DEBUG)
+#define FLUTTER_RUNTIME_MODE_IS_AOT(runtime_mode) ((runtime_mode) == FLUTTER_RUNTIME_MODE_PROFILE || (runtime_mode) == FLUTTER_RUNTIME_MODE_RELEASE)
 
 struct compositor;
 struct plugin_registry;

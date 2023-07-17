@@ -36,23 +36,23 @@ struct fbdev_pixfmt {
  *
  */
 enum pixfmt {
-    kRGB565_FpiPixelFormat,
-    kARGB4444_FpiPixelFormat,
-    kXRGB4444_FpiPixelFormat,
-    kARGB1555_FpiPixelFormat,
-    kXRGB1555_FpiPixelFormat,
-    kARGB8888_FpiPixelFormat,
-    kXRGB8888_FpiPixelFormat,
-    kBGRA8888_FpiPixelFormat,
-    kBGRX8888_FpiPixelFormat,
-    kRGBA8888_FpiPixelFormat,
-    kRGBX8888_FpiPixelFormat,
-    kMax_PixFmt = kRGBX8888_FpiPixelFormat,
-    kCount_PixFmt = kMax_PixFmt + 1
+    PIXFMT_RGB565,
+    PIXFMT_ARGB4444,
+    PIXFMT_XRGB4444,
+    PIXFMT_ARGB1555,
+    PIXFMT_XRGB1555,
+    PIXFMT_ARGB8888,
+    PIXFMT_XRGB8888,
+    PIXFMT_BGRA8888,
+    PIXFMT_BGRX8888,
+    PIXFMT_RGBA8888,
+    PIXFMT_RGBX8888,
+    PIXFMT_MAX = PIXFMT_RGBX8888,
+    PIXFMT_COUNT = PIXFMT_MAX + 1
 };
 
-// Just a pedantic check so we don't update the pixfmt enum without changing kMax_PixFmt
-COMPILE_ASSERT(kMax_PixFmt == kRGBX8888_FpiPixelFormat);
+// Just a pedantic check so we don't update the pixfmt enum without changing PIXFMT_MAX
+COMPILE_ASSERT(PIXFMT_MAX == PIXFMT_RGBX8888);
 
 // Vulkan doesn't support that many sRGB formats actually.
 // There's two more (one packed and one non-packed) that aren't listed here.
@@ -60,7 +60,7 @@ COMPILE_ASSERT(kMax_PixFmt == kRGBX8888_FpiPixelFormat);
 #define PIXFMT_LIST(V)                           \
     V("RGB 5:6:5",                               \
       "RGB565",                                  \
-      kRGB565_FpiPixelFormat,                    \
+      PIXFMT_RGB565,                    \
       /*bpp*/ 16,                                \
       /*bit_depth*/ 16,                          \
       /*opaque*/ true,                           \
@@ -77,7 +77,7 @@ COMPILE_ASSERT(kMax_PixFmt == kRGBX8888_FpiPixelFormat);
       /*DRM fourcc*/ DRM_FORMAT_RGB565)          \
     V("ARGB 4:4:4:4",                            \
       "ARGB4444",                                \
-      kARGB4444_FpiPixelFormat,                  \
+      PIXFMT_ARGB4444,                  \
       /*bpp*/ 16,                                \
       /*bit_depth*/ 12,                          \
       /*opaque*/ false,                          \
@@ -94,7 +94,7 @@ COMPILE_ASSERT(kMax_PixFmt == kRGBX8888_FpiPixelFormat);
       /*DRM fourcc*/ DRM_FORMAT_ARGB4444)        \
     V("XRGB 4:4:4:4",                            \
       "XRGB4444",                                \
-      kXRGB4444_FpiPixelFormat,                  \
+      PIXFMT_XRGB4444,                  \
       /*bpp*/ 16,                                \
       /*bit_depth*/ 12,                          \
       /*opaque*/ true,                           \
@@ -111,7 +111,7 @@ COMPILE_ASSERT(kMax_PixFmt == kRGBX8888_FpiPixelFormat);
       /*DRM fourcc*/ DRM_FORMAT_XRGB4444)        \
     V("ARGB 1:5:5:5",                            \
       "ARGB1555",                                \
-      kARGB1555_FpiPixelFormat,                  \
+      PIXFMT_ARGB1555,                  \
       /*bpp*/ 16,                                \
       /*bit_depth*/ 15,                          \
       /*opaque*/ false,                          \
@@ -128,7 +128,7 @@ COMPILE_ASSERT(kMax_PixFmt == kRGBX8888_FpiPixelFormat);
       /*DRM fourcc*/ DRM_FORMAT_ARGB1555)        \
     V("XRGB 1:5:5:5",                            \
       "XRGB1555",                                \
-      kXRGB1555_FpiPixelFormat,                  \
+      PIXFMT_XRGB1555,                  \
       /*bpp*/ 16,                                \
       /*bit_depth*/ 15,                          \
       /*opaque*/ true,                           \
@@ -145,7 +145,7 @@ COMPILE_ASSERT(kMax_PixFmt == kRGBX8888_FpiPixelFormat);
       /*DRM fourcc*/ DRM_FORMAT_XRGB1555)        \
     V("ARGB 8:8:8:8",                            \
       "ARGB8888",                                \
-      kARGB8888_FpiPixelFormat,                  \
+      PIXFMT_ARGB8888,                  \
       /*bpp*/ 32,                                \
       /*bit_depth*/ 24,                          \
       /*opaque*/ false,                          \
@@ -162,7 +162,7 @@ COMPILE_ASSERT(kMax_PixFmt == kRGBX8888_FpiPixelFormat);
       /*DRM fourcc*/ DRM_FORMAT_ARGB8888)        \
     V("XRGB 8:8:8:8",                            \
       "XRGB8888",                                \
-      kXRGB8888_FpiPixelFormat,                  \
+      PIXFMT_XRGB8888,                  \
       /*bpp*/ 32,                                \
       /*bit_depth*/ 24,                          \
       /*opaque*/ true,                           \
@@ -179,7 +179,7 @@ COMPILE_ASSERT(kMax_PixFmt == kRGBX8888_FpiPixelFormat);
       /*DRM fourcc*/ DRM_FORMAT_XRGB8888)        \
     V("BGRA 8:8:8:8",                            \
       "BGRA8888",                                \
-      kBGRA8888_FpiPixelFormat,                  \
+      PIXFMT_BGRA8888,                  \
       /*bpp*/ 32,                                \
       /*bit_depth*/ 24,                          \
       /*opaque*/ false,                          \
@@ -196,7 +196,7 @@ COMPILE_ASSERT(kMax_PixFmt == kRGBX8888_FpiPixelFormat);
       /*DRM fourcc*/ DRM_FORMAT_BGRA8888)        \
     V("BGRX 8:8:8:8",                            \
       "BGRX8888",                                \
-      kBGRX8888_FpiPixelFormat,                  \
+      PIXFMT_BGRX8888,                  \
       /*bpp*/ 32,                                \
       /*bit_depth*/ 24,                          \
       /*opaque*/ true,                           \
@@ -213,7 +213,7 @@ COMPILE_ASSERT(kMax_PixFmt == kRGBX8888_FpiPixelFormat);
       /*DRM fourcc*/ DRM_FORMAT_BGRX8888)        \
     V("RGBA 8:8:8:8",                            \
       "RGBA8888",                                \
-      kRGBA8888_FpiPixelFormat,                  \
+      PIXFMT_RGBA8888,                  \
       /*bpp*/ 32,                                \
       /*bit_depth*/ 24,                          \
       /*opaque*/ false,                          \
@@ -230,7 +230,7 @@ COMPILE_ASSERT(kMax_PixFmt == kRGBX8888_FpiPixelFormat);
       /*DRM fourcc*/ DRM_FORMAT_RGBA8888)        \
     V("RGBX 8:8:8:8",                            \
       "RGBX8888",                                \
-      kRGBX8888_FpiPixelFormat,                  \
+      PIXFMT_RGBX8888,                  \
       /*bpp*/ 32,                                \
       /*bit_depth*/ 24,                          \
       /*opaque*/ true,                           \
@@ -248,20 +248,20 @@ COMPILE_ASSERT(kMax_PixFmt == kRGBX8888_FpiPixelFormat);
 
 // make sure the macro list we defined has as many elements as the pixfmt enum.
 #define __COUNT(...) +1
-COMPILE_ASSERT(0 PIXFMT_LIST(__COUNT) == kMax_PixFmt + 1);
+COMPILE_ASSERT(0 PIXFMT_LIST(__COUNT) == PIXFMT_MAX + 1);
 #undef __COUNT
 
 static inline enum pixfmt pixfmt_opaque(enum pixfmt format) {
-    if (format == kARGB8888_FpiPixelFormat) {
-        return kXRGB8888_FpiPixelFormat;
-    } else if (format == kARGB4444_FpiPixelFormat) {
-        return kXRGB4444_FpiPixelFormat;
-    } else if (format == kARGB1555_FpiPixelFormat) {
-        return kXRGB1555_FpiPixelFormat;
-    } else if (format == kBGRA8888_FpiPixelFormat) {
-        return kBGRX8888_FpiPixelFormat;
-    } else if (format == kRGBA8888_FpiPixelFormat) {
-        return kRGBX8888_FpiPixelFormat;
+    if (format == PIXFMT_ARGB8888) {
+        return PIXFMT_XRGB8888;
+    } else if (format == PIXFMT_ARGB4444) {
+        return PIXFMT_XRGB4444;
+    } else if (format == PIXFMT_ARGB1555) {
+        return PIXFMT_XRGB1555;
+    } else if (format == PIXFMT_BGRA8888) {
+        return PIXFMT_BGRX8888;
+    } else if (format == PIXFMT_RGBA8888) {
+        return PIXFMT_RGBX8888;
     }
 
     /// TODO: We're potentially returning a non-opaque format here.
@@ -351,7 +351,7 @@ void assert_pixfmt_list_valid();
  *
  */
 ATTR_CONST static inline const struct pixfmt_info *get_pixfmt_info(enum pixfmt format) {
-    assert(format >= 0 && format <= kMax_PixFmt);
+    assert(format >= 0 && format <= PIXFMT_MAX);
 #ifdef DEBUG
     assert_pixfmt_list_valid();
 #endif
@@ -376,11 +376,11 @@ ATTR_CONST static inline enum pixfmt get_pixfmt_for_drm_format(uint32_t fourcc) 
     }
 
     ASSERT_MSG(false, "Check has_pixfmt_for_drm_format if an enum pixfmt exists for a specific DRM fourcc.");
-    return kRGB565_FpiPixelFormat;
+    return PIXFMT_RGB565;
 }
 
-COMPILE_ASSERT(kRGB565_FpiPixelFormat == 0);
+COMPILE_ASSERT(PIXFMT_RGB565 == 0);
 
-#define ASSERT_PIXFMT_VALID(format) ASSERT_MSG(format >= kRGB565_FpiPixelFormat && format <= kMax_PixFmt, "Invalid pixel format")
+#define ASSERT_PIXFMT_VALID(format) ASSERT_MSG(format >= PIXFMT_RGB565 && format <= PIXFMT_MAX, "Invalid pixel format")
 
 #endif  // _FLUTTERPI_INCLUDE_PIXEL_FORMAT_H

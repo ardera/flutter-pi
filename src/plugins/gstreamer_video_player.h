@@ -12,9 +12,9 @@
     #include "gles.h"
 #endif
 
-enum format_hint { kNoFormatHint, kMpegDash_FormatHint, kHLS_FormatHint, kSS_FormatHint, kOther_FormatHint };
+enum format_hint { FORMAT_HINT_NONE, FORMAT_HINT_MPEG_DASH, FORMAT_HINT_HLS, FORMAT_HINT_SS, FORMAT_HINT_OTHER };
 
-enum buffering_mode { kStream, kDownload, kTimeshift, kLive };
+enum buffering_mode { BUFFERING_MODE_STREAM, BUFFERING_MODE_DOWNLOAD, BUFFERING_MODE_TIMESHIFT, BUFFERING_MODE_LIVE };
 
 struct buffering_range {
     int64_t start_ms;
@@ -37,9 +37,9 @@ struct buffering_state {
     int64_t time_left_ms;
 
     // The ranges of already buffered video.
-    // For the kDownload and kTimeshift buffering modes, this specifies the ranges
+    // For the BUFFERING_MODE_DOWNLOAD and BUFFERING_MODE_TIMESHIFT buffering modes, this specifies the ranges
     // where efficient seeking is possible.
-    // For the kStream and kLive buffering modes, this describes the oldest and
+    // For the BUFFERING_MODE_STREAM and BUFFERING_MODE_LIVE buffering modes, this describes the oldest and
     // newest item in the buffer.
     int n_ranges;
 
@@ -68,7 +68,7 @@ struct gstplayer *gstplayer_new_from_asset(struct flutterpi *flutterpi, const ch
 
 /// Create a gstreamer video player that loads the video from a network URI.
 ///     @arg uri          The URI to the video. (for example, http://, https://, rtmp://, rtsp://)
-///     @arg format_hint  A hint to the format of the video. kNoFormatHint means there's no hint.
+///     @arg format_hint  A hint to the format of the video. FORMAT_HINT_NONE means there's no hint.
 ///     @arg userdata     The userdata associated with this player.
 struct gstplayer *gstplayer_new_from_network(struct flutterpi *flutterpi, const char *uri, enum format_hint format_hint, void *userdata);
 

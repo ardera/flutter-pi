@@ -290,11 +290,11 @@ static void update_buffering_state(struct gstplayer *player) {
 
     state->percent = percent;
     state->mode =
-        (mode == GST_BUFFERING_STREAM    ? kStream :
-         mode == GST_BUFFERING_DOWNLOAD  ? kDownload :
-         mode == GST_BUFFERING_TIMESHIFT ? kTimeshift :
-         mode == GST_BUFFERING_LIVE      ? kLive :
-                                           (assert(0), kStream));
+        (mode == GST_BUFFERING_STREAM    ? BUFFERING_MODE_STREAM :
+         mode == GST_BUFFERING_DOWNLOAD  ? BUFFERING_MODE_DOWNLOAD :
+         mode == GST_BUFFERING_TIMESHIFT ? BUFFERING_MODE_TIMESHIFT :
+         mode == GST_BUFFERING_LIVE      ? BUFFERING_MODE_LIVE :
+                                           (assert(0), BUFFERING_MODE_STREAM));
     state->avg_in = avg_in;
     state->avg_out = avg_out;
     state->time_left_ms = buffering_left;

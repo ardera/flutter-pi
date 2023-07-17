@@ -130,8 +130,8 @@ static int
 get_texture_id_from_map_arg(struct std_value *arg, int64_t *texture_id_out, FlutterPlatformMessageResponseHandle *responsehandle) {
     struct std_value *id;
     int ok;
-
-    if (arg->type != kStdMap) {
+    
+    if (!STDVALUE_IS_MAP(*arg)) {
         ok = platch_respond_illegal_arg_ext_pigeon(responsehandle, "Expected `arg` to be a Map, but was: ", arg);
         if (ok != 0)
             return ok;
@@ -417,7 +417,7 @@ static int check_headers(const struct std_value *headers, FlutterPlatformMessage
 
     if (headers == NULL || STDVALUE_IS_NULL(*headers)) {
         return 0;
-    } else if (headers->type != kStdMap) {
+    } else if (!STDVALUE_IS_MAP(*headers)) {
         platch_respond_illegal_arg_pigeon(responsehandle, "Expected `arg['httpHeaders']` to be a map of strings or null.");
         return EINVAL;
     }
@@ -446,7 +446,7 @@ static int add_headers_to_player(const struct std_value *headers, struct gstplay
 
     if (headers == NULL || STDVALUE_IS_NULL(*headers)) {
         return 0;
-    } else if (headers->type != kStdMap) {
+    } else if (!STDVALUE_IS_MAP(*headers)) {
         assert(false);
     }
 
@@ -554,46 +554,46 @@ static int on_create(char *channel, struct platch_obj *object, FlutterPlatformMe
     }
 
     temp = stdmap_get_str(arg, "asset");
-    if (temp == NULL || temp->type == kStdNull) {
+    if (temp == NULL || STDVALUE_IS_NULL(*temp)) {
         asset = NULL;
-    } else if (temp != NULL && temp->type == kStdString) {
-        asset = temp->string_value;
+    } else if (STDVALUE_IS_STRING(*temp)) {
+        asset = STDVALUE_AS_STRING(*temp);
     } else {
         return platch_respond_illegal_arg_ext_pigeon(responsehandle, "Expected `arg['asset']` to be a String or null, but was:", temp);
     }
 
     temp = stdmap_get_str(arg, "uri");
-    if (temp == NULL || temp->type == kStdNull) {
+    if (temp == NULL || STDVALUE_IS_NULL(*temp)) {
         uri = NULL;
-    } else if (temp != NULL && temp->type == kStdString) {
-        uri = temp->string_value;
+    } else if (STDVALUE_IS_STRING(*temp)) {
+        uri = STDVALUE_AS_STRING(*temp);
     } else {
         return platch_respond_illegal_arg_ext_pigeon(responsehandle, "Expected `arg['uri']` to be a String or null, but was:", temp);
     }
 
     temp = stdmap_get_str(arg, "packageName");
-    if (temp == NULL || temp->type == kStdNull) {
+    if (temp == NULL || STDVALUE_IS_NULL(*temp)) {
         package_name = NULL;
-    } else if (temp != NULL && temp->type == kStdString) {
-        package_name = temp->string_value;
+    } else if (STDVALUE_IS_STRING(*temp)) {
+        package_name = STDVALUE_AS_STRING(*temp);
     } else {
         return platch_respond_illegal_arg_ext_pigeon(responsehandle, "Expected `arg['packageName']` to be a String or null, but was:", temp);
     }
 
     temp = stdmap_get_str(arg, "formatHint");
-    if (temp == NULL || temp->type == kStdNull) {
-        format_hint = kNoFormatHint;
-    } else if (temp != NULL && temp->type == kStdString) {
-        char *format_hint_str = temp->string_value;
+    if (temp == NULL || STDVALUE_IS_NULL(*temp)) {
+        format_hint = FORMAT_HINT_NONE;
+    } else if (STDVALUE_IS_STRING(*temp)) {
+        char *format_hint_str = STDVALUE_AS_STRING(*temp);
 
         if (streq("ss", format_hint_str)) {
-            format_hint = kSS_FormatHint;
+            format_hint = FORMAT_HINT_SS;
         } else if (streq("hls", format_hint_str)) {
-            format_hint = kHLS_FormatHint;
+            format_hint = FORMAT_HINT_HLS;
         } else if (streq("dash", format_hint_str)) {
-            format_hint = kMpegDash_FormatHint;
+            format_hint = FORMAT_HINT_MPEG_DASH;
         } else if (streq("other", format_hint_str)) {
-            format_hint = kOther_FormatHint;
+            format_hint = FORMAT_HINT_OTHER;
         } else {
             goto invalid_format_hint;
         }
@@ -1126,16 +1126,16 @@ static int on_create_v2(const struct raw_std_value *arg, FlutterPlatformMessageR
         arg = raw_std_value_after(arg);
 
         if (raw_std_value_is_null(arg)) {
-            format_hint = kNoFormatHint;
+            format_hint = FORMAT_HINT_NONE;
         } else if (raw_std_value_is_string(arg)) {
             if (raw_std_string_equals(arg, "ss")) {
-                format_hint = kSS_FormatHint;
+                format_hint = FORMAT_HINT_SS;
             } else if (raw_std_string_equals(arg, "hls")) {
-                format_hint = kHLS_FormatHint;
+                format_hint = FORMAT_HINT_HLS;
             } else if (raw_std_string_equals(arg, "dash")) {
-                format_hint = kMpegDash_FormatHint;
+                format_hint = FORMAT_HINT_MPEG_DASH;
             } else if (raw_std_string_equals(arg, "other")) {
-                format_hint = kOther_FormatHint;
+                format_hint = FORMAT_HINT_OTHER;
             } else {
                 goto invalid_format_hint;
             }
@@ -1144,7 +1144,7 @@ invalid_format_hint:
             return platch_respond_illegal_arg_std(responsehandle, "Expected `arg[3]` to be one of 'ss', 'hls', 'dash', 'other' or null.");
         }
     } else {
-        format_hint = kNoFormatHint;
+        format_hint = FORMAT_HINT_NONE;
     }
 
     // arg[4]: HTTP Headers
