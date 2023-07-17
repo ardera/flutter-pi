@@ -1552,6 +1552,11 @@ static int kms_window_set_cursor_locked(
 
             cursor_buffer_swap_ptrs(&window->kms.cursor, cursor);
 
+            // cursor is created with refcount 1. cursor_buffer_swap_ptrs
+            // increases refcount by one. deref here so we don't leak a
+            // reference.
+            cursor_buffer_unrefp(&cursor);
+
             // apply the new cursor icon & position by scanning out a new frame.
             window->cursor_pos = pos;
             if (window->composition != NULL) {
