@@ -667,7 +667,7 @@ gl_renderer_choose_config(struct gl_renderer *renderer, bool has_desired_pixel_f
 
 ATTR_PURE EGLConfig gl_renderer_choose_config_direct(struct gl_renderer *renderer, enum pixfmt pixel_format) {
     ASSERT_NOT_NULL(renderer);
-    ASSERT_PIXFMT_VALID(pixel_format);
+    ASSUME_PIXFMT_VALID(pixel_format);
 
     const EGLint config_attribs[] = {
         EGL_SURFACE_TYPE, EGL_WINDOW_BIT, EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT, EGL_SAMPLES, 0, EGL_NONE,

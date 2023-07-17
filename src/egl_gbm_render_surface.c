@@ -120,7 +120,7 @@ static int egl_gbm_render_surface_init(
     int ok;
 
     ASSERT_NOT_NULL(renderer);
-    ASSERT_PIXFMT_VALID(pixel_format);
+    ASSUME_PIXFMT_VALID(pixel_format);
     egl_display = gl_renderer_get_egl_display(renderer);
     ASSERT_NOT_NULL(egl_display);
 
