@@ -1045,7 +1045,7 @@ struct drmdev *drmdev_new_from_interface_fd(int fd, void *fd_metadata, const str
         goto fail_close_event_fd;
     }
 
-    pthread_mutex_init(&drmdev->mutex, NULL);
+    pthread_mutex_init(&drmdev->mutex, get_default_mutex_attrs());
     drmdev->n_refs = REFCOUNT_INIT_1;
     drmdev->fd = fd;
     drmdev->supports_atomic_modesetting = supports_atomic_modesetting;
