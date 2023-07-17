@@ -1192,6 +1192,10 @@ invalid_headers:
         player = gstplayer_new_from_asset(flutterpi, asset, package_name, NULL);
     } else if (uri != NULL) {
         player = gstplayer_new_from_network(flutterpi, uri, format_hint, NULL);
+        
+        // gstplayer_new_from_network will dup the uri internally.
+        free(uri);
+        uri = NULL;
     } else if (pipeline != NULL) {
         player = gstplayer_new_from_pipeline(flutterpi, pipeline, NULL);
     } else {
