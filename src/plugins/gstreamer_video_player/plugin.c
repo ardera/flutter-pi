@@ -94,13 +94,29 @@ static struct gstplayer *get_player_by_evch(const char *const event_channel_name
     return NULL;
 }
 
-/// Remove a player instance from the player collection.
+/**
+ * @brief Remove a player instance from the player list.
+ * 
+ * Assumes the plugin struct is not locked.
+ * 
+ */
 static void remove_player(struct gstplayer_meta *meta) {
     plugin_lock(&plugin);
 
     list_del(&meta->entry);
 
     plugin_unlock(&plugin);
+}
+
+/**
+ * @brief Remove a player instance from the player list.
+ * 
+ * Assumes the plugin struct is locked.
+ * 
+ */
+static void remove_player_locked(struct gstplayer_meta *meta) {
+    ASSERT_MUTEX_LOCKED(plugin.lock);
+    list_del(&meta->entry);
 }
 
 static struct gstplayer_meta *get_meta(struct gstplayer *player) {
@@ -483,14 +499,23 @@ static void destroy_meta(struct gstplayer_meta *meta) {
     free(meta);
 }
 
-static void dispose_player(struct gstplayer *player) {
+static void dispose_player(struct gstplayer *player, bool plugin_registry_locked, bool plugin_locked) {
     struct gstplayer_meta *meta;
 
     meta = get_meta(player);
 
-    plugin_registry_remove_receiver(meta->event_channel_name);
+    if (plugin_registry_locked) {
+        plugin_registry_remove_receiver_locked(meta->event_channel_name);
+    } else {
+        plugin_registry_remove_receiver(meta->event_channel_name);
+    }
 
-    remove_player(meta);
+    if (plugin_locked) {
+        remove_player_locked(meta);
+    } else {
+        remove_player(meta);
+    }
+
     if (meta->video_info_listener != NULL) {
         notifier_unlisten(gstplayer_get_video_info_notifier(player), meta->video_info_listener);
         meta->video_info_listener = NULL;
@@ -499,7 +524,9 @@ static void dispose_player(struct gstplayer *player) {
         notifier_unlisten(gstplayer_get_buffering_state_notifier(player), meta->buffering_state_listener);
         meta->buffering_state_listener = NULL;
     }
+
     destroy_meta(meta);
+
     gstplayer_destroy(player);
 }
 
@@ -658,7 +685,7 @@ static int on_dispose(char *channel, struct platch_obj *object, FlutterPlatformM
         return 0;
     }
 
-    dispose_player(player);
+    dispose_player(player, false, false);
 
     return platch_respond_success_pigeon(responsehandle, NULL);
 }
@@ -1239,7 +1266,7 @@ static int on_dispose_v2(const struct raw_std_value *arg, FlutterPlatformMessage
         return EINVAL;
     }
 
-    dispose_player(player);
+    dispose_player(player, false, false);
 
     return platch_respond_success_std(responsehandle, &STDNULL);
 }
@@ -1684,9 +1711,9 @@ void gstplayer_plugin_deinit(struct flutterpi *flutterpi, void *userdata) {
 
     plugin_lock(&plugin);
 
-    list_for_each_entry(struct gstplayer_meta, meta, &plugin.players, entry) {
-        list_del(&meta->entry);
-        dispose_player(meta->player);
+    list_for_each_entry_safe(struct gstplayer_meta, meta, &plugin.players, entry) {
+        // will also remove the player from the player list.
+        dispose_player(meta->player, true, true);
     }
 
     plugin_unlock(&plugin);
