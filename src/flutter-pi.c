@@ -2143,7 +2143,7 @@ static struct drmdev *find_drmdev(struct libseat *libseat) {
             }
         }
         LOG_ERROR("Device \"%s\" doesn't have a display connected. Skipping.\n", device->nodes[DRM_NODE_PRIMARY]);
-        drmdev_destroy(drmdev);
+        drmdev_unref(drmdev);
         continue;
 
 found_connected_connector:
