@@ -262,7 +262,7 @@ static void update_buffering_state(struct gstplayer *player) {
     ok = gst_element_query(player->pipeline, query);
     if (ok == FALSE) {
         LOG_ERROR("Could not query buffering state. (gst_element_query)\n");
-        return;
+        goto fail_unref_query;
     }
 
     gst_query_parse_buffering_percent(query, &busy, &percent);
@@ -272,14 +272,14 @@ static void update_buffering_state(struct gstplayer *player) {
 
     state = malloc(sizeof(*state) + n_ranges * sizeof(struct buffering_range));
     if (state == NULL) {
-        return;
+        goto fail_unref_query;
     }
 
     for (int i = 0; i < n_ranges; i++) {
         ok = gst_query_parse_nth_buffering_range(query, (unsigned int) i, &start, &stop);
         if (ok == FALSE) {
             LOG_ERROR("Could not parse %dth buffering range from buffering state. (gst_query_parse_nth_buffering_range)\n", i);
-            return;
+            goto fail_free_state;
         }
 
         state->ranges[i].start_ms = GST_TIME_AS_MSECONDS(start);
@@ -301,6 +301,14 @@ static void update_buffering_state(struct gstplayer *player) {
     state->n_ranges = n_ranges;
 
     notifier_notify(&player->buffering_state_notifier, state);
+    return;
+
+
+    fail_free_state:
+    free(state);
+
+    fail_unref_query:
+    gst_query_unref(query);
 }
 
 static int init(struct gstplayer *player, bool force_sw_decoders);
