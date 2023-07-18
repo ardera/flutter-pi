@@ -769,6 +769,8 @@ static GstFlowReturn on_appsink_new_preroll(GstAppSink *appsink, void *userdata)
 
     frame = frame_new(player->frame_interface, sample, player->has_gst_info ? &player->gst_info : NULL);
 
+    gst_sample_unref(sample);
+
     if (frame != NULL) {
         texture_push_frame(
             player->texture,
