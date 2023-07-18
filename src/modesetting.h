@@ -613,8 +613,6 @@ struct drmdev *drmdev_new_from_interface_fd(int fd, void *fd_metadata, const str
 
 struct drmdev *drmdev_new_from_path(const char *path, const struct drmdev_interface *interface, void *userdata);
 
-void drmdev_destroy(struct drmdev *drmdev);
-
 DECLARE_REF_OPS(drmdev)
 
 struct drmdev;

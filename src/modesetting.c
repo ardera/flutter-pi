@@ -1116,7 +1116,7 @@ struct drmdev *drmdev_new_from_path(const char *path, const struct drmdev_interf
     return drmdev;
 }
 
-void drmdev_destroy(struct drmdev *drmdev) {
+static void drmdev_destroy(struct drmdev *drmdev) {
     assert(refcount_is_zero(&drmdev->n_refs));
 
     drmdev->interface.close(drmdev->master_fd, drmdev->master_fd_metadata, drmdev->userdata);
