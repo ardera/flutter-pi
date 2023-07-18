@@ -1260,8 +1260,8 @@ static FlutterEngine create_flutter_engine(
 
     // configure flutter rendering
     if (vk_renderer) {
-        COMPILE_ASSERT(sizeof(FlutterRendererConfig) == 60);
-        COMPILE_ASSERT(sizeof(FlutterVulkanRendererConfig) == 56);
+        COMPILE_ASSERT(sizeof(FlutterRendererConfig) == 60 || sizeof(FlutterRendererConfig) == 120);
+        COMPILE_ASSERT(sizeof(FlutterVulkanRendererConfig) == 56 || sizeof(FlutterVulkanRendererConfig) == 112);
 #ifdef HAVE_VULKAN
         renderer_config = (FlutterRendererConfig) {
             .type = kVulkan,
@@ -1286,8 +1286,8 @@ static FlutterEngine create_flutter_engine(
         UNREACHABLE();
 #endif
     } else {
-        COMPILE_ASSERT(sizeof(FlutterRendererConfig) == 60);
-        COMPILE_ASSERT(sizeof(FlutterOpenGLRendererConfig) == 52);
+        COMPILE_ASSERT(sizeof(FlutterRendererConfig) == 60 || sizeof(FlutterRendererConfig) == 120);
+        COMPILE_ASSERT(sizeof(FlutterOpenGLRendererConfig) == 52 || sizeof(FlutterOpenGLRendererConfig) == 104);
 #ifdef HAVE_EGL_GLES2
         renderer_config = (FlutterRendererConfig){
             .type = kOpenGL,
