@@ -1729,6 +1729,11 @@ void gstplayer_plugin_deinit(struct flutterpi *flutterpi, void *userdata) {
         dispose_player(meta->player, true, true);
     }
 
+    if (plugin.initialized) {
+        gst_deinit();
+        plugin.initialized = false;
+    }
+
     plugin_unlock(&plugin);
 
     plugin_registry_remove_receiver_locked("flutter-pi/gstreamerVideoPlayer");
