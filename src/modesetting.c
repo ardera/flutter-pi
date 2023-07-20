@@ -2164,7 +2164,7 @@ fail_unlock:
     return NULL;
 }
 
-void kms_req_builder_destroy(struct kms_req_builder *builder) {
+static void kms_req_builder_destroy(struct kms_req_builder *builder) {
     /// TODO: Is this complete?
     for (int i = 0; i < builder->n_layers; i++) {
         if (builder->layers[i].release_callback != NULL) {

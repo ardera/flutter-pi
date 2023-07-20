@@ -735,8 +735,6 @@ struct kms_req_builder;
 
 struct kms_req_builder *drmdev_create_request_builder(struct drmdev *drmdev, uint32_t crtc_id);
 
-void kms_req_builder_destroy(struct kms_req_builder *builder);
-
 DECLARE_REF_OPS(kms_req_builder);
 
 struct drmdev *kms_req_builder_get_drmdev(struct kms_req_builder *builder);
