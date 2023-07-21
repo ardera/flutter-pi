@@ -1029,6 +1029,25 @@ format_supported:
 
     frame_interface_lock(interface);
 
+    /// TODO: Make a single EGL context current for the whole lifetime of a
+    /// gstreamer thread, instead of making one current and clearing it after
+    /// for the duration of this procedure, to save some cycles.
+    ///
+    /// Make context current in GST_STREAM_STATUS_TYPE_ENTER message, clear it
+    /// in GST_STREAM_STATUS_TYPE_LEAVE message.
+    /// 
+    /// See https://gstreamer.freedesktop.org/documentation/additional/design/stream-status.html
+    ///
+    /// Alternatively, don't unconditionally create & make current an EGL
+    /// context in the ENTER message, but create one lazily as soon as we need
+    /// one, but keep track of it an destroy it in the LEAVE message.
+    ///
+    /// The STREAM_STATUS messages need to be handled synchronously of course,
+    /// on the streaming thread, using either:
+    ///   - gst_bus_set_sync_handler
+    ///     https://gstreamer.freedesktop.org/documentation/gstreamer/gstbus.html#gst_bus_set_sync_handler
+    ///   - or GstBus sync-message signal
+    ///     https://gstreamer.freedesktop.org/documentation/gstreamer/gstbus.html#GstBus::sync-message
     egl_ok = eglMakeCurrent(interface->display, EGL_NO_SURFACE, EGL_NO_SURFACE, interface->context);
     if (egl_ok == EGL_FALSE) {
         egl_error = eglGetError();
