@@ -1,5 +1,13 @@
-#ifndef _UTIL_LOCKOPS_H
-#define _UTIL_LOCKOPS_H
+// SPDX-License-Identifier: MIT
+/*
+ * Lock Ops - Macros for defining locking operations for a struct with
+ * sane defaults.
+ * 
+ * Copyright (c) 2023, Hannes Winkler <hanneswinkler2000@web.de>
+ */
+
+#ifndef _FLUTTERPI_SRC_UTIL_LOCK_OPS_H
+#define _FLUTTERPI_SRC_UTIL_LOCK_OPS_H
 
 #include <pthread.h>
 
@@ -51,4 +59,4 @@
         (void) ok;                                                      \
     }
 
-#endif // _UTIL_LOCKOPS_H
+#endif  // _FLUTTERPI_SRC_UTIL_LOCK_OPS_H

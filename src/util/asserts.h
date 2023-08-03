@@ -1,5 +1,12 @@
-#ifndef _UTIL_ASSERTS_H
-#define _UTIL_ASSERTS_H
+// SPDX-License-Identifier: MIT
+/*
+ * Common assert macros
+ *
+ * Copyright (c) 2023, Hannes Winkler <hanneswinkler2000@web.de>
+ */
+
+#ifndef _FLUTTERPI_SRC_UTIL_ASSERTS_H
+#define _FLUTTERPI_SRC_UTIL_ASSERTS_H
 
 #include <assert.h>
 
@@ -36,4 +43,4 @@
 #define COMPILE_ASSERT_MSG(expression, msg) _Static_assert(expression, msg)
 #define COMPILE_ASSERT(expression) COMPILE_ASSERT_MSG(expression, "Expression evaluates to false")
 
-#endif // _UTIL_ASSERTS_H
+#endif  // _FLUTTERPI_SRC_UTIL_ASSERTS_H

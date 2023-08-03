@@ -1,5 +1,12 @@
-#ifndef REFCOUNTING_H
-#define REFCOUNTING_H
+// SPDX-License-Identifier: MIT
+/*
+ * Refcounting - Defines functions and macros for reference keeping.
+ *
+ * Copyright (c) 2023, Hannes Winkler <hanneswinkler2000@web.de>
+ */
+
+#ifndef _FLUTTERPI_SRC_UTIL_REFCOUNTING_H
+#define _FLUTTERPI_SRC_UTIL_REFCOUNTING_H
 
 #include <stdatomic.h>
 #include <stdbool.h>
@@ -104,4 +111,4 @@ static inline int refcount_get_for_debug(refcount_t *refcount) {
     }                                                                                       \
     UNUSED static void obj_name##_unref_void(void *obj) { obj_name##_unref((struct obj_name *) obj); }
 
-#endif
+#endif  // _FLUTTERPI_SRC_UTIL_REFCOUNTING_H

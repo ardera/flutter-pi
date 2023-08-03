@@ -5,8 +5,8 @@
  * Copyright (c) 2022, Hannes Winkler <hanneswinkler2000@web.de>
  */
 
-#ifndef _FLUTTERPI_INCLUDE_TRACER_H
-#define _FLUTTERPI_INCLUDE_TRACER_H
+#ifndef _FLUTTERPI_SRC_TRACER_H
+#define _FLUTTERPI_SRC_TRACER_H
 
 #include <flutter_embedder.h>
 
@@ -77,4 +77,4 @@ void tracer_set_cbs(
         return tracer_instant(obj_var_name->tracer_member_name, name);                \
     }
 
-#endif  // _FLUTTERPI_INCLUDE_TRACER_H
+#endif  // _FLUTTERPI_SRC_TRACER_H

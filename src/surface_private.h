@@ -7,8 +7,8 @@
  * Copyright (c) 2022, Hannes Winkler <hanneswinkler2000@web.de>
  */
 
-#ifndef _FLUTTERPI_INCLUDE_SURFACE_PRIVATE_H
-#define _FLUTTERPI_INCLUDE_SURFACE_PRIVATE_H
+#ifndef _FLUTTERPI_SRC_SURFACE_PRIVATE_H
+#define _FLUTTERPI_SRC_SURFACE_PRIVATE_H
 
 #include <stdint.h>
 
@@ -41,4 +41,4 @@ int surface_init(struct surface *s, struct tracer *tracer);
 
 void surface_deinit(struct surface *s);
 
-#endif  // _FLUTTERPI_INCLUDE_SURFACE_PRIVATE_H
+#endif  // _FLUTTERPI_SRC_SURFACE_PRIVATE_H

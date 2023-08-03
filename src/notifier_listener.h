@@ -1,5 +1,17 @@
-#ifndef _FLUTTERPI_INCLUDE_NOTIFIER_LISTENER_H
-#define _FLUTTERPI_INCLUDE_NOTIFIER_LISTENER_H
+// SPDX-License-Identifier: MIT
+/*
+ * Notifier/Listener
+ *
+ * Basically a nicer wrapper around callbacks.
+ * 
+ * Notifiers are event sources that can be listened to. A listener
+ * is a callbacks that's registered for listening to a notifier.
+ *
+ * Copyright (c) 2023, Hannes Winkler <hanneswinkler2000@web.de>
+ */
+
+#ifndef _FLUTTERPI_SRC_NOTIFIER_LISTENER_H
+#define _FLUTTERPI_SRC_NOTIFIER_LISTENER_H
 
 #include "util/collection.h"
 #include "util/list.h"
@@ -130,4 +142,4 @@ int notifier_unlisten(struct notifier *notifier, struct listener *listener);
  */
 void notifier_notify(struct notifier *notifier, void *arg);
 
-#endif  // _FLUTTERPI_INCLUDE_NOTIFIER_LISTENER_H
+#endif  // _FLUTTERPI_SRC_NOTIFIER_LISTENER_H

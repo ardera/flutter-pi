@@ -7,8 +7,8 @@
  * Copyright (c) 2022, Hannes Winkler <hanneswinkler2000@web.de>
  */
 
-#ifndef _FLUTTERPI_INCLUDE_COMPOSITOR_NG_H
-#define _FLUTTERPI_INCLUDE_COMPOSITOR_NG_H
+#ifndef _FLUTTERPI_SRC_COMPOSITOR_NG_H
+#define _FLUTTERPI_SRC_COMPOSITOR_NG_H
 
 #include <flutter_embedder.h>
 
@@ -203,4 +203,4 @@ DECLARE_REF_OPS(fl_layer_composition)
 size_t fl_layer_composition_get_n_layers(struct fl_layer_composition *composition);
 struct fl_layer *fl_layer_composition_peek_layer(struct fl_layer_composition *composition, int layer);
 
-#endif  // _FLUTTERPI_INCLUDE_COMPOSITOR_NG_H
+#endif  // _FLUTTERPI_SRC_COMPOSITOR_NG_H

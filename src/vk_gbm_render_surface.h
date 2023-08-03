@@ -8,8 +8,8 @@
  * Copyright (c) 2022, Hannes Winkler <hanneswinkler2000@web.de>
  */
 
-#ifndef _FLUTTERPI_INCLUDE_VK_GBM_RENDER_SURFACE_H
-#define _FLUTTERPI_INCLUDE_VK_GBM_RENDER_SURFACE_H
+#ifndef _FLUTTERPI_SRC_VK_GBM_RENDER_SURFACE_H
+#define _FLUTTERPI_SRC_VK_GBM_RENDER_SURFACE_H
 
 #include "compositor_ng.h"
 #include "pixel_format.h"
@@ -35,4 +35,4 @@ struct vk_gbm_render_surface *vk_gbm_render_surface_new(
     enum pixfmt pixel_format
 );
 
-#endif  // _FLUTTERPI_INCLUDE_VK_GBM_RENDER_SURFACE_H
+#endif  // _FLUTTERPI_SRC_VK_GBM_RENDER_SURFACE_H

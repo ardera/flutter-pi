@@ -5,8 +5,8 @@
  * Copyright (c) 2022, Hannes Winkler <hanneswinkler2000@web.de>
  */
 
-#ifndef _FLUTTERPI_INCLUDE_GLES_H
-#define _FLUTTERPI_INCLUDE_GLES_H
+#ifndef _FLUTTERPI_SRC_GLES_H
+#define _FLUTTERPI_SRC_GLES_H
 
 #include "config.h"
 
@@ -17,4 +17,4 @@
 #include <GLES2/gl2.h>
 #include <GLES2/gl2ext.h>
 
-#endif  // _FLUTTERPI_INCLUDE_GLES_H
+#endif  // _FLUTTERPI_SRC_GLES_H

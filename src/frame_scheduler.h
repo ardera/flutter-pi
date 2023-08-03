@@ -7,8 +7,8 @@
  * Copyright (c) 2022, Hannes Winkler <hanneswinkler2000@web.de>
  */
 
-#ifndef _FLUTTERPI_INCLUDE_FRAME_SCHEDULER_H
-#define _FLUTTERPI_INCLUDE_FRAME_SCHEDULER_H
+#ifndef _FLUTTERPI_SRC_FRAME_SCHEDULER_H
+#define _FLUTTERPI_SRC_FRAME_SCHEDULER_H
 
 #include "util/collection.h"
 #include "util/refcounting.h"
@@ -80,4 +80,4 @@ void frame_scheduler_on_fb_released(struct frame_scheduler *scheduler, bool has_
  */
 void frame_scheduler_present_frame(struct frame_scheduler *scheduler, void_callback_t present_cb, void *userdata, void_callback_t cancel_cb);
 
-#endif  // _FLUTTERPI_INCLUDE_FRAME_SCHEDULER_H
+#endif  // _FLUTTERPI_SRC_FRAME_SCHEDULER_H

@@ -5,8 +5,8 @@
  * Copyright (c) 2022, Hannes Winkler <hanneswinkler2000@web.de>
  */
 
-#ifndef _FLUTTERPI_INCLUDE_VULKAN_H
-#define _FLUTTERPI_INCLUDE_VULKAN_H
+#ifndef _FLUTTERPI_SRC_VULKAN_H
+#define _FLUTTERPI_SRC_VULKAN_H
 
 #include "config.h"
 
@@ -87,4 +87,4 @@ static inline const char *vk_strerror(VkResult result) {
 
 #define LOG_VK_ERROR(result, fmt, ...) LOG_ERROR(fmt ": %s\n", __VA_ARGS__ vk_strerror(result))
 
-#endif  // _FLUTTERPI_INCLUDE_VULKAN_H
+#endif  // _FLUTTERPI_SRC_VULKAN_H

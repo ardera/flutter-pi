@@ -1,5 +1,14 @@
-#ifndef _TEXTURE_REGISTRY_H
-#define _TEXTURE_REGISTRY_H
+// SPDX-License-Identifier: MIT
+/*
+ * Texture Registry
+ *
+ * Manages flutter external texture registration, texture frame callbacks.
+ *
+ * Copyright (c) 2023, Hannes Winkler <hanneswinkler2000@web.de>
+ */
+
+#ifndef _FLUTTERPI_SRC_TEXTURE_REGISTRY_H
+#define _FLUTTERPI_SRC_TEXTURE_REGISTRY_H
 
 #include <flutter_embedder.h>
 
@@ -69,4 +78,4 @@ int texture_push_unresolved_frame(struct texture *texture, const struct unresolv
 
 void texture_destroy(struct texture *texture);
 
-#endif
+#endif  // _FLUTTERPI_SRC_TEXTURE_REGISTRY_H
