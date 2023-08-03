@@ -541,22 +541,6 @@ struct cursor_buffer {
     struct vec2i hotspot;
 };
 
-// UNUSED static enum cursor_size cursor_size_from_pixel_ratio(double device_pixel_ratio) {
-//     double last_diff = INFINITY;
-//     enum cursor_size size;
-
-//     for (enum cursor_size size_iter = k32x32_CursorSize; size_iter < kCount_CursorSize; size_iter++) {
-//         double cursor_dpr = (pixel_size_for_cursor_size[size_iter] * 3 * 10.0) / (25.4 * 38);
-//         double cursor_screen_dpr_diff = device_pixel_ratio - cursor_dpr;
-//         if ((-last_diff < cursor_screen_dpr_diff) && (cursor_screen_dpr_diff < last_diff)) {
-//             size = size_iter;
-//             last_diff = cursor_screen_dpr_diff;
-//         }
-//     }
-
-//     return size;
-// }
-
 static struct vec2i get_rotated_hotspot(const struct pointer_icon *icon, drm_plane_transform_t rotation) {
     struct vec2i size;
     struct vec2i hotspot;
