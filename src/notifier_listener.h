@@ -3,6 +3,8 @@
 
 #include "util/collection.h"
 
+#include "util/list.h"
+
 enum listener_return { kNoAction, kUnlisten };
 
 typedef enum listener_return (*listener_cb_t)(void *arg, void *userdata);
@@ -12,7 +14,7 @@ struct listener;
 struct notifier {
     pthread_mutex_t mutex;
 
-    struct pointer_set listeners;
+    struct list_head listeners;
 
     bool is_value_notifier;
     void *state;

@@ -4,12 +4,13 @@
 #include <stdbool.h>
 
 struct listener {
+    struct list_head entry;
     listener_cb_t notify;
     void_callback_t destroy;
     void *userdata;
 };
 
-#define for_each_listener_in_notifier(notifier, listener) for_each_pointer_in_pset(&notifier->listeners, listener)
+#define for_each_listener_in_notifier(_notifier, _listener) list_for_each_entry_safe(struct listener, _listener, &(_notifier).listeners, entry)
 
 static struct listener *listener_new(listener_cb_t notify, void_callback_t destroy, void *userdata);
 static void listener_destroy(struct listener *listener);
@@ -23,11 +24,7 @@ int change_notifier_init(struct notifier *notifier) {
         return ok;
     }
 
-    ok = pset_init(&notifier->listeners, PSET_DEFAULT_MAX_SIZE);
-    if (ok != 0) {
-        return ok;
-    }
-
+    list_inithead(&notifier->listeners);
     notifier->is_value_notifier = false;
     notifier->state = NULL;
     notifier->value_destroy_callback = NULL;
@@ -42,11 +39,7 @@ int value_notifier_init(struct notifier *notifier, void *initial_value, void_cal
         return ok;
     }
 
-    ok = pset_init(&notifier->listeners, PSET_DEFAULT_MAX_SIZE);
-    if (ok != 0) {
-        return ok;
-    }
-
+    list_inithead(&notifier->listeners);
     notifier->is_value_notifier = true;
     notifier->state = initial_value;
     notifier->value_destroy_callback = value_destroy_callback;
@@ -91,13 +84,12 @@ struct notifier *value_notifier_new(void *initial_value, void_callback_t value_d
 }
 
 void notifier_deinit(struct notifier *notifier) {
-    struct listener *l;
-
-    for_each_listener_in_notifier(notifier, l) {
+    for_each_listener_in_notifier(*notifier, l) {
         listener_destroy(l);
     }
+
     pthread_mutex_destroy(&notifier->mutex);
-    pset_deinit(&notifier->listeners);
+    ASSERT_MSG(list_is_empty(&notifier->listeners), "Listener list was not empty after removing all listeners");
     if (notifier->value_destroy_callback != NULL) {
         notifier->value_destroy_callback(notifier->state);
     }
@@ -113,7 +105,6 @@ DEFINE_LOCK_OPS(notifier, mutex)
 struct listener *notifier_listen(struct notifier *notifier, listener_cb_t notify, void_callback_t destroy, void *userdata) {
     enum listener_return r;
     struct listener *l;
-    int ok;
 
     l = listener_new(notify, destroy, userdata);
     if (l == NULL) {
@@ -128,38 +119,25 @@ struct listener *notifier_listen(struct notifier *notifier, listener_cb_t notify
 
     notifier_lock(notifier);
 
-    ok = pset_put(&notifier->listeners, l);
+    list_add(&l->entry, &notifier->listeners);
 
     notifier_unlock(notifier);
-
-    if (ok != 0) {
-        listener_destroy(l);
-        return NULL;
-    }
 
     return l;
 }
 
 int notifier_unlisten(struct notifier *notifier, struct listener *listener) {
-    int ok;
-
     notifier_lock(notifier);
 
-    ok = pset_remove(&notifier->listeners, listener);
+    listener_destroy(listener);
 
     notifier_unlock(notifier);
 
-    if (ok == 0) {
-        listener_destroy(listener);
-    }
-
-    return ok;
+    return 0;
 }
 
 void notifier_notify(struct notifier *notifier, void *arg) {
     enum listener_return r;
-    struct listener *l, *last_kept;
-    int ok;
 
     notifier_lock(notifier);
 
@@ -168,17 +146,10 @@ void notifier_notify(struct notifier *notifier, void *arg) {
     }
     notifier->state = arg;
 
-    last_kept = NULL;
-    for_each_listener_in_notifier(notifier, l) {
+    for_each_listener_in_notifier(*notifier, l) {
         r = listener_notify(l, arg);
         if (r == kUnlisten) {
-            ok = pset_remove(&notifier->listeners, l);
-            assert(ok == 0);
-            (void) ok;
-
             listener_destroy(l);
-
-            l = last_kept;
         }
     }
 
@@ -193,6 +164,7 @@ static struct listener *listener_new(listener_cb_t notify, void_callback_t destr
         return NULL;
     }
 
+    listener->entry = (struct list_head) {NULL, NULL};
     listener->notify = notify;
     listener->destroy = destroy;
     listener->userdata = userdata;
@@ -204,6 +176,11 @@ static void listener_destroy(struct listener *listener) {
     if (listener->destroy != NULL) {
         listener->destroy(listener->userdata);
     }
+    
+    if (list_is_linked(&listener->entry)) {
+        list_del(&listener->entry);
+    }
+
     free(listener);
 }
 
