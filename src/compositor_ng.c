@@ -123,8 +123,6 @@ struct compositor {
     struct window *main_window;
     struct util_dynarray views;
 
-    struct pointer_set platform_views;
-
     FlutterCompositor flutter_compositor;
 
     struct vec2f cursor_pos;
