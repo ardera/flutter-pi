@@ -10,10 +10,13 @@
 
 #include "flutter-pi.h"
 #include "util/collection.h"
+#include "util/list.h"
 
 #define LOG_LOCALES_ERROR(...) fprintf(stderr, "[locales] " __VA_ARGS__);
 
 struct locale {
+    struct list_head entry;
+
     char *language;
     char *territory;
     char *codeset;
@@ -25,11 +28,13 @@ struct locales {
     const FlutterLocale **flutter_locales;
     const FlutterLocale *default_flutter_locale;
 
-    struct concurrent_pointer_set locales;
+    struct list_head locales;
     struct locale *default_locale;
 
     size_t n_locales;
 };
+
+#define for_each_locale_in_locales(_locale, _locales) list_for_each_entry_safe(struct locale, _locale, &(_locales)->locales, entry)
 
 static const char *get_system_locale_string(void) {
     const char *locale;
@@ -111,6 +116,7 @@ struct locale *locale_new(const char *language, const char *territory, const cha
     fl_locale->country_code = territory_dup;
     fl_locale->script_code = codeset_dup;
     fl_locale->variant_code = modifier_dup;
+    locale->entry = (struct list_head) {NULL, NULL};
     locale->flutter_locale = fl_locale;
     locale->language = language_dup;
     locale->territory = territory_dup;
@@ -154,7 +160,7 @@ void locale_destroy(struct locale *locale) {
     free(locale);
 }
 
-static int add_locale_variants(struct concurrent_pointer_set *locales, const char *locale_description) {
+static int add_locale_variants(struct list_head *locales, const char *locale_description) {
     char *language = NULL;
     char *territory = NULL;
     char *codeset = NULL;
@@ -239,11 +245,7 @@ static int add_locale_variants(struct concurrent_pointer_set *locales, const cha
             goto fail_free_language;
         }
 
-        ok = cpset_put_locked(locales, locale);
-        if (ok != 0) {
-            locale_destroy(locale);
-            goto fail_free_language;
-        }
+        list_add(&locale->entry, locales);
     }
 
     free(language);
@@ -276,29 +278,24 @@ fail_return_ok:
 
 struct locales *locales_new(void) {
     struct locales *locales;
-    struct locale *locale;
     const char *system_locales;
     char *system_locales_modifiable, *syslocale;
     const FlutterLocale **fl_locales;
     size_t n_locales;
-    int ok;
 
     locales = malloc(sizeof *locales);
     if (locales == NULL) {
         goto fail_return_null;
     }
 
-    ok = cpset_init(&locales->locales, CPSET_DEFAULT_MAX_SIZE);
-    if (ok != 0) {
-        goto fail_free_locales;
-    }
+    list_inithead(&locales->locales);
 
     // Add our system locales.
     system_locales = get_system_locale_string();
 
     system_locales_modifiable = strdup(system_locales);
     if (system_locales_modifiable == NULL) {
-        goto fail_deinit_cpset;
+        goto fail_free_locales;
     }
 
     syslocale = strtok(system_locales_modifiable, ":");
@@ -310,14 +307,14 @@ struct locales *locales_new(void) {
     free(system_locales_modifiable);
 
     // Use those to create our flutter locales.
-    n_locales = cpset_get_count_pointers_locked(&locales->locales);
+    n_locales = list_length(&locales->locales);
     fl_locales = calloc(n_locales, sizeof *fl_locales);
     if (fl_locales == NULL) {
         goto fail_free_allocated_locales;
     }
 
     int i = 0;
-    for_each_pointer_in_cpset(&locales->locales, locale) {
+    for_each_locale_in_locales(locale, locales) {
         fl_locales[i] = locale_get_fl_locale(locale);
         i++;
     }
@@ -335,12 +332,10 @@ struct locales *locales_new(void) {
     return locales;
 
 fail_free_allocated_locales:
-    for_each_pointer_in_cpset(&locales->locales, locale) {
+    for_each_locale_in_locales(locale, locales) {
+        list_del(&locale->entry);
         locale_destroy(locale);
     }
-
-fail_deinit_cpset:
-    cpset_deinit(&locales->locales);
 
 fail_free_locales:
     free(locales);
@@ -350,15 +345,13 @@ fail_return_null:
 }
 
 void locales_destroy(struct locales *locales) {
-    struct locale *locale;
-
     assert(locales != NULL);
 
-    for_each_pointer_in_cpset(&locales->locales, locale) {
+    for_each_locale_in_locales(locale, locales) {
+        list_del(&locale->entry);
         locale_destroy(locale);
     }
     free(locales->flutter_locales);
-    cpset_deinit(&locales->locales);
     free(locales);
 }
 
