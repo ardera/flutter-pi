@@ -55,6 +55,7 @@
 #include "tracer.h"
 #include "user_input.h"
 #include "window.h"
+#include "util/list.h"
 
 #include "config.h"
 
@@ -251,13 +252,14 @@ struct flutterpi {
     struct vk_renderer *vk_renderer;
 
     struct libseat *libseat;
-    struct pointer_set fd_for_device_id;
+    struct list_head fd_for_device_id;
     bool session_active;
 
     char *desired_videomode;
 };
 
 struct device_id_and_fd {
+    struct list_head entry;
     int device_id;
     int fd;
 };
@@ -1760,10 +1762,11 @@ static int on_user_input_open(const char *path, int flags, void *userdata) {
             return -ENOMEM;
         }
 
+        entry->entry = (struct list_head) {NULL, NULL};
         entry->fd = fd;
         entry->device_id = device_id;
-
-        pset_put(&flutterpi->fd_for_device_id, entry);
+        
+        list_add(&entry->entry, &flutterpi->fd_for_device_id);
         return fd;
 #else
         UNREACHABLE();
@@ -1792,9 +1795,10 @@ static void on_user_input_close(int fd, void *userdata) {
     if (flutterpi->libseat != NULL) {
 #ifdef HAVE_LIBSEAT
         struct device_id_and_fd *entry;
-
-        for_each_pointer_in_pset(&flutterpi->fd_for_device_id, entry) {
-            if (entry->fd == fd) {
+        
+        list_for_each_entry_safe(struct device_id_and_fd, entry_iter, &flutterpi->fd_for_device_id, entry) {
+            if (entry_iter->fd == fd) {
+                entry = entry_iter;
                 break;
             }
         }
@@ -1809,7 +1813,7 @@ static void on_user_input_close(int fd, void *userdata) {
             LOG_ERROR("Couldn't close evdev device. libseat_close_device: %s\n", strerror(errno));
         }
 
-        pset_remove(&flutterpi->fd_for_device_id, entry);
+        list_del(&entry->entry);
         free(entry);
         return;
 #else
@@ -2493,7 +2497,7 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
     };
 
     fpi->libseat = libseat;
-    pset_init(&fpi->fd_for_device_id, PSET_DEFAULT_MAX_SIZE);
+    list_inithead(&fpi->fd_for_device_id);
 
     input = user_input_new(
         &user_input_interface,
@@ -2638,8 +2642,6 @@ fail_unload_engine:
 fail_destroy_user_input:
     user_input_destroy(input);
 
-    pset_deinit(&fpi->fd_for_device_id);
-
 fail_unref_compositor:
     compositor_unref(compositor);
 
@@ -2710,7 +2712,6 @@ void flutterpi_destroy(struct flutterpi *flutterpi) {
     plugin_registry_destroy(flutterpi->plugin_registry);
     unload_flutter_engine_lib(flutterpi->flutter.engine_handle);
     user_input_destroy(flutterpi->user_input);
-    pset_deinit(&flutterpi->fd_for_device_id);
     compositor_unref(flutterpi->compositor);
     if (flutterpi->gl_renderer) {
 #ifdef HAVE_EGL_GLES2
