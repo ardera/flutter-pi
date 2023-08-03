@@ -6,19 +6,25 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdatomic.h>
 
 #include <flutter_embedder.h>
 
 #include "flutter-pi.h"
+#include "util/list.h"
+
 
 struct texture_registry {
     struct texture_registry_interface interface;
     void *userdata;
 
-    pthread_mutex_t next_unused_id_mutex;
-    int64_t next_unused_id;
-    struct concurrent_pointer_set textures;
+    pthread_mutex_t lock;
+
+    atomic_int_least64_t next_unused_id;
+    struct list_head textures;
 };
+
+DEFINE_STATIC_LOCK_OPS(texture_registry, lock)
 
 struct counted_texture_frame {
     refcount_t n_refs;
@@ -47,6 +53,8 @@ struct texture {
 
     pthread_mutex_t lock;
 
+    struct list_head entry;
+
     /// The texture id the flutter engine uses to identify this texture.
     int64_t id;
 
@@ -64,62 +72,51 @@ struct texture {
 
 struct texture_registry *texture_registry_new(const struct texture_registry_interface *interface, void *userdata) {
     struct texture_registry *reg;
-    int ok;
 
     reg = malloc(sizeof *reg);
     if (reg == NULL) {
         return NULL;
     }
 
-    pthread_mutex_init(&reg->next_unused_id_mutex, NULL);
+    pthread_mutex_init(&reg->lock, get_default_mutex_attrs());
 
     memcpy(&reg->interface, interface, sizeof(*interface));
     reg->userdata = userdata;
     reg->next_unused_id = 1;
-
-    ok = cpset_init(&reg->textures, CPSET_DEFAULT_MAX_SIZE);
-    if (ok != 0) {
-        free(reg);
-        return NULL;
-    }
+    list_inithead(&reg->textures);
 
     return reg;
 }
 
 void texture_registry_destroy(struct texture_registry *reg) {
-    cpset_lock(&reg->textures);
-    int count = cpset_get_count_pointers_locked(&reg->textures);
+#ifndef NDEBUG
+    int count = list_length(&reg->textures);
     if (count > 0) {
         LOG_ERROR("Error destroying texture registry: There are still %d textures registered. This is an application bug.\n", count);
+        assert(false);
     }
-    cpset_unlock(&reg->textures);
+#endif
 
-    cpset_deinit(&reg->textures);
-    pthread_mutex_destroy(&reg->next_unused_id_mutex);
+    pthread_mutex_destroy(&reg->lock);
     free(reg);
 }
 
 int64_t texture_registry_allocate_id(struct texture_registry *reg) {
-    pthread_mutex_lock(&reg->next_unused_id_mutex);
-
-    int64_t id = reg->next_unused_id++;
-
-    pthread_mutex_unlock(&reg->next_unused_id_mutex);
-
-    return id;
+    return atomic_fetch_add(&reg->next_unused_id, 1);
 }
 
 static int texture_registry_register_texture(struct texture_registry *reg, struct texture *texture) {
     int ok;
 
-    ok = cpset_put(&reg->textures, texture);
-    if (ok != 0) {
-        return ok;
-    }
+    texture_registry_lock(reg);
+    list_add(&texture->entry, &reg->textures);
+    texture_registry_unlock(reg);
 
     ok = reg->interface.register_texture(reg->userdata, texture->id);
     if (ok != 0) {
-        cpset_remove(&reg->textures, texture);
+        texture_registry_lock(reg);
+        list_del(&texture->entry);
+        texture_registry_unlock(reg);
         return ok;
     }
 
@@ -128,7 +125,10 @@ static int texture_registry_register_texture(struct texture_registry *reg, struc
 
 static void texture_registry_unregister_texture(struct texture_registry *reg, struct texture *texture) {
     reg->interface.unregister_texture(reg->userdata, texture->id);
-    cpset_remove(&reg->textures, texture);
+
+    texture_registry_lock(reg);
+    list_del(&texture->entry);
+    texture_registry_unlock(reg);
 }
 
 #ifdef HAVE_EGL_GLES2
@@ -142,17 +142,21 @@ bool texture_registry_gl_external_texture_frame_callback(
     size_t height,
     FlutterOpenGLTexture *texture_out
 ) {
-    struct texture *t;
+    struct texture *texture;
     bool result;
 
-    cpset_lock(&reg->textures);
-    for_each_pointer_in_cpset(&reg->textures, t) {
+    texture_registry_lock(reg);
+
+    texture = NULL;
+    list_for_each_entry_safe(struct texture, t, &reg->textures, entry) {
         if (t->id == texture_id) {
+            texture = t;
             break;
         }
     }
-    if (t != NULL) {
-        result = texture_gl_external_texture_frame_callback(t, width, height, texture_out);
+
+    if (texture != NULL) {
+        result = texture_gl_external_texture_frame_callback(texture, width, height, texture_out);
     } else {
         // the texture was destroyed after notifying the engine of a new texture frame.
         // just report an empty frame here.
@@ -165,7 +169,8 @@ bool texture_registry_gl_external_texture_frame_callback(
         texture_out->width = 0;
         texture_out->height = 0;
     }
-    cpset_unlock(&reg->textures);
+
+    texture_registry_unlock(reg);
 
     return result;
 }
@@ -185,7 +190,7 @@ struct texture *texture_new(struct texture_registry *reg) {
 
     id = texture_registry_allocate_id(reg);
 
-    pthread_mutex_init(&texture->lock, NULL);
+    pthread_mutex_init(&texture->lock, get_default_mutex_attrs());
     texture->registry = reg;
     texture->id = id;
     texture->next_frame = NULL;
