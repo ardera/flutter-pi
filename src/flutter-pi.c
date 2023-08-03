@@ -54,8 +54,9 @@
 #include "texture_registry.h"
 #include "tracer.h"
 #include "user_input.h"
-#include "window.h"
 #include "util/list.h"
+#include "util/logging.h"
+#include "window.h"
 
 #include "config.h"
 
@@ -1592,13 +1593,13 @@ void flutterpi_schedule_exit(struct flutterpi *flutterpi) {
     // Other threads can always call flutterpi_post_platform_task(). We can only
     // be sure flutterpi_post_platform_task() will not be called anymore when
     // FlutterEngineShutdown() has returned.
-    // 
+    //
     // However, FlutterEngineShutdown() is blocking and should be called on the
     // platform thread.
-    // 
+    //
     // 1. If we process them all, that's basically just continuing to run the
     //    application.
-    // 
+    //
     // 2. If we don't process them and just error, that could result in memory
     //    leaks.
     //
@@ -1762,10 +1763,10 @@ static int on_user_input_open(const char *path, int flags, void *userdata) {
             return -ENOMEM;
         }
 
-        entry->entry = (struct list_head) {NULL, NULL};
+        entry->entry = (struct list_head){ NULL, NULL };
         entry->fd = fd;
         entry->device_id = device_id;
-        
+
         list_add(&entry->entry, &flutterpi->fd_for_device_id);
         return fd;
 #else
@@ -1795,7 +1796,7 @@ static void on_user_input_close(int fd, void *userdata) {
     if (flutterpi->libseat != NULL) {
 #ifdef HAVE_LIBSEAT
         struct device_id_and_fd *entry;
-        
+
         list_for_each_entry_safe(struct device_id_and_fd, entry_iter, &flutterpi->fd_for_device_id, entry) {
             if (entry_iter->fd == fd) {
                 entry = entry_iter;
@@ -1884,11 +1885,16 @@ static bool parse_cmd_args(int argc, char **argv, struct cmd_args *result_out) {
     int opt, ok;
 
     struct option long_options[] = {
-        { "release", no_argument, &runtime_mode_int, FLUTTER_RUNTIME_MODE_RELEASE }, { "profile", no_argument, &runtime_mode_int, FLUTTER_RUNTIME_MODE_PROFILE },
-        { "orientation", required_argument, NULL, 'o' },         { "rotation", required_argument, NULL, 'r' },
-        { "dimensions", required_argument, NULL, 'd' },          { "help", no_argument, 0, 'h' },
-        { "pixelformat", required_argument, NULL, 'p' },         { "vulkan", no_argument, &vulkan_int, true },
-        { "videomode", required_argument, NULL, 'v' },           { 0, 0, 0, 0 },
+        { "release", no_argument, &runtime_mode_int, FLUTTER_RUNTIME_MODE_RELEASE },
+        { "profile", no_argument, &runtime_mode_int, FLUTTER_RUNTIME_MODE_PROFILE },
+        { "orientation", required_argument, NULL, 'o' },
+        { "rotation", required_argument, NULL, 'r' },
+        { "dimensions", required_argument, NULL, 'd' },
+        { "help", no_argument, 0, 'h' },
+        { "pixelformat", required_argument, NULL, 'p' },
+        { "vulkan", no_argument, &vulkan_int, true },
+        { "videomode", required_argument, NULL, 'v' },
+        { 0, 0, 0, 0 },
     };
 
     memset(result_out, 0, sizeof *result_out);

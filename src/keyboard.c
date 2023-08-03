@@ -21,6 +21,7 @@
 #include <xkbcommon/xkbcommon.h>
 
 #include "util/collection.h"
+#include "util/logging.h"
 
 static int find_var_offset_in_string(const char *varname, const char *buffer, regmatch_t *match) {
     regmatch_t matches[2];

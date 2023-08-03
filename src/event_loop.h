@@ -49,4 +49,4 @@ struct evloop *evthread_get_evloop(struct evthread *thread);
 
 void evthread_join(struct evthread *thread);
 
-#endif // _EVENT_LOOP_H
+#endif  // _EVENT_LOOP_H

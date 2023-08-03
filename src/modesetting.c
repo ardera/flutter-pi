@@ -19,7 +19,10 @@
 #include "pixel_format.h"
 #include "util/bitset.h"
 #include "util/list.h"
+#include "util/lock_ops.h"
+#include "util/logging.h"
 #include "util/macros.h"
+#include "util/refcounting.h"
 
 struct drm_fb {
     struct list_head entry;
@@ -124,7 +127,6 @@ struct drmdev {
 
     struct list_head fbs;
 };
-
 
 static bool is_drm_master(int fd) {
     return drmAuthMagic(fd, 0) != -EACCES;

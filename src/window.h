@@ -13,6 +13,7 @@
 #include "compositor_ng.h"
 #include "modesetting.h"
 #include "pixel_format.h"
+#include "util/refcounting.h"
 
 #include "config.h"
 

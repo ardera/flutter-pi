@@ -21,6 +21,8 @@
 
 #include "pixel_format.h"
 #include "util/collection.h"
+#include "util/geometry.h"
+#include "util/refcounting.h"
 
 #define DRM_ID_NONE ((uint32_t) 0xFFFFFFFF)
 
@@ -586,13 +588,8 @@ struct drm_plane {
  * @param modifier The modifier of this pixel format.
  * @param userdata Userdata that was passed to @ref drm_plane_for_each_modified_format.
  */
-typedef bool (*drm_plane_modified_format_callback_t)(
-    struct drm_plane *plane,
-    int index,
-    enum pixfmt pixel_format,
-    uint64_t modifier,
-    void *userdata
-);
+typedef bool (*drm_plane_modified_format_callback_t
+)(struct drm_plane *plane, int index, enum pixfmt pixel_format, uint64_t modifier, void *userdata);
 
 /**
  * @brief Iterates over every supported pixel-format & modifier pair.

@@ -11,7 +11,10 @@
 
 #include <flutter_embedder.h>
 
+#include "util/asserts.h"
 #include "util/collection.h"
+#include "util/logging.h"
+#include "util/refcounting.h"
 
 struct tracer {
     refcount_t n_refs;

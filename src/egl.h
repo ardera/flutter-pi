@@ -401,6 +401,8 @@
 // For functions part of EGL 1.5 we dynamically resolve the functions at
 // runtime, since we can't be sure they're actually present.
 #if defined(EGL_VERSION_1_5) && !defined(EGL_EGL_PROTOTYPES)
+
+// clang-format off
 typedef EGLSync(EGLAPIENTRYP PFNEGLCREATESYNCPROC)(EGLDisplay dpy, EGLenum type, const EGLAttrib *attrib_list);
 typedef EGLBoolean(EGLAPIENTRYP PFNEGLDESTROYSYNCPROC)(EGLDisplay dpy, EGLSync sync);
 typedef EGLint(EGLAPIENTRYP PFNEGLCLIENTWAITSYNCPROC)(EGLDisplay dpy, EGLSync sync, EGLint flags, EGLTime timeout);
@@ -427,6 +429,8 @@ typedef EGLSurface(EGLAPIENTRYP PFNEGLCREATEPLATFORMPIXMAPSURFACEPROC)(
     const EGLAttrib *attrib_list
 );
 typedef EGLBoolean(EGLAPIENTRYP PFNEGLWAITSYNCPROC)(EGLDisplay dpy, EGLSync sync, EGLint flags);
+// clang-format on
+
 #endif
 
 #ifdef HAVE_EGL

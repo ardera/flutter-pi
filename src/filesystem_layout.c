@@ -17,7 +17,9 @@
 #include <filesystem_layout.h>
 
 #include "flutter-pi.h"
+#include "util/asserts.h"
 #include "util/collection.h"
+#include "util/logging.h"
 
 static bool path_exists(const char *path) {
     return access(path, R_OK) == 0;
@@ -262,7 +264,7 @@ struct flutter_paths *fs_layout_flutterpi_resolve(const char *app_bundle_path, e
         /*      flutter engine subpath */ "libflutter_engine.so",
         /*          engine dlopen name */ runtime_mode == FLUTTER_RUNTIME_MODE_DEBUG ? "libflutter_engine.so.debug" :
         runtime_mode == FLUTTER_RUNTIME_MODE_PROFILE                                 ? "libflutter_engine.so.profile" :
-                                                                   "libflutter_engine.so.release",
+                                                                                       "libflutter_engine.so.release",
         /* engine dlopen name fallback */ "libflutter_engine.so"
     );
 }

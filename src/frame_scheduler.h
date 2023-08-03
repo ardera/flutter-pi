@@ -11,6 +11,7 @@
 #define _FLUTTERPI_INCLUDE_FRAME_SCHEDULER_H
 
 #include "util/collection.h"
+#include "util/refcounting.h"
 
 struct frame_scheduler;
 

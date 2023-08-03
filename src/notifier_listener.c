@@ -10,7 +10,8 @@ struct listener {
     void *userdata;
 };
 
-#define for_each_listener_in_notifier(_notifier, _listener) list_for_each_entry_safe(struct listener, _listener, &(_notifier).listeners, entry)
+#define for_each_listener_in_notifier(_notifier, _listener) \
+    list_for_each_entry_safe(struct listener, _listener, &(_notifier).listeners, entry)
 
 static struct listener *listener_new(listener_cb_t notify, void_callback_t destroy, void *userdata);
 static void listener_destroy(struct listener *listener);
@@ -164,7 +165,7 @@ static struct listener *listener_new(listener_cb_t notify, void_callback_t destr
         return NULL;
     }
 
-    listener->entry = (struct list_head) {NULL, NULL};
+    listener->entry = (struct list_head){ NULL, NULL };
     listener->notify = notify;
     listener->destroy = destroy;
     listener->userdata = userdata;
@@ -176,7 +177,7 @@ static void listener_destroy(struct listener *listener) {
     if (listener->destroy != NULL) {
         listener->destroy(listener->userdata);
     }
-    
+
     if (list_is_linked(&listener->entry)) {
         list_del(&listener->entry);
     }

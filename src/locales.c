@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 #include "locales.h"
 
+#include <errno.h>
 #include <locale.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -9,8 +10,10 @@
 #include <flutter_embedder.h>
 
 #include "flutter-pi.h"
+#include "util/asserts.h"
 #include "util/collection.h"
 #include "util/list.h"
+#include "util/logging.h"
 
 #define LOG_LOCALES_ERROR(...) fprintf(stderr, "[locales] " __VA_ARGS__);
 
@@ -116,7 +119,7 @@ struct locale *locale_new(const char *language, const char *territory, const cha
     fl_locale->country_code = territory_dup;
     fl_locale->script_code = codeset_dup;
     fl_locale->variant_code = modifier_dup;
-    locale->entry = (struct list_head) {NULL, NULL};
+    locale->entry = (struct list_head){ NULL, NULL };
     locale->flutter_locale = fl_locale;
     locale->language = language_dup;
     locale->territory = territory_dup;

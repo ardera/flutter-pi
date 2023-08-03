@@ -2,17 +2,19 @@
 
 #include <errno.h>
 #include <inttypes.h>
+#include <stdatomic.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <stdatomic.h>
 
 #include <flutter_embedder.h>
 
 #include "flutter-pi.h"
 #include "util/list.h"
-
+#include "util/lock_ops.h"
+#include "util/logging.h"
+#include "util/refcounting.h"
 
 struct texture_registry {
     struct texture_registry_interface interface;

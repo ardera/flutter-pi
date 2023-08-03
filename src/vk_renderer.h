@@ -18,6 +18,7 @@
 #define _FLUTTERPI_INCLUDE_VK_RENDERER_H
 
 #include "util/collection.h"
+#include "util/refcounting.h"
 
 #include "config.h"
 

@@ -10,6 +10,7 @@
 
 #include "dummy_render_surface.h"
 
+#include <errno.h>
 #include <stdatomic.h>
 #include <stdlib.h>
 
@@ -19,7 +20,6 @@
 #include "render_surface_private.h"
 #include "surface.h"
 #include "surface_private.h"
-
 #include "tracer.h"
 #include "util/geometry.h"
 #include "util/uuid.h"
@@ -61,11 +61,7 @@ static int dummy_render_surface_present_fbdev(struct surface *s, const struct fl
 static int dummy_render_surface_fill(struct render_surface *surface, FlutterBackingStore *fl_store);
 static int dummy_render_surface_queue_present(struct render_surface *surface, const FlutterBackingStore *fl_store);
 
-int dummy_render_surface_init(
-    struct dummy_render_surface *surface,
-    struct tracer *tracer,
-    struct vec2i size
-) {
+int dummy_render_surface_init(struct dummy_render_surface *surface, struct tracer *tracer, struct vec2i size) {
     int ok;
 
     ok = render_surface_init(CAST_RENDER_SURFACE_UNCHECKED(surface), tracer, size);
@@ -85,10 +81,7 @@ int dummy_render_surface_init(
     return 0;
 }
 
-struct dummy_render_surface *dummy_render_surface_new(
-    struct tracer *tracer,
-    struct vec2i size
-) {
+struct dummy_render_surface *dummy_render_surface_new(struct tracer *tracer, struct vec2i size) {
     struct dummy_render_surface *surface;
     int ok;
 
@@ -115,7 +108,8 @@ void dummy_render_surface_deinit(struct surface *s) {
     render_surface_deinit(s);
 }
 
-static int dummy_render_surface_present_kms(struct surface *s, UNUSED const struct fl_layer_props *props, UNUSED struct kms_req_builder *builder) {
+static int
+dummy_render_surface_present_kms(struct surface *s, UNUSED const struct fl_layer_props *props, UNUSED struct kms_req_builder *builder) {
     (void) props;
     (void) builder;
 
@@ -124,8 +118,7 @@ static int dummy_render_surface_present_kms(struct surface *s, UNUSED const stru
     return 0;
 }
 
-static int
-dummy_render_surface_present_fbdev(struct surface *s, const struct fl_layer_props *props, struct fbdev_commit_builder *builder) {
+static int dummy_render_surface_present_fbdev(struct surface *s, const struct fl_layer_props *props, struct fbdev_commit_builder *builder) {
     (void) s;
     (void) props;
     (void) builder;
@@ -147,6 +140,6 @@ static int dummy_render_surface_queue_present(struct render_surface *s, const Fl
     (void) fl_store;
 
     TRACER_INSTANT(s->surface.tracer, "dummy_render_surface_queue_present");
-    
+
     return 0;
 }

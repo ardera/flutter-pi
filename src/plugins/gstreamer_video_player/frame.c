@@ -16,6 +16,8 @@
 // This will error if we don't have EGL / OpenGL ES support.
 #include "gl_renderer.h"
 #include "plugins/gstreamer_video_player.h"
+#include "util/logging.h"
+#include "util/refcounting.h"
 
 #define MAX_N_PLANES 4
 

@@ -2,6 +2,8 @@
 #define _FLUTTERPI_INCLUDE_PLUGINS_OMXPLAYER_VIDEO_PLUGIN_H
 
 #include "util/collection.h"
+#include "util/lock_ops.h"
+#include "util/refcounting.h"
 
 #include "config.h"
 

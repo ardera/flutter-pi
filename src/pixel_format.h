@@ -1,6 +1,9 @@
 #ifndef _FLUTTERPI_INCLUDE_PIXEL_FORMAT_H
 #define _FLUTTERPI_INCLUDE_PIXEL_FORMAT_H
 
+#include <stdbool.h>
+
+#include "util/asserts.h"
 #include "util/collection.h"
 
 #include "config.h"
@@ -60,7 +63,7 @@ COMPILE_ASSERT(PIXFMT_MAX == PIXFMT_RGBX8888);
 #define PIXFMT_LIST(V)                           \
     V("RGB 5:6:5",                               \
       "RGB565",                                  \
-      PIXFMT_RGB565,                    \
+      PIXFMT_RGB565,                             \
       /*bpp*/ 16,                                \
       /*bit_depth*/ 16,                          \
       /*opaque*/ true,                           \
@@ -77,7 +80,7 @@ COMPILE_ASSERT(PIXFMT_MAX == PIXFMT_RGBX8888);
       /*DRM fourcc*/ DRM_FORMAT_RGB565)          \
     V("ARGB 4:4:4:4",                            \
       "ARGB4444",                                \
-      PIXFMT_ARGB4444,                  \
+      PIXFMT_ARGB4444,                           \
       /*bpp*/ 16,                                \
       /*bit_depth*/ 12,                          \
       /*opaque*/ false,                          \
@@ -94,7 +97,7 @@ COMPILE_ASSERT(PIXFMT_MAX == PIXFMT_RGBX8888);
       /*DRM fourcc*/ DRM_FORMAT_ARGB4444)        \
     V("XRGB 4:4:4:4",                            \
       "XRGB4444",                                \
-      PIXFMT_XRGB4444,                  \
+      PIXFMT_XRGB4444,                           \
       /*bpp*/ 16,                                \
       /*bit_depth*/ 12,                          \
       /*opaque*/ true,                           \
@@ -111,7 +114,7 @@ COMPILE_ASSERT(PIXFMT_MAX == PIXFMT_RGBX8888);
       /*DRM fourcc*/ DRM_FORMAT_XRGB4444)        \
     V("ARGB 1:5:5:5",                            \
       "ARGB1555",                                \
-      PIXFMT_ARGB1555,                  \
+      PIXFMT_ARGB1555,                           \
       /*bpp*/ 16,                                \
       /*bit_depth*/ 15,                          \
       /*opaque*/ false,                          \
@@ -128,7 +131,7 @@ COMPILE_ASSERT(PIXFMT_MAX == PIXFMT_RGBX8888);
       /*DRM fourcc*/ DRM_FORMAT_ARGB1555)        \
     V("XRGB 1:5:5:5",                            \
       "XRGB1555",                                \
-      PIXFMT_XRGB1555,                  \
+      PIXFMT_XRGB1555,                           \
       /*bpp*/ 16,                                \
       /*bit_depth*/ 15,                          \
       /*opaque*/ true,                           \
@@ -145,7 +148,7 @@ COMPILE_ASSERT(PIXFMT_MAX == PIXFMT_RGBX8888);
       /*DRM fourcc*/ DRM_FORMAT_XRGB1555)        \
     V("ARGB 8:8:8:8",                            \
       "ARGB8888",                                \
-      PIXFMT_ARGB8888,                  \
+      PIXFMT_ARGB8888,                           \
       /*bpp*/ 32,                                \
       /*bit_depth*/ 24,                          \
       /*opaque*/ false,                          \
@@ -162,7 +165,7 @@ COMPILE_ASSERT(PIXFMT_MAX == PIXFMT_RGBX8888);
       /*DRM fourcc*/ DRM_FORMAT_ARGB8888)        \
     V("XRGB 8:8:8:8",                            \
       "XRGB8888",                                \
-      PIXFMT_XRGB8888,                  \
+      PIXFMT_XRGB8888,                           \
       /*bpp*/ 32,                                \
       /*bit_depth*/ 24,                          \
       /*opaque*/ true,                           \
@@ -179,7 +182,7 @@ COMPILE_ASSERT(PIXFMT_MAX == PIXFMT_RGBX8888);
       /*DRM fourcc*/ DRM_FORMAT_XRGB8888)        \
     V("BGRA 8:8:8:8",                            \
       "BGRA8888",                                \
-      PIXFMT_BGRA8888,                  \
+      PIXFMT_BGRA8888,                           \
       /*bpp*/ 32,                                \
       /*bit_depth*/ 24,                          \
       /*opaque*/ false,                          \
@@ -196,7 +199,7 @@ COMPILE_ASSERT(PIXFMT_MAX == PIXFMT_RGBX8888);
       /*DRM fourcc*/ DRM_FORMAT_BGRA8888)        \
     V("BGRX 8:8:8:8",                            \
       "BGRX8888",                                \
-      PIXFMT_BGRX8888,                  \
+      PIXFMT_BGRX8888,                           \
       /*bpp*/ 32,                                \
       /*bit_depth*/ 24,                          \
       /*opaque*/ true,                           \
@@ -213,7 +216,7 @@ COMPILE_ASSERT(PIXFMT_MAX == PIXFMT_RGBX8888);
       /*DRM fourcc*/ DRM_FORMAT_BGRX8888)        \
     V("RGBA 8:8:8:8",                            \
       "RGBA8888",                                \
-      PIXFMT_RGBA8888,                  \
+      PIXFMT_RGBA8888,                           \
       /*bpp*/ 32,                                \
       /*bit_depth*/ 24,                          \
       /*opaque*/ false,                          \
@@ -230,7 +233,7 @@ COMPILE_ASSERT(PIXFMT_MAX == PIXFMT_RGBX8888);
       /*DRM fourcc*/ DRM_FORMAT_RGBA8888)        \
     V("RGBX 8:8:8:8",                            \
       "RGBX8888",                                \
-      PIXFMT_RGBX8888,                  \
+      PIXFMT_RGBX8888,                           \
       /*bpp*/ 32,                                \
       /*bit_depth*/ 24,                          \
       /*opaque*/ true,                           \

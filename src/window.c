@@ -10,6 +10,7 @@
 #define _GNU_SOURCE
 #include "window.h"
 
+#include <errno.h>
 #include <stdlib.h>
 
 #include <pthread.h>
@@ -25,6 +26,8 @@
 #include "surface.h"
 #include "tracer.h"
 #include "util/collection.h"
+#include "util/logging.h"
+#include "util/refcounting.h"
 
 #include "config.h"
 
@@ -228,15 +231,8 @@ struct window {
     EGLSurface (*get_egl_surface)(struct window *window);
 #endif
 
-    int (*set_cursor_locked)(
-        struct window *window,
-        bool has_enabled,
-        bool enabled,
-        bool has_kind,
-        enum pointer_kind kind,
-        bool has_pos,
-        struct vec2i pos
-    );
+    int (*set_cursor_locked
+    )(struct window *window, bool has_enabled, bool enabled, bool has_kind, enum pointer_kind kind, bool has_pos, struct vec2i pos);
     void (*deinit)(struct window *window);
 };
 

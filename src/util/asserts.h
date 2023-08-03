@@ -1,7 +1,7 @@
 #ifndef _UTIL_ASSERTS_H
 #define _UTIL_ASSERTS_H
 
-#include "assert.h"
+#include <assert.h>
 
 #define ASSERT assert
 #define ASSERT_MSG(__cond, __msg) assert((__cond) && (__msg))

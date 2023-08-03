@@ -10,6 +10,7 @@
 
 #include "flutter-pi.h"
 #include "pluginregistry.h"
+#include "util/asserts.h"
 
 struct text_input {
     int64_t connection_id;
