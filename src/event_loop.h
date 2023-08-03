@@ -1,3 +1,6 @@
+#ifndef _EVENT_LOOP_H
+#define _EVENT_LOOP_H
+
 #include "util/refcounting.h"
 
 struct evloop;
@@ -45,3 +48,5 @@ struct evthread *evthread_start();
 struct evloop *evthread_get_evloop(struct evthread *thread);
 
 void evthread_join(struct evthread *thread);
+
+#endif // _EVENT_LOOP_H
