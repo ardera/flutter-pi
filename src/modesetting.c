@@ -125,13 +125,6 @@ struct drmdev {
     struct list_head fbs;
 };
 
-struct drmdev_atomic_req {
-    struct drmdev *drmdev;
-    drmModeAtomicReq *atomic_req;
-
-    void *available_planes_storage[32];
-    struct pointer_set available_planes;
-};
 
 static bool is_drm_master(int fd) {
     return drmAuthMagic(fd, 0) != -EACCES;
