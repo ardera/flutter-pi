@@ -7,8 +7,8 @@
  * Copyright (c) 2022, Hannes Winkler <hanneswinkler2000@web.de>
  */
 
-#ifndef _FLUTTERPI_INCLUDE_DMABUF_SURFACE_H
-#define _FLUTTERPI_INCLUDE_DMABUF_SURFACE_H
+#ifndef _FLUTTERPI_SRC_DMABUF_SURFACE_H
+#define _FLUTTERPI_SRC_DMABUF_SURFACE_H
 
 #include "pixel_format.h"
 
@@ -44,4 +44,4 @@ int dmabuf_surface_push_dmabuf(struct dmabuf_surface *s, const struct dmabuf *bu
 
 ATTR_PURE int64_t dmabuf_surface_get_texture_id(struct dmabuf_surface *s);
 
-#endif  // _FLUTTERPI_INCLUDE_DMABUF_SURFACE_H
+#endif  // _FLUTTERPI_SRC_DMABUF_SURFACE_H

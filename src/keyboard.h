@@ -1,5 +1,14 @@
-#ifndef KEYBOARD_H
-#define KEYBOARD_H
+// SPDX-License-Identifier: MIT
+/*
+ * Keyboard / Text Input support
+ *
+ * Converts key events to text events using the system keyboard config.
+ *
+ * Copyright (c) 2023, Hannes Winkler <hanneswinkler2000@web.de>
+ */
+
+#ifndef _FLUTTERPI_SRC_KEYBOARD_H
+#define _FLUTTERPI_SRC_KEYBOARD_H
 
 #include <stdbool.h>
 
@@ -94,4 +103,4 @@ static inline struct keyboard_modifier_state keyboard_state_get_meta_state(struc
     };
 }
 
-#endif
+#endif  // _FLUTTERPI_SRC_KEYBOARD_H

@@ -13,8 +13,8 @@
  * Copyright (c) 2022, Hannes Winkler <hanneswinkler2000@web.de>
  */
 
-#ifndef _FLUTTERPI_INCLUDE_RENDER_SURFACE_H
-#define _FLUTTERPI_INCLUDE_RENDER_SURFACE_H
+#ifndef _FLUTTERPI_SRC_RENDER_SURFACE_H
+#define _FLUTTERPI_SRC_RENDER_SURFACE_H
 
 #include <flutter_embedder.h>
 
@@ -35,4 +35,4 @@ int render_surface_fill(struct render_surface *store, FlutterBackingStore *fl_st
 
 int render_surface_queue_present(struct render_surface *store, const FlutterBackingStore *fl_store);
 
-#endif  // _FLUTTERPI_INCLUDE_BACKING_STORE_H
+#endif  // _FLUTTERPI_SRC_BACKING_STORE_H

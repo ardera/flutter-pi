@@ -7,8 +7,8 @@
  * Copyright (c) 2022, Hannes Winkler <hanneswinkler2000@web.de>
  */
 
-#ifndef _FLUTTERPI_INCLUDE_FILESYSTEM_LAYOUT_H
-#define _FLUTTERPI_INCLUDE_FILESYSTEM_LAYOUT_H
+#ifndef _FLUTTERPI_SRC_FILESYSTEM_LAYOUT_H
+#define _FLUTTERPI_SRC_FILESYSTEM_LAYOUT_H
 
 #include "flutter-pi.h"
 
@@ -30,4 +30,4 @@ void flutter_paths_free(struct flutter_paths *paths);
 struct flutter_paths *fs_layout_flutterpi_resolve(const char *app_bundle_path, enum flutter_runtime_mode runtime_mode);
 struct flutter_paths *fs_layout_metaflutter_resolve(const char *app_bundle_path, enum flutter_runtime_mode runtime_mode);
 
-#endif  // _FLUTTERPI_INCLUDE_FILESYSTEM_LAYOUT_H
+#endif  // _FLUTTERPI_SRC_FILESYSTEM_LAYOUT_H

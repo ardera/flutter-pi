@@ -1,5 +1,12 @@
-#ifndef _FLUTTERPI_H
-#define _FLUTTERPI_H
+// SPDX-License-Identifier: MIT
+/*
+ * Flutter-Pi main header
+ *
+ * Copyright (c) 2023, Hannes Winkler <hanneswinkler2000@web.de>
+ */
+
+#ifndef _FLUTTERPI_SRC_FLUTTERPI_H
+#define _FLUTTERPI_SRC_FLUTTERPI_H
 
 #define LOG_FLUTTERPI_ERROR(...) fprintf(stderr, "[flutter-pi] " __VA_ARGS__)
 
@@ -157,4 +164,4 @@ void flutterpi_trace_event_begin(struct flutterpi *flutterpi, const char *name);
 
 void flutterpi_trace_event_end(struct flutterpi *flutterpi, const char *name);
 
-#endif
+#endif  // _FLUTTERPI_SRC_FLUTTERPI_H

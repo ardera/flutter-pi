@@ -1,5 +1,14 @@
-#ifndef _EVENT_LOOP_H
-#define _EVENT_LOOP_H
+// SPDX-License-Identifier: MIT
+/*
+ * Event Loop
+ *
+ * - multithreaded event loop
+ *
+ * Copyright (c) 2023, Hannes Winkler <hanneswinkler2000@web.de>
+ */
+
+#ifndef _FLUTTERPI_SRC_EVENT_LOOP_H
+#define _FLUTTERPI_SRC_EVENT_LOOP_H
 
 #include "util/refcounting.h"
 
@@ -49,4 +58,4 @@ struct evloop *evthread_get_evloop(struct evthread *thread);
 
 void evthread_join(struct evthread *thread);
 
-#endif  // _EVENT_LOOP_H
+#endif  // _FLUTTERPI_SRC_EVENT_LOOP_H

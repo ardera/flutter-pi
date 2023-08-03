@@ -1,6 +1,12 @@
+// SPDX-License-Identifier: MIT
+/*
+ * Geometry - structs and functions for working with vectors & rectangles
+ *
+ * Copyright (c) 2023, Hannes Winkler <hanneswinkler2000@web.de>
+ */
 
-#ifndef GEOMETRY_H
-#define GEOMETRY_H
+#ifndef _FLUTTERPI_SRC_UTIL_GEOMETRY_H
+#define _FLUTTERPI_SRC_UTIL_GEOMETRY_H
 
 #include <math.h>
 #include <stdbool.h>
@@ -315,4 +321,4 @@ ATTR_CONST static inline struct vec2f vec2f_swap_xy(const struct vec2f point) {
     return VEC2F(point.y, point.x);
 }
 
-#endif
+#endif  // _FLUTTERPI_SRC_UTIL_GEOMETRY_H

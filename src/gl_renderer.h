@@ -11,8 +11,8 @@
  * Copyright (c) 2022, Hannes Winkler <hanneswinkler2000@web.de>
  */
 
-#ifndef _FLUTTERPI_INCLUDE_EGL_GL_RENDERER_H
-#define _FLUTTERPI_INCLUDE_EGL_GL_RENDERER_H
+#ifndef _FLUTTERPI_SRC_GL_RENDERER_H
+#define _FLUTTERPI_SRC_GL_RENDERER_H
 
 #include "pixel_format.h"
 #include "util/collection.h"
@@ -85,4 +85,4 @@ EGLSurface gl_renderer_create_gbm_window_surface(
     const EGLint *int_attrib_list
 );
 
-#endif  // _FLUTTERPI_INCLUDE_EGL_GL_RENDERER_H
+#endif  // _FLUTTERPI_SRC_GL_RENDERER_H

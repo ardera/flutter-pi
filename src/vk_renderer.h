@@ -14,8 +14,8 @@
  * Copyright (c) 2022, Hannes Winkler <hanneswinkler2000@web.de>
  */
 
-#ifndef _FLUTTERPI_INCLUDE_VK_RENDERER_H
-#define _FLUTTERPI_INCLUDE_VK_RENDERER_H
+#ifndef _FLUTTERPI_SRC_VK_RENDERER_H
+#define _FLUTTERPI_SRC_VK_RENDERER_H
 
 #include "util/collection.h"
 #include "util/refcounting.h"
@@ -129,4 +129,4 @@ ATTR_PURE const char **vk_renderer_get_enabled_device_extensions(struct vk_rende
  */
 ATTR_PURE int vk_renderer_find_mem_type(struct vk_renderer *renderer, VkMemoryPropertyFlags flags, uint32_t req_bits);
 
-#endif  // _FLUTTERPI_INCLUDE_VK_RENDERER_H
+#endif  // _FLUTTERPI_SRC_VK_RENDERER_H

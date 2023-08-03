@@ -1,5 +1,15 @@
-#ifndef _CURSOR_H
-#define _CURSOR_H
+// SPDX-License-Identifier: MIT
+/*
+ * Cursor Images
+ *
+ * Contains all the mouse cursor images in compressed form,
+ * and some utilities for using them.
+ *
+ * Copyright (c) 2023, Hannes Winkler <hanneswinkler2000@web.de>
+ */
+
+#ifndef _FLUTTERPI_SRC_CURSOR_H
+#define _FLUTTERPI_SRC_CURSOR_H
 
 #include <stdint.h>
 
@@ -58,4 +68,4 @@ struct vec2i pointer_icon_get_hotspot(const struct pointer_icon *icon);
 
 void *pointer_icon_dup_pixels(const struct pointer_icon *icon);
 
-#endif
+#endif  // _FLUTTERPI_SRC_CURSOR_H

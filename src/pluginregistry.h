@@ -1,5 +1,14 @@
-#ifndef FLUTTER_PI_REGISTRY_H_
-#define FLUTTER_PI_REGISTRY_H_
+// SPDX-License-Identifier: MIT
+/*
+ * Plugin Registry
+ *
+ * Initializes & deinitializes plugins, manages registration of plugins.
+ *
+ * Copyright (c) 2023, Hannes Winkler <hanneswinkler2000@web.de>
+ */
+
+#ifndef _FLUTTERPI_SRC_PLUGINREGISTRY_H
+#define _FLUTTERPI_SRC_PLUGINREGISTRY_H
 
 #include <string.h>
 
@@ -165,4 +174,4 @@ void static_plugin_registry_remove_plugin(const char *plugin_name);
                                                                                  \
     __attribute__((destructor)) static void __unreg_plugin_##_identifier_name() { static_plugin_registry_remove_plugin(_name); }
 
-#endif
+#endif  // _FLUTTERPI_SRC_PLUGINREGISTRY_H

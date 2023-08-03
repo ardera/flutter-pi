@@ -1,5 +1,12 @@
-#ifndef _COLLECTION_H
-#define _COLLECTION_H
+// SPDX-License-Identifier: MIT
+/*
+ * Collection - common useful functions & macros
+ *
+ * Copyright (c) 2023, Hannes Winkler <hanneswinkler2000@web.de>
+ */
+
+#ifndef _FLUTTERPI_SRC_UTIL_COLLECTION_H
+#define _FLUTTERPI_SRC_UTIL_COLLECTION_H
 
 #if !defined(_XOPEN_SOURCE) || _XOPEN_SOURCE < 500L
     #define _XOPEN_SOURCE 500L
@@ -112,4 +119,4 @@ ATTR_PURE static inline bool streq(const char *a, const char *b) {
 
 const pthread_mutexattr_t *get_default_mutex_attrs();
 
-#endif
+#endif  // _FLUTTERPI_SRC_UTIL_COLLECTION_H

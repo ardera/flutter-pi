@@ -7,8 +7,8 @@
  * Copyright (c) 2022, Hannes Winkler <hanneswinkler2000@web.de>
  */
 
-#ifndef _FLUTTERPI_INCLUDE_SURFACE_H
-#define _FLUTTERPI_INCLUDE_SURFACE_H
+#ifndef _FLUTTERPI_SRC_SURFACE_H
+#define _FLUTTERPI_SRC_SURFACE_H
 
 #include "util/collection.h"
 #include "util/lock_ops.h"
@@ -44,4 +44,4 @@ int surface_present_kms(struct surface *s, const struct fl_layer_props *props, s
 
 int surface_present_fbdev(struct surface *s, const struct fl_layer_props *props, struct fbdev_commit_builder *builder);
 
-#endif  // _FLUTTERPI_INCLUDE_SURFACE_H
+#endif  // _FLUTTERPI_SRC_SURFACE_H

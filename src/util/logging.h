@@ -1,7 +1,12 @@
+// SPDX-License-Identifier: MIT
+/*
+ * Logging - Provides debug & error logging macros.
+ *
+ * Copyright (c) 2023, Hannes Winkler <hanneswinkler2000@web.de>
+ */
+
 #ifndef _FLUTTERPI_SRC_UTIL_LOGGING_H
 #define _FLUTTERPI_SRC_UTIL_LOGGING_H
-
-//#define FILE_DESCR(_logging_name) static const char *__attribute__((unused)) __file_logging_name = _logging_name;
 
 #define LOG_ERROR(fmtstring, ...) fprintf(stderr, "%s: " fmtstring, __FILE__, ##__VA_ARGS__)
 #define LOG_ERROR_UNPREFIXED(fmtstring, ...) fprintf(stderr, fmtstring, ##__VA_ARGS__)
@@ -18,4 +23,4 @@
         } while (0)
 #endif
 
-#endif
+#endif  // _FLUTTERPI_SRC_UTIL_LOGGING_H

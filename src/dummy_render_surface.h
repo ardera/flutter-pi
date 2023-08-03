@@ -1,15 +1,14 @@
 // SPDX-License-Identifier: MIT
 /*
- * Vulkan GBM render surface
+ * Dummy render surface
  *
- * - used as a render target for flutter vulkan rendering
- * - can be scanned out using KMS
+ * Just a render surface that does nothing when presenting.
  *
- * Copyright (c) 2022, Hannes Winkler <hanneswinkler2000@web.de>
+ * Copyright (c) 2023, Hannes Winkler <hanneswinkler2000@web.de>
  */
 
-#ifndef _FLUTTERPI_INCLUDE_DUMMY_RENDER_SURFACE_H
-#define _FLUTTERPI_INCLUDE_DUMMY_RENDER_SURFACE_H
+#ifndef _FLUTTERPI_SRC_DUMMY_RENDER_SURFACE_H
+#define _FLUTTERPI_SRC_DUMMY_RENDER_SURFACE_H
 
 #include "util/geometry.h"
 
@@ -26,4 +25,4 @@ ATTR_PURE struct dummy_render_surface *__checked_cast_dummy_render_surface(void 
 
 struct dummy_render_surface *dummy_render_surface_new(struct tracer *tracer, struct vec2i size);
 
-#endif  // _FLUTTERPI_INCLUDE_DUMMY_RENDER_SURFACE_H
+#endif  // _FLUTTERPI_SRC_DUMMY_RENDER_SURFACE_H

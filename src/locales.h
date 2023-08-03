@@ -1,5 +1,14 @@
-#ifndef _LOCALES_H
-#define _LOCALES_H
+// SPDX-License-Identifier: MIT
+/*
+ * Locales
+ *
+ * Provides the configured system locales in a flutter-friendly form.
+ *
+ * Copyright (c) 2023, Hannes Winkler <hanneswinkler2000@web.de>
+ */
+
+#ifndef _FLUTTERPI_SRC_LOCALES_H
+#define _FLUTTERPI_SRC_LOCALES_H
 
 #include <flutter_embedder.h>
 
@@ -36,4 +45,4 @@ locales_on_compute_platform_resolved_locale(struct locales *locales, const Flutt
 
 void locales_print(const struct locales *locales);
 
-#endif
+#endif  // _FLUTTERPI_SRC_LOCALES_H

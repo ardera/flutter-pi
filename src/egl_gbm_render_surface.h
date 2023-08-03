@@ -7,8 +7,8 @@
  * Copyright (c) 2022, Hannes Winkler <hanneswinkler2000@web.de>
  */
 
-#ifndef _FLUTTERPI_INCLUDE_EGL_GBM_RENDER_SURFACE_H
-#define _FLUTTERPI_INCLUDE_EGL_GBM_RENDER_SURFACE_H
+#ifndef _FLUTTERPI_SRC_EGL_GBM_RENDER_SURFACE_H
+#define _FLUTTERPI_SRC_EGL_GBM_RENDER_SURFACE_H
 
 #include "compositor_ng.h"
 #include "pixel_format.h"
@@ -49,4 +49,4 @@ ATTR_PURE EGLSurface egl_gbm_render_surface_get_egl_surface(struct egl_gbm_rende
 
 ATTR_PURE EGLConfig egl_gbm_render_surface_get_egl_config(struct egl_gbm_render_surface *s);
 
-#endif  // _FLUTTERPI_INCLUDE_EGL_GBM_RENDER_SURFACE_H
+#endif  // _FLUTTERPI_SRC_EGL_GBM_RENDER_SURFACE_H

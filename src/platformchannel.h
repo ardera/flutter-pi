@@ -1,5 +1,19 @@
-#ifndef _METHODCHANNEL_H
-#define _METHODCHANNEL_H
+// SPDX-License-Identifier: MIT
+/*
+ * Platform Channels
+ *
+ * Encoding/Decoding of flutter platform messages, with different
+ * 
+ * Supported codecs:
+ *  - standard message & method codec,
+ *  - json message & method codec
+ *  - pigeon (not really a codec)
+ *
+ * Copyright (c) 2023, Hannes Winkler <hanneswinkler2000@web.de>
+ */
+
+#ifndef _FLUTTERPI_SRC_PLATFORMCHANNEL_H
+#define _FLUTTERPI_SRC_PLATFORMCHANNEL_H
 
 #include <errno.h>
 #include <stdint.h>
@@ -1624,4 +1638,4 @@ ATTR_PURE const struct raw_std_value *raw_std_method_call_get_arg(const struct r
 #define for_each_element_in_raw_std_list(value, list) \
     for_each_element_in_raw_std_list_indexed(UNIQUE_NAME(__raw_std_list_element_index), value, list)
 
-#endif
+#endif  // _FLUTTERPI_SRC_PLATFORMCHANNEL_H

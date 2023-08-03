@@ -1,5 +1,15 @@
-#ifndef USER_INPUT_H_
-#define USER_INPUT_H_
+// SPDX-License-Identifier: MIT
+/*
+ * User Input
+ *
+ * Collects user input from libinput, transforms it (partially into
+ * more flutter compatible forms), and calls configured handler callbacks.
+ *
+ * Copyright (c) 2023, Hannes Winkler <hanneswinkler2000@web.de>
+ */
+
+#ifndef _FLUTTERPI_SRC_USER_INPUT_H
+#define _FLUTTERPI_SRC_USER_INPUT_H
 
 #include <flutter_embedder.h>
 #include <xkbcommon/xkbcommon.h>
@@ -336,4 +346,4 @@ void user_input_suspend(struct user_input *input);
 
 int user_input_resume(struct user_input *input);
 
-#endif
+#endif  // _FLUTTERPI_SRC_USER_INPUT_H

@@ -7,8 +7,8 @@
  * Copyright (c) 2022, Hannes Winkler <hanneswinkler2000@web.de>
  */
 
-#ifndef _FLUTTERPI_INCLUDE_WINDOW_H
-#define _FLUTTERPI_INCLUDE_WINDOW_H
+#ifndef _FLUTTERPI_SRC_WINDOW_H
+#define _FLUTTERPI_SRC_WINDOW_H
 
 #include "compositor_ng.h"
 #include "modesetting.h"
@@ -128,4 +128,4 @@ int window_set_cursor(
     // clang-format on
 );
 
-#endif  // _FLUTTERPI_INCLUDE_WINDOW_H
+#endif  // _FLUTTERPI_SRC_WINDOW_H
