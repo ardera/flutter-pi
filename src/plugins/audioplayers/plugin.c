@@ -4,17 +4,25 @@
 #include "platformchannel.h"
 #include "pluginregistry.h"
 #include "plugins/audioplayers.h"
+
 #include "util/collection.h"
+#include "util/list.h"
 
 #define AUDIOPLAYERS_LOCAL_CHANNEL "xyz.luan/audioplayers"
 #define AUDIOPLAYERS_GLOBAL_CHANNEL "xyz.luan/audioplayers.global"
 
 static struct audio_player *audioplayers_linux_plugin_get_player(char *player_id, char *mode);
 
+struct audio_player_entry {
+    struct list_head entry;
+    struct audio_player *player;
+};
+
 static struct plugin {
     struct flutterpi *flutterpi;
     bool initialized;
-    struct concurrent_pointer_set players;
+
+    struct list_head players;
 } plugin;
 
 static int on_local_method_call(char *channel, struct platch_obj *object, FlutterPlatformMessageResponseHandle *responsehandle) {
@@ -141,18 +149,17 @@ static int on_global_method_call(char *channel, struct platch_obj *object, Flutt
 }
 
 enum plugin_init_result audioplayers_plugin_init(struct flutterpi *flutterpi, void **userdata_out) {
-    (void) userdata_out;
     int ok;
+
+    (void) userdata_out;
+
     plugin.flutterpi = flutterpi;
     plugin.initialized = false;
-
-    ok = cpset_init(&plugin.players, CPSET_DEFAULT_MAX_SIZE);
-    if (ok != 0)
-        return PLUGIN_INIT_RESULT_ERROR;
+    list_inithead(&plugin.players);
 
     ok = plugin_registry_set_receiver_locked(AUDIOPLAYERS_GLOBAL_CHANNEL, kStandardMethodCall, on_global_method_call);
     if (ok != 0) {
-        goto fail_deinit_cpset;
+        return PLUGIN_INIT_RESULT_ERROR;
     }
 
     ok = plugin_registry_set_receiver_locked(AUDIOPLAYERS_LOCAL_CHANNEL, kStandardMethodCall, on_local_method_call);
@@ -165,37 +172,48 @@ enum plugin_init_result audioplayers_plugin_init(struct flutterpi *flutterpi, vo
 fail_remove_global_receiver:
     plugin_registry_remove_receiver_locked(AUDIOPLAYERS_GLOBAL_CHANNEL);
 
-fail_deinit_cpset:
-    cpset_deinit(&plugin.players);
-
     return PLUGIN_INIT_RESULT_ERROR;
 }
 
 void audioplayers_plugin_deinit(struct flutterpi *flutterpi, void *userdata) {
     (void) flutterpi;
     (void) userdata;
+
     plugin_registry_remove_receiver_locked(AUDIOPLAYERS_GLOBAL_CHANNEL);
     plugin_registry_remove_receiver_locked(AUDIOPLAYERS_LOCAL_CHANNEL);
 
-    struct audio_player *ptr;
-    for_each_pointer_in_cpset(&plugin.players, ptr) {
-        audio_player_destroy(ptr);
+    list_for_each_entry_safe(struct audio_player_entry, entry, &plugin.players, entry) {
+        audio_player_destroy(entry->player);
+        list_del(&entry->entry);
+        free(entry);
     }
-
-    cpset_deinit(&plugin.players);
 }
 
 static struct audio_player *audioplayers_linux_plugin_get_player(char *player_id, char *mode) {
-    (void) mode;
+    struct audio_player_entry *entry;
     struct audio_player *player;
-    for_each_pointer_in_cpset(&plugin.players, player) {
-        if (audio_player_is_id(player, player_id)) {
-            return player;
+    
+    (void) mode;
+    
+    list_for_each_entry_safe(struct audio_player_entry, entry, &plugin.players, entry) {
+        if (audio_player_is_id(entry->player, player_id)) {
+            return entry->player;
         }
     }
 
+    entry = malloc(sizeof *entry);
+    ASSUME(entry != NULL);
+
     player = audio_player_new(player_id, AUDIOPLAYERS_LOCAL_CHANNEL);
-    cpset_put_locked(&plugin.players, player);
+    if (player == NULL) {
+        free(entry);
+        return NULL;
+    }
+
+    entry->entry = (struct list_head) {NULL, NULL};
+    entry->player = player;
+
+    list_add(&entry->entry, &plugin.players);
     return player;
 }
 
