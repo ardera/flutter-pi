@@ -192,9 +192,9 @@ void audioplayers_plugin_deinit(struct flutterpi *flutterpi, void *userdata) {
 static struct audio_player *audioplayers_linux_plugin_get_player(char *player_id, char *mode) {
     struct audio_player_entry *entry;
     struct audio_player *player;
-    
+
     (void) mode;
-    
+
     list_for_each_entry_safe(struct audio_player_entry, entry, &plugin.players, entry) {
         if (audio_player_is_id(entry->player, player_id)) {
             return entry->player;
@@ -210,7 +210,7 @@ static struct audio_player *audioplayers_linux_plugin_get_player(char *player_id
         return NULL;
     }
 
-    entry->entry = (struct list_head) {NULL, NULL};
+    entry->entry = (struct list_head){ NULL, NULL };
     entry->player = player;
 
     list_add(&entry->entry, &plugin.players);

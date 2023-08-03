@@ -131,7 +131,7 @@ static int
 get_texture_id_from_map_arg(struct std_value *arg, int64_t *texture_id_out, FlutterPlatformMessageResponseHandle *responsehandle) {
     struct std_value *id;
     int ok;
-    
+
     if (!STDVALUE_IS_MAP(*arg)) {
         ok = platch_respond_illegal_arg_ext_pigeon(responsehandle, "Expected `arg` to be a Map, but was: ", arg);
         if (ok != 0)
@@ -1191,20 +1191,20 @@ invalid_headers:
     // Create our actual player (this doesn't initialize it)
     if (asset != NULL) {
         player = gstplayer_new_from_asset(flutterpi, asset, package_name, NULL);
-        
+
         // gstplayer_new_from_network will construct a file:// URI out of the
         // asset path internally.
         free(asset);
         asset = NULL;
     } else if (uri != NULL) {
         player = gstplayer_new_from_network(flutterpi, uri, format_hint, NULL);
-        
+
         // gstplayer_new_from_network will dup the uri internally.
         free(uri);
         uri = NULL;
     } else if (pipeline != NULL) {
         player = gstplayer_new_from_pipeline(flutterpi, pipeline, NULL);
-        
+
         // gstplayer_new_from_network will dup the pipeline internally.
         free(pipeline);
         pipeline = NULL;

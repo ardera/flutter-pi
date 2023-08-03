@@ -429,7 +429,7 @@ typedef EGLSurface(EGLAPIENTRYP PFNEGLCREATEPLATFORMPIXMAPSURFACEPROC)(
     const EGLAttrib *attrib_list
 );
 typedef EGLBoolean(EGLAPIENTRYP PFNEGLWAITSYNCPROC)(EGLDisplay dpy, EGLSync sync, EGLint flags);
-// clang-format on
+    // clang-format on
 
 #endif
 
