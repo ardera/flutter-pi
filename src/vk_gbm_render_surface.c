@@ -10,6 +10,7 @@
 
 #include "vk_gbm_render_surface.h"
 
+#include <errno.h>
 #include <stdatomic.h>
 #include <stdlib.h>
 
@@ -23,6 +24,8 @@
 #include "surface_private.h"
 #include "tracer.h"
 #include "util/collection.h"
+#include "util/logging.h"
+#include "util/refcounting.h"
 #include "vk_renderer.h"
 
 struct vk_gbm_render_surface;

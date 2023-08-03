@@ -22,6 +22,7 @@
 #include "plugins/gstreamer_video_player.h"
 #include "texture_registry.h"
 #include "util/collection.h"
+#include "util/logging.h"
 
 #ifdef DEBUG
     #define DEBUG_TRACE_BEGIN(player, name) trace_begin(player, name)

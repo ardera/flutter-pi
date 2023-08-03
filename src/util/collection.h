@@ -5,25 +5,14 @@
     #define _XOPEN_SOURCE 500L
 #endif
 
-#include <assert.h>
-#include <errno.h>
 #include <stdbool.h>
 #include <stdint.h>
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include <pthread.h>
 
-#include <features.h>
-
-#include "asserts.h"
-#include "geometry.h"
-#include "logging.h"
 #include "macros.h"
-#include "refcounting.h"
-#include "uuid.h"
-#include "lock_ops.h"
 
 static inline void *memdup(const void *restrict src, const size_t n) {
     void *__restrict__ dest;

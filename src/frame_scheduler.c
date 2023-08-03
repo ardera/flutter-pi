@@ -13,6 +13,8 @@
 
 #include "compositor_ng.h"
 #include "util/collection.h"
+#include "util/lock_ops.h"
+#include "util/refcounting.h"
 
 struct frame_scheduler {
     refcount_t n_refs;

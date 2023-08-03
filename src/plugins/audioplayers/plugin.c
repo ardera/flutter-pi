@@ -4,9 +4,9 @@
 #include "platformchannel.h"
 #include "pluginregistry.h"
 #include "plugins/audioplayers.h"
-
 #include "util/collection.h"
 #include "util/list.h"
+#include "util/logging.h"
 
 #define AUDIOPLAYERS_LOCAL_CHANNEL "xyz.luan/audioplayers"
 #define AUDIOPLAYERS_GLOBAL_CHANNEL "xyz.luan/audioplayers.global"

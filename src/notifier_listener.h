@@ -2,8 +2,8 @@
 #define _FLUTTERPI_INCLUDE_NOTIFIER_LISTENER_H
 
 #include "util/collection.h"
-
 #include "util/list.h"
+#include "util/lock_ops.h"
 
 enum listener_return { kNoAction, kUnlisten };
 

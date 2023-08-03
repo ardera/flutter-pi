@@ -13,6 +13,7 @@
 
 #include "flutter-pi.h"
 #include "jsmn.h"
+#include "util/asserts.h"
 
 struct platch_msg_resp_handler_data {
     enum platch_codec codec;
@@ -1513,7 +1514,8 @@ bool jsvalue_equals(struct json_value *a, struct json_value *b) {
                 while (j < a->size) {
                     while ((j < a->size) && _keyInBAlsoInA[j])
                         j++;  // skip all keys with _keyInBAlsoInA set to true.
-					if (j >= a->size) break;
+                    if (j >= a->size)
+                        break;
                     if (!streq(key, b->keys[j]))
                         j++;  // if b->keys[j] is not equal to "key", continue searching
                     else {
@@ -1655,7 +1657,8 @@ bool stdvalue_equals(struct std_value *a, struct std_value *b) {
                 while (j < a->size) {
                     while ((j < a->size) && _keyInBAlsoInA[j])
                         j++;  // skip all keys with _keyInBAlsoInA set to true.
-					if (j >= a->size) break;
+                    if (j >= a->size)
+                        break;
                     if (stdvalue_equals(key, b->keys + j) == false) {
                         j++;  // if b->keys[j] is not equal to "key", continue searching
                     } else {

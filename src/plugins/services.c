@@ -6,6 +6,8 @@
 #include "cursor.h"
 #include "flutter-pi.h"
 #include "pluginregistry.h"
+#include "util/asserts.h"
+#include "util/logging.h"
 
 struct plugin {
     struct flutterpi *flutterpi;

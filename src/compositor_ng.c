@@ -11,6 +11,7 @@
 #define _GNU_SOURCE
 #include "compositor_ng.h"
 
+#include <errno.h>
 #include <inttypes.h>
 #include <math.h>
 #include <stdlib.h>
@@ -21,6 +22,8 @@
 #include <flutter_embedder.h>
 #include <systemd/sd-event.h>
 
+#include "cursor.h"
+#include "dummy_render_surface.h"
 #include "flutter-pi.h"
 #include "frame_scheduler.h"
 #include "modesetting.h"
@@ -31,9 +34,9 @@
 #include "tracer.h"
 #include "util/collection.h"
 #include "util/dynarray.h"
+#include "util/logging.h"
+#include "util/refcounting.h"
 #include "window.h"
-#include "cursor.h"
-#include "dummy_render_surface.h"
 
 #include "config.h"
 
@@ -343,7 +346,8 @@ static int compositor_push_fl_layers(struct compositor *compositor, size_t n_fl_
             /// TODO: Implement
             layer->surface = compositor_get_view_by_id_locked(compositor, fl_layer->platform_view->identifier);
             if (layer->surface == NULL) {
-                layer->surface = CAST_SURFACE(dummy_render_surface_new(compositor->tracer, VEC2I(fl_layer->size.width, fl_layer->size.height)));
+                layer->surface =
+                    CAST_SURFACE(dummy_render_surface_new(compositor->tracer, VEC2I(fl_layer->size.width, fl_layer->size.height)));
             }
 #else
             // in release mode, we just assume the id is valid.
@@ -529,7 +533,15 @@ const FlutterCompositor *compositor_get_flutter_compositor(struct compositor *co
     return &compositor->flutter_compositor;
 }
 
-void compositor_set_cursor(struct compositor *compositor, bool has_enabled, bool enabled, bool has_kind, enum pointer_kind kind, bool has_delta, struct vec2f delta) {
+void compositor_set_cursor(
+    struct compositor *compositor,
+    bool has_enabled,
+    bool enabled,
+    bool has_kind,
+    enum pointer_kind kind,
+    bool has_delta,
+    struct vec2f delta
+) {
     if (!has_enabled && !has_kind && !has_delta) {
         return;
     }

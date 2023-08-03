@@ -8,6 +8,7 @@
 #define _GNU_SOURCE
 #include "gl_renderer.h"
 
+#include <errno.h>
 #include <stdlib.h>
 
 #include <dlfcn.h>
@@ -18,6 +19,8 @@
 #include "pixel_format.h"
 #include "tracer.h"
 #include "util/collection.h"
+#include "util/logging.h"
+#include "util/refcounting.h"
 
 struct gl_renderer {
     refcount_t n_refs;

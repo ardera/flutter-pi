@@ -1,5 +1,6 @@
 #include "user_input.h"
 
+#include <errno.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -18,6 +19,7 @@
 #include "flutter-pi.h"
 #include "keyboard.h"
 #include "util/collection.h"
+#include "util/logging.h"
 
 #define LIBINPUT_VER(major, minor, patch) ((((major) &0xFF) << 16) | (((minor) &0xFF) << 8) | ((patch) &0xFF))
 #define THIS_LIBINPUT_VER LIBINPUT_VER(LIBINPUT_VERSION_MAJOR, LIBINPUT_VERSION_MINOR, LIBINPUT_VERSION_PATCH)

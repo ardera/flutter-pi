@@ -10,6 +10,7 @@
 #include <systemd/sd-event.h>
 
 #include "util/collection.h"
+#include "util/refcounting.h"
 
 struct evloop {
     refcount_t n_refs;

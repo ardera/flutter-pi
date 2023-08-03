@@ -35,6 +35,7 @@
 
 #include "dmabuf_surface.h"
 
+#include <errno.h>
 #include <stdatomic.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -44,6 +45,8 @@
 #include "surface_private.h"
 #include "texture_registry.h"
 #include "util/collection.h"
+#include "util/logging.h"
+#include "util/refcounting.h"
 
 #include "config.h"
 

@@ -18,6 +18,8 @@
 #include "platformchannel.h"
 #include "util/collection.h"
 #include "util/list.h"
+#include "util/lock_ops.h"
+#include "util/logging.h"
 
 /**
  * @brief details of a plugin for flutter-pi.

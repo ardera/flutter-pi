@@ -12,7 +12,10 @@
 #include <alloca.h>
 #include <vulkan.h>
 
+#include "util/asserts.h"
 #include "util/collection.h"
+#include "util/logging.h"
+#include "util/refcounting.h"
 
 #define VALIDATION_LAYER_NAME "VK_LAYER_KHRONOS_validation"
 

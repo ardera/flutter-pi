@@ -15,6 +15,8 @@
 #include <pthread.h>
 
 #include "util/collection.h"
+#include "util/refcounting.h"
+#include "util/uuid.h"
 
 struct fl_layer_props;
 struct kms_req_builder;

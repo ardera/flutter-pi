@@ -18,6 +18,7 @@
 #include "texture_registry.h"
 #include "util/collection.h"
 #include "util/list.h"
+#include "util/logging.h"
 
 enum data_source_type { kDataSourceTypeAsset, kDataSourceTypeNetwork, kDataSourceTypeFile, kDataSourceTypeContentUri };
 

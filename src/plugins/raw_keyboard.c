@@ -13,6 +13,7 @@
 #include "flutter-pi.h"
 #include "keyboard.h"
 #include "pluginregistry.h"
+#include "util/asserts.h"
 
 ATTR_CONST static uint64_t apply_key_plane(uint64_t keycode, uint64_t plane) {
     return (keycode & 0x000FFFFFFFF) | plane;

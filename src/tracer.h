@@ -46,18 +46,18 @@ void tracer_set_cbs(
     // in release mode.
     #define TRACER_BEGIN(tracer, name) \
         do {                           \
-            (void) tracer; \
-            (void) name; \
+            (void) tracer;             \
+            (void) name;               \
         } while (0)
     #define TRACER_END(tracer, name) \
         do {                         \
-            (void) tracer; \
-            (void) name; \
+            (void) tracer;           \
+            (void) name;             \
         } while (0)
     #define TRACER_INSTANT(tracer, name) \
         do {                             \
-            (void) tracer; \
-            (void) name; \
+            (void) tracer;               \
+            (void) name;                 \
         } while (0)
 #endif
 

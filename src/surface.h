@@ -11,6 +11,8 @@
 #define _FLUTTERPI_INCLUDE_SURFACE_H
 
 #include "util/collection.h"
+#include "util/lock_ops.h"
+#include "util/refcounting.h"
 
 struct surface;
 struct compositor;

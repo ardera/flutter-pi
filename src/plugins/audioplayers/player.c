@@ -8,6 +8,8 @@
 #include "flutter-pi.h"
 #include "platformchannel.h"
 #include "plugins/audioplayers.h"
+#include "util/asserts.h"
+#include "util/logging.h"
 
 struct audio_player {
     GstElement *playbin;

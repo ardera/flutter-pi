@@ -5,7 +5,9 @@
 #include <xkbcommon/xkbcommon.h>
 
 #include "plugins/raw_keyboard.h"
+#include "util/asserts.h"
 #include "util/collection.h"
+#include "util/geometry.h"
 
 #define MAX_COLLECTED_FLUTTER_POINTER_EVENTS 64
 

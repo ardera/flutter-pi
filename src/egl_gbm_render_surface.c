@@ -10,6 +10,7 @@
 
 #include "egl_gbm_render_surface.h"
 
+#include <errno.h>
 #include <stdlib.h>
 
 #include "egl.h"
@@ -22,6 +23,8 @@
 #include "surface.h"
 #include "tracer.h"
 #include "util/collection.h"
+#include "util/logging.h"
+#include "util/refcounting.h"
 
 struct egl_gbm_render_surface;
 
@@ -418,9 +421,10 @@ static int egl_gbm_render_surface_present_kms(struct surface *s, const struct fl
             LOG_ERROR("Couldn't add GBM buffer as DRM framebuffer.\n");
             goto fail_free_meta;
         }
-        
+
         // if this EGL surface is non-opaque and has an opaque equivalent
-        if (!get_pixfmt_info(egl_surface->pixel_format)->is_opaque && pixfmt_opaque(egl_surface->pixel_format) != egl_surface->pixel_format) {
+        if (!get_pixfmt_info(egl_surface->pixel_format)->is_opaque &&
+            pixfmt_opaque(egl_surface->pixel_format) != egl_surface->pixel_format) {
             opaque_fb_id = drmdev_add_fb(
                 drmdev,
                 gbm_bo_get_width(bo),
@@ -638,7 +642,7 @@ static int egl_gbm_render_surface_queue_present(struct render_surface *s, const 
     ///     version: 1.4
     ///     vendor: Mesa Project
     ///     client extensions: EGL_EXT_client_extensions EGL_EXT_device_base EGL_EXT_device_enumeration EGL_EXT_device_query EGL_EXT_platform_base EGL_KHR_client_get_all_proc_addresses EGL_KHR_debug EGL_EXT_platform_device EGL_MESA_platform_gbm EGL_KHR_platform_gbm EGL_MESA_platform_surfaceless
-    ///     display extensions: EGL_ANDROID_blob_cache EGL_EXT_buffer_age EGL_EXT_image_dma_buf_import EGL_EXT_image_dma_buf_import_modifiers EGL_KHR_cl_event2 EGL_KHR_config_attribs EGL_KHR_context_flush_control EGL_KHR_create_context EGL_KHR_create_context_no_error EGL_KHR_fence_sync EGL_KHR_get_all_proc_addresses EGL_KHR_gl_colorspace EGL_KHR_gl_renderbuffer_image EGL_KHR_gl_texture_2D_image EGL_KHR_gl_texture_3D_image EGL_KHR_gl_texture_cubemap_image EGL_KHR_image EGL_KHR_image_base EGL_KHR_image_pixmap EGL_KHR_no_config_context EGL_KHR_reusable_sync EGL_KHR_surfaceless_context EGL_EXT_pixel_format_float EGL_KHR_wait_sync EGL_MESA_configless_context EGL_MESA_drm_image EGL_MESA_image_dma_buf_export EGL_MESA_query_driver 
+    ///     display extensions: EGL_ANDROID_blob_cache EGL_EXT_buffer_age EGL_EXT_image_dma_buf_import EGL_EXT_image_dma_buf_import_modifiers EGL_KHR_cl_event2 EGL_KHR_config_attribs EGL_KHR_context_flush_control EGL_KHR_create_context EGL_KHR_create_context_no_error EGL_KHR_fence_sync EGL_KHR_get_all_proc_addresses EGL_KHR_gl_colorspace EGL_KHR_gl_renderbuffer_image EGL_KHR_gl_texture_2D_image EGL_KHR_gl_texture_3D_image EGL_KHR_gl_texture_cubemap_image EGL_KHR_image EGL_KHR_image_base EGL_KHR_image_pixmap EGL_KHR_no_config_context EGL_KHR_reusable_sync EGL_KHR_surfaceless_context EGL_EXT_pixel_format_float EGL_KHR_wait_sync EGL_MESA_configless_context EGL_MESA_drm_image EGL_MESA_image_dma_buf_export EGL_MESA_query_driver
     ///   ===================================
     ///   ===================================
     ///   OpenGL ES information:
@@ -655,7 +659,7 @@ static int egl_gbm_render_surface_queue_present(struct render_surface *s, const 
     ///     physical size: 154mm x 86mm
     ///     flutter device pixel ratio: 1.367054
     ///     pixel format: (any)
-    ///   pluginregistry.c: Initialized plugins: services, text input, raw keyboard plugin, gstreamer video_player, audioplayers, 
+    ///   pluginregistry.c: Initialized plugins: services, text input, raw keyboard plugin, gstreamer video_player, audioplayers,
     ///   flutter: The Dart VM service is listening on http://192.168.178.11:44515/F3wK7cUNFd0=/
     ///   gl_renderer.c: Choosing EGL config with pixel format ARGB 8:8:8:8...
     ///   gl_renderer.c: Choosing EGL config with pixel format ARGB 8:8:8:8...
