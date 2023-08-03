@@ -304,11 +304,10 @@ static void update_buffering_state(struct gstplayer *player) {
     notifier_notify(&player->buffering_state_notifier, state);
     return;
 
-
-    fail_free_state:
+fail_free_state:
     free(state);
 
-    fail_unref_query:
+fail_unref_query:
     gst_query_unref(query);
 }
 

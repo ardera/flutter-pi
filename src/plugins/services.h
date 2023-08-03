@@ -4,12 +4,12 @@
 #include <stdio.h>
 #include <string.h>
 
-#define ORIENTATION_FROM_STRING(str)                                          \
+#define ORIENTATION_FROM_STRING(str)                                    \
     (streq(str, "DeviceOrientation.portraitUp")     ? kPortraitUp :     \
      streq(str, "DeviceOrientation.landscapeLeft")  ? kLandscapeLeft :  \
      streq(str, "DeviceOrientation.portraitDown")   ? kPortraitDown :   \
      streq(str, "DeviceOrientation.landscapeRight") ? kLandscapeRight : \
-                                                            -1)
+                                                      -1)
 
 #define FLUTTER_NAVIGATION_CHANNEL "flutter/navigation"
 #define FLUTTER_ISOLATE_CHANNEL "flutter/isolate"

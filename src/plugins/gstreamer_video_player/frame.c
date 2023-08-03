@@ -1037,7 +1037,7 @@ format_supported:
     ///
     /// Make context current in GST_STREAM_STATUS_TYPE_ENTER message, clear it
     /// in GST_STREAM_STATUS_TYPE_LEAVE message.
-    /// 
+    ///
     /// See https://gstreamer.freedesktop.org/documentation/additional/design/stream-status.html
     ///
     /// Alternatively, don't unconditionally create & make current an EGL
