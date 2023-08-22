@@ -315,6 +315,10 @@ static enum listener_return on_video_info_notify(void *arg, void *userdata) {
     /// on_video_info_notify is called on an internal thread,
     /// but send_initialized_event is (should be) mt-safe
     send_initialized_event(meta, !info->can_seek, info->width, info->height, info->duration_ms);
+    
+    /// FIXME: Threading
+    /// Set this to NULL here so we don't unlisten to it twice.
+    meta->video_info_listener = NULL;
 
     /// TODO: We should only send the initialized event once,
     /// but maybe it's also okay if we send it multiple times?
