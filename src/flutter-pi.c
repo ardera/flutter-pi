@@ -1795,7 +1795,7 @@ static void on_user_input_close(int fd, void *userdata) {
 
     if (flutterpi->libseat != NULL) {
 #ifdef HAVE_LIBSEAT
-        struct device_id_and_fd *entry;
+        struct device_id_and_fd *entry = NULL;
 
         list_for_each_entry_safe(struct device_id_and_fd, entry_iter, &flutterpi->fd_for_device_id, entry) {
             if (entry_iter->fd == fd) {
