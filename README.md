@@ -187,6 +187,7 @@ _Example:_
 git clone https://github.com/flutter/gallery.git flutter_gallery
 cd flutter_gallery
 git checkout d77920b4ced4a105ad35659fbe3958800d418fb9
+flutter pub get
 flutterpi_tool build --release --cpu=pi4
 rsync -a ./build/flutter_assets/ pi@raspberrypi:/home/pi/flutter_gallery/
 ```
