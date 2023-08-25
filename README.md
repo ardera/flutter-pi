@@ -191,7 +191,9 @@ flutterpi_tool build --release --cpu=pi4
 rsync -a ./build/flutter_assets/ pi@raspberrypi:/home/pi/flutter_gallery/
 ```
 
-2. Done. You can now run this app in release mode using `flutter-pi --release /home/pi/flutter_gallery`.
+2. On Raspberry Pi, run `sudo apt-get install xdg-user-dirs` to install the runtime requirement of flutter_gallery. (otherwise it may [throw exception](https://github.com/flutter/gallery/issues/979#issuecomment-1693361972))
+
+3. Done. You can now run this app in release mode using `flutter-pi --release /home/pi/flutter_gallery`.
 
 ### Building the App (old method, linux or windows)
 
