@@ -403,16 +403,10 @@ static int egl_gbm_render_surface_present_kms(struct surface *s, const struct fl
         ASSERT_NOT_NULL(drmdev);
 
         TRACER_BEGIN(egl_surface->surface.tracer, "drmdev_add_fb (non-opaque)");
-        fb_id = drmdev_add_fb(
+        fb_id = drmdev_add_fb_from_gbm_bo(
             drmdev,
-            gbm_bo_get_width(bo),
-            gbm_bo_get_height(bo),
-            egl_surface->pixel_format,
-            gbm_bo_get_handle(bo).u32,
-            gbm_bo_get_stride(bo),
-            gbm_bo_get_offset(bo, 0),
-            gbm_bo_get_modifier(bo) != DRM_FORMAT_MOD_INVALID,
-            gbm_bo_get_modifier(bo)
+            bo,
+            /* cast_opaque */ false
         );
         TRACER_END(egl_surface->surface.tracer, "drmdev_add_fb (non-opaque)");
 
@@ -425,16 +419,10 @@ static int egl_gbm_render_surface_present_kms(struct surface *s, const struct fl
         // if this EGL surface is non-opaque and has an opaque equivalent
         if (!get_pixfmt_info(egl_surface->pixel_format)->is_opaque &&
             pixfmt_opaque(egl_surface->pixel_format) != egl_surface->pixel_format) {
-            opaque_fb_id = drmdev_add_fb(
+            opaque_fb_id = drmdev_add_fb_from_gbm_bo(
                 drmdev,
-                gbm_bo_get_width(bo),
-                gbm_bo_get_height(bo),
-                pixfmt_opaque(egl_surface->pixel_format),
-                gbm_bo_get_handle(bo).u32,
-                gbm_bo_get_stride(bo),
-                gbm_bo_get_offset(bo, 0),
-                gbm_bo_get_modifier(bo) != DRM_FORMAT_MOD_INVALID,
-                gbm_bo_get_modifier(bo)
+                bo,
+                /* cast_opaque */ true
             );
             if (opaque_fb_id == 0) {
                 ok = EIO;
