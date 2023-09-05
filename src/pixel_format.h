@@ -395,6 +395,27 @@ ATTR_CONST static inline enum pixfmt get_pixfmt_for_drm_format(uint32_t fourcc) 
     return PIXFMT_RGB565;
 }
 
+ATTR_CONST static inline bool has_pixfmt_for_gbm_format(uint32_t fourcc) {
+    for (int i = 0; i < n_pixfmt_infos; i++) {
+        if (get_pixfmt_info(i)->gbm_format == fourcc) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+ATTR_CONST static inline enum pixfmt get_pixfmt_for_gbm_format(uint32_t fourcc) {
+    for (int i = 0; i < n_pixfmt_infos; i++) {
+        if (get_pixfmt_info(i)->gbm_format == fourcc) {
+            return i;
+        }
+    }
+
+    ASSERT_MSG(false, "Check has_pixfmt_for_gbm_format if an enum pixfmt exists for a specific GBM fourcc.");
+    return PIXFMT_RGB565;
+}
+
 COMPILE_ASSERT(PIXFMT_RGB565 == 0);
 
 #define ASSERT_PIXFMT_VALID(format) ASSERT_MSG(format >= PIXFMT_RGB565 && format <= PIXFMT_MAX, "Invalid pixel format")

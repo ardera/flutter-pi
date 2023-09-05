@@ -1620,6 +1620,106 @@ uint32_t drmdev_add_fb_from_dmabuf_multiplanar(
     return fb;
 }
 
+uint32_t drmdev_add_fb_from_gbm_bo_locked(
+    struct drmdev *drmdev,
+    struct gbm_bo *bo,
+    bool cast_opaque
+) {
+    enum pixfmt format;
+    uint32_t fourcc;
+    int n_planes;
+
+    n_planes = gbm_bo_get_plane_count(bo);
+    ASSERT(0 <= n_planes && n_planes <= 4);
+
+    fourcc = gbm_bo_get_format(bo);
+
+    if (!has_pixfmt_for_gbm_format(fourcc)) {
+        LOG_ERROR("GBM pixel format is not supported.\n");
+        return 0;
+    }
+    
+    format = get_pixfmt_for_gbm_format(fourcc);
+    
+    if (cast_opaque) {
+        format = pixfmt_opaque(format);
+    }
+
+    uint32_t handles[4];
+    uint32_t pitches[4];
+
+    // Returns DRM_FORMAT_MOD_INVALID on failure, or DRM_FORMAT_MOD_LINEAR
+    // for dumb buffers.
+    uint64_t modifier = gbm_bo_get_modifier(bo);
+    bool has_modifiers = modifier != DRM_FORMAT_MOD_INVALID;
+    
+    for (int i = 0; i < n_planes; i++) {
+        // gbm_bo_get_handle_for_plane will return -1 (in gbm_bo_handle.s32) and
+        // set errno on failure.
+        errno = 0;
+        union gbm_bo_handle handle = gbm_bo_get_handle_for_plane(bo, i);
+        if (handle.s32 == -1) {
+            LOG_ERROR("Could not get GEM handle for plane %d: %s\n", i, strerror(errno));
+            return 0;
+        }
+
+        handles[i] = handle.u32;
+
+        // gbm_bo_get_stride_for_plane will return 0 and set errno on failure.
+        errno = 0;
+        uint32_t pitch = gbm_bo_get_stride_for_plane(bo, i);
+        if (pitch == 0 && errno != 0) {
+            LOG_ERROR("Could not get framebuffer stride for plane %d: %s\n", i, strerror(errno));
+            return 0;
+        }
+
+        pitches[i] = pitch;
+    }
+
+    for (int i = n_planes; i < 4; i++) {
+        handles[i] = 0;
+        pitches[i] = 0;
+    }
+
+    return drmdev_add_fb_multiplanar_locked(
+        drmdev,
+        gbm_bo_get_width(bo),
+        gbm_bo_get_height(bo),
+        format,
+        handles,
+        pitches,
+        (uint32_t[4]) {
+            n_planes >= 1 ? gbm_bo_get_offset(bo, 0) : 0,
+            n_planes >= 2 ? gbm_bo_get_offset(bo, 1) : 0,
+            n_planes >= 3 ? gbm_bo_get_offset(bo, 2) : 0,
+            n_planes >= 4 ? gbm_bo_get_offset(bo, 3) : 0,
+        },
+        has_modifiers,
+        (uint64_t[4]) {
+            n_planes >= 1 ? modifier : 0,
+            n_planes >= 2 ? modifier : 0,
+            n_planes >= 3 ? modifier : 0,
+            n_planes >= 4 ? modifier : 0,
+        }
+    );
+}
+
+uint32_t drmdev_add_fb_from_gbm_bo(
+    struct drmdev *drmdev,
+    struct gbm_bo *bo,
+    bool cast_opaque
+) {
+    uint32_t fb;
+
+    drmdev_lock(drmdev);
+
+    fb = drmdev_add_fb_from_gbm_bo_locked(drmdev, bo, cast_opaque);
+
+    drmdev_unlock(drmdev);
+
+    return fb;
+}
+
 int drmdev_rm_fb_locked(struct drmdev *drmdev, uint32_t fb_id) {
     int ok;
 
