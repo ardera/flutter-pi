@@ -60,6 +60,7 @@ struct egl_gbm_render_surface {
     struct locked_fb *locked_front_fb;
 #ifdef DEBUG
     atomic_int n_locked_fbs;
+    bool logged_format_and_modifier;
 #endif
 };
 
@@ -241,6 +242,9 @@ static int egl_gbm_render_surface_init(
         s->locked_fbs->is_locked = (atomic_flag) ATOMIC_FLAG_INIT;
     }
     s->locked_front_fb = NULL;
+#ifdef DEBUG
+    s->logged_format_and_modifier = false;
+#endif
     return 0;
 
 fail_destroy_egl_surface:
@@ -597,6 +601,25 @@ static int egl_gbm_render_surface_queue_present(struct render_surface *s, const 
     TRACER_BEGIN(s->surface.tracer, "gbm_surface_lock_front_buffer");
     bo = gbm_surface_lock_front_buffer(egl_surface->gbm_surface);
     TRACER_END(s->surface.tracer, "gbm_surface_lock_front_buffer");
+
+#ifdef DEBUG
+    if (!egl_surface->logged_format_and_modifier) {
+        uint32_t fourcc = gbm_bo_get_format(bo);
+        uint64_t modifier = gbm_bo_get_modifier(bo);
+
+        bool has_format = has_pixfmt_for_gbm_format(fourcc);
+        enum pixfmt format = has_format ? get_pixfmt_for_gbm_format(fourcc) : PIXFMT_RGB565;
+
+        LOG_DEBUG(
+            "using fourcc %c%c%c%c (%s) with modifier 0x%"PRIx64"\n",
+            fourcc & 0xFF, (fourcc >> 8) & 0xFF, (fourcc >> 16) & 0xFF, (fourcc >> 24) & 0xFF,
+            has_format ? get_pixfmt_info(format)->name : "?",
+            modifier
+        );
+
+        egl_surface->logged_format_and_modifier = true;
+    }
+#endif
 
     if (bo == NULL) {
         ok = errno;
