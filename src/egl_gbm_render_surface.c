@@ -243,6 +243,7 @@ static int egl_gbm_render_surface_init(
     }
     s->locked_front_fb = NULL;
 #ifdef DEBUG
+    s->n_locked_fbs = 0;
     s->logged_format_and_modifier = false;
 #endif
     return 0;
