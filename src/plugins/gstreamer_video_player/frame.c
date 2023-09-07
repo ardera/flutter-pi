@@ -233,20 +233,17 @@ struct frame_interface *frame_interface_new(struct gl_renderer *renderer) {
 
     PFNEGLCREATEIMAGEKHRPROC create_image = (PFNEGLCREATEIMAGEKHRPROC) gl_renderer_get_proc_address(renderer, "eglCreateImageKHR");
     if (create_image == NULL) {
-        LOG_ERROR("Could not resolve eglCreateImageKHR EGL procedure.\n");
         goto fail_destroy_context;
     }
 
     PFNEGLDESTROYIMAGEKHRPROC destroy_image = (PFNEGLDESTROYIMAGEKHRPROC) gl_renderer_get_proc_address(renderer, "eglDestroyImageKHR");
     if (destroy_image == NULL) {
-        LOG_ERROR("Could not resolve eglDestroyImageKHR EGL procedure.\n");
         goto fail_destroy_context;
     }
 
     PFNGLEGLIMAGETARGETTEXTURE2DOESPROC gl_egl_image_target_texture2d = (PFNGLEGLIMAGETARGETTEXTURE2DOESPROC
     ) gl_renderer_get_proc_address(renderer, "glEGLImageTargetTexture2DOES");
     if (gl_egl_image_target_texture2d == NULL) {
-        LOG_ERROR("Could not resolve glEGLImageTargetTexture2DOES EGL procedure.\n");
         goto fail_destroy_context;
     }
 
