@@ -916,17 +916,19 @@ static int init(struct gstplayer *player, bool force_sw_decoders) {
 
     // configure our caps
     // we only accept video formats that we can actually upload to EGL
-    GstCaps *caps = gst_caps_new_empty();
-    for_each_format_in_frame_interface(i, format, player->frame_interface) {
-        GstVideoFormat gst_format = gst_video_format_from_drm_format(format->format);
-        if (gst_format == GST_VIDEO_FORMAT_UNKNOWN) {
-            continue;
-        }
+    if (frame_interface_get_n_formats(player->frame_interface) > 0) {
+        GstCaps *caps = gst_caps_new_empty();
+        for_each_format_in_frame_interface(i, format, player->frame_interface) {
+            GstVideoFormat gst_format = gst_video_format_from_drm_format(format->format);
+            if (gst_format == GST_VIDEO_FORMAT_UNKNOWN) {
+                continue;
+            }
 
-        gst_caps_append(caps, gst_caps_new_simple("video/x-raw", "format", G_TYPE_STRING, gst_video_format_to_string(gst_format), NULL));
+            gst_caps_append(caps, gst_caps_new_simple("video/x-raw", "format", G_TYPE_STRING, gst_video_format_to_string(gst_format), NULL));
+        }
+        gst_app_sink_set_caps(GST_APP_SINK(sink), caps);
+        gst_caps_unref(caps);
     }
-    gst_app_sink_set_caps(GST_APP_SINK(sink), caps);
-    gst_caps_unref(caps);
 
     gst_app_sink_set_callbacks(
         GST_APP_SINK(sink),
