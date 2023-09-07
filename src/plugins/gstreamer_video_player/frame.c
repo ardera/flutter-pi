@@ -251,17 +251,16 @@ struct frame_interface *frame_interface_new(struct gl_renderer *renderer) {
     }
 
     // These two are optional.
-    // Might be useful in the future.
 #ifdef EGL_EXT_image_dma_buf_import_modifiers
     PFNEGLQUERYDMABUFFORMATSEXTPROC egl_query_dmabuf_formats = (PFNEGLQUERYDMABUFFORMATSEXTPROC
-    ) gl_renderer_get_proc_address(renderer, "eglQueryDmaBufFormatsEXT");
+    ) gl_renderer_try_get_proc_address(renderer, "eglQueryDmaBufFormatsEXT");
     if (egl_query_dmabuf_formats == NULL && supports_extended_imports) {
         LOG_ERROR("Could not resolve eglQueryDmaBufFormatsEXT egl procedure, even though it is listed as supported.\n");
         supports_extended_imports = false;
     }
 
     PFNEGLQUERYDMABUFMODIFIERSEXTPROC egl_query_dmabuf_modifiers = (PFNEGLQUERYDMABUFMODIFIERSEXTPROC
-    ) gl_renderer_get_proc_address(renderer, "eglQueryDmaBufModifiersEXT");
+    ) gl_renderer_try_get_proc_address(renderer, "eglQueryDmaBufModifiersEXT");
     if (egl_query_dmabuf_modifiers == NULL && supports_extended_imports) {
         LOG_ERROR("Could not resolve eglQueryDmaBufModifiersEXT egl procedure, even though it is listed as supported.\n");
         supports_extended_imports = false;
