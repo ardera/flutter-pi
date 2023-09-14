@@ -6,7 +6,4 @@
 
 #define CHARSET_CONVERTER_CHANNEL "charset_converter"
 
-extern int init(void);
-extern int deinit(void);
-
 #endif
