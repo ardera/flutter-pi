@@ -43,6 +43,7 @@ option(BUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN "Include the gstreamer based video pl
 option(BUILD_GSTREAMER_AUDIO_PLAYER_PLUGIN "Include the gstreamer based audio plugins in the finished binary." ON)
 option(TRY_BUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN "Don't throw an error if the gstreamer libs aren't found, instead just don't build the gstreamer video player plugin in that case." ON)
 option(TRY_BUILD_GSTREAMER_AUDIO_PLAYER_PLUGIN "Don't throw an error if the gstreamer libs aren't found, instead just don't build gstreamer audio plugin." ON)
+option(BUILD_CHARSET_CONVERTER_PLUGIN "Include the charset converter plugin in the finished binary." ON)
 option(ENABLE_OPENGL "Build with EGL/OpenGL rendering support." ON)
 option(TRY_ENABLE_OPENGL "Don't throw an error if EGL/OpenGL aren't found, instead just build without EGL/OpenGL support in that case." ON)
 option(ENABLE_VULKAN "Build with Vulkan rendering support." OFF)
@@ -336,6 +337,10 @@ if (BUILD_GSTREAMER_AUDIO_PLAYER_PLUGIN)
   else()
     message(NOTICE "Couldn't find gstreamer libraries. Gstreamer audio player plugin won't be build.")
   endif()
+endif()
+
+if (BUILD_CHARSET_CONVERTER_PLUGIN)
+  target_sources(flutterpi_module PRIVATE src/plugins/charset_converter.c)
 endif()
 
 # Needed so dart VM can actually resolve symbols in the same
