@@ -340,9 +340,7 @@ if (BUILD_GSTREAMER_AUDIO_PLAYER_PLUGIN)
 endif()
 
 if (BUILD_CHARSET_CONVERTER_PLUGIN)
-  pkg_check_modules(GTK3 IMPORTED_TARGET gtk+-3.0)
   target_sources(flutterpi_module PRIVATE src/plugins/charset_converter.c)
-  target_link_libraries(flutterpi_module PUBLIC PkgConfig::GTK3)
 endif()
 
 # Needed so dart VM can actually resolve symbols in the same

@@ -2,7 +2,6 @@
 #include "flutter-pi.h"
 #include "pluginregistry.h"
 #include "util/logging.h"
-#include <gtk/gtk.h>
 #include <iconv.h>
 
 static bool convert(char *buf, char *outbuf, size_t len, const char *from, const char *to)
@@ -78,8 +77,8 @@ static int on_encode(struct platch_obj *object, FlutterPlatformMessageResponseHa
 
     data = STDVALUE_AS_STRING(*tmp);
 
-    gchar* from = (gchar*) malloc(strlen(data) + 1);
-    gchar* to = (gchar*) malloc(strlen(data) + 1);
+    char* from = (char*) malloc(strlen(data) + 1);
+    char* to = (char*) malloc(strlen(data) + 1);
     strcpy(from, data);
 
     auto res = convert(from, to, strlen(from) + 1, "UTF-8", charset);
