@@ -9,7 +9,7 @@ static bool convert(char *buf, char *outbuf, size_t len, const char *from, const
 {
     iconv_t iconv_cd;
     if ((iconv_cd = iconv_open(to, from)) == (iconv_t) -1) {
-        printf("Cannot open iconv from %s to %s %d\n", from, to, errno);
+        LOG_ERROR("Cannot open iconv from %s to %s\n", from, to);
         return false;
     }
 
