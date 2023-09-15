@@ -102,12 +102,57 @@ static int on_encode(struct platch_obj *object, FlutterPlatformMessageResponseHa
     );
 }
 
+static int on_available_charsets(struct platch_obj *object, FlutterPlatformMessageResponseHandle *responseHandle) {
+    auto list = (struct std_value[]){ { .type = kStdString, .string_value = "Not available for Linux." }};
+
+    return platch_respond(
+        responseHandle,
+        &(struct platch_obj){ .codec = kStandardMethodCallResponse, .success = true, .std_result = { .type = kStdList, .list = list, .size = 1 }, }
+    );
+}
+
+static int on_check(struct platch_obj *object, FlutterPlatformMessageResponseHandle *responseHandle) {
+    struct std_value *args, *tmp;
+    char *charset;
+
+    args = &object->std_arg;
+
+    if (args == NULL || !STDVALUE_IS_MAP(*args)) {
+        return platch_respond_illegal_arg_std(responseHandle, "Expected `arg` to be a map.");
+    }
+
+    tmp = stdmap_get_str(&object->std_arg, "charset");
+    if (tmp == NULL || !STDVALUE_IS_STRING(*tmp)) {
+        LOG_ERROR("Call missing mandatory parameter charset.\n");
+        return platch_respond_illegal_arg_std(responseHandle, "Expected `arg['charset'] to be a string.");
+    }
+
+    charset = STDVALUE_AS_STRING(*tmp);
+
+    iconv_t iconv_cd;
+    if ((iconv_cd = iconv_open("UTF-8", charset)) == (iconv_t) -1) {
+        return platch_respond(
+            responseHandle,
+            &(struct platch_obj){ .codec = kStandardMethodCallResponse, .success = true, .std_result = { .type = kStdFalse } }
+        );
+    }
+
+    return platch_respond(
+        responseHandle,
+        &(struct platch_obj){ .codec = kStandardMethodCallResponse, .success = true, .std_result = { .type = kStdTrue } }
+    );
+}
+
 static int on_receive(char *channel, struct platch_obj *object, FlutterPlatformMessageResponseHandle *responseHandle) {
     const char *method;
     method = object->method;
 
     if (streq(method, "encode")) {
         return on_encode(object, responseHandle);
+    } else if (streq(method, "availableCharsets")) {
+        return on_available_charsets(object, responseHandle);
+    } else if (streq(method, "check")) {
+        return on_check(object, responseHandle);
     }
 
     return platch_respond_not_implemented(responseHandle);
