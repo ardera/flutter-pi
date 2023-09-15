@@ -340,7 +340,9 @@ if (BUILD_GSTREAMER_AUDIO_PLAYER_PLUGIN)
 endif()
 
 if (BUILD_PRINTING_PLUGIN)
+  pkg_check_modules(IMAGEMAGICK IMPORTED_TARGET MagickWand)
   target_sources(flutterpi_module PRIVATE src/plugins/printing.c)
+  target_link_libraries(flutterpi_module PUBLIC PkgConfig::IMAGEMAGICK)
 endif()
 
 # Needed so dart VM can actually resolve symbols in the same
