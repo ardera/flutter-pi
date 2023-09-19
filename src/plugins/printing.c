@@ -97,11 +97,6 @@ static void raster_pdf(const uint8_t *data, size_t size, const int32_t *pages, s
         size_t page_size;
         uint8_t *page_data = MagickGetImageBlob(wand, &page_size);
 
-        printf("(uint8_t) [");
-        for (int i = 0; i < page_size; i++) {
-            printf("%02X", page_data[i]);
-        }
-
         on_page_rasterized(job, page_data, page_size, bWidth, bHeight);
 
         MagickRelinquishMemory(page_data);
