@@ -85,14 +85,8 @@ static void raster_pdf(const uint8_t *data, size_t size, const int32_t *pages, s
         int32_t bWidth = width * scale;
         int32_t bHeight = height * scale;
 
-        MagickResizeImage(wand, bWidth, bHeight, GaussianFilter);
-
-        MagickSetImageAlphaChannel(wand, RemoveAlphaChannel);
-        MagickSetImageBackgroundColor(wand, color);
-        wand = MagickMergeImageLayers(wand, FlattenLayer);
-
+        MagickResizeImage(wand, bWidth, bHeight, LanczosFilter);
         MagickSetImageFormat(wand, "bmp");
-        MagickTransformImageColorspace(wand, RGBColorspace);
 
         size_t page_size;
         uint8_t *page_data = MagickGetImageBlob(wand, &page_size);
