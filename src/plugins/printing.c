@@ -178,23 +178,23 @@ static int on_raster_pdf(struct platch_obj *object, FlutterPlatformMessageRespon
     );
 }
 
-static int on_printing_info(struct platch_obj *object, FlutterPlatformMessageResponseHandle *responseHandle) {	
-	return platch_respond(
+static int on_printing_info(struct platch_obj *object, FlutterPlatformMessageResponseHandle *responseHandle) {  
+    return platch_respond(
         responseHandle,
         &PLATCH_OBJ_STD_MSG(STDMAP6(
-			STDSTRING("canPrint"),
-			STDBOOL(false),
-			STDSTRING("canShare"),
-			STDBOOL(false),
-			STDSTRING("canRaster"),
-			STDBOOL(true),
-			STDSTRING("canListPrinters"),
-			STDBOOL(false),
-			STDSTRING("directPrint"),
-			STDBOOL(false),
-			STDSTRING("dynamicLayout"),
-			STDBOOL(false)
-		))
+            STDSTRING("canPrint"),
+            STDBOOL(false),
+            STDSTRING("canShare"),
+            STDBOOL(false),
+            STDSTRING("canRaster"),
+            STDBOOL(true),
+            STDSTRING("canListPrinters"),
+            STDBOOL(false),
+            STDSTRING("directPrint"),
+            STDBOOL(false),
+            STDSTRING("dynamicLayout"),
+            STDBOOL(false)
+        ))
     );
 }
 
@@ -202,7 +202,7 @@ static int on_receive(char *channel, struct platch_obj *object, FlutterPlatformM
     const char *method;
     method = object->method;
 
-	if (streq(method, "printingInfo")) {
+    if (streq(method, "printingInfo")) {
         return on_printing_info(object, responseHandle);
     } else if (streq(method, "rasterPdf")) {
         return on_raster_pdf(object, responseHandle);
