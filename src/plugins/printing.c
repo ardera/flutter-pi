@@ -4,7 +4,7 @@
 #include "util/logging.h"
 #include <MagickWand/MagickWand.h>
 
-static void on_page_raster_end(int64_t job, const char* error) {
+static void on_page_raster_end(int64_t job, char* error) {
     struct std_value response = STDMAP1(STDSTRING("job"), STDINT32(job));
     if (error != NULL) {
         response = STDMAP2(STDSTRING("job"), STDINT32(job), STDSTRING("error"), STDSTRING(error));
@@ -53,7 +53,7 @@ static void raster_pdf(const uint8_t *data, size_t size, const int32_t *pages, s
 
     MagickResetIterator(wand);
 
-    auto all_pages = false;
+    bool all_pages = false;
     if (pages_count == 0) {
         all_pages = true;
         pages_count = MagickGetNumberImages(wand);
@@ -65,7 +65,7 @@ static void raster_pdf(const uint8_t *data, size_t size, const int32_t *pages, s
             bool shouldRasterize = false;
 
             //Check if current page is set to be rasterized
-            for(auto pn = 0; pn < pages_count; pn++) {
+            for(size_t pn = 0; pn < pages_count; pn++) {
                 if(pages[pn] == current_page){
                     shouldRasterize = true;
                     break;
@@ -114,7 +114,7 @@ static void raster_pdf(const uint8_t *data, size_t size, const int32_t *pages, s
 
 static int on_raster_pdf(struct platch_obj *object, FlutterPlatformMessageResponseHandle *responseHandle) {
     struct std_value *args, *tmp;
-    uint8_t *data;
+    const uint8_t *data;
     size_t data_length;
     double scale;
     int64_t job;
@@ -179,6 +179,8 @@ static int on_raster_pdf(struct platch_obj *object, FlutterPlatformMessageRespon
 }
 
 static int on_printing_info(struct platch_obj *object, FlutterPlatformMessageResponseHandle *responseHandle) {  
+    (void) object;
+
     return platch_respond(
         responseHandle,
         &PLATCH_OBJ_STD_MSG(STDMAP6(
@@ -199,6 +201,8 @@ static int on_printing_info(struct platch_obj *object, FlutterPlatformMessageRes
 }
 
 static int on_receive(char *channel, struct platch_obj *object, FlutterPlatformMessageResponseHandle *responseHandle) {
+    (void) channel;
+
     const char *method;
     method = object->method;
 
@@ -212,6 +216,8 @@ static int on_receive(char *channel, struct platch_obj *object, FlutterPlatformM
 }
 
 enum plugin_init_result printing_init(struct flutterpi *flutterpi, void **userdata_out) {
+    (void) flutterpi;
+
     int ok;
 
     ok = plugin_registry_set_receiver_locked(PRINTING_CHANNEL, kStandardMethodCall, on_receive);
@@ -225,8 +231,9 @@ enum plugin_init_result printing_init(struct flutterpi *flutterpi, void **userda
 }
 
 void printing_deinit(struct flutterpi *flutterpi, void *userdata) {
+    (void) userdata;
+
     plugin_registry_remove_receiver_v2_locked(flutterpi_get_plugin_registry(flutterpi), PRINTING_CHANNEL);
-    return 0;
 }
 
 FLUTTERPI_PLUGIN("printing plugin", printing_plugin, printing_init, printing_deinit)
