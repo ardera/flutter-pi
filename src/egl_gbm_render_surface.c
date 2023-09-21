@@ -239,7 +239,7 @@ static int egl_gbm_render_surface_init(
     s->egl_config = egl_config;
     s->renderer = gl_renderer_ref(renderer);
     for (int i = 0; i < ARRAY_SIZE(s->locked_fbs); i++) {
-        s->locked_fbs->is_locked = (atomic_flag) ATOMIC_FLAG_INIT;
+        s->locked_fbs[i].is_locked = (atomic_flag) ATOMIC_FLAG_INIT;
     }
     s->locked_front_fb = NULL;
 #ifdef DEBUG
