@@ -81,7 +81,7 @@ static int on_encode(struct platch_obj *object, FlutterPlatformMessageResponseHa
     char* to = (char*) malloc(strlen(data) + 1);
     strcpy(from, data);
 
-    auto res = convert(from, to, strlen(from) + 1, "UTF-8", charset);
+    bool res = convert(from, to, strlen(from) + 1, "UTF-8", charset);
     if(!res)
     {
         return platch_respond_error_std(responseHandle, "error_id", "charset_name_unrecognized", NULL);
@@ -102,7 +102,9 @@ static int on_encode(struct platch_obj *object, FlutterPlatformMessageResponseHa
 }
 
 static int on_available_charsets(struct platch_obj *object, FlutterPlatformMessageResponseHandle *responseHandle) {
-    auto list = (struct std_value[]){ { .type = kStdString, .string_value = "Not available for Linux." }};
+    (void) object;
+
+    struct std_value* list = (struct std_value[]){ { .type = kStdString, .string_value = "Not available for Linux." }};
 
     return platch_respond(
         responseHandle,
@@ -143,6 +145,8 @@ static int on_check(struct platch_obj *object, FlutterPlatformMessageResponseHan
 }
 
 static int on_receive(char *channel, struct platch_obj *object, FlutterPlatformMessageResponseHandle *responseHandle) {
+    (void) channel;
+
     const char *method;
     method = object->method;
 
@@ -158,6 +162,8 @@ static int on_receive(char *channel, struct platch_obj *object, FlutterPlatformM
 }
 
 enum plugin_init_result charset_converter_init(struct flutterpi *flutterpi, void **userdata_out) {
+    (void) flutterpi;
+
     int ok;
 
     ok = plugin_registry_set_receiver_locked(CHARSET_CONVERTER_CHANNEL, kStandardMethodCall, on_receive);
@@ -171,8 +177,9 @@ enum plugin_init_result charset_converter_init(struct flutterpi *flutterpi, void
 }
 
 void charset_converter_deinit(struct flutterpi *flutterpi, void *userdata) {
+    (void) userdata;
+
     plugin_registry_remove_receiver_v2_locked(flutterpi_get_plugin_registry(flutterpi), CHARSET_CONVERTER_CHANNEL);
-    return 0;
 }
 
 FLUTTERPI_PLUGIN("charset converter plugin", charset_converter_plugin, charset_converter_init, charset_converter_deinit)
