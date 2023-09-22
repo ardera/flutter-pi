@@ -1408,19 +1408,47 @@ ATTR_CONST static uint32_t multiply_alpha(uint32_t rgba) {
     return (a << 24) | (b << 16) | (g << 8) | r;
 }
 
+struct buffer_view {
+    void *buffer;
+    unsigned int offset;
+    unsigned int stride;
+    struct vec2i dimensions;
+};
+
+static void buffer_view_set(struct buffer_view *view, struct vec2i pos, uint32_t value) {
+    assert(0 <= pos.x && pos.x < view->dimensions.x);
+    assert(0 <= pos.y && pos.y < view->dimensions.y);
+
+    memcpy(((uint8_t*) view->buffer) + (view->offset + pos.y * view->stride + pos.x * 4), &value, 4);
+}
+
+static struct vec2i vec2i_rotate(int rotation, struct vec2i pos, struct vec2i size) {
+    if (rotation == 0) {
+        return pos;
+    } else if (rotation == 1) {
+        return VEC2I(size.y - pos.y - 1, pos.x);
+    } else if (rotation == 2) {
+        return VEC2I(size.x - pos.x - 1, size.y - pos.y - 1);
+    } else {
+        ASSUME(rotation == 3);
+        return VEC2I(pos.y, size.x - pos.x - 1);
+    }
+}
+
 // Method version of GIMPs generated RLE_DECODE macro.
 // Also converts the pixel values to premultiplied alpha because KMS expects that
 // by default.
-static void run_length_decode(void *image_buf, const void *rle_data, size_t size) {
-    unsigned char *image_buf_cursor;
-    const unsigned char *image_buf_end, *rle_data_cursor;
+static void run_length_decode(struct buffer_view *view, const void *rle_data, struct vec2i rle_image_size, int rotation) {
+    const unsigned char *rle_data_cursor;
+    struct vec2i pos;
 
-    image_buf_cursor = image_buf;
-    image_buf_end = image_buf_cursor + size * 4;
+    assert(rotation == 0 || rotation == 1 || rotation == 2 || rotation == 3);
+
     rle_data_cursor = rle_data;
 
     /* RGBA */
-    while (image_buf_cursor < image_buf_end) {
+    pos = VEC2I(0, 0);
+    while (pos.x < rle_image_size.x && pos.y < rle_image_size.y) {
         unsigned int length = *(rle_data_cursor++);
         if (length & 128) {
             length = length - 128;
@@ -1431,9 +1459,15 @@ static void run_length_decode(void *image_buf, const void *rle_data, size_t size
             rgba = multiply_alpha(rgba);
 
             do {
-                memcpy(image_buf_cursor, &rgba, 4);
-                image_buf_cursor += 4;
+                buffer_view_set(view, vec2i_rotate(rotation, pos, rle_image_size), rgba);
+
+                pos.x += 1;
+                if (pos.x >= rle_image_size.x) {
+                    pos.x = 0;
+                    pos.y += 1;
+                }
             } while (--length);
+
             rle_data_cursor += 4;
         } else {
             do {
@@ -1441,9 +1475,14 @@ static void run_length_decode(void *image_buf, const void *rle_data, size_t size
                 memcpy(&rgba, rle_data_cursor, 4);
 
                 rgba = multiply_alpha(rgba);
+                buffer_view_set(view, vec2i_rotate(rotation, pos, rle_image_size), rgba);
 
-                memcpy(image_buf_cursor, &rgba, 4);
-                image_buf_cursor += 4;
+                pos.x += 1;
+                if (pos.x >= rle_image_size.x) {
+                    pos.x = 0;
+                    pos.y += 1;
+                }
+
                 rle_data_cursor += 4;
             } while (--length);
         }
@@ -1502,7 +1541,37 @@ void *pointer_icon_dup_pixels(const struct pointer_icon *icon) {
         return NULL;
     }
 
-    run_length_decode(buffer, icon->rle_pixel_data, icon->width * icon->height);
+    struct buffer_view view = {
+        .buffer = buffer,
+        .offset = 0,
+        .stride = 0,
+        .dimensions = VEC2I(icon->width, icon->height),
+    };
+
+    run_length_decode(&view, icon->rle_pixel_data, VEC2I(icon->width, icon->height), 0);
+
+    return buffer;
+}
+
+void *pointer_icon_dup_pixels_ext(const struct pointer_icon *icon, int rotation, unsigned int offset, unsigned int stride, struct vec2i size) {
+    void *buffer;
+
+    ASSERT_EQUALS(icon->bytes_per_pixel, 4);
+    assert(rotation == 0 || rotation == 1 || rotation == 2 || rotation == 3);
+
+    buffer = calloc(1, offset + stride * size.y);
+    if (buffer == NULL) {
+        return NULL;
+    }
+
+    struct buffer_view view = {
+        .buffer = buffer,
+        .offset = 0,
+        .stride = 0,
+        .dimensions = VEC2I(icon->width, icon->height),
+    };
+
+    run_length_decode(&view, icon->rle_pixel_data, VEC2I(icon->width, icon->height), rotation);
 
     return buffer;
 }

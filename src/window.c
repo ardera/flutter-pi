@@ -585,6 +585,7 @@ static struct cursor_buffer *cursor_buffer_new(struct drmdev *drmdev, const stru
     struct cursor_buffer *b;
     struct gbm_bo *bo;
     uint32_t fb_id;
+    uint32_t stride;
     struct vec2i size, rotated_size;
     int ok;
 
@@ -615,10 +616,7 @@ static struct cursor_buffer *cursor_buffer_new(struct drmdev *drmdev, const stru
         goto fail_free_b;
     }
 
-    if (gbm_bo_get_stride(bo) != rotated_size.x * 4) {
-        LOG_ERROR("GBM BO has unsupported framebuffer stride %u, expected was: %d\n", gbm_bo_get_stride(bo), size.x * 4);
-        goto fail_destroy_bo;
-    }
+    stride = gbm_bo_get_stride(bo);
 
     uint32_t *pixel_data = pointer_icon_dup_pixels(icon);
     if (pixel_data == NULL) {
@@ -626,15 +624,38 @@ static struct cursor_buffer *cursor_buffer_new(struct drmdev *drmdev, const stru
     }
 
     if (rotation.rotate_0) {
-        ok = gbm_bo_write(bo, pixel_data, gbm_bo_get_stride(bo) * size.y);
-        if (ok != 0) {
-            LOG_ERROR("Couldn't write cursor icon to GBM BO. gbm_bo_write: %s\n", strerror(errno));
-            goto fail_free_duped_pixel_data;
+        // In case the the pixel_data stride matches the GBM bo stride, we can just
+        // copy over the pixels.
+        // Otherwise we need to copy line by line.
+        if (stride == rotated_size.x * 4) {
+            ok = gbm_bo_write(bo, pixel_data, rotated_size.x * rotated_size.y * 4);
+            if (ok != 0) {
+                LOG_ERROR("Couldn't write cursor icon to GBM BO. gbm_bo_write: %s\n", strerror(errno));
+                goto fail_free_duped_pixel_data;
+            }
+        } else {
+            uint8_t *stride_adjusted = malloc(stride * size.y);
+            if (stride_adjusted == NULL) {
+                goto fail_free_duped_pixel_data;
+            }
+
+            for (int y = 0; y < size.y; y++) {
+                memcpy(stride_adjusted + stride * y, pixel_data + size.x * y, size.x * 4);
+            }
+
+            ok = gbm_bo_write(bo, stride_adjusted, stride * size.y);
+
+            free(stride_adjusted);
+
+            if (ok != 0) {
+                LOG_ERROR("Couldn't write cursor icon to GBM BO. gbm_bo_write: %s\n", strerror(errno));
+                goto fail_free_duped_pixel_data;
+            }
         }
     } else {
         ASSUME(rotation.rotate_90 || rotation.rotate_180 || rotation.rotate_270);
 
-        uint32_t *rotated = malloc(size.x * size.y * 4);
+        uint32_t *rotated = malloc(size.y * stride);
         if (rotated == NULL) {
             goto fail_free_duped_pixel_data;
         }
@@ -660,6 +681,8 @@ static struct cursor_buffer *cursor_buffer_new(struct drmdev *drmdev, const stru
                 rotated[buffer_offset] = pixel_data[cursor_offset];
             }
         }
+
+        /// TODO: Implement stride adjusting for rotated cursors
 
         ok = gbm_bo_write(bo, rotated, gbm_bo_get_stride(bo) * rotated_size.y);
 
@@ -1632,8 +1655,8 @@ static int kms_window_set_cursor_locked(
 
             // Check if we can actually scanout with the new cursor pos.
             if (!window->kms.suspended && drmdev_is_master(window->kms.drmdev)) {
-            drmdev_move_cursor(window->kms.drmdev, window->kms.crtc->id, vec2i_sub(pos, window->kms.cursor->hotspot));
-        }
+                drmdev_move_cursor(window->kms.drmdev, window->kms.crtc->id, vec2i_sub(pos, window->kms.cursor->hotspot));
+            }
         }
     } else {
         if (window->kms.cursor != NULL) {
