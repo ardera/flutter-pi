@@ -21,11 +21,283 @@
 
 #define MAX_N_PLANES 4
 
-#define GSTREAMER_VER(major, minor, patch) ((((major) &0xFF) << 16) | (((minor) &0xFF) << 8) | ((patch) &0xFF))
-#define THIS_GSTREAMER_VER GSTREAMER_VER(LIBGSTREAMER_VERSION_MAJOR, LIBGSTREAMER_VERSION_MINOR, LIBGSTREAMER_VERSION_PATCH)
-
 #define DRM_FOURCC_FORMAT "c%c%c%c"
 #define DRM_FOURCC_ARGS(format) (format) & 0xFF, ((format) >> 8) & 0xFF, ((format) >> 16) & 0xFF, ((format) >> 24) & 0xFF
+
+const uint32_t drm_formats[] = {
+
+// Present since Linux 6.1
+#ifdef DRM_FORMAT_C1
+    DRM_FORMAT_C1,
+#endif
+#ifdef DRM_FORMAT_C2
+    DRM_FORMAT_C2,
+#endif
+#ifdef DRM_FORMAT_C4
+    DRM_FORMAT_C4,
+#endif
+    DRM_FORMAT_C8,
+
+// Present since Linux 6.1
+#ifdef DRM_FORMAT_D1
+    DRM_FORMAT_D1,
+#endif
+#ifdef DRM_FORMAT_D2
+    DRM_FORMAT_D2,
+#endif
+#ifdef DRM_FORMAT_D4
+    DRM_FORMAT_D4,
+#endif
+#ifdef DRM_FORMAT_D8
+    DRM_FORMAT_D8,
+#endif
+
+// Present since Linux 6.1
+#ifdef DRM_FORMAT_R1
+    DRM_FORMAT_R1,
+#endif
+#ifdef DRM_FORMAT_R2
+    DRM_FORMAT_R2,
+#endif
+#ifdef DRM_FORMAT_R4
+    DRM_FORMAT_R4,
+#endif
+    DRM_FORMAT_R8,
+
+// Present since Linux 6.
+#ifdef DRM_FORMAT_R10
+    DRM_FORMAT_R10,
+#endif
+#ifdef DRM_FORMAT_R12
+    DRM_FORMAT_R12,
+#endif
+    DRM_FORMAT_R16,
+    DRM_FORMAT_RG88,
+    DRM_FORMAT_GR88,
+    DRM_FORMAT_RG1616,
+    DRM_FORMAT_GR1616,
+    DRM_FORMAT_RGB332,
+    DRM_FORMAT_BGR233,
+    DRM_FORMAT_XRGB4444,
+    DRM_FORMAT_XBGR4444,
+    DRM_FORMAT_RGBX4444,
+    DRM_FORMAT_BGRX4444,
+    DRM_FORMAT_ARGB4444,
+    DRM_FORMAT_ABGR4444,
+    DRM_FORMAT_RGBA4444,
+    DRM_FORMAT_BGRA4444,
+    DRM_FORMAT_XRGB1555,
+    DRM_FORMAT_XBGR1555,
+    DRM_FORMAT_RGBX5551,
+    DRM_FORMAT_BGRX5551,
+    DRM_FORMAT_ARGB1555,
+    DRM_FORMAT_ABGR1555,
+    DRM_FORMAT_RGBA5551,
+    DRM_FORMAT_BGRA5551,
+    DRM_FORMAT_RGB565,
+    DRM_FORMAT_BGR565,
+    DRM_FORMAT_RGB888,
+    DRM_FORMAT_BGR888,
+    DRM_FORMAT_XRGB8888,
+    DRM_FORMAT_XBGR8888,
+    DRM_FORMAT_RGBX8888,
+    DRM_FORMAT_BGRX8888,
+    DRM_FORMAT_ARGB8888,
+    DRM_FORMAT_ABGR8888,
+    DRM_FORMAT_RGBA8888,
+    DRM_FORMAT_BGRA8888,
+    DRM_FORMAT_XRGB2101010,
+    DRM_FORMAT_XBGR2101010,
+    DRM_FORMAT_RGBX1010102,
+    DRM_FORMAT_BGRX1010102,
+    DRM_FORMAT_ARGB2101010,
+    DRM_FORMAT_ABGR2101010,
+    DRM_FORMAT_RGBA1010102,
+    DRM_FORMAT_BGRA1010102,
+
+// Present since Linux 5.14
+#ifdef DRM_FORMAT_XRGB16161616
+    DRM_FORMAT_XRGB16161616,
+#endif
+#ifdef DRM_FORMAT_XBGR16161616
+    DRM_FORMAT_XBGR16161616,
+#endif
+#ifdef DRM_FORMAT_ARGB16161616
+    DRM_FORMAT_ARGB16161616,
+#endif
+#ifdef DRM_FORMAT_ABGR16161616
+    DRM_FORMAT_ABGR16161616,
+#endif
+
+// Present since Linux 5.2
+#ifdef DRM_FORMAT_XRGB16161616F
+    DRM_FORMAT_XRGB16161616F,
+#endif
+#ifdef DRM_FORMAT_XBGR16161616F
+    DRM_FORMAT_XBGR16161616F,
+#endif
+#ifdef DRM_FORMAT_ARGB16161616F
+    DRM_FORMAT_ARGB16161616F,
+#endif
+#ifdef DRM_FORMAT_ABGR16161616F
+    DRM_FORMAT_ABGR16161616F,
+#endif
+
+// Present since Linux 5.11
+#ifdef DRM_FORMAT_AXBXGXRX106106106106
+    DRM_FORMAT_AXBXGXRX106106106106,
+#endif
+    DRM_FORMAT_YUYV,
+    DRM_FORMAT_YVYU,
+    DRM_FORMAT_UYVY,
+    DRM_FORMAT_VYUY,
+    DRM_FORMAT_AYUV,
+
+// Present since Linux 6.1
+#ifdef DRM_FORMAT_AVUY8888
+    DRM_FORMAT_AVUY8888,
+#endif
+
+// Present since Linux 5.2
+#ifdef DRM_FORMAT_XYUV8888
+    DRM_FORMAT_XYUV8888,
+#endif
+
+// Present since Linux 6.1
+#ifdef DRM_FORMAT_XVUY8888
+    DRM_FORMAT_XVUY8888,
+#endif
+
+// Present since Linux 5.2
+#ifdef DRM_FORMAT_VUY888
+    DRM_FORMAT_VUY888,
+#endif
+#ifdef DRM_FORMAT_VUY101010
+    DRM_FORMAT_VUY101010,
+#endif
+
+// Present since Linux 5.2
+#ifdef DRM_FORMAT_Y210
+    DRM_FORMAT_Y210,
+#endif
+#ifdef DRM_FORMAT_Y212
+    DRM_FORMAT_Y212,
+#endif
+#ifdef DRM_FORMAT_Y216
+    DRM_FORMAT_Y216,
+#endif
+#ifdef DRM_FORMAT_Y410
+    DRM_FORMAT_Y410,
+#endif
+#ifdef DRM_FORMAT_Y412
+    DRM_FORMAT_Y412,
+#endif
+#ifdef DRM_FORMAT_Y416
+    DRM_FORMAT_Y416,
+#endif
+#ifdef DRM_FORMAT_XVYU2101010
+    DRM_FORMAT_XVYU2101010,
+#endif
+#ifdef DRM_FORMAT_XVYU12_16161616
+    DRM_FORMAT_XVYU12_16161616,
+#endif
+#ifdef DRM_FORMAT_XVYU16161616
+    DRM_FORMAT_XVYU16161616,
+#endif
+
+// Present since Linux 5.0
+#ifdef DRM_FORMAT_Y0L0
+    DRM_FORMAT_Y0L0,
+#endif
+#ifdef DRM_FORMAT_X0L0
+    DRM_FORMAT_X0L0,
+#endif
+#ifdef DRM_FORMAT_Y0L2
+    DRM_FORMAT_Y0L2,
+#endif
+#ifdef DRM_FORMAT_X0L2
+    DRM_FORMAT_X0L2,
+#endif
+
+// Present since Linux 5.2
+#ifdef DRM_FORMAT_YUV420_8BIT
+    DRM_FORMAT_YUV420_8BIT,
+#endif
+#ifdef DRM_FORMAT_YUV420_10BIT
+    DRM_FORMAT_YUV420_10BIT,
+#endif
+
+#ifdef DRM_FORMAT_XRGB8888_A8
+    DRM_FORMAT_XRGB8888_A8,
+#endif
+#ifdef DRM_FORMAT_XBGR8888_A8
+    DRM_FORMAT_XBGR8888_A8,
+#endif
+#ifdef DRM_FORMAT_RGBX8888_A8
+    DRM_FORMAT_RGBX8888_A8,
+#endif
+#ifdef DRM_FORMAT_BGRX8888_A8
+    DRM_FORMAT_BGRX8888_A8,
+#endif
+#ifdef DRM_FORMAT_RGB888_A8
+    DRM_FORMAT_RGB888_A8,
+#endif
+#ifdef DRM_FORMAT_BGR888_A8
+    DRM_FORMAT_BGR888_A8,
+#endif
+#ifdef DRM_FORMAT_RGB565_A8
+    DRM_FORMAT_RGB565_A8,
+#endif
+#ifdef DRM_FORMAT_BGR565_A8
+    DRM_FORMAT_BGR565_A8,
+#endif
+
+    DRM_FORMAT_NV12,
+    DRM_FORMAT_NV21,
+    DRM_FORMAT_NV16,
+    DRM_FORMAT_NV61,
+    DRM_FORMAT_NV24,
+    DRM_FORMAT_NV42,
+
+#ifdef DRM_FORMAT_NV15
+    DRM_FORMAT_NV15,
+#endif
+
+// Present since Linux 5.2
+#ifdef DRM_FORMAT_P210
+    DRM_FORMAT_P210,
+#endif
+
+
+#ifdef DRM_FORMAT_P010
+    DRM_FORMAT_P010,
+#endif
+#ifdef DRM_FORMAT_P012
+    DRM_FORMAT_P012,
+#endif
+#ifdef DRM_FORMAT_P016
+    DRM_FORMAT_P016,
+#endif
+#ifdef DRM_FORMAT_P030
+    DRM_FORMAT_P030,
+#endif
+#ifdef DRM_FORMAT_Q410
+    DRM_FORMAT_Q410,
+#endif
+#ifdef DRM_FORMAT_Q401
+    DRM_FORMAT_Q401,
+#endif
+    DRM_FORMAT_YUV410,
+    DRM_FORMAT_YVU410,
+    DRM_FORMAT_YUV411,
+    DRM_FORMAT_YVU411,
+    DRM_FORMAT_YUV420,
+    DRM_FORMAT_YVU420,
+    DRM_FORMAT_YUV422,
+    DRM_FORMAT_YVU422,
+    DRM_FORMAT_YUV444,
+    DRM_FORMAT_YVU444,
+};
 
 struct video_frame {
     GstSample *sample;
@@ -180,6 +452,133 @@ fail:
 }
 #endif
 
+bool test_create_image(
+    EGLDisplay display,
+    int fd,
+    uint32_t fourcc,
+    int n_planes,
+    PFNEGLCREATEIMAGEKHRPROC create_image,
+    PFNEGLDESTROYIMAGEKHRPROC destroy_image
+) {
+#define PUT_ATTR(_key, _value)                            \
+    do {                                                  \
+        assert(attr_index + 2 <= ARRAY_SIZE(attributes)); \
+        attributes[attr_index++] = (_key);                \
+        attributes[attr_index++] = (_value);              \
+    } while (false)
+
+    EGLImageKHR image;
+    EGLint attributes[2 * 3 + 3 * 2 * 3 + 1];
+    int attr_index;
+
+    // Start putting together the EGL attributes.
+    attr_index = 0;
+
+#ifndef EGL_EXT_image_dma_buf_import
+    #error "EGL header definitions for extension EGL_EXT_image_dma_buf_import are required."
+#endif
+
+    // first, put some of our basic attributes like
+    // frame size and format
+    PUT_ATTR(EGL_WIDTH, 1);
+    PUT_ATTR(EGL_HEIGHT, 1);
+    PUT_ATTR(EGL_LINUX_DRM_FOURCC_EXT, fourcc);
+
+    // add plane 1
+    PUT_ATTR(EGL_DMA_BUF_PLANE0_FD_EXT, fd);
+    PUT_ATTR(EGL_DMA_BUF_PLANE0_OFFSET_EXT, 0);
+    PUT_ATTR(EGL_DMA_BUF_PLANE0_PITCH_EXT, 16);
+
+    // add plane 2 (if present)
+    if (n_planes >= 2) {
+        PUT_ATTR(EGL_DMA_BUF_PLANE1_FD_EXT, fd);
+        PUT_ATTR(EGL_DMA_BUF_PLANE1_OFFSET_EXT, 0);
+        PUT_ATTR(EGL_DMA_BUF_PLANE1_PITCH_EXT, 16);
+    }
+
+    // add plane 3 (if present)
+    if (n_planes >= 3) {
+        PUT_ATTR(EGL_DMA_BUF_PLANE2_FD_EXT, fd);
+        PUT_ATTR(EGL_DMA_BUF_PLANE2_OFFSET_EXT, 0);
+        PUT_ATTR(EGL_DMA_BUF_PLANE2_PITCH_EXT, 16);
+    }
+
+    // Plane 4 is only supported with `EXT_EGL_image_dmabuf...modifiers`, which
+    // we don't have.
+    if (n_planes >= 4) {
+        return false;
+    }
+
+    assert(attr_index < ARRAY_SIZE(attributes));
+    attributes[attr_index++] = EGL_NONE;
+
+    image = create_image(display, EGL_NO_CONTEXT, EGL_LINUX_DMA_BUF_EXT, NULL, attributes);
+    if (image == EGL_NO_IMAGE_KHR) {
+        return false;
+    }
+    
+    destroy_image(image, image);
+    return true;
+}
+
+bool test_format(
+    struct gl_renderer *renderer,
+    uint32_t fourcc,
+    PFNEGLCREATEIMAGEKHRPROC create_image,
+    PFNEGLDESTROYIMAGEKHRPROC destroy_image,
+    bool *external_only
+) {
+    struct gbm_device *device;
+    struct gbm_bo *bo;
+    int fd;
+    
+    device = gl_renderer_get_gbm_device(renderer);
+    ASSERT_NOT_NULL(device);
+
+    bo = gbm_bo_create(device, 8, 8, DRM_FORMAT_XRGB8888, GBM_BO_USE_LINEAR);
+    if (bo == NULL) {
+        // Could not create a linear GBM bo.
+        return false;
+    }
+
+#ifndef EGL_EXT_image_dma_buf_import
+    #error "EGL header definitions for extension EGL_EXT_image_dma_buf_import are required."
+#endif
+    fd = gbm_bo_get_fd(bo);
+    if (fd < 0) {
+        LOG_ERROR("Couldn't get dmabuf fd.\n");
+        goto fail_destroy_bo;
+    }
+
+    for (int i = 1; i <= MAX_N_PLANES; i++) {
+        bool works = test_create_image(
+            gl_renderer_get_egl_display(renderer),
+            fd,
+            fourcc,
+            i,
+            create_image,
+            destroy_image
+        );
+        if (works) {
+            close(fd);
+            gbm_bo_destroy(bo);
+            *external_only = true;
+            return true;
+        }
+    }
+
+    // Couldn't import the dmabuf.
+    close(fd);
+    gbm_bo_destroy(bo);
+    return false;
+
+
+    fail_destroy_bo:
+    gbm_bo_destroy(bo);
+
+    return false;
+}
+
 struct frame_interface *frame_interface_new(struct gl_renderer *renderer) {
     struct frame_interface *interface;
     struct gbm_device *gbm_device;
@@ -297,18 +696,33 @@ struct frame_interface *frame_interface_new(struct gl_renderer *renderer) {
         //
         /// TODO: For each format, try creating a GBM bo and importing, to see if it
         ///  actually works.
-        static const struct egl_modified_format fallback_formats[] = {
-            {DRM_FORMAT_ARGB8888, DRM_FORMAT_MOD_INVALID, false},
-            {DRM_FORMAT_XRGB8888, DRM_FORMAT_MOD_INVALID, false},
-            {DRM_FORMAT_YUYV, DRM_FORMAT_MOD_INVALID, false},
-            {DRM_FORMAT_NV12, DRM_FORMAT_MOD_INVALID, false},
-            {DRM_FORMAT_YUV420, DRM_FORMAT_MOD_INVALID, false},
-            {DRM_FORMAT_YUV444, DRM_FORMAT_MOD_INVALID, false},
-            {DRM_FORMAT_XYUV8888, DRM_FORMAT_MOD_INVALID, false},
-        };
+        // static const struct egl_modified_format fallback_formats[] = {
+        //     {DRM_FORMAT_ARGB8888, DRM_FORMAT_MOD_INVALID, false},
+        //     {DRM_FORMAT_XRGB8888, DRM_FORMAT_MOD_INVALID, false},
+        //     {DRM_FORMAT_YUYV, DRM_FORMAT_MOD_INVALID, true},
+        //     {DRM_FORMAT_NV12, DRM_FORMAT_MOD_INVALID, true},
+        //     {DRM_FORMAT_YUV420, DRM_FORMAT_MOD_INVALID, true},
+        //     {DRM_FORMAT_YUV444, DRM_FORMAT_MOD_INVALID, true},
+        //     {DRM_FORMAT_XYUV8888, DRM_FORMAT_MOD_INVALID, true},
+        // };
 
-        n_formats = ARRAY_SIZE(fallback_formats);
-        formats = memdup(fallback_formats, sizeof(fallback_formats));
+        formats = calloc(ARRAY_SIZE(drm_formats), sizeof *formats);
+        if (formats == NULL) {
+            goto fail_destroy_context;
+        }
+
+        n_formats = 0;
+        for (int i = 0; i < ARRAY_SIZE(drm_formats); i++) {
+            uint32_t fourcc = drm_formats[i];
+
+            bool external_only;
+            bool works = test_format(renderer, fourcc, create_image, destroy_image, &external_only);
+            if (!works) {
+                continue;
+            }
+
+            formats[n_formats++] = (struct egl_modified_format) {fourcc, DRM_FORMAT_MOD_INVALID, external_only};
+        }
     }
 
     interface->gbm_device = gbm_device;
@@ -392,12 +806,12 @@ UNUSED int dup_gst_buffer_range_as_dmabuf(struct gbm_device *gbm_device, GstBuff
     }
 
     map_data = NULL;
-    map = gbm_bo_map(bo, 0, 0, map_info.size, 1, GBM_BO_TRANSFER_WRITE, &stride, &map_data);
+    map = gbm_bo_map(bo, 0, 0, gbm_bo_get_width(bo), gbm_bo_get_height(bo), GBM_BO_TRANSFER_WRITE, &stride, &map_data);
     if (map == NULL) {
         LOG_ERROR("Couldn't mmap GBM BO to copy video frame into it.\n");
         goto fail_destroy_bo;
     }
-
+    
     memcpy(map, map_info.data, map_info.size);
 
     gbm_bo_unmap(bo, map_data);
@@ -448,7 +862,7 @@ UNUSED int dup_gst_memory_as_dmabuf(struct gbm_device *gbm_device, GstMemory *me
     }
 
     map_data = NULL;
-    map = gbm_bo_map(bo, 0, 0, map_info.size, 1, GBM_BO_TRANSFER_WRITE, &stride, &map_data);
+    map = gbm_bo_map(bo, 0, 0, gbm_bo_get_width(bo), gbm_bo_get_height(bo), GBM_BO_TRANSFER_WRITE, &stride, &map_data);
     if (map == NULL) {
         LOG_ERROR("Couldn't mmap GBM BO to copy video frame into it.\n");
         goto fail_destroy_bo;
@@ -481,8 +895,6 @@ struct plane_info {
     int fd;
     uint32_t offset;
     uint32_t pitch;
-    bool has_modifier;
-    uint64_t modifier;
 };
 
 #if THIS_GSTREAMER_VER < GSTREAMER_VER(1, 14, 0)
@@ -690,12 +1102,6 @@ get_plane_infos(GstBuffer *buffer, const GstVideoInfo *info, struct gbm_device *
 
         plane_infos[i].offset = offset_in_memory;
         plane_infos[i].pitch = stride;
-
-        /// TODO: Detect modifiers here
-        /// Modifiers will be supported in future gstreamer, see:
-        /// https://gstreamer.freedesktop.org/documentation/additional/design/dmabuf.html?gi-language=c
-        plane_infos[i].has_modifier = false;
-        plane_infos[i].modifier = DRM_FORMAT_MOD_LINEAR;
         continue;
 
 fail_close_fds:
@@ -842,6 +1248,7 @@ struct video_frame *frame_new(struct frame_interface *interface, GstSample *samp
     GstBuffer *buffer;
     EGLImageKHR egl_image;
     gboolean gst_ok;
+    uint64_t modifier;
     uint32_t drm_format;
     GstCaps *caps;
     GLuint texture;
@@ -849,6 +1256,7 @@ struct video_frame *frame_new(struct frame_interface *interface, GstSample *samp
     EGLint egl_error;
     EGLint attributes[2 * 7 + MAX_N_PLANES * 2 * 5 + 1];
     EGLint egl_color_space, egl_sample_range_hint, egl_horizontal_chroma_siting, egl_vertical_chroma_siting;
+    bool has_drm_format, has_modifier;
     int ok, width, height, n_planes, attr_index;
 
     buffer = gst_sample_get_buffer(sample);
@@ -857,14 +1265,16 @@ struct video_frame *frame_new(struct frame_interface *interface, GstSample *samp
         return NULL;
     }
 
+    caps = gst_sample_get_caps(sample);
+
     // If we don't have an explicit info given, we determine it from the sample caps.
     if (info == NULL) {
-        caps = gst_sample_get_caps(sample);
+        info = &_info;
+
         if (caps == NULL) {
+            LOG_ERROR("Could not get video sample caps to determine video format.\n");
             return NULL;
         }
-
-        info = &_info;
 
         gst_ok = gst_video_info_from_caps(&_info, caps);
         if (gst_ok == FALSE) {
@@ -880,25 +1290,72 @@ struct video_frame *frame_new(struct frame_interface *interface, GstSample *samp
     height = GST_VIDEO_INFO_HEIGHT(info);
     n_planes = GST_VIDEO_INFO_N_PLANES(info);
 
-    // query the drm format for this sample
-    drm_format = drm_format_from_gst_info(info);
-    if (drm_format == DRM_FORMAT_INVALID) {
-        LOG_ERROR("Video format has no EGL equivalent.\n");
-        return NULL;
+    has_drm_format = false;
+    has_modifier = false;
+    
+#if THIS_GSTREAMER_VER >= GSTREAMER_VER(1, 24, 0)
+    if (caps != NULL && gst_video_is_dma_drm_caps(caps)) {
+        GstVideoInfoDmaDrm modified_format;
+        
+        if (gst_video_info_dma_drm_from_caps(&modified_format, caps)) {
+            drm_format = modified_format.drm_fourcc;
+            has_drm_format = true;
+
+            modifier = modified_format.drm_modifier;
+            has_modifier = true;
+        }
+    }
+#endif
+
+    if (!has_drm_format) {
+        // query the drm format for this sample
+        drm_format = drm_format_from_gst_info(info);
+        if (drm_format == DRM_FORMAT_INVALID) {
+            LOG_ERROR("Video format has no EGL equivalent.\n");
+            return NULL;
+        }
+
+        has_drm_format = true;
+
+        // gstreamer buffers, if not explicitly specified, are linearly tiled.
+        modifier = DRM_FORMAT_MOD_LINEAR;
+        has_modifier = true;
     }
 
     bool external_only;
+
     for_each_format_in_frame_interface(i, format, interface) {
-        if (format->format == drm_format && format->modifier == DRM_FORMAT_MOD_LINEAR) {
+        if (format->format == drm_format && format->modifier == modifier) {
+            external_only = format->external_only;
+            goto format_supported;
+        }
+    }
+
+    // If we get here, the format and modifier is not listed as supported.
+    // in that case, we try importing without a modifier (DRM_FORMAT_MOD_INVALID)
+    // hope that's supported.
+    uint64_t original_modifier = modifier;
+
+    // We specify the EGL plane modifiers below only if has_modifier is set.
+    // EGL will internally fall back to DRM_FORMAT_MOD_INVALID if no modifier
+    // is specified, so we can just avoid giving EGL a modifier at all in this case
+    // and be compatible to non-explicit-modifier-supporting EGL.
+    has_modifier = false;
+    modifier = DRM_FORMAT_MOD_INVALID;
+
+    for_each_format_in_frame_interface(i, format, interface) {
+        if (format->format == drm_format && format->modifier == modifier) {
             external_only = format->external_only;
             goto format_supported;
         }
     }
 
     LOG_ERROR(
-        "Video format is not supported by EGL: %" DRM_FOURCC_FORMAT " (modifier: %" PRIu64 ").\n",
+        "Video format is not supported by EGL: %" DRM_FOURCC_FORMAT " & modifier: 0x%" PRIx64 ", or modifier "
+        "0x%" PRIx64 " (== DRM_FORMAT_MOD_INVALID).\n",
         DRM_FOURCC_ARGS(drm_format),
-        (uint64_t) DRM_FORMAT_MOD_LINEAR
+        (uint64_t) original_modifier,
+        (uint64_t) DRM_FORMAT_MOD_INVALID
     );
     return NULL;
 
@@ -961,11 +1418,11 @@ format_supported:
     PUT_ATTR(EGL_DMA_BUF_PLANE0_FD_EXT, planes[0].fd);
     PUT_ATTR(EGL_DMA_BUF_PLANE0_OFFSET_EXT, planes[0].offset);
     PUT_ATTR(EGL_DMA_BUF_PLANE0_PITCH_EXT, planes[0].pitch);
-    if (planes[0].has_modifier) {
+    if (has_modifier) {
         if (interface->supports_extended_imports) {
 #ifdef EGL_EXT_image_dma_buf_import_modifiers
-            PUT_ATTR(EGL_DMA_BUF_PLANE0_MODIFIER_LO_EXT, uint32_to_int32(planes[0].modifier & 0xFFFFFFFFlu));
-            PUT_ATTR(EGL_DMA_BUF_PLANE0_MODIFIER_HI_EXT, uint32_to_int32(planes[0].modifier >> 32));
+            PUT_ATTR(EGL_DMA_BUF_PLANE0_MODIFIER_LO_EXT, uint32_to_int32(modifier & 0xFFFFFFFFlu));
+            PUT_ATTR(EGL_DMA_BUF_PLANE0_MODIFIER_HI_EXT, uint32_to_int32(modifier >> 32));
 #else
             UNREACHABLE();
 #endif
@@ -982,11 +1439,11 @@ format_supported:
         PUT_ATTR(EGL_DMA_BUF_PLANE1_FD_EXT, planes[1].fd);
         PUT_ATTR(EGL_DMA_BUF_PLANE1_OFFSET_EXT, planes[1].offset);
         PUT_ATTR(EGL_DMA_BUF_PLANE1_PITCH_EXT, planes[1].pitch);
-        if (planes[1].has_modifier) {
+        if (has_modifier) {
             if (interface->supports_extended_imports) {
 #ifdef EGL_EXT_image_dma_buf_import_modifiers
-                PUT_ATTR(EGL_DMA_BUF_PLANE1_MODIFIER_LO_EXT, uint32_to_int32(planes[1].modifier & 0xFFFFFFFFlu));
-                PUT_ATTR(EGL_DMA_BUF_PLANE1_MODIFIER_HI_EXT, uint32_to_int32(planes[1].modifier >> 32));
+                PUT_ATTR(EGL_DMA_BUF_PLANE1_MODIFIER_LO_EXT, uint32_to_int32(modifier & 0xFFFFFFFFlu));
+                PUT_ATTR(EGL_DMA_BUF_PLANE1_MODIFIER_HI_EXT, uint32_to_int32(modifier >> 32));
 #else
                 UNREACHABLE();
 #endif
@@ -1005,11 +1462,11 @@ format_supported:
         PUT_ATTR(EGL_DMA_BUF_PLANE2_FD_EXT, planes[2].fd);
         PUT_ATTR(EGL_DMA_BUF_PLANE2_OFFSET_EXT, planes[2].offset);
         PUT_ATTR(EGL_DMA_BUF_PLANE2_PITCH_EXT, planes[2].pitch);
-        if (planes[2].has_modifier) {
+        if (has_modifier) {
             if (interface->supports_extended_imports) {
 #ifdef EGL_EXT_image_dma_buf_import_modifiers
-                PUT_ATTR(EGL_DMA_BUF_PLANE2_MODIFIER_LO_EXT, uint32_to_int32(planes[2].modifier & 0xFFFFFFFFlu));
-                PUT_ATTR(EGL_DMA_BUF_PLANE2_MODIFIER_HI_EXT, uint32_to_int32(planes[2].modifier >> 32));
+                PUT_ATTR(EGL_DMA_BUF_PLANE2_MODIFIER_LO_EXT, uint32_to_int32(modifier & 0xFFFFFFFFlu));
+                PUT_ATTR(EGL_DMA_BUF_PLANE2_MODIFIER_HI_EXT, uint32_to_int32(modifier >> 32));
 #else
                 UNREACHABLE();
 #endif
@@ -1037,9 +1494,9 @@ format_supported:
         PUT_ATTR(EGL_DMA_BUF_PLANE3_FD_EXT, planes[3].fd);
         PUT_ATTR(EGL_DMA_BUF_PLANE3_OFFSET_EXT, planes[3].offset);
         PUT_ATTR(EGL_DMA_BUF_PLANE3_PITCH_EXT, planes[3].pitch);
-        if (planes[3].has_modifier) {
-            PUT_ATTR(EGL_DMA_BUF_PLANE3_MODIFIER_LO_EXT, uint32_to_int32(planes[3].modifier & 0xFFFFFFFFlu));
-            PUT_ATTR(EGL_DMA_BUF_PLANE3_MODIFIER_HI_EXT, uint32_to_int32(planes[3].modifier >> 32));
+        if (has_modifier) {
+            PUT_ATTR(EGL_DMA_BUF_PLANE3_MODIFIER_LO_EXT, uint32_to_int32(modifier & 0xFFFFFFFFlu));
+            PUT_ATTR(EGL_DMA_BUF_PLANE3_MODIFIER_HI_EXT, uint32_to_int32(modifier >> 32));
         }
 #else
         UNREACHABLE();

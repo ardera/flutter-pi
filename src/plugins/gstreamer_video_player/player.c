@@ -688,6 +688,10 @@ static GstPadProbeReturn on_probe_pad(GstPad *pad, GstPadProbeInfo *info, void *
         LOG_ERROR("gstreamer: caps event without caps\n");
         return GST_PAD_PROBE_OK;
     }
+    
+    char *caps_str = gst_caps_to_string(caps);
+    LOG_DEBUG("fixed caps: %s\n", caps_str);
+    free(caps_str);
 
     ok = gst_video_info_from_caps(&player->gst_info, caps);
     if (!ok) {
@@ -918,14 +922,102 @@ static int init(struct gstplayer *player, bool force_sw_decoders) {
     // we only accept video formats that we can actually upload to EGL
     if (frame_interface_get_n_formats(player->frame_interface) > 0) {
         GstCaps *caps = gst_caps_new_empty();
+        GstCaps *sysmem_caps = gst_caps_new_empty();
+        GstCaps *casted_caps = gst_caps_new_empty();
+        GstCaps *casted_sysmem_caps = gst_caps_new_empty();
+        
         for_each_format_in_frame_interface(i, format, player->frame_interface) {
-            GstVideoFormat gst_format = gst_video_format_from_drm_format(format->format);
-            if (gst_format == GST_VIDEO_FORMAT_UNKNOWN) {
-                continue;
+            
+            // GST_VIDEO_FORMAT_DMA_DRM (and drm fourcc+modifier caps) is >=1.24 only.
+#if THIS_GSTREAMER_VER >= GSTREAMER_VER(1, 24, 0)
+            char *formatstr;
+
+            if (format->modifier != DRM_FORMAT_MOD_LINEAR) {
+                ok = asprintf(&formatstr, "%" GST_FOURCC_FORMAT ":0x%X", GST_FOURCC_ARGS(format->format), format->modifier);
+            } else {
+                ok = asprintf(&formatstr, "%" GST_FOURCC_FORMAT, GST_FOURCC_ARGS(format->format));
             }
 
-            gst_caps_append(caps, gst_caps_new_simple("video/x-raw", "format", G_TYPE_STRING, gst_video_format_to_string(gst_format), NULL));
+            if (ok < 0) {
+                ok = ENOMEM;
+                gst_caps_unref(caps);
+                if (src != NULL) gst_object_unref(src);
+                goto fail_unref_sink;
+            }
+
+            /// TODO: Use constant for `DMA_DRM` string
+            gst_caps_append_structure_full(
+                caps,
+                gst_structure_new(
+                    "video/x-raw",
+                    "format", G_TYPE_STRING, gst_video_format_to_string(GST_VIDEO_FORMAT_DMA_DRM),
+                    "drm-format", G_TYPE_STRING, formatstr,
+                    NULL
+                ),
+                gst_caps_features_new_single(GST_CAPS_FEATURE_MEMORY_DMABUF)
+            );
+
+            free(formatstr);
+#endif
+
+            if (format->modifier == DRM_FORMAT_MOD_LINEAR || format->modifier == DRM_FORMAT_MOD_INVALID) {
+                GstVideoFormat gst_format = gst_video_format_from_drm_format(format->format);
+                if (gst_format == GST_VIDEO_FORMAT_UNKNOWN) {
+                    continue;
+                }
+
+                /// TODO: Specify correct width & height, pixel aspect ratio?
+                gst_caps_append_structure_full(
+                    format->modifier == DRM_FORMAT_MOD_LINEAR ? caps : casted_caps,
+                    gst_structure_new(
+                        "video/x-raw",
+                        "format", G_TYPE_STRING, gst_video_format_to_string(gst_format),
+                        NULL
+                    ),
+                    gst_caps_features_new_single(GST_CAPS_FEATURE_MEMORY_DMABUF)
+                );
+
+                gst_caps_append_structure_full(
+                    format->modifier == DRM_FORMAT_MOD_LINEAR ? sysmem_caps : casted_sysmem_caps,
+                    gst_structure_new(
+                        "video/x-raw",
+                        "format", G_TYPE_STRING, gst_video_format_to_string(gst_format),
+                        NULL
+                    ),
+                    gst_caps_features_new_single(GST_CAPS_FEATURE_MEMORY_SYSTEM_MEMORY)
+                );
+            }
         }
+
+        // gst_caps_simplify can reorder the caps (change the priorities)
+        // so we simplify dmabuf caps & sysmem caps separately so at least
+        // those are still well-ordered.
+        caps = gst_caps_simplify(caps);
+
+        // Importing from system memory is slower than from dmabuf, so rank
+        // those lower.
+        sysmem_caps = gst_caps_simplify(sysmem_caps);
+
+        // Those are formats that are supported by EGL, but not with an explicit modifier.
+        // Gstreamer buffers _are_ explicitly linearly tiled though, so importing these
+        // without a modifier might not be correct. Hence they're sorted at the bottom.
+        
+        // Some of those formats might already be listed inside caps, so substract
+        // them here.
+        casted_caps = gst_caps_subtract(casted_caps, caps);
+        casted_caps = gst_caps_simplify(casted_caps);
+
+        casted_sysmem_caps = gst_caps_subtract(casted_sysmem_caps, caps);
+        casted_sysmem_caps = gst_caps_simplify(casted_sysmem_caps);
+
+        gst_caps_append(caps, sysmem_caps);
+        gst_caps_append(caps, casted_caps);
+        gst_caps_append(caps, casted_sysmem_caps);
+        
+        char *caps_str = gst_caps_to_string(caps);
+        LOG_DEBUG("caps: %s\n", caps_str);
+        free(caps_str);
+        
         gst_app_sink_set_caps(GST_APP_SINK(sink), caps);
         gst_caps_unref(caps);
     }
