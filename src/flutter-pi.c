@@ -2189,8 +2189,9 @@ static void on_session_enable(struct libseat *seat, void *userdata) {
     (void) fpi;
     (void) seat;
 
-    /// TODO: Implement
     LOG_DEBUG("on_session_enable\n");
+
+    compositor_resume(fpi->compositor);
 
     if (fpi->user_input != NULL) {
         ok = user_input_resume(fpi->user_input);
@@ -2198,13 +2199,6 @@ static void on_session_enable(struct libseat *seat, void *userdata) {
             LOG_ERROR("Couldn't resume user input handling.\n");
         }
     }
-
-    // if (fpi->drmdev != NULL) {
-    //     ok = drmdev_resume(fpi->drmdev);
-    //     if (ok != 0) {
-    //         LOG_ERROR("Couldn't resume drmdev.\n");
-    //     }
-    // }
 
     fpi->session_active = true;
 }
@@ -2217,16 +2211,19 @@ static void on_session_disable(struct libseat *seat, void *userdata) {
     fpi = userdata;
     (void) fpi;
 
-    /// TODO: Implement
     LOG_DEBUG("on_session_disable\n");
+
+    /// TODO: libseat will drop the DRM master automatically (maybe
+    ///  we should drop it ourselves?), meaning other processes can and
+    ///  will change DRM props.
+    ///  We should notify modesetting we need to refresh DRM state once
+    ///  we become master again.
+
+    compositor_suspend(fpi->compositor);
 
     if (fpi->user_input != NULL) {
         user_input_suspend(fpi->user_input);
     }
-
-    // if (fpi->drmdev != NULL) {
-    //     drmdev_suspend(fpi->drmdev);
-    // }
 
     libseat_disable_seat(seat);
 

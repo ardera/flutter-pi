@@ -579,3 +579,15 @@ void compositor_set_cursor(
 
     compositor_unlock(compositor);
 }
+
+void compositor_suspend(struct compositor *compositor) {
+    compositor_lock(compositor);
+    window_suspend(compositor->main_window);
+    compositor_unlock(compositor);
+}
+
+void compositor_resume(struct compositor *compositor) {
+    compositor_lock(compositor);
+    window_resume(compositor->main_window);
+    compositor_unlock(compositor);
+}

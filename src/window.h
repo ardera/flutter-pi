@@ -128,4 +128,8 @@ int window_set_cursor(
     // clang-format on
 );
 
+void window_suspend(struct window *window);
+
+void window_resume(struct window *window);
+
 #endif  // _FLUTTERPI_SRC_WINDOW_H

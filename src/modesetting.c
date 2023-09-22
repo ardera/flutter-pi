@@ -128,7 +128,7 @@ struct drmdev {
     struct list_head fbs;
 };
 
-static bool is_drm_master(int fd) {
+static bool is_master_fd(int fd) {
     return drmAuthMagic(fd, 0) != -EACCES;
 }
 
@@ -1753,93 +1753,6 @@ int drmdev_rm_fb(struct drmdev *drmdev, uint32_t fb_id) {
     return ok;
 }
 
-bool drmdev_can_modeset(struct drmdev *drmdev) {
-    bool can_modeset;
-
-    ASSERT_NOT_NULL(drmdev);
-
-    drmdev_lock(drmdev);
-
-    can_modeset = drmdev->master_fd > 0;
-
-    drmdev_unlock(drmdev);
-
-    return can_modeset;
-}
-
-void drmdev_suspend(struct drmdev *drmdev) {
-    ASSERT_NOT_NULL(drmdev);
-
-    drmdev_lock(drmdev);
-
-    if (drmdev->master_fd <= 0) {
-        LOG_ERROR("drmdev_suspend was called, but drmdev is already suspended\n");
-        drmdev_unlock(drmdev);
-        return;
-    }
-
-    drmdev->interface.close(drmdev->master_fd, drmdev->master_fd_metadata, drmdev->userdata);
-    drmdev->master_fd = -1;
-    drmdev->master_fd_metadata = NULL;
-
-    drmdev_unlock(drmdev);
-}
-
-int drmdev_resume(struct drmdev *drmdev) {
-    drmDevicePtr device;
-    void *fd_metadata;
-    int ok, master_fd;
-
-    ASSERT_NOT_NULL(drmdev);
-
-    drmdev_lock(drmdev);
-
-    if (drmdev->master_fd > 0) {
-        ok = EINVAL;
-        LOG_ERROR("drmdev_resume was called, but drmdev is already resumed\n");
-        goto fail_unlock;
-    }
-
-    ok = drmGetDevice(drmdev->fd, &device);
-    if (ok < 0) {
-        ok = errno;
-        LOG_ERROR("Couldn't query DRM device info. drmGetDevice: %s\n", strerror(ok));
-        goto fail_unlock;
-    }
-
-    ok = drmdev->interface.open(device->nodes[DRM_NODE_PRIMARY], O_CLOEXEC | O_NONBLOCK, &fd_metadata, drmdev->userdata);
-    if (ok < 0) {
-        ok = -ok;
-        LOG_ERROR("Couldn't open DRM device.\n");
-        goto fail_free_device;
-    }
-
-    master_fd = ok;
-
-    drmFreeDevice(&device);
-
-    ok = set_drm_client_caps(master_fd, NULL);
-    if (ok != 0) {
-        goto fail_close_device;
-    }
-
-    drmdev->master_fd = master_fd;
-    drmdev->master_fd_metadata = fd_metadata;
-    drmdev_unlock(drmdev);
-    return 0;
-
-fail_close_device:
-    drmdev->interface.close(master_fd, fd_metadata, drmdev->userdata);
-    goto fail_unlock;
-
-fail_free_device:
-    drmFreeDevice(&device);
-
-fail_unlock:
-    drmdev_unlock(drmdev);
-    return ok;
-}
-
 int drmdev_move_cursor(struct drmdev *drmdev, uint32_t crtc_id, struct vec2i pos) {
     int ok = drmModeMoveCursor(drmdev->master_fd, crtc_id, pos.x, pos.y);
     if (ok < 0) {
@@ -1848,6 +1761,11 @@ int drmdev_move_cursor(struct drmdev *drmdev, uint32_t crtc_id, struct vec2i pos
     }
 
     return 0;
+}
+
+bool drmdev_is_master(struct drmdev *drmdev) {
+    ASSERT_NOT_NULL(drmdev);
+    return is_master_fd(drmdev->master_fd);
 }
 
 static void drmdev_set_scanout_callback_locked(
@@ -2593,7 +2511,7 @@ kms_req_commit_common(struct kms_req *req, bool blocking, kms_scanout_cb_t scano
         goto fail_unlock;
     }
 
-    if (!is_drm_master(builder->drmdev->master_fd)) {
+    if (!is_master_fd(builder->drmdev->master_fd)) {
         LOG_ERROR("Commit requested, but drmdev is paused right now.\n");
         ok = EBUSY;
         goto fail_unlock;

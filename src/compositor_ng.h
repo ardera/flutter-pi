@@ -194,6 +194,10 @@ void compositor_set_cursor(
     struct vec2f delta
 );
 
+void compositor_suspend(struct compositor *compositor);
+
+void compositor_resume(struct compositor *compositor);
+
 struct fl_layer_composition;
 
 struct fl_layer_composition *fl_layer_composition_new(size_t n_layers);

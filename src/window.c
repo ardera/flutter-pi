@@ -171,6 +171,8 @@ struct window {
 
         const struct pointer_icon *pointer_icon;
         struct cursor_buffer *cursor;
+
+        bool suspended;
     } kms;
 
     /**
@@ -231,8 +233,16 @@ struct window {
     EGLSurface (*get_egl_surface)(struct window *window);
 #endif
 
-    int (*set_cursor_locked
-    )(struct window *window, bool has_enabled, bool enabled, bool has_kind, enum pointer_kind kind, bool has_pos, struct vec2i pos);
+    // clang-format off
+    int (*set_cursor_locked)(
+        struct window *window,
+        bool has_enabled, bool enabled,
+        bool has_kind, enum pointer_kind kind,
+        bool has_pos, struct vec2i pos
+    );
+    // clang-format on
+    void (*suspend)(struct window *window);
+    void (*resume)(struct window *window);
     void (*deinit)(struct window *window);
 };
 
@@ -407,6 +417,8 @@ static int window_init(
     window->get_egl_surface = NULL;
 #endif
     window->set_cursor_locked = NULL;
+    window->suspend = NULL;
+    window->resume = NULL;
     window->deinit = window_deinit;
     return 0;
 }
@@ -520,6 +532,18 @@ int window_set_cursor(
     window_unlock(window);
 
     return ok;
+}
+
+void window_suspend(struct window *window) {
+    ASSERT_NOT_NULL(window);
+    ASSERT_NOT_NULL(window->suspend);
+    window->suspend(window);
+}
+
+void window_resume(struct window *window) {
+    ASSERT_NOT_NULL(window);
+    ASSERT_NOT_NULL(window->resume);
+    window->resume(window);
 }
 
 struct cursor_buffer {
@@ -878,6 +902,8 @@ static int kms_window_set_cursor_locked(
     bool has_pos, struct vec2i pos
     // clang-format on
 );
+static void kms_window_suspend(struct window *window);
+static void kms_window_resume(struct window *window);
 
 MUST_CHECK struct window *kms_window_new(
     // clang-format off
@@ -990,6 +1016,7 @@ MUST_CHECK struct window *kms_window_new(
     window->kms.should_apply_mode = true;
     window->kms.cursor = NULL;
     window->kms.pointer_icon = NULL;
+    window->kms.suspended = false;
     window->renderer_type = renderer_type;
     if (gl_renderer != NULL) {
 #ifdef HAVE_EGL_GLES2
@@ -1015,6 +1042,8 @@ MUST_CHECK struct window *kms_window_new(
 #endif
     window->deinit = kms_window_deinit;
     window->set_cursor_locked = kms_window_set_cursor_locked;
+    window->suspend = kms_window_suspend;
+    window->resume = kms_window_resume;
     return window;
 
 fail_free_window:
@@ -1118,41 +1147,25 @@ static void on_cancel_frame(void *userdata) {
     free(frame);
 }
 
-static int kms_window_push_composition_locked(struct window *window, struct fl_layer_composition *composition) {
+static int kms_window_scanout_composition_with_cursor_locked(
+    struct window *window,
+    struct fl_layer_composition *composition,
+    bool apply_mode,
+    struct cursor_buffer *cursor,
+    struct vec2i cursor_pos
+) {
     struct kms_req_builder *builder;
     struct kms_req *req;
     struct frame *frame;
     int ok;
 
-    ASSERT_NOT_NULL(window);
-    ASSERT_NOT_NULL(composition);
-
-    // If flutter won't request frames (because the vsync callback is broken),
-    // we'll wait here for the previous frame to be presented / rendered.
-    // Otherwise the surface_swap_buffers at the bottom might allocate an
-    // additional buffer and we'll potentially use more buffers than we're
-    // trying to use.
-    // if (!window->use_frame_requests) {
-    //     TRACER_BEGIN(window->tracer, "window_request_frame_and_wait_for_begin");
-    //     ok = window_request_frame_and_wait_for_begin(window);
-    //     TRACER_END(window->tracer, "window_request_frame_and_wait_for_begin");
-    //     if (ok != 0) {
-    //         LOG_ERROR("Could not wait for frame begin.\n");
-    //         return ok;
-    //     }
-    // }
-
-    /// TODO: If we don't have new revisions, we don't need to scanout anything.
-    fl_layer_composition_swap_ptrs(&window->composition, composition);
-
     builder = drmdev_create_request_builder(window->kms.drmdev, window->kms.crtc->id);
     if (builder == NULL) {
-        ok = ENOMEM;
-        goto fail_unref_builder;
+        return 0;
     }
 
     // We only set the mode once, at the first atomic request.
-    if (window->kms.should_apply_mode) {
+    if (apply_mode) {
         ok = kms_req_builder_set_connector(builder, window->kms.connector->id);
         if (ok != 0) {
             LOG_ERROR("Couldn't select connector.\n");
@@ -1177,22 +1190,22 @@ static int kms_window_push_composition_locked(struct window *window, struct fl_l
     }
 
     // add cursor infos
-    if (window->kms.cursor != NULL) {
+    if (cursor != NULL) {
         ok = kms_req_builder_push_fb_layer(
             builder,
             &(const struct kms_fb_layer){
-                .drm_fb_id = window->kms.cursor->drm_fb_id,
-                .format = window->kms.cursor->format,
+                .drm_fb_id = cursor->drm_fb_id,
+                .format = cursor->format,
                 .has_modifier = true,
                 .modifier = DRM_FORMAT_MOD_LINEAR,
                 .src_x = 0,
                 .src_y = 0,
-                .src_w = ((uint16_t) window->kms.cursor->width) << 16,
-                .src_h = ((uint16_t) window->kms.cursor->height) << 16,
-                .dst_x = window->cursor_pos.x - window->kms.cursor->hotspot.x,
-                .dst_y = window->cursor_pos.y - window->kms.cursor->hotspot.y,
-                .dst_w = window->kms.cursor->width,
-                .dst_h = window->kms.cursor->height,
+                .src_w = ((uint16_t) cursor->width) << 16,
+                .src_h = ((uint16_t) cursor->height) << 16,
+                .dst_x = cursor_pos.x - cursor->hotspot.x,
+                .dst_y = cursor_pos.y - cursor->hotspot.y,
+                .dst_w = cursor->width,
+                .dst_h = cursor->height,
                 .has_rotation = false,
                 .rotation = PLANE_TRANSFORM_NONE,
                 .has_in_fence_fd = false,
@@ -1201,17 +1214,18 @@ static int kms_window_push_composition_locked(struct window *window, struct fl_l
             },
             cursor_buffer_unref_with_locked_drmdev,
             NULL,
-            window->kms.cursor
+            cursor
         );
         if (ok != 0) {
             LOG_ERROR("Couldn't present cursor.\n");
         } else {
-            cursor_buffer_ref(window->kms.cursor);
+            cursor_buffer_ref(cursor);
         }
     }
 
     req = kms_req_builder_build(builder);
     if (req == NULL) {
+        ok = ENOMEM;
         goto fail_unref_builder;
     }
 
@@ -1220,12 +1234,13 @@ static int kms_window_push_composition_locked(struct window *window, struct fl_l
 
     frame = malloc(sizeof *frame);
     if (frame == NULL) {
+        ok = ENOMEM;
         goto fail_unref_req;
     }
 
     frame->req = req;
     frame->tracer = tracer_ref(window->tracer);
-    frame->unset_should_apply_mode_on_commit = window->kms.should_apply_mode;
+    frame->unset_should_apply_mode_on_commit = apply_mode;
 
     frame_scheduler_present_frame(window->frame_scheduler, on_present_frame, frame, on_cancel_frame);
 
@@ -1290,6 +1305,49 @@ fail_unref_req:
 fail_unref_builder:
     kms_req_builder_unref(builder);
     return ok;
+}
+
+static int kms_window_push_composition_locked(struct window *window, struct fl_layer_composition *composition) {
+    ASSERT_NOT_NULL(window);
+    ASSERT_NOT_NULL(composition);
+
+    // If flutter won't request frames (because the vsync callback is broken),
+    // we'll wait here for the previous frame to be presented / rendered.
+    // Otherwise the surface_swap_buffers at the bottom might allocate an
+    // additional buffer and we'll potentially use more buffers than we're
+    // trying to use.
+    // if (!window->use_frame_requests) {
+    //     TRACER_BEGIN(window->tracer, "window_request_frame_and_wait_for_begin");
+    //     ok = window_request_frame_and_wait_for_begin(window);
+    //     TRACER_END(window->tracer, "window_request_frame_and_wait_for_begin");
+    //     if (ok != 0) {
+    //         LOG_ERROR("Could not wait for frame begin.\n");
+    //         return ok;
+    //     }
+    // }
+
+    /// TODO: If we don't have new revisions, we don't need to scanout anything.
+    fl_layer_composition_swap_ptrs(&window->composition, composition);
+
+    // If the window is suspended right now (i.e. our session isn't active),
+    // we just save the composition but we don't actually commit it.
+    //
+    // If we're not master, that's similar to being suspended, we can't
+    // commit anyway. (Actually the window not being suspended and us
+    // not being master should only happen very rarely, maybe in
+    // transition periods.) Anyway check here early so we can avoid building
+    // the commit.
+    if (window->kms.suspended || !drmdev_is_master(window->kms.drmdev)) {
+        return 0;
+    }
+
+    return kms_window_scanout_composition_with_cursor_locked(
+        window,
+        composition,
+        window->kms.should_apply_mode,
+        window->kms.cursor,
+        window->cursor_pos
+    );
 }
 
 static int kms_window_push_composition(struct window *window, struct fl_layer_composition *composition) {
@@ -1557,13 +1615,25 @@ static int kms_window_set_cursor_locked(
 
             // apply the new cursor icon & position by scanning out a new frame.
             window->cursor_pos = pos;
-            if (window->composition != NULL) {
-                kms_window_push_composition_locked(window, window->composition);
+            if (window->composition != NULL && !window->kms.suspended && drmdev_is_master(window->kms.drmdev)) {
+                kms_window_scanout_composition_with_cursor_locked(
+                    // clang-format off
+                    window,
+                    window->composition,
+                    window->kms.should_apply_mode,
+                    window->kms.cursor,
+                    window->cursor_pos
+                    // clang-format on
+                );
             }
         } else if (has_pos) {
             // apply the new cursor position using drmModeMoveCursor
             window->cursor_pos = pos;
+
+            // Check if we can actually scanout with the new cursor pos.
+            if (!window->kms.suspended && drmdev_is_master(window->kms.drmdev)) {
             drmdev_move_cursor(window->kms.drmdev, window->kms.crtc->id, vec2i_sub(pos, window->kms.cursor->hotspot));
+        }
         }
     } else {
         if (window->kms.cursor != NULL) {
@@ -1573,4 +1643,42 @@ static int kms_window_set_cursor_locked(
 
     window->cursor_enabled = enabled;
     return 0;
+}
+
+static void kms_window_suspend(struct window *window) {
+    window_lock(window);
+
+#ifdef DEBUG
+    if (window->kms.suspended) {
+        LOG_DEBUG("kms_window_suspend was called, but window is already suspended.\n");
+    }
+#endif
+
+    window->kms.suspended = true;
+    
+    window_unlock(window);
+}
+
+static void kms_window_resume(struct window *window) {
+    window_lock(window);
+
+#ifdef DEBUG
+    if (!window->kms.suspended) {
+        LOG_DEBUG("kms_window_resume was called, but window is not suspended.\n");
+    }
+#endif
+
+    window->kms.suspended = false;
+
+    if (window->composition != NULL) {
+        kms_window_scanout_composition_with_cursor_locked(
+            window,
+            window->composition,
+            window->kms.should_apply_mode,
+            window->kms.cursor,
+            window->cursor_pos
+        );
+    }
+    
+    window_unlock(window);
 }
