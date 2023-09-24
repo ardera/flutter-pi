@@ -491,5 +491,6 @@ if(ENABLE_TESTS)
 endif()
 
 SET(CPACK_GENERATOR "DEB")
-SET(CPACK_DEBIAN_PACKAGE_MAINTAINER "KK") #required
+SET(CPACK_DEBIAN_PACKAGE_MAINTAINER "fotobox-ms") #required
+SET(CPACK_DEBIAN_PACKAGE_DEPENDS "libdrm2 libgbm1 ttf-mscorefonts-installer fontconfig libsystemd0 libinput10 libudev1 libxkbcommon0")
 INCLUDE(CPack)
