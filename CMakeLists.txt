@@ -492,5 +492,6 @@ endif()
 
 SET(CPACK_GENERATOR "DEB")
 SET(CPACK_DEBIAN_PACKAGE_MAINTAINER "fotobox-ms") #required
+set(CPACK_DEBIAN_FILE_NAME DEB-DEFAULT)
 SET(CPACK_DEBIAN_PACKAGE_DEPENDS "libdrm2 libgbm1 ttf-mscorefonts-installer fontconfig libsystemd0 libinput10 libudev1 libxkbcommon0")
 INCLUDE(CPack)
