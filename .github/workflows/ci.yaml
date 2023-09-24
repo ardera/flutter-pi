@@ -51,7 +51,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          repositry: "fotobox-ms/ppa"
+          repository: "fotobox-ms/ppa"
       - uses: actions/download-artifact@v3
         with:
           name: deb-arm64
