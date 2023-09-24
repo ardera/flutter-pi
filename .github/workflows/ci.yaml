@@ -5,9 +5,26 @@ on:
       - stable
 
 jobs:
+  info:
+    runs-on: ubuntu
+    outputs: 
+      version: ${{ steps.regex-match.outputs.group1 }}
+    steps:
+      - uses: actions/checkout@v3
+      - id: cat-cmake
+        run: |
+          echo "camkelists=$(cat CMakeLists.txt)" >> $OUTPUT
+      - uses: actions-ecosystem/action-regex-match@v2
+        id: regex-match
+        with:
+          text: ${{ steps.cat-cmake.outputs.camkelists }}
+          regex: '(?>project\(.*VERSION *")(\d.\d.\d)(?>".*\))'
+          flags: 'gm'
+
   build-arm64:
     # noinspection YAMLSchemaValidation
     runs-on: buildjet-2vcpu-ubuntu-2204-arm
+    needs: info
     steps:
       # Dependencies
       - uses: awalsh128/cache-apt-pkgs-action@latest
@@ -18,9 +35,7 @@ jobs:
           fc-cache
 
       # Build
-      - uses: actions/checkout@v4
-        with:
-          repository: "fotobox-ms/flutter-pi"
+      - uses: actions/checkout@v3
       - name: "Build"
         run: |
           mkdir build && cd build
@@ -31,3 +46,34 @@ jobs:
         with:
           name: deb-arm64
           path: build/*.deb
+  release-ppa:
+    runs-on: ubuntu
+    needs:
+      - info
+      - build-arm64
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repositry: "fotobox-ms/ppa"
+      - uses: actions/download-artifact@v3
+        with:
+          name: deb-arm64
+      - run: |
+          git commit -m "(CI) updated ppa with flutter-pi packages"
+          git push
+  release-github:
+    runs-on: ubuntu
+    needs:
+      - info
+      - build-arm64
+    steps:
+      - uses: actions/download-artifact@v3
+        with:
+          name: deb-arm64
+      - uses: ncipollo/release-action@v1
+        with:
+          artifacts: "*"
+          allowUpdates: true
+          tag: v${{ needs.info.outputs.version }}
+          
+      
