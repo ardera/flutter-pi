@@ -54,6 +54,7 @@ jobs:
       - uses: actions/download-artifact@v3
         with:
           name: deb-arm64
+      - uses: fregante/setup-git-user@v2
       - run: |
           git commit -m "(CI) updated ppa with flutter-pi packages"
           git push
