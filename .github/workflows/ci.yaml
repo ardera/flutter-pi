@@ -9,18 +9,13 @@ jobs:
   info:
     runs-on: ubuntu-20.04
     outputs: 
-      version: ${{ steps.regex-match.outputs.group1 }}
+      version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@v3
-      - id: cat-cmake
+      - id: version
         run: |
-          echo "camkelists=$(cat CMakeLists.txt)" >> $GITHUB_OUTPUT
-      - uses: actions-ecosystem/action-regex-match@v2
-        id: regex-match
-        with:
-          text: ${{ steps.cat-cmake.outputs.camkelists }}
-          regex: '(?>project\(.*VERSION *")(\d.\d.\d)(?>".*\))'
-          flags: 'gm'
+          apt install pcre2-utils
+          echo "version=$(pcre2grep -o1 '(?:project\(.*VERSION *")(\d.\d.\d)(?:".*\))' CMakeLists.txt)" >> $GITHUB_OUTPUT
 
   build-arm64:
     # noinspection YAMLSchemaValidation
