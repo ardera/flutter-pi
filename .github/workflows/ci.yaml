@@ -57,6 +57,7 @@ jobs:
           name: deb-arm64
       - uses: fregante/setup-git-user@v2
       - run: |
+          git add .
           git commit -m "(CI) updated ppa with flutter-pi packages"
           git push
   release-github:
