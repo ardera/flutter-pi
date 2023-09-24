@@ -1,0 +1,33 @@
+name: CI
+on:
+  push:
+    branches:
+      - stable
+
+jobs:
+  build-arm64:
+    # noinspection YAMLSchemaValidation
+    runs-on: buildjet-2vcpu-ubuntu-2204-arm
+    steps:
+      # Dependencies
+      - uses: awalsh128/cache-apt-pkgs-action@latest
+        with:
+          packages: cmake libgl1-mesa-dev libgles2-mesa-dev libegl1-mesa-dev libdrm-dev libgbm-dev ttf-mscorefonts-installer fontconfig libsystemd-dev libinput-dev libudev-dev  libxkbcommon-dev
+          version: 1.0
+      - run: |
+          fc-cache
+
+      # Build
+      - uses: actions/checkout@v4
+        with:
+          repository: "fotobox-ms/flutter-pi"
+      - name: "Build"
+        run: |
+          mkdir build && cd build
+          cmake ..
+          cmake --build .
+          cpack
+      - uses: actions/upload-artifact@v3
+        with:
+          name: deb-arm64
+          path: build/*.deb
