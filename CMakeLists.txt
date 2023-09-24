@@ -489,3 +489,7 @@ if(ENABLE_TESTS)
   add_subdirectory(third_party)
   add_subdirectory(test)
 endif()
+
+SET(CPACK_GENERATOR "DEB")
+SET(CPACK_DEBIAN_PACKAGE_MAINTAINER "KK") #required
+INCLUDE(CPack)
