@@ -43,15 +43,18 @@ jobs:
         with:
           name: deb-arm64
           path: build/*.deb
-  release-ppa:
+  publish-ppa:
     runs-on: ubuntu-20.04
     needs:
       - info
       - build-arm64
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v3
         with:
           repository: "fotobox-ms/ppa"
+          ref: "main"
+          token: ${{ SECRETS.GIT_PAT }}
+
       - uses: actions/download-artifact@v3
         with:
           name: deb-arm64
@@ -60,7 +63,7 @@ jobs:
           git add .
           git commit -m "(CI) updated ppa with flutter-pi packages"
           git push
-  release-github:
+  publish-release:
     runs-on: ubuntu-20.04
     needs:
       - info
