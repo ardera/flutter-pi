@@ -130,8 +130,8 @@ static int on_check(struct platch_obj *object, FlutterPlatformMessageResponseHan
 
     charset = STDVALUE_AS_STRING(*tmp);
 
-    iconv_t iconv_cd;
-    if ((iconv_cd = iconv_open("UTF-8", charset)) == (iconv_t) -1) {
+    iconv_t iconv_cd = iconv_open("UTF-8", charset);
+    if (iconv_cd == (iconv_t) -1) {
         return platch_respond(
             responseHandle,
             &(struct platch_obj){ .codec = kStandardMethodCallResponse, .success = true, .std_result = { .type = kStdFalse } }
