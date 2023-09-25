@@ -19,8 +19,9 @@ static bool convert(char *buf, char *outbuf, size_t len, const char *from, const
 
     while (inlen > 0 && outlen > 0) {
         res = iconv(iconv_cd, &inbuf, &inlen, &outbuf, &outlen);
-        if (res == 0)
+        if (res == 0) {
             break;
+        }
 
         if (res == (size_t) (-1))
         {
