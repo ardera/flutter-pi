@@ -23,8 +23,7 @@ static bool convert(char *buf, char *outbuf, size_t len, const char *from, const
             break;
         }
 
-        if (res == (size_t) (-1))
-        {
+        if (res == (size_t) (-1)) {
             if (errno != EILSEQ && errno != EINVAL)
             {
                 iconv_close(iconv_cd);
