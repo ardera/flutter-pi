@@ -8,7 +8,7 @@ static bool convert(char *buf, char *outbuf, size_t len, const char *from, const
 {
     iconv_t iconv_cd = iconv_open(to, from);
     if (iconv_cd == (iconv_t) -1) {
-        LOG_ERROR("Cannot open iconv from %s to %s\n", from, to);
+        LOG_ERROR("Conversion from charset \"%s\" to charset \"%s\" is not supported. iconv_open: %s\n", from, to, strerror(errno));
         return false;
     }
 
