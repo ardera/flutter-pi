@@ -146,6 +146,7 @@ static int egl_gbm_render_surface_init(
     }
 #endif
 
+    gbm_surface = NULL;
     if (allowed_modifiers != NULL) {
         gbm_surface = gbm_surface_create_with_modifiers(
             gbm_device,
@@ -158,9 +159,10 @@ static int egl_gbm_render_surface_init(
         if (gbm_surface == NULL) {
             ok = errno;
             LOG_ERROR("Couldn't create GBM surface for rendering. gbm_surface_create_with_modifiers: %s\n", strerror(ok));
-            return ok;
+            LOG_ERROR("Will retry without modifiers\n");
         }
-    } else {
+    }
+    if (gbm_surface == NULL) {
         gbm_surface = gbm_surface_create(
             gbm_device,
             size.x,
