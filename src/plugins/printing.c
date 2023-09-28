@@ -46,7 +46,7 @@ static void raster_pdf(const uint8_t *data, size_t size, const int32_t *pages, s
     PixelSetColor(color, "white");
 
     MagickBooleanType result = MagickReadImageBlob(wand, data, size);
-    if(result != MagickTrue){
+    if(result != MagickTrue) {
         on_page_raster_end(job, "Cannot read images from PDF blob.");
         return;
     }
@@ -60,19 +60,19 @@ static void raster_pdf(const uint8_t *data, size_t size, const int32_t *pages, s
     }
 
     int current_page = 0;
-    while(MagickNextImage(wand) != MagickFalse){
+    while(MagickNextImage(wand) != MagickFalse) {
         if(!all_pages){
             bool shouldRasterize = false;
 
             //Check if current page is set to be rasterized
             for(size_t pn = 0; pn < pages_count; pn++) {
-                if(pages[pn] == current_page){
+                if(pages[pn] == current_page) {
                     shouldRasterize = true;
                     break;
                 }
             }
 
-            if(!shouldRasterize){
+            if(!shouldRasterize) {
                 current_page++;
                 continue;
             }
@@ -112,7 +112,7 @@ static void raster_pdf(const uint8_t *data, size_t size, const int32_t *pages, s
     on_page_raster_end(job, NULL);
 }
 
-static int on_raster_pdf(struct platch_obj *object, FlutterPlatformMessageResponseHandle *responseHandle) {
+static int on_raster_pdf(struct platch_obj *object, FlutterPlatformMessageResponseHandle *response_handle) {
     struct std_value *args, *tmp;
     const uint8_t *data;
     size_t data_length;
@@ -122,13 +122,13 @@ static int on_raster_pdf(struct platch_obj *object, FlutterPlatformMessageRespon
     args = &object->std_arg;
 
     if (args == NULL || !STDVALUE_IS_MAP(*args)) {
-        return platch_respond_illegal_arg_std(responseHandle, "Expected `arg` to be a map.");
+        return platch_respond_illegal_arg_std(response_handle, "Expected `arg` to be a map.");
     }
 
     tmp = stdmap_get_str(&object->std_arg, "doc");
     if (tmp == NULL || (*tmp).type != kStdUInt8Array ) {
         LOG_ERROR("Call missing mandatory parameter doc.\n");
-        return platch_respond_illegal_arg_std(responseHandle, "Expected `arg['doc'] to be a uint8_t list.");
+        return platch_respond_illegal_arg_std(response_handle, "Expected `arg['doc'] to be a uint8_t list.");
     }
 
     data = tmp->uint8array;
@@ -154,7 +154,7 @@ static int on_raster_pdf(struct platch_obj *object, FlutterPlatformMessageRespon
     tmp = stdmap_get_str(&object->std_arg, "scale");
     if (tmp == NULL || !STDVALUE_IS_FLOAT(*tmp)) {
         LOG_ERROR("Call missing mandatory parameter scale.\n");
-        return platch_respond_illegal_arg_std(responseHandle, "Expected `arg['scale'] to be a double.");
+        return platch_respond_illegal_arg_std(response_handle, "Expected `arg['scale'] to be a double.");
     }
 
     scale = STDVALUE_AS_FLOAT(*tmp);
@@ -162,7 +162,7 @@ static int on_raster_pdf(struct platch_obj *object, FlutterPlatformMessageRespon
     tmp = stdmap_get_str(&object->std_arg, "job");
     if (tmp == NULL || !STDVALUE_IS_INT(*tmp)) {
         LOG_ERROR("Call missing mandatory parameter job.\n");
-        return platch_respond_illegal_arg_std(responseHandle, "Expected `arg['job'] to be an int.");
+        return platch_respond_illegal_arg_std(response_handle, "Expected `arg['job'] to be an int.");
     }
 
     job = STDVALUE_AS_INT(*tmp);
@@ -173,16 +173,16 @@ static int on_raster_pdf(struct platch_obj *object, FlutterPlatformMessageRespon
     free(pages);
 
     return platch_respond(
-        responseHandle,
+        response_handle,
         &(struct platch_obj){ .codec = kStandardMethodCallResponse, .success = true, .std_result = { .type = kStdTrue } }
     );
 }
 
-static int on_printing_info(struct platch_obj *object, FlutterPlatformMessageResponseHandle *responseHandle) {  
+static int on_printing_info(struct platch_obj *object, FlutterPlatformMessageResponseHandle *response_handle) {  
     (void) object;
 
     return platch_respond(
-        responseHandle,
+        response_handle,
         &PLATCH_OBJ_STD_MSG(STDMAP6(
             STDSTRING("canPrint"),
             STDBOOL(false),
@@ -200,19 +200,19 @@ static int on_printing_info(struct platch_obj *object, FlutterPlatformMessageRes
     );
 }
 
-static int on_receive(char *channel, struct platch_obj *object, FlutterPlatformMessageResponseHandle *responseHandle) {
+static int on_receive(char *channel, struct platch_obj *object, FlutterPlatformMessageResponseHandle *response_handle) {
     (void) channel;
 
     const char *method;
     method = object->method;
 
     if (streq(method, "printingInfo")) {
-        return on_printing_info(object, responseHandle);
+        return on_printing_info(object, response_handle);
     } else if (streq(method, "rasterPdf")) {
-        return on_raster_pdf(object, responseHandle);
+        return on_raster_pdf(object, response_handle);
     }
 
-    return platch_respond_not_implemented(responseHandle);
+    return platch_respond_not_implemented(response_handle);
 }
 
 enum plugin_init_result printing_init(struct flutterpi *flutterpi, void **userdata_out) {
