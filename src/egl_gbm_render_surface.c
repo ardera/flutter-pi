@@ -60,6 +60,7 @@ struct egl_gbm_render_surface {
     struct locked_fb *locked_front_fb;
 #ifdef DEBUG
     atomic_int n_locked_fbs;
+    bool logged_format_and_modifier;
 #endif
 };
 
@@ -145,6 +146,7 @@ static int egl_gbm_render_surface_init(
     }
 #endif
 
+    gbm_surface = NULL;
     if (allowed_modifiers != NULL) {
         gbm_surface = gbm_surface_create_with_modifiers(
             gbm_device,
@@ -157,9 +159,10 @@ static int egl_gbm_render_surface_init(
         if (gbm_surface == NULL) {
             ok = errno;
             LOG_ERROR("Couldn't create GBM surface for rendering. gbm_surface_create_with_modifiers: %s\n", strerror(ok));
-            return ok;
+            LOG_ERROR("Will retry without modifiers\n");
         }
-    } else {
+    }
+    if (gbm_surface == NULL) {
         gbm_surface = gbm_surface_create(
             gbm_device,
             size.x,
@@ -238,9 +241,13 @@ static int egl_gbm_render_surface_init(
     s->egl_config = egl_config;
     s->renderer = gl_renderer_ref(renderer);
     for (int i = 0; i < ARRAY_SIZE(s->locked_fbs); i++) {
-        s->locked_fbs->is_locked = (atomic_flag) ATOMIC_FLAG_INIT;
+        s->locked_fbs[i].is_locked = (atomic_flag) ATOMIC_FLAG_INIT;
     }
     s->locked_front_fb = NULL;
+#ifdef DEBUG
+    s->n_locked_fbs = 0;
+    s->logged_format_and_modifier = false;
+#endif
     return 0;
 
 fail_destroy_egl_surface:
@@ -403,16 +410,10 @@ static int egl_gbm_render_surface_present_kms(struct surface *s, const struct fl
         ASSERT_NOT_NULL(drmdev);
 
         TRACER_BEGIN(egl_surface->surface.tracer, "drmdev_add_fb (non-opaque)");
-        fb_id = drmdev_add_fb(
+        fb_id = drmdev_add_fb_from_gbm_bo(
             drmdev,
-            gbm_bo_get_width(bo),
-            gbm_bo_get_height(bo),
-            egl_surface->pixel_format,
-            gbm_bo_get_handle(bo).u32,
-            gbm_bo_get_stride(bo),
-            gbm_bo_get_offset(bo, 0),
-            gbm_bo_get_modifier(bo) != DRM_FORMAT_MOD_INVALID,
-            gbm_bo_get_modifier(bo)
+            bo,
+            /* cast_opaque */ false
         );
         TRACER_END(egl_surface->surface.tracer, "drmdev_add_fb (non-opaque)");
 
@@ -425,16 +426,10 @@ static int egl_gbm_render_surface_present_kms(struct surface *s, const struct fl
         // if this EGL surface is non-opaque and has an opaque equivalent
         if (!get_pixfmt_info(egl_surface->pixel_format)->is_opaque &&
             pixfmt_opaque(egl_surface->pixel_format) != egl_surface->pixel_format) {
-            opaque_fb_id = drmdev_add_fb(
+            opaque_fb_id = drmdev_add_fb_from_gbm_bo(
                 drmdev,
-                gbm_bo_get_width(bo),
-                gbm_bo_get_height(bo),
-                pixfmt_opaque(egl_surface->pixel_format),
-                gbm_bo_get_handle(bo).u32,
-                gbm_bo_get_stride(bo),
-                gbm_bo_get_offset(bo, 0),
-                gbm_bo_get_modifier(bo) != DRM_FORMAT_MOD_INVALID,
-                gbm_bo_get_modifier(bo)
+                bo,
+                /* cast_opaque */ true
             );
             if (opaque_fb_id == 0) {
                 ok = EIO;
@@ -609,6 +604,25 @@ static int egl_gbm_render_surface_queue_present(struct render_surface *s, const 
     TRACER_BEGIN(s->surface.tracer, "gbm_surface_lock_front_buffer");
     bo = gbm_surface_lock_front_buffer(egl_surface->gbm_surface);
     TRACER_END(s->surface.tracer, "gbm_surface_lock_front_buffer");
+
+#ifdef DEBUG
+    if (!egl_surface->logged_format_and_modifier) {
+        uint32_t fourcc = gbm_bo_get_format(bo);
+        uint64_t modifier = gbm_bo_get_modifier(bo);
+
+        bool has_format = has_pixfmt_for_gbm_format(fourcc);
+        enum pixfmt format = has_format ? get_pixfmt_for_gbm_format(fourcc) : PIXFMT_RGB565;
+
+        LOG_DEBUG(
+            "using fourcc %c%c%c%c (%s) with modifier 0x%"PRIx64"\n",
+            fourcc & 0xFF, (fourcc >> 8) & 0xFF, (fourcc >> 16) & 0xFF, (fourcc >> 24) & 0xFF,
+            has_format ? get_pixfmt_info(format)->name : "?",
+            modifier
+        );
+
+        egl_surface->logged_format_and_modifier = true;
+    }
+#endif
 
     if (bo == NULL) {
         ok = errno;

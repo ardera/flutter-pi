@@ -686,6 +686,12 @@ uint32_t drmdev_add_fb_from_dmabuf_multiplanar(
     const uint64_t modifiers[4]
 );
 
+uint32_t drmdev_add_fb_from_gbm_bo(
+    struct drmdev *drmdev,
+    struct gbm_bo *bo,
+    bool cast_opaque
+);
+
 int drmdev_rm_fb_locked(struct drmdev *drmdev, uint32_t fb_id);
 
 int drmdev_rm_fb(struct drmdev *drmdev, uint32_t fb_id);
