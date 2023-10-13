@@ -767,6 +767,7 @@ static GstFlowReturn on_appsink_new_preroll(GstAppSink *appsink, void *userdata)
         return GST_FLOW_ERROR;
     }
 
+    /// TODO: Attempt to upload using gst_gl_upload here
     frame = frame_new(player->frame_interface, sample, player->has_gst_info ? &player->gst_info : NULL);
 
     gst_sample_unref(sample);
@@ -795,6 +796,7 @@ static GstFlowReturn on_appsink_new_sample(GstAppSink *appsink, void *userdata) 
 
     player = userdata;
 
+    /// TODO: Attempt to upload using gst_gl_upload here
     sample = gst_app_sink_try_pull_sample(appsink, 0);
     if (sample == NULL) {
         LOG_ERROR("gstreamer returned a NULL sample.\n");
