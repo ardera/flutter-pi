@@ -27,7 +27,6 @@
 struct input_device_data {
     int64_t flutter_device_id_offset;
     struct keyboard_state *keyboard_state;
-    double x, y;
     int64_t buttons;
     uint64_t timestamp;
 
@@ -44,6 +43,12 @@ struct input_device_data {
      *
      */
     bool tip;
+
+    /**
+     * @brief The current touch positions for each multitouch slot.
+     *  
+     */
+    struct vec2f *positions;
 };
 
 struct user_input {
@@ -357,6 +362,7 @@ static void maybe_disable_mouse_cursor(struct user_input *input, uint64_t timest
 static int on_device_added(struct user_input *input, struct libinput_event *event, uint64_t timestamp) {
     struct input_device_data *data;
     struct libinput_device *device;
+    struct vec2f *positions;
     int64_t device_id;
 
     assert(input != NULL);
@@ -371,12 +377,11 @@ static int on_device_added(struct user_input *input, struct libinput_event *even
 
     data->flutter_device_id_offset = input->next_unused_flutter_device_id;
     data->keyboard_state = NULL;
-    data->x = 0.0;
-    data->y = 0.0;
     data->buttons = 0;
     data->timestamp = timestamp;
     data->has_emitted_pointer_events = false;
     data->tip = false;
+    data->positions = NULL;
 
     libinput_device_set_user_data(device, data);
 
@@ -389,14 +394,32 @@ static int on_device_added(struct user_input *input, struct libinput_event *even
         // reserve one id for the mouse pointer
         // input->next_unused_flutter_device_id++;
     }
+
     if (libinput_device_has_capability(device, LIBINPUT_DEVICE_CAP_TOUCH)) {
         // add all touch slots as individual touch devices to flutter
-        for (int i = 0; i < libinput_device_touch_get_touch_count(device); i++) {
+        int n_slots = libinput_device_touch_get_touch_count(device);
+        if (n_slots == -1) {
+            LOG_ERROR("Could not query input device multitouch slot count.\n");
+            goto fail_free_data;
+        } else if (n_slots == 0) {
+            LOG_ERROR("Input devive has unknown number of multitouch slots.\n");
+            goto fail_free_data;
+        }
+
+        for (int i = 0; i < n_slots; i++) {
             device_id = input->next_unused_flutter_device_id++;
 
             emit_pointer_events(input, &FLUTTER_POINTER_TOUCH_ADD_EVENT(timestamp, 0.0, 0.0, device_id), 1);
         }
+
+        positions = malloc(n_slots * sizeof(struct vec2f));
+        if (positions == NULL) {
+            goto fail_free_data;
+        }
+
+        data->positions = positions;
     }
+
     if (libinput_device_has_capability(device, LIBINPUT_DEVICE_CAP_KEYBOARD)) {
         // create a new keyboard state for this keyboard
         if (input->kbdcfg) {
@@ -406,6 +429,7 @@ static int on_device_added(struct user_input *input, struct libinput_event *even
             data->keyboard_state = NULL;
         }
     }
+
     if (libinput_device_has_capability(device, LIBINPUT_DEVICE_CAP_TABLET_TOOL)) {
         device_id = input->next_unused_flutter_device_id++;
 
@@ -414,6 +438,10 @@ static int on_device_added(struct user_input *input, struct libinput_event *even
     }
 
     return 0;
+
+    fail_free_data:
+    free(data);
+    return EINVAL;
 }
 
 static int on_device_removed(struct user_input *input, struct libinput_event *event, uint64_t timestamp, bool emit_flutter_events) {
@@ -465,6 +493,9 @@ static int on_device_removed(struct user_input *input, struct libinput_event *ev
     }
 
     if (data != NULL) {
+        if (data->positions != NULL) {
+            free(data->positions);
+        }
         free(data);
     }
 
@@ -687,9 +718,6 @@ static int on_mouse_motion_absolute_event(struct user_input *input, struct libin
         libinput_event_pointer_get_absolute_y_transformed(pointer_event, input->display_height)
     );
 
-    /// FIXME: Why do we store the coordinates here?
-    data->x = pos_display.x;
-    data->y = pos_display.y;
     data->timestamp = timestamp;
 
     // update the "global" cursor position
@@ -889,8 +917,7 @@ static int on_touch_down(struct user_input *input, struct libinput_event *event)
     emit_pointer_events(input, &FLUTTER_POINTER_TOUCH_DOWN_EVENT(timestamp, pos_view.x, pos_view.y, device_id), 1);
 
     // alter our device state
-    data->x = pos_view.x;
-    data->y = pos_view.y;
+    data->positions[slot] = pos_view;
     data->timestamp = timestamp;
 
     return 0;
@@ -919,7 +946,7 @@ static int on_touch_up(struct user_input *input, struct libinput_event *event) {
 
     device_id = data->flutter_device_id_offset + slot;
 
-    emit_pointer_events(input, &FLUTTER_POINTER_TOUCH_UP_EVENT(timestamp, data->x, data->y, device_id), 1);
+    emit_pointer_events(input, &FLUTTER_POINTER_TOUCH_UP_EVENT(timestamp, data->positions[slot].x, data->positions[slot].y, device_id), 1);
 
     return 0;
 }
@@ -961,8 +988,7 @@ static int on_touch_motion(struct user_input *input, struct libinput_event *even
     emit_pointer_events(input, &FLUTTER_POINTER_TOUCH_MOVE_EVENT(timestamp, pos_view.x, pos_view.y, device_id), 1);
 
     // alter our device state
-    data->x = pos_view.x;
-    data->y = pos_view.y;
+    data->positions[slot] = pos_view;
     data->timestamp = timestamp;
 
     return 0;
