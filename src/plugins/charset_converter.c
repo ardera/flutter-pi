@@ -48,7 +48,6 @@ static int on_encode(struct platch_obj *object, FlutterPlatformMessageResponseHa
 
     tmp = stdmap_get_str(&object->std_arg, "charset");
     if (tmp == NULL || !STDVALUE_IS_STRING(*tmp)) {
-        LOG_ERROR("Call missing mandatory parameter charset.\n");
         return platch_respond_illegal_arg_std(response_handle, "Expected `arg['charset'] to be a string.");
     }
 
@@ -56,7 +55,6 @@ static int on_encode(struct platch_obj *object, FlutterPlatformMessageResponseHa
 
     tmp = stdmap_get_str(&object->std_arg, "data");
     if (tmp == NULL || !STDVALUE_IS_STRING(*tmp)) {
-        LOG_ERROR("Call missing mandatory parameter data.\n");
         return platch_respond_illegal_arg_std(response_handle, "Expected `arg['data'] to be a string.");
     }
 
@@ -65,13 +63,22 @@ static int on_encode(struct platch_obj *object, FlutterPlatformMessageResponseHa
 
     bool res = convert(input, output, strlen(input) + 1, "UTF-8", charset);
     if(!res) {
+        free(output);
         return platch_respond_error_std(response_handle, "error_id", "charset_name_unrecognized", NULL);
     }
 
-    return platch_respond(
+    int ok = platch_respond_success_std(
         response_handle,
-        &(struct platch_obj){ .codec = kStandardMethodCallResponse, .success = true, .std_result = { .type = kStdUInt8Array, .uint8array = (uint8_t*)output, .size = strlen(output) }, }
+        &(struct std_value) {
+            .type = kStdUInt8Array,
+            .size = strlen(output),
+            .uint8array = (uint8_t*) output,
+        }
     );
+
+    free(output);
+
+    return ok;
 }
 
 static int on_decode(struct platch_obj *object, FlutterPlatformMessageResponseHandle *response_handle) {
@@ -87,7 +94,6 @@ static int on_decode(struct platch_obj *object, FlutterPlatformMessageResponseHa
 
     tmp = stdmap_get_str(&object->std_arg, "charset");
     if (tmp == NULL || !STDVALUE_IS_STRING(*tmp)) {
-        LOG_ERROR("Call missing mandatory parameter charset.\n");
         return platch_respond_illegal_arg_std(response_handle, "Expected `arg['charset'] to be a string.");
     }
 
@@ -95,7 +101,6 @@ static int on_decode(struct platch_obj *object, FlutterPlatformMessageResponseHa
 
     tmp = stdmap_get_str(&object->std_arg, "data");
     if (tmp == NULL || (*tmp).type != kStdUInt8Array ) {
-        LOG_ERROR("Call missing mandatory parameter data.\n");
         return platch_respond_illegal_arg_std(response_handle, "Expected `arg['data'] to be a uint8_t list.");
     }
 
@@ -104,13 +109,22 @@ static int on_decode(struct platch_obj *object, FlutterPlatformMessageResponseHa
 
     bool res = convert((char*) input, output, strlen((char*) input) + 1, "UTF-8", charset);
     if(!res) {
+        free(output);
         return platch_respond_error_std(response_handle, "error_id", "charset_name_unrecognized", NULL);
     }
 
-    return platch_respond(
+    int ok = platch_respond_success_std(
         response_handle,
-        &(struct platch_obj){ .codec = kStandardMethodCallResponse, .success = true, .std_result = { .type = kStdUInt8Array, .uint8array = (uint8_t*)output, .size = strlen(output) }, }
+        &(struct std_value) {
+            .type = kStdUInt8Array,
+            .size = strlen(output),
+            .uint8array = (uint8_t*) output,
+        }
     );
+
+    free(output);
+
+    return ok;
 }
 
 static int on_available_charsets(struct platch_obj *object, FlutterPlatformMessageResponseHandle *response_handle) {
@@ -156,10 +170,7 @@ static int on_available_charsets(struct platch_obj *object, FlutterPlatformMessa
 
     pclose(fp);
 
-    return platch_respond(
-        response_handle,
-        &(struct platch_obj){ .codec = kStandardMethodCallResponse, .success = true, .std_result = values }
-    );
+    return platch_respond_success_std(response_handle, &values);
 }
 
 static int on_check(struct platch_obj *object, FlutterPlatformMessageResponseHandle *response_handle) {
@@ -174,7 +185,6 @@ static int on_check(struct platch_obj *object, FlutterPlatformMessageResponseHan
 
     tmp = stdmap_get_str(&object->std_arg, "charset");
     if (tmp == NULL || !STDVALUE_IS_STRING(*tmp)) {
-        LOG_ERROR("Call missing mandatory parameter charset.\n");
         return platch_respond_illegal_arg_std(response_handle, "Expected `arg['charset'] to be a string.");
     }
 
@@ -187,6 +197,8 @@ static int on_check(struct platch_obj *object, FlutterPlatformMessageResponseHan
             &(struct platch_obj){ .codec = kStandardMethodCallResponse, .success = true, .std_result = { .type = kStdFalse } }
         );
     }
+
+    iconv_close(iconv_cd);
 
     return platch_respond(
         response_handle,
