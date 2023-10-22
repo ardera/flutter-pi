@@ -31,7 +31,7 @@ static int on_local_method_call(char *channel, struct platch_obj *object, Flutte
     struct std_value *args, *tmp;
     const char *method;
     char *player_id, *mode;
-    int result = 1;
+    struct std_value result = STDNULL;
     int ok;
 
     (void) responsehandle;
@@ -75,8 +75,7 @@ static int on_local_method_call(char *channel, struct platch_obj *object, Flutte
         audio_player_pause(player);
         audio_player_set_position(player, 0);
     } else if (streq(method, "release")) {
-        audio_player_pause(player);
-        audio_player_set_position(player, 0);
+        audio_player_release(player);
     } else if (streq(method, "seek")) {
         tmp = stdmap_get_str(args, "position");
         if (tmp == NULL || !STDVALUE_IS_INT(*tmp)) {
@@ -109,7 +108,7 @@ static int on_local_method_call(char *channel, struct platch_obj *object, Flutte
 
         audio_player_set_source_url(player, url);
     } else if (streq(method, "getDuration")) {
-        result = audio_player_get_duration(player);
+        result = STDINT64(audio_player_get_duration(player));
     } else if (streq(method, "setVolume")) {
         tmp = stdmap_get_str(args, "volume");
         if (tmp != NULL && STDVALUE_IS_FLOAT(*tmp)) {
@@ -118,7 +117,7 @@ static int on_local_method_call(char *channel, struct platch_obj *object, Flutte
             return platch_respond_illegal_arg_std(responsehandle, "Expected `arg['volume']` to be a float.");
         }
     } else if (streq(method, "getCurrentPosition")) {
-        result = audio_player_get_position(player);
+        result = STDINT64(audio_player_get_position(player));
     } else if (streq(method, "setPlaybackRate")) {
         tmp = stdmap_get_str(args, "playbackRate");
         if (tmp != NULL && STDVALUE_IS_FLOAT(*tmp)) {
@@ -191,7 +190,7 @@ static int on_local_method_call(char *channel, struct platch_obj *object, Flutte
         return platch_respond_not_implemented(responsehandle);
     }
 
-    return platch_respond_success_std(responsehandle, &STDINT64(result));
+    return platch_respond_success_std(responsehandle, &result);
 }
 
 static int on_global_method_call(char *channel, struct platch_obj *object, FlutterPlatformMessageResponseHandle *responsehandle) {

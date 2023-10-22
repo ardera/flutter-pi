@@ -210,6 +210,7 @@ gboolean audio_player_on_bus_message(GstBus *bus, GstMessage *message, struct au
         case GST_MESSAGE_ASYNC_DONE:
             if (!data->is_seek_completed) {
                 audio_player_on_seek_completed(data);
+                data->is_seek_completed = true;
             }
             break;
         default:
@@ -288,16 +289,16 @@ void audio_player_on_media_error(struct audio_player *self, GError *error, gchar
 
 void audio_player_on_media_state_change(struct audio_player *self, GstObject *src, GstState *old_state, GstState *new_state) {
     (void) old_state;
-    if (streq(GST_OBJECT_NAME(src), "playbin")) {
+    if (src == GST_OBJECT(self->playbin)) {
         LOG_DEBUG("%s: on_media_state_change(old_state=%d, new_state=%d)\n", self->player_id, *old_state, *new_state);
         if (*new_state == GST_STATE_READY) {
-            self->is_initialized = false;
-
             // Need to set to pause state, in order to make player functional
             GstStateChangeReturn ret = gst_element_set_state(self->playbin, GST_STATE_PAUSED);
             if (ret == GST_STATE_CHANGE_FAILURE) {
                 LOG_ERROR("Unable to set the pipeline to the paused state.\n");
             }
+
+            self->is_initialized = false;
         } else if (*old_state == GST_STATE_PAUSED && *new_state == GST_STATE_PLAYING) {
             audio_player_on_position_update(self);
             audio_player_on_duration_update(self);
@@ -558,7 +559,10 @@ void audio_player_set_source_url(struct audio_player *self, char *url) {
         if (strlen(self->url) != 0) {
             g_object_set(self->playbin, "uri", self->url, NULL);
             if (self->playbin->current_state != GST_STATE_READY) {
-                gst_element_set_state(self->playbin, GST_STATE_READY);
+                if (gst_element_set_state(self->playbin, GST_STATE_READY) == GST_STATE_CHANGE_FAILURE) {
+                    //This should not happen generally
+                    LOG_ERROR("Could not set player into ready state.\n");
+                }
             }
         }
     } else {
@@ -580,5 +584,21 @@ bool audio_player_set_subscription_status(struct audio_player *self, const char 
         return true;
     } else {
         return false;
+    }
+}
+
+void audio_player_release(struct audio_player *self) {
+    self->is_initialized = false;
+    self->is_playing = false;
+    if (self->url != NULL) {
+        free(self->url);
+        self->url = NULL;
+    }
+
+    GstState playbinState;
+    gst_element_get_state(self->playbin, &playbinState, NULL, GST_CLOCK_TIME_NONE);
+
+    if (playbinState > GST_STATE_NULL) {
+        gst_element_set_state(self->playbin, GST_STATE_NULL);
     }
 }

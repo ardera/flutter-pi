@@ -47,4 +47,6 @@ const char* audio_player_subscribe_channel_name(const struct audio_player *self)
 ///Returns `true` if player uses `channel`, otherwise returns `false
 bool audio_player_set_subscription_status(struct audio_player *self, const char *channel, bool value);
 
+void audio_player_release(struct audio_player *self);
+
 #endif  // AUDIOPLAYERS_H_
