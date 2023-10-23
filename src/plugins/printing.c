@@ -127,7 +127,6 @@ static int on_raster_pdf(struct platch_obj *object, FlutterPlatformMessageRespon
 
     tmp = stdmap_get_str(&object->std_arg, "doc");
     if (tmp == NULL || (*tmp).type != kStdUInt8Array ) {
-        LOG_ERROR("Call missing mandatory parameter doc.\n");
         return platch_respond_illegal_arg_std(response_handle, "Expected `arg['doc'] to be a uint8_t list.");
     }
 
@@ -153,7 +152,6 @@ static int on_raster_pdf(struct platch_obj *object, FlutterPlatformMessageRespon
 
     tmp = stdmap_get_str(&object->std_arg, "scale");
     if (tmp == NULL || !STDVALUE_IS_FLOAT(*tmp)) {
-        LOG_ERROR("Call missing mandatory parameter scale.\n");
         return platch_respond_illegal_arg_std(response_handle, "Expected `arg['scale'] to be a double.");
     }
 
@@ -161,7 +159,6 @@ static int on_raster_pdf(struct platch_obj *object, FlutterPlatformMessageRespon
 
     tmp = stdmap_get_str(&object->std_arg, "job");
     if (tmp == NULL || !STDVALUE_IS_INT(*tmp)) {
-        LOG_ERROR("Call missing mandatory parameter job.\n");
         return platch_respond_illegal_arg_std(response_handle, "Expected `arg['job'] to be an int.");
     }
 
