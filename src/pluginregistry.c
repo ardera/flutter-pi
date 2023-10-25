@@ -313,6 +313,11 @@ static int set_receiver_locked(
         struct platch_obj_cb_data *data;
 
         data = malloc(sizeof *data);
+        if (data == NULL) {
+            free(channel_dup);
+            return ENOMEM;
+        }
+
         data->channel = channel_dup;
         data->codec = codec;
         data->callback = callback;
@@ -474,6 +479,8 @@ void static_plugin_registry_add_plugin(const struct flutterpi_plugin_v2 *plugin)
     ASSERT_ZERO(ok);
 
     entry = malloc(sizeof *entry);
+    ASSERT_NOT_NULL(entry);
+    
     entry->plugin = plugin;
 
     list_addtail(&entry->entry, &static_plugins);

@@ -192,11 +192,14 @@ _Example:_
 git clone https://github.com/flutter/gallery.git flutter_gallery
 cd flutter_gallery
 git checkout d77920b4ced4a105ad35659fbe3958800d418fb9
+flutter pub get
 flutterpi_tool build --release --cpu=pi4
 rsync -a ./build/flutter_assets/ pi@raspberrypi:/home/pi/flutter_gallery/
 ```
 
-2. Done. You can now run this app in release mode using `flutter-pi --release /home/pi/flutter_gallery`.
+2. On Raspberry Pi, run `sudo apt-get install xdg-user-dirs` to install the runtime requirement of flutter_gallery. (otherwise it may [throw exception](https://github.com/flutter/gallery/issues/979#issuecomment-1693361972))
+
+3. Done. You can now run this app in release mode using `flutter-pi --release /home/pi/flutter_gallery`.
 
 ### Building the App (old method, linux or windows)
 
@@ -446,6 +449,7 @@ This is why I created my own (userspace) touchscreen driver, for improved latenc
 | dart_periphery ([package](https://pub.dev/packages/dart_periphery)) ([repo](https://github.com/pezi/dart_periphery)) | 🖨 peripherals | [Peter Sauer](https://github.com/pezi/) | All-in-one package GPIO, I2C, SPI, Serial, PWM, Led, MMIO support using c-periphery. |
 | flutterpi_gstreamer_video_player ([package](https://pub.dev/packages/flutterpi_gstreamer_video_player)) ([repo](https://github.com/ardera/flutter_packages/tree/main/packages/flutterpi_gstreamer_video_player)) | ⏯️ multimedia | Hannes Winkler | Official video player implementation for flutter-pi. See [GStreamer video player](#gstreamer-video-player) section above. |
 | printing ([package](https://pub.dev/packages/printing)) ([repo](https://github.com/DavBfr/dart_pdf)) | 🖨 peripherals | David PHAM-VAN | Generate and print documents to android or ios compatible printers. See [printing](#printing) section above. |
+| charset_converter ([package](https://pub.dev/packages/charset_converter)) ([repo](https://github.com/pr0gramista/charset_converter)) | 🗚 encoding | Bartosz Wiśniewski | Encode and decode charsets using platform built-in converter. |
 
 ## 💬 Discord
 There a `#custom-embedders` channel on the [flutter discord](https://github.com/flutter/flutter/wiki/Chat) which you can use if you have any questions regarding flutter-pi or generally, anything related to embedding the engine for which you don't want to open issue about or write an email.

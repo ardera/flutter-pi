@@ -622,7 +622,7 @@ get_plane_infos(GstBuffer *buffer, const GstVideoInfo *info, struct gbm_device *
         if (n_memories != 1) {
             ok = dup_gst_buffer_range_as_dmabuf(gbm_device, buffer, memory_index, n_memories);
             if (ok < 0) {
-                LOG_ERROR("Could not duplicate gstreamer memory as dmabuf.\n");
+                LOG_ERROR("Could not duplicate gstreamer buffer range as dmabuf.\n");
                 ok = EIO;
                 goto fail_close_fds;
             }
