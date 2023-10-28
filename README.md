@@ -419,7 +419,7 @@ To use the gstreamer video player, just rebuild flutter-pi (delete your build fo
 And then, just use the stuff in the official [video_player](https://pub.dev/packages/video_player) package. (`VideoPlayer`, `VideoPlayerController`, etc, there's nothing specific you need to do on the dart-side)
 
 ### audioplayers
-As of current moment flutter-pi implements plugin for `audioplayers: ^4.0.0`.
+As of current moment flutter-pi implements plugin for `audioplayers: ^5.0.0`.
 There are several things you need to keep in mind:
 - As flutter-pi is intended for use on constrained systems like raspberry pi, you should avoid creating multiple temporary instances and instead prefer to use one global instance of `AudioPlayer`. There is limit you can easily hit if you're going to spam multiple instances of `AudioPlayer`
 - Plugin was tested to work with ALSA and `pulseaudio` might prevent the plugin from playing audio correctly:
