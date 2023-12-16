@@ -19,7 +19,8 @@ enum text_input_type {
     kInputTypeUrl,
     kInputTypeVisiblePassword,
     kInputTypeName,
-    kInputTypeAddress
+    kInputTypeAddress,
+    kInputTypeNone
 };
 
 enum text_input_action {
