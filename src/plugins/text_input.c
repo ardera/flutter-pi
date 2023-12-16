@@ -226,6 +226,8 @@ static int on_set_client(struct platch_obj *object, FlutterPlatformMessageRespon
         input_type = kInputTypeName;
     } else if (streq("TextInputType.address", temp2->string_value)) {
         input_type = kInputTypeAddress;
+    } else if (streq("TextInputType.none", temp2->string_value)) {
+        input_type = kInputTypeNone;
     } else {
         return platch_respond_illegal_arg_json(
             responsehandle,
