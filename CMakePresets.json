@@ -12,6 +12,6 @@
                 "CMAKE_INSTALL_PREFIX": "${sourceDir}/out/install/${presetName}",
                 "ENABLE_OPENGL": true
             }
-        },
+        }
     ]
 }
