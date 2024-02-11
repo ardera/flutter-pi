@@ -160,17 +160,19 @@ MUST_CHECK struct compositor *compositor_new(struct tracer *tracer, struct windo
     util_dynarray_init(&compositor->views);
 
     compositor->n_refs = REFCOUNT_INIT_1;
+    compositor->main_window = window_ref(main_window);
+
     // just so we get an error if the FlutterCompositor struct was updated
     COMPILE_ASSERT(sizeof(FlutterCompositor) == 24 || sizeof(FlutterCompositor) == 48);
-    compositor->main_window = window_ref(main_window);
-    compositor->flutter_compositor = (FlutterCompositor){
-        .struct_size = sizeof(FlutterCompositor),
-        .user_data = compositor,
-        .create_backing_store_callback = on_flutter_create_backing_store,
-        .collect_backing_store_callback = on_flutter_collect_backing_store,
-        .present_layers_callback = on_flutter_present_layers,
-        .avoid_backing_store_cache = true,
-    };
+    memset(&compositor->flutter_compositor, 0, sizeof(FlutterCompositor));
+
+    compositor->flutter_compositor.struct_size = sizeof(FlutterCompositor);
+    compositor->flutter_compositor.user_data = compositor;
+    compositor->flutter_compositor.create_backing_store_callback = on_flutter_create_backing_store;
+    compositor->flutter_compositor.collect_backing_store_callback = on_flutter_collect_backing_store;
+    compositor->flutter_compositor.present_layers_callback = on_flutter_present_layers;
+    compositor->flutter_compositor.avoid_backing_store_cache = true;
+
     compositor->tracer = tracer_ref(tracer);
     compositor->cursor_pos = VEC2F(0, 0);
     return compositor;

@@ -21,7 +21,7 @@
 #include "util/collection.h"
 #include "util/logging.h"
 
-#define LIBINPUT_VER(major, minor, patch) ((((major) &0xFF) << 16) | (((minor) &0xFF) << 8) | ((patch) &0xFF))
+#define LIBINPUT_VER(major, minor, patch) ((((major) & 0xFF) << 16) | (((minor) & 0xFF) << 8) | ((patch) & 0xFF))
 #define THIS_LIBINPUT_VER LIBINPUT_VER(LIBINPUT_VERSION_MAJOR, LIBINPUT_VERSION_MINOR, LIBINPUT_VERSION_PATCH)
 
 struct input_device_data {
@@ -93,6 +93,112 @@ struct user_input {
      */
     size_t n_collected_flutter_pointer_events;
 };
+
+static inline FlutterPointerEvent make_touch_event(FlutterPointerPhase phase, size_t timestamp, struct vec2f pos, int32_t device_id) {
+    FlutterPointerEvent event;
+    memset(&event, 0, sizeof(event));
+
+    event.struct_size = sizeof(event);
+    event.phase = phase;
+    event.timestamp = timestamp;
+    event.x = pos.x;
+    event.y = pos.y;
+    event.device = device_id;
+    event.signal_kind = kFlutterPointerSignalKindNone;
+    event.scroll_delta_x = 0.0;
+    event.scroll_delta_y = 0.0;
+    event.device_kind = kFlutterPointerDeviceKindTouch;
+    event.buttons = 0;
+    event.pan_x = 0.0;
+    event.pan_y = 0.0;
+    event.scale = 0.0;
+    event.rotation = 0.0;
+
+    return event;
+}
+
+UNUSED static inline FlutterPointerEvent make_touch_cancel_event(size_t timestamp, struct vec2f pos, int32_t device_id) {
+    return make_touch_event(kCancel, timestamp, pos, device_id);
+}
+
+static inline FlutterPointerEvent make_touch_up_event(size_t timestamp, struct vec2f pos, int32_t device_id) {
+    return make_touch_event(kUp, timestamp, pos, device_id);
+}
+
+static inline FlutterPointerEvent make_touch_down_event(size_t timestamp, struct vec2f pos, int32_t device_id) {
+    return make_touch_event(kDown, timestamp, pos, device_id);
+}
+
+static inline FlutterPointerEvent make_touch_move_event(size_t timestamp, struct vec2f pos, int32_t device_id) {
+    return make_touch_event(kMove, timestamp, pos, device_id);
+}
+
+static inline FlutterPointerEvent make_touch_add_event(size_t timestamp, struct vec2f pos, int32_t device_id) {
+    return make_touch_event(kAdd, timestamp, pos, device_id);
+}
+
+static inline FlutterPointerEvent make_touch_remove_event(size_t timestamp, struct vec2f pos, int32_t device_id) {
+    return make_touch_event(kRemove, timestamp, pos, device_id);
+}
+
+static inline FlutterPointerEvent make_mouse_event(
+    FlutterPointerPhase phase,
+    size_t timestamp,
+    struct vec2f pos,
+    int32_t device_id,
+    FlutterPointerSignalKind signal_kind,
+    struct vec2f scroll_delta,
+    int64_t buttons
+) {
+    FlutterPointerEvent event;
+    memset(&event, 0, sizeof(event));
+
+    event.struct_size = sizeof(event);
+    event.phase = phase;
+    event.timestamp = timestamp;
+    event.x = pos.x;
+    event.y = pos.y;
+    event.device = device_id;
+    event.signal_kind = signal_kind;
+    event.scroll_delta_x = scroll_delta.x;
+    event.scroll_delta_y = scroll_delta.y;
+    event.device_kind = kFlutterPointerDeviceKindMouse;
+    event.buttons = buttons;
+    event.pan_x = 0.0;
+    event.pan_y = 0.0;
+    event.scale = 0.0;
+    event.rotation = 0.0;
+
+    return event;
+}
+
+UNUSED static inline FlutterPointerEvent make_mouse_cancel_event(size_t timestamp, struct vec2f pos, int32_t device_id) {
+    return make_mouse_event(kCancel, timestamp, pos, device_id, kFlutterPointerSignalKindNone, VEC2F(0, 0), 0);
+}
+
+UNUSED static inline FlutterPointerEvent make_mouse_up_event(size_t timestamp, struct vec2f pos, int32_t device_id, int64_t buttons) {
+    return make_mouse_event(kUp, timestamp, pos, device_id, kFlutterPointerSignalKindNone, VEC2F(0, 0), buttons);
+}
+
+UNUSED static inline FlutterPointerEvent make_mouse_down_event(size_t timestamp, struct vec2f pos, int32_t device_id, int64_t buttons) {
+    return make_mouse_event(kDown, timestamp, pos, device_id, kFlutterPointerSignalKindNone, VEC2F(0, 0), buttons);
+}
+
+static inline FlutterPointerEvent make_mouse_move_event(size_t timestamp, struct vec2f pos, int32_t device_id, int64_t buttons) {
+    return make_mouse_event(kMove, timestamp, pos, device_id, kFlutterPointerSignalKindNone, VEC2F(0, 0), buttons);
+}
+
+static inline FlutterPointerEvent make_mouse_add_event(size_t timestamp, struct vec2f pos, int32_t device_id, int64_t buttons) {
+    return make_mouse_event(kAdd, timestamp, pos, device_id, kFlutterPointerSignalKindNone, VEC2F(0, 0), buttons);
+}
+
+static inline FlutterPointerEvent make_mouse_remove_event(size_t timestamp, struct vec2f pos, int32_t device_id) {
+    return make_mouse_event(kRemove, timestamp, pos, device_id, kFlutterPointerSignalKindNone, VEC2F(0, 0), 0);
+}
+
+static inline FlutterPointerEvent make_mouse_hover_event(size_t timestamp, struct vec2f pos, int32_t device_id, int64_t buttons) {
+    return make_mouse_event(kHover, timestamp, pos, device_id, kFlutterPointerSignalKindNone, VEC2F(0, 0), buttons);
+}
 
 // libinput interface
 static int on_open(const char *path, int flags, void *userdata) {
@@ -291,7 +397,7 @@ static void flush_pointer_events(struct user_input *input) {
     }
 }
 
-static void emit_pointer_events(struct user_input *input, const FlutterPointerEvent *events, size_t n_events) {
+UNUSED static void emit_pointer_events(struct user_input *input, const FlutterPointerEvent *events, size_t n_events) {
     assert(input != NULL);
     assert(events != NULL);
 
@@ -324,6 +430,19 @@ static void emit_pointer_events(struct user_input *input, const FlutterPointerEv
     }
 }
 
+static void emit_pointer_event(struct user_input *input, const FlutterPointerEvent event) {
+    assert(input != NULL);
+
+    // if the internal buffer is full, flush it
+    if (input->n_collected_flutter_pointer_events == MAX_COLLECTED_FLUTTER_POINTER_EVENTS) {
+        flush_pointer_events(input);
+    }
+
+    memcpy(input->collected_flutter_pointer_events + input->n_collected_flutter_pointer_events, &event, sizeof(event));
+
+    input->n_collected_flutter_pointer_events += 1;
+}
+
 /**
  * @brief Called when input->n_cursor_devices was increased to maybe enable the mouse cursor
  * it it isn't yet enabled.
@@ -336,10 +455,9 @@ static void maybe_enable_mouse_cursor(struct user_input *input, uint64_t timesta
             input->cursor_flutter_device_id = input->next_unused_flutter_device_id++;
         }
 
-        emit_pointer_events(
+        emit_pointer_event(
             input,
-            &FLUTTER_POINTER_MOUSE_ADD_EVENT(timestamp, input->cursor_x, input->cursor_y, input->cursor_flutter_device_id, 0),
-            1
+            make_mouse_add_event(timestamp, VEC2F(input->cursor_x, input->cursor_y), input->cursor_flutter_device_id, 0)
         );
     }
 }
@@ -351,10 +469,9 @@ static void maybe_disable_mouse_cursor(struct user_input *input, uint64_t timest
     assert(input != NULL);
 
     if (input->n_cursor_devices == 0) {
-        emit_pointer_events(
+        emit_pointer_event(
             input,
-            &FLUTTER_POINTER_MOUSE_REMOVE_EVENT(timestamp, input->cursor_x, input->cursor_y, input->cursor_flutter_device_id, 0),
-            1
+            make_mouse_remove_event(timestamp, VEC2F(input->cursor_x, input->cursor_y), input->cursor_flutter_device_id)
         );
     }
 }
@@ -409,7 +526,7 @@ static int on_device_added(struct user_input *input, struct libinput_event *even
         for (int i = 0; i < n_slots; i++) {
             device_id = input->next_unused_flutter_device_id++;
 
-            emit_pointer_events(input, &FLUTTER_POINTER_TOUCH_ADD_EVENT(timestamp, 0.0, 0.0, device_id), 1);
+            emit_pointer_event(input, make_touch_add_event(timestamp, VEC2F(0, 0), device_id));
         }
 
         positions = malloc(n_slots * sizeof(struct vec2f));
@@ -434,12 +551,12 @@ static int on_device_added(struct user_input *input, struct libinput_event *even
         device_id = input->next_unused_flutter_device_id++;
 
         /// TODO: Use kFlutterPointerDeviceKindStylus here
-        emit_pointer_events(input, &FLUTTER_POINTER_TOUCH_ADD_EVENT(timestamp, 0.0, 0.0, device_id), 1);
+        emit_pointer_event(input, make_touch_add_event(timestamp, VEC2F(0, 0), device_id));
     }
 
     return 0;
 
-    fail_free_data:
+fail_free_data:
     free(data);
     return EINVAL;
 }
@@ -481,7 +598,7 @@ static int on_device_removed(struct user_input *input, struct libinput_event *ev
         // add all touch slots as individual touch devices to flutter
         if (emit_flutter_events) {
             for (int i = 0; i < libinput_device_touch_get_touch_count(device); i++) {
-                emit_pointer_events(input, &FLUTTER_POINTER_TOUCH_REMOVE_EVENT(timestamp, 0.0, 0.0, data->flutter_device_id_offset + i), 1);
+                emit_pointer_event(input, make_touch_remove_event(timestamp, VEC2F(0, 0), data->flutter_device_id_offset + i));
             }
         }
     }
@@ -682,10 +799,11 @@ static int on_mouse_motion_event(struct user_input *input, struct libinput_event
     }
 
     // send the pointer event to flutter.
-    emit_pointer_events(
+    emit_pointer_event(
         input,
-        &FLUTTER_POINTER_MOUSE_MOVE_EVENT(timestamp, pos_view.x, pos_view.y, input->cursor_flutter_device_id, data->buttons),
-        1
+        data->buttons & kFlutterPointerButtonMousePrimary ?
+            make_mouse_move_event(timestamp, pos_view, input->cursor_flutter_device_id, data->buttons) :
+            make_mouse_hover_event(timestamp, pos_view, input->cursor_flutter_device_id, data->buttons)
     );
 
     // we don't invoke the interfaces' mouse move callback here, since we
@@ -733,10 +851,11 @@ static int on_mouse_motion_absolute_event(struct user_input *input, struct libin
         maybe_enable_mouse_cursor(input, timestamp);
     }
 
-    emit_pointer_events(
+    emit_pointer_event(
         input,
-        &FLUTTER_POINTER_MOUSE_MOVE_EVENT(timestamp, pos_view.x, pos_view.y, input->cursor_flutter_device_id, data->buttons),
-        1
+        data->buttons & kFlutterPointerButtonMousePrimary ?
+            make_mouse_move_event(timestamp, pos_view, input->cursor_flutter_device_id, data->buttons) :
+            make_mouse_hover_event(timestamp, pos_view, input->cursor_flutter_device_id, data->buttons)
     );
 
     return 0;
@@ -816,17 +935,17 @@ static int on_mouse_button_event(struct user_input *input, struct libinput_event
         // we need to transform them again
         pos_view = transform_point(input->display_to_view_transform, VEC2F(input->cursor_x, input->cursor_y));
 
-        emit_pointer_events(
+        emit_pointer_event(
             input,
-            &FLUTTER_POINTER_MOUSE_BUTTON_EVENT(
+            make_mouse_event(
                 pointer_phase,
                 timestamp,
-                pos_view.x,
-                pos_view.y,
+                pos_view,
                 input->cursor_flutter_device_id,
+                kFlutterPointerSignalKindNone,
+                VEC2F(0, 0),
                 new_flutter_button_state
-            ),
-            1
+            )
         );
 
         // finally apply the new button state
@@ -863,18 +982,17 @@ static int on_mouse_axis_event(struct user_input *input, struct libinput_event *
                           libinput_event_pointer_get_axis_value(pointer_event, LIBINPUT_POINTER_AXIS_SCROLL_VERTICAL) :
                           0.0;
 
-    emit_pointer_events(
+    emit_pointer_event(
         input,
-        &FLUTTER_POINTER_MOUSE_SCROLL_EVENT(
+        make_mouse_event(
+            data->buttons & kFlutterPointerButtonMousePrimary ? kMove : kHover,
             timestamp,
-            pos_view.x,
-            pos_view.y,
+            pos_view,
             input->cursor_flutter_device_id,
-            scroll_x / 15.0 * 53.0,
-            scroll_y / 15.0 * 53.0,
+            kFlutterPointerSignalKindScroll,
+            VEC2F(scroll_x / 15.0 * 53.0, scroll_y / 15.0 * 53.0),
             data->buttons
-        ),
-        1
+        )
     );
 
     return 0;
@@ -914,7 +1032,7 @@ static int on_touch_down(struct user_input *input, struct libinput_event *event)
     );
 
     // emit the flutter pointer event
-    emit_pointer_events(input, &FLUTTER_POINTER_TOUCH_DOWN_EVENT(timestamp, pos_view.x, pos_view.y, device_id), 1);
+    emit_pointer_event(input, make_touch_down_event(timestamp, pos_view, device_id));
 
     // alter our device state
     data->positions[slot] = pos_view;
@@ -946,7 +1064,7 @@ static int on_touch_up(struct user_input *input, struct libinput_event *event) {
 
     device_id = data->flutter_device_id_offset + slot;
 
-    emit_pointer_events(input, &FLUTTER_POINTER_TOUCH_UP_EVENT(timestamp, data->positions[slot].x, data->positions[slot].y, device_id), 1);
+    emit_pointer_event(input, make_touch_up_event(timestamp, data->positions[slot], device_id));
 
     return 0;
 }
@@ -985,7 +1103,7 @@ static int on_touch_motion(struct user_input *input, struct libinput_event *even
     );
 
     // emit the flutter pointer event
-    emit_pointer_events(input, &FLUTTER_POINTER_TOUCH_MOVE_EVENT(timestamp, pos_view.x, pos_view.y, device_id), 1);
+    emit_pointer_event(input, make_touch_move_event(timestamp, pos_view, device_id));
 
     // alter our device state
     data->positions[slot] = pos_view;
@@ -1043,7 +1161,7 @@ static int on_tablet_tool_axis(struct user_input *input, struct libinput_event *
 
         pos = transform_point(input->display_to_view_transform, pos);
 
-        emit_pointer_events(input, &FLUTTER_POINTER_TOUCH_MOVE_EVENT(timestamp, pos.x, pos.y, device_id), 1);
+        emit_pointer_event(input, make_touch_move_event(timestamp, pos, device_id));
     }
 
     return 0;
@@ -1085,10 +1203,10 @@ static int on_tablet_tool_tip(struct user_input *input, struct libinput_event *e
     /// FIXME: Use kFlutterPointerDeviceKindStylus here
     if (libinput_event_tablet_tool_get_tip_state(tablet_event) == LIBINPUT_TABLET_TOOL_TIP_DOWN) {
         data->tip = true;
-        emit_pointer_events(input, &FLUTTER_POINTER_TOUCH_DOWN_EVENT(timestamp, pos.x, pos.y, device_id), 1);
+        emit_pointer_event(input, make_touch_down_event(timestamp, pos, device_id));
     } else {
         data->tip = false;
-        emit_pointer_events(input, &FLUTTER_POINTER_TOUCH_UP_EVENT(timestamp, pos.x, pos.y, device_id), 1);
+        emit_pointer_event(input, make_touch_up_event(timestamp, pos, device_id));
     }
 
     return 0;

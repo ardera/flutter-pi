@@ -803,16 +803,15 @@ static int on_send_platform_message(void *userdata) {
         result = flutterpi->flutter.procs
                      .SendPlatformMessageResponse(flutterpi->flutter.engine, msg->target_handle, msg->message, msg->message_size);
     } else {
-        result = flutterpi->flutter.procs.SendPlatformMessage(
-            flutterpi->flutter.engine,
-            &(FlutterPlatformMessage){
-                .struct_size = sizeof(FlutterPlatformMessage),
-                .channel = msg->target_channel,
-                .message = msg->message,
-                .message_size = msg->message_size,
-                .response_handle = msg->response_handle,
-            }
-        );
+        FlutterPlatformMessage message;
+        memset(&message, 0, sizeof(message));
+
+        message.struct_size = sizeof(FlutterPlatformMessage);
+        message.channel = msg->target_channel;
+        message.message_size = msg->message_size;
+        message.response_handle = msg->response_handle;
+
+        result = flutterpi->flutter.procs.SendPlatformMessage(flutterpi->flutter.engine, &message);
     }
 
     if (msg->message) {
@@ -1256,115 +1255,107 @@ static FlutterEngine create_flutter_engine(
     FlutterEngineAOTData aot_data,
     const FlutterEngineProcTable *procs
 ) {
-    FlutterRendererConfig renderer_config;
     FlutterEngineResult engine_result;
-    FlutterProjectArgs project_args;
     FlutterEngine engine;
+
+    FlutterRendererConfig renderer_config;
+    memset(&renderer_config, 0, sizeof(renderer_config));
 
     // configure flutter rendering
     if (vk_renderer) {
-        COMPILE_ASSERT(sizeof(FlutterRendererConfig) == 60 || sizeof(FlutterRendererConfig) == 120);
-        COMPILE_ASSERT(sizeof(FlutterVulkanRendererConfig) == 56 || sizeof(FlutterVulkanRendererConfig) == 112);
 #ifdef HAVE_VULKAN
-        renderer_config = (FlutterRendererConfig) {
-            .type = kVulkan,
-            .vulkan = {
-                .struct_size = sizeof(FlutterVulkanRendererConfig),
-                .version = vk_renderer_get_vk_version(vk_renderer),
-                .instance = vk_renderer_get_instance(vk_renderer),
-                .physical_device = vk_renderer_get_physical_device(vk_renderer),
-                .device = vk_renderer_get_device(vk_renderer),
-                .queue_family_index = vk_renderer_get_queue_family_index(vk_renderer),
-                .queue = vk_renderer_get_queue(vk_renderer),
-                .enabled_instance_extension_count = vk_renderer_get_enabled_instance_extension_count(vk_renderer),
-                .enabled_instance_extensions = vk_renderer_get_enabled_instance_extensions(vk_renderer),
-                .enabled_device_extension_count = vk_renderer_get_enabled_device_extension_count(vk_renderer),
-                .enabled_device_extensions = vk_renderer_get_enabled_device_extensions(vk_renderer),
-                .get_instance_proc_address_callback = on_get_vulkan_proc_address,
-                .get_next_image_callback = on_get_next_vulkan_image,
-                .present_image_callback = on_present_vulkan_image,
-            },
-        };
+        renderer_config.type = kVulkan;
+        renderer_config.vulkan.struct_size = sizeof(FlutterVulkanRendererConfig);
+        renderer_config.vulkan.version = vk_renderer_get_vk_version(vk_renderer);
+        renderer_config.vulkan.instance = vk_renderer_get_instance(vk_renderer);
+        renderer_config.vulkan.physical_device = vk_renderer_get_physical_device(vk_renderer);
+        renderer_config.vulkan.device = vk_renderer_get_device(vk_renderer);
+        renderer_config.vulkan.queue_family_index = vk_renderer_get_queue_family_index(vk_renderer);
+        renderer_config.vulkan.queue = vk_renderer_get_queue(vk_renderer);
+        renderer_config.vulkan.enabled_instance_extension_count = vk_renderer_get_enabled_instance_extension_count(vk_renderer);
+        renderer_config.vulkan.enabled_instance_extensions = vk_renderer_get_enabled_instance_extensions(vk_renderer);
+        renderer_config.vulkan.enabled_device_extension_count = vk_renderer_get_enabled_device_extension_count(vk_renderer);
+        renderer_config.vulkan.enabled_device_extensions = vk_renderer_get_enabled_device_extensions(vk_renderer);
+        renderer_config.vulkan.get_instance_proc_address_callback = on_get_vulkan_proc_address;
+        renderer_config.vulkan.get_next_image_callback = on_get_next_vulkan_image;
+        renderer_config.vulkan.present_image_callback = on_present_vulkan_image;
 #else
         UNREACHABLE();
 #endif
     } else {
-        COMPILE_ASSERT(sizeof(FlutterRendererConfig) == 60 || sizeof(FlutterRendererConfig) == 120);
-        COMPILE_ASSERT(sizeof(FlutterOpenGLRendererConfig) == 52 || sizeof(FlutterOpenGLRendererConfig) == 104);
 #ifdef HAVE_EGL_GLES2
-        renderer_config = (FlutterRendererConfig){
-            .type = kOpenGL,
-            .open_gl = {
-                .struct_size = sizeof(FlutterOpenGLRendererConfig),
-                .make_current = on_make_current,
-                .clear_current = on_clear_current,
-                .present = on_present,
-                .fbo_callback = fbo_callback,
-                .make_resource_current = on_make_resource_current,
-                .gl_proc_resolver = proc_resolver,
-                .surface_transformation = on_get_transformation,
-                .gl_external_texture_frame_callback = on_gl_external_texture_frame_callback,
-                .fbo_with_frame_info_callback = NULL,
-                .present_with_info = NULL,
-                .populate_existing_damage = NULL,
-            },
-        };
+        renderer_config.type = kOpenGL;
+        renderer_config.open_gl.struct_size = sizeof(FlutterOpenGLRendererConfig);
+        renderer_config.open_gl.make_current = on_make_current;
+        renderer_config.open_gl.clear_current = on_clear_current;
+        renderer_config.open_gl.present = on_present;
+        renderer_config.open_gl.fbo_callback = fbo_callback;
+        renderer_config.open_gl.make_resource_current = on_make_resource_current;
+        renderer_config.open_gl.gl_proc_resolver = proc_resolver;
+        renderer_config.open_gl.surface_transformation = on_get_transformation;
+        renderer_config.open_gl.gl_external_texture_frame_callback = on_gl_external_texture_frame_callback;
+        renderer_config.open_gl.fbo_with_frame_info_callback = NULL;
+        renderer_config.open_gl.present_with_info = NULL;
+        renderer_config.open_gl.populate_existing_damage = NULL;
 #else
         UNREACHABLE();
 #endif
     }
 
-    COMPILE_ASSERT(sizeof(FlutterProjectArgs) == 152 || sizeof(FlutterProjectArgs) == 288);
+    FlutterTaskRunnerDescription platform_task_runner;
+    memset(&platform_task_runner, 0, sizeof(platform_task_runner));
+
+    platform_task_runner.struct_size = sizeof(FlutterTaskRunnerDescription);
+    platform_task_runner.user_data = flutterpi;
+    platform_task_runner.runs_task_on_current_thread_callback = runs_platform_tasks_on_current_thread;
+    platform_task_runner.post_task_callback = on_post_flutter_task;
+
+    FlutterCustomTaskRunners custom_task_runners;
+    memset(&custom_task_runners, 0, sizeof(custom_task_runners));
+
+    custom_task_runners.struct_size = sizeof(FlutterCustomTaskRunners);
+    custom_task_runners.platform_task_runner = &platform_task_runner;
+    custom_task_runners.render_task_runner = NULL;
+    custom_task_runners.thread_priority_setter = NULL;
 
     // configure the project
-    project_args = (FlutterProjectArgs){
-        .struct_size = sizeof(FlutterProjectArgs),
-        .assets_path = paths->asset_bundle_path,
-        .icu_data_path = paths->icudtl_path,
-        .command_line_argc = engine_argc,
-        .command_line_argv = (const char *const *) engine_argv,
-        .platform_message_callback = on_platform_message,
-        .vm_snapshot_data = NULL,
-        .vm_snapshot_data_size = 0,
-        .vm_snapshot_instructions = NULL,
-        .vm_snapshot_instructions_size = 0,
-        .isolate_snapshot_data = NULL,
-        .isolate_snapshot_data_size = 0,
-        .isolate_snapshot_instructions = NULL,
-        .isolate_snapshot_instructions_size = 0,
-        .root_isolate_create_callback = NULL,
-        .update_semantics_node_callback = NULL,
-        .update_semantics_custom_action_callback = NULL,
-        .persistent_cache_path = paths->asset_bundle_path,
-        .is_persistent_cache_read_only = false,
-        .vsync_callback = NULL,  // on_frame_request, /* broken since 2.2, kinda */
-        .custom_dart_entrypoint = NULL,
-        .custom_task_runners =
-            &(FlutterCustomTaskRunners){
-                .struct_size = sizeof(FlutterCustomTaskRunners),
-                .platform_task_runner =
-                    &(FlutterTaskRunnerDescription){
-                        .struct_size = sizeof(FlutterTaskRunnerDescription),
-                        .user_data = flutterpi,
-                        .runs_task_on_current_thread_callback = runs_platform_tasks_on_current_thread,
-                        .post_task_callback = on_post_flutter_task,
-                    },
-                .render_task_runner = NULL,
-                .thread_priority_setter = NULL,
-            },
-        .shutdown_dart_vm_when_done = true,
-        .compositor = compositor_get_flutter_compositor(compositor),
-        .dart_old_gen_heap_size = -1,
-        .aot_data = aot_data,
-        .compute_platform_resolved_locale_callback = on_compute_platform_resolved_locales,
-        .dart_entrypoint_argc = 0,
-        .dart_entrypoint_argv = NULL,
-        .log_message_callback = NULL,
-        .log_tag = NULL,
-        .on_pre_engine_restart_callback = NULL,
-        .update_semantics_callback = NULL,
-        .update_semantics_callback2 = NULL,
-    };
+    FlutterProjectArgs project_args;
+    memset(&project_args, 0, sizeof(project_args));
+
+    project_args.struct_size = sizeof(FlutterProjectArgs);
+    project_args.assets_path = paths->asset_bundle_path;
+    project_args.icu_data_path = paths->icudtl_path;
+    project_args.command_line_argc = engine_argc;
+    project_args.command_line_argv = (const char *const *) engine_argv;
+    project_args.platform_message_callback = on_platform_message;
+    project_args.vm_snapshot_data = NULL;
+    project_args.vm_snapshot_data_size = 0;
+    project_args.vm_snapshot_instructions = NULL;
+    project_args.vm_snapshot_instructions_size = 0;
+    project_args.isolate_snapshot_data = NULL;
+    project_args.isolate_snapshot_data_size = 0;
+    project_args.isolate_snapshot_instructions = NULL;
+    project_args.isolate_snapshot_instructions_size = 0;
+    project_args.root_isolate_create_callback = NULL;
+    project_args.update_semantics_node_callback = NULL;
+    project_args.update_semantics_custom_action_callback = NULL;
+    project_args.persistent_cache_path = paths->asset_bundle_path;
+    project_args.is_persistent_cache_read_only = false;
+    project_args.vsync_callback = NULL;  // on_frame_request, /* broken since 2.2, kinda *
+    project_args.custom_dart_entrypoint = NULL;
+    project_args.custom_task_runners = &custom_task_runners;
+    project_args.shutdown_dart_vm_when_done = true;
+    project_args.compositor = compositor_get_flutter_compositor(compositor);
+    project_args.dart_old_gen_heap_size = -1;
+    project_args.aot_data = aot_data;
+    project_args.compute_platform_resolved_locale_callback = on_compute_platform_resolved_locales;
+    project_args.dart_entrypoint_argc = 0;
+    project_args.dart_entrypoint_argv = NULL;
+    project_args.log_message_callback = NULL;
+    project_args.log_tag = NULL;
+    project_args.on_pre_engine_restart_callback = NULL;
+    project_args.update_semantics_callback = NULL;
+    project_args.update_semantics_callback2 = NULL;
 
     // spin up the engine
     engine_result = procs->Initialize(FLUTTER_ENGINE_VERSION, &renderer_config, &project_args, flutterpi, &engine);
@@ -1429,19 +1420,15 @@ static int flutterpi_run(struct flutterpi *flutterpi) {
         goto fail_shutdown_engine;
     }
 
-    COMPILE_ASSERT(sizeof(FlutterEngineDisplay) == 32);
+    FlutterEngineDisplay display;
+    memset(&display, 0, sizeof(display));
 
-    engine_result = procs->NotifyDisplayUpdate(
-        engine,
-        kFlutterEngineDisplaysUpdateTypeStartup,
-        &(FlutterEngineDisplay){
-            .struct_size = sizeof(FlutterEngineDisplay),
-            .display_id = 0,
-            .single_display = true,
-            .refresh_rate = compositor_get_refresh_rate(flutterpi->compositor),
-        },
-        1
-    );
+    display.struct_size = sizeof(FlutterEngineDisplay);
+    display.display_id = 0;
+    display.single_display = true;
+    display.refresh_rate = compositor_get_refresh_rate(flutterpi->compositor);
+
+    engine_result = procs->NotifyDisplayUpdate(engine, kFlutterEngineDisplaysUpdateTypeStartup, &display, 1);
     if (engine_result != kSuccess) {
         ok = EINVAL;
         LOG_ERROR(
@@ -1454,24 +1441,22 @@ static int flutterpi_run(struct flutterpi *flutterpi) {
     compositor_get_view_geometry(flutterpi->compositor, &geometry);
 
     // just so we get an error if the window metrics event was expanded without us noticing
-    COMPILE_ASSERT(sizeof(FlutterWindowMetricsEvent) == 64 || sizeof(FlutterWindowMetricsEvent) == 80);
+    FlutterWindowMetricsEvent window_metrics_event;
+    memset(&window_metrics_event, 0, sizeof(window_metrics_event));
+
+    window_metrics_event.struct_size = sizeof(FlutterWindowMetricsEvent);
+    window_metrics_event.width = geometry.view_size.x;
+    window_metrics_event.height = geometry.view_size.y;
+    window_metrics_event.pixel_ratio = geometry.device_pixel_ratio;
+    window_metrics_event.left = 0;
+    window_metrics_event.top = 0;
+    window_metrics_event.physical_view_inset_top = 0;
+    window_metrics_event.physical_view_inset_right = 0;
+    window_metrics_event.physical_view_inset_bottom = 0;
+    window_metrics_event.physical_view_inset_left = 0;
 
     // update window size
-    engine_result = procs->SendWindowMetricsEvent(
-        engine,
-        &(FlutterWindowMetricsEvent){
-            .struct_size = sizeof(FlutterWindowMetricsEvent),
-            .width = geometry.view_size.x,
-            .height = geometry.view_size.y,
-            .pixel_ratio = geometry.device_pixel_ratio,
-            .left = 0,
-            .top = 0,
-            .physical_view_inset_top = 0,
-            .physical_view_inset_right = 0,
-            .physical_view_inset_bottom = 0,
-            .physical_view_inset_left = 0,
-        }
-    );
+    engine_result = procs->SendWindowMetricsEvent(engine, &window_metrics_event);
     if (engine_result != kSuccess) {
         LOG_ERROR(
             "Could not send window metrics to flutter engine. FlutterEngineSendWindowMetricsEvent: %s\n",
