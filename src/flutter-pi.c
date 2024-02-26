@@ -1848,7 +1848,7 @@ struct cmd_args {
     int rotation;
 
     bool has_physical_dimensions;
-    int width_mm, height_mm;
+    struct vec2i physical_dimensions;
 
     bool has_pixel_format;
     enum pixfmt pixel_format;
@@ -1864,6 +1864,9 @@ struct cmd_args {
     bool use_vulkan;
 
     char *desired_videomode;
+
+    bool dummy_display;
+    struct vec2i dummy_display_size;
 };
 
 static struct flutter_paths *setup_paths(enum flutter_runtime_mode runtime_mode, const char *app_bundle_path) {
@@ -1877,10 +1880,22 @@ static struct flutter_paths *setup_paths(enum flutter_runtime_mode runtime_mode,
 #endif
 }
 
+static bool parse_vec2i(const char *str, struct vec2i *out) {
+    int ok;
+
+    ok = sscanf(str, "%d,%d", &out->x, &out->y);
+    if (ok != 2) {
+        return false;
+    }
+
+    return true;
+}
+
 static bool parse_cmd_args(int argc, char **argv, struct cmd_args *result_out) {
     bool finished_parsing_options;
     int runtime_mode_int = FLUTTER_RUNTIME_MODE_DEBUG;
     int vulkan_int = false;
+    int dummy_display_int = 0;
     int longopt_index = 0;
     int opt, ok;
 
@@ -1894,6 +1909,8 @@ static bool parse_cmd_args(int argc, char **argv, struct cmd_args *result_out) {
         { "pixelformat", required_argument, NULL, 'p' },
         { "vulkan", no_argument, &vulkan_int, true },
         { "videomode", required_argument, NULL, 'v' },
+        { "dummy-display", no_argument, &dummy_display_int, 1 },
+        { "dummy-display-size", required_argument, NULL, 's' },
         { 0, 0, 0, 0 },
     };
 
@@ -1960,17 +1977,11 @@ static bool parse_cmd_args(int argc, char **argv, struct cmd_args *result_out) {
                 break;
 
             case 'd':;
-                unsigned int width_mm, height_mm;
-
-                ok = sscanf(optarg, "%u,%u", &width_mm, &height_mm);
-                if (ok != 2) {
-                    LOG_ERROR("ERROR: Invalid argument for --dimensions passed.\n%s", usage);
+                ok = parse_vec2i(optarg, &result_out->physical_dimensions);
+                if (!ok) {
+                    LOG_ERROR("ERROR: Invalid argument for --dimensions passed.\n");
                     return false;
                 }
-
-                result_out->width_mm = width_mm;
-                result_out->height_mm = height_mm;
-                result_out->has_physical_dimensions = true;
 
                 break;
 
@@ -2002,6 +2013,15 @@ valid_format:
                 }
 
                 result_out->desired_videomode = vmode_dup;
+                break;
+
+            case 's':;  // --dummy-display-size
+                ok = parse_vec2i(optarg, &result_out->dummy_display_size);
+                if (!ok) {
+                    LOG_ERROR("ERROR: Invalid argument for --dummy-display-size passed.\n");
+                    return false;
+                }
+
                 break;
 
             case 'h': printf("%s", usage); return false;
@@ -2037,6 +2057,8 @@ valid_format:
     }
 #endif
     result_out->use_vulkan = vulkan_int;
+
+    result_out->dummy_display = !!dummy_display_int;
 
     return true;
 }
@@ -2449,29 +2471,44 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
         goto fail_unref_scheduler;
     }
 
-    window = kms_window_new(
-        // clang-format off
-        tracer,
-        scheduler,
-        renderer_type,
-        gl_renderer,
-        vk_renderer,
-        cmd_args.has_rotation,
-        cmd_args.rotation == 0   ? PLANE_TRANSFORM_ROTATE_0   :
-            cmd_args.rotation == 90  ? PLANE_TRANSFORM_ROTATE_90  :
-            cmd_args.rotation == 180 ? PLANE_TRANSFORM_ROTATE_180 :
-            cmd_args.rotation == 270 ? PLANE_TRANSFORM_ROTATE_270 :
-            (assert(0 && "invalid rotation"), PLANE_TRANSFORM_ROTATE_0),
-        cmd_args.has_orientation, cmd_args.orientation,
-        cmd_args.has_physical_dimensions, cmd_args.width_mm, cmd_args.height_mm,
-        cmd_args.has_pixel_format, cmd_args.pixel_format,
-        drmdev,
-        desired_videomode
-        // clang-format on
-    );
-    if (window == NULL) {
-        LOG_ERROR("Couldn't create KMS window.\n");
-        goto fail_unref_renderer;
+    if (cmd_args.dummy_display) {
+        window = dummy_window_new(
+            tracer,
+            scheduler,
+            renderer_type,
+            gl_renderer,
+            vk_renderer,
+            cmd_args.dummy_display_size,
+            cmd_args.has_physical_dimensions,
+            cmd_args.physical_dimensions.x,
+            cmd_args.physical_dimensions.y,
+            60.0
+        );
+    } else {
+        window = kms_window_new(
+            // clang-format off
+            tracer,
+            scheduler,
+            renderer_type,
+            gl_renderer,
+            vk_renderer,
+            cmd_args.has_rotation,
+            cmd_args.rotation == 0   ? PLANE_TRANSFORM_ROTATE_0   :
+                cmd_args.rotation == 90  ? PLANE_TRANSFORM_ROTATE_90  :
+                cmd_args.rotation == 180 ? PLANE_TRANSFORM_ROTATE_180 :
+                cmd_args.rotation == 270 ? PLANE_TRANSFORM_ROTATE_270 :
+                (assert(0 && "invalid rotation"), PLANE_TRANSFORM_ROTATE_0),
+            cmd_args.has_orientation, cmd_args.orientation,
+            cmd_args.has_physical_dimensions, cmd_args.physical_dimensions.x, cmd_args.physical_dimensions.y,
+            cmd_args.has_pixel_format, cmd_args.pixel_format,
+            drmdev,
+            desired_videomode
+            // clang-format on
+        );
+        if (window == NULL) {
+            LOG_ERROR("Couldn't create KMS window.\n");
+            goto fail_unref_renderer;
+        }
     }
 
     compositor = compositor_new(tracer, window);
