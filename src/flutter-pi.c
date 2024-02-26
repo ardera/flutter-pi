@@ -2318,6 +2318,11 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
 
     desired_videomode = cmd_args.desired_videomode;
 
+    if (bundle_path == NULL) {
+        LOG_ERROR("ERROR: Bundle path does not exist.\n");
+        goto fail_free_cmd_args;
+    }
+
     paths = setup_paths(runtime_mode, bundle_path);
     if (paths == NULL) {
         goto fail_free_cmd_args;
