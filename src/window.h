@@ -70,6 +70,34 @@ struct window *kms_window_new(
 );
 
 /**
+ * Creates a new dummy window.
+ *
+ * @param tracer The tracer object.
+ * @param scheduler The frame scheduler object.
+ * @param renderer_type The type of renderer.
+ * @param gl_renderer The GL renderer object.
+ * @param vk_renderer The Vulkan renderer object.
+ * @param size The size of the window.
+ * @param has_explicit_dimensions Indicates if the window has explicit dimensions.
+ * @param width_mm The width of the window in millimeters.
+ * @param height_mm The height of the window in millimeters.
+ * @param refresh_rate The refresh rate of the window.
+ * @return A pointer to the newly created window.
+ */
+MUST_CHECK struct window *dummy_window_new(
+    struct tracer *tracer,
+    struct frame_scheduler *scheduler,
+    enum renderer_type renderer_type,
+    struct gl_renderer *gl_renderer,
+    struct vk_renderer *vk_renderer,
+    struct vec2i size,
+    bool has_explicit_dimensions,
+    int width_mm,
+    int height_mm,
+    double refresh_rate
+);
+
+/**
  * @brief Push a new flutter composition to the window, outputting a new frame.
  *
  * @param window The window instance.
