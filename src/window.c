@@ -480,7 +480,7 @@ int window_get_next_vblank(struct window *window, uint64_t *next_vblank_ns_out) 
 
 #ifdef HAVE_EGL_GLES2
 bool window_has_egl_surface(struct window *window) {
-    return window->egl_surface;
+    return window->has_egl_surface(window);
 }
 
 EGLSurface window_get_egl_surface(struct window *window) {
@@ -1665,9 +1665,8 @@ MUST_CHECK struct window *dummy_window_new(
 static int dummy_window_push_composition(struct window *window, struct fl_layer_composition *composition) {
     window_lock(window);
 
-    /// TODO: Implement
+    /// TODO: Maybe allow to export the layer composition as an image, for testing purposes.
     (void) composition;
-    UNIMPLEMENTED();
 
     window_unlock(window);
 
@@ -1738,20 +1737,50 @@ static struct render_surface *dummy_window_get_render_surface(struct window *win
 #ifdef HAVE_EGL_GLES2
 static bool dummy_window_has_egl_surface(struct window *window) {
     ASSERT_NOT_NULL(window);
-    UNIMPLEMENTED();
-    return false;
+
+    if (window->renderer_type == kOpenGL_RendererType) {
+        return window->render_surface != NULL;
+    } else {
+        return false;
+    }
 }
 
 static EGLSurface dummy_window_get_egl_surface(struct window *window) {
     ASSERT_NOT_NULL(window);
-    UNIMPLEMENTED();
-    return EGL_NO_SURFACE;
+
+    if (window->renderer_type == kOpenGL_RendererType) {
+        struct render_surface *render_surface = dummy_window_get_render_surface_internal(window, false, VEC2I(0, 0));
+        return egl_gbm_render_surface_get_egl_surface(CAST_EGL_GBM_RENDER_SURFACE(render_surface));
+    } else {
+        return EGL_NO_SURFACE;
+    }
 }
 #endif
 
 static void dummy_window_deinit(struct window *window) {
     ASSERT_NOT_NULL(window);
-    UNIMPLEMENTED();
+
+    if (window->render_surface != NULL) {
+        surface_unref(CAST_SURFACE(window->render_surface));
+    }
+
+    if (window->gl_renderer != NULL) {
+#ifdef HAVE_EGL_GLES2
+        gl_renderer_unref(window->gl_renderer);
+#else
+        UNREACHABLE();
+#endif
+    }
+
+    if (window->vk_renderer != NULL) {
+#ifdef HAVE_VULKAN
+        vk_renderer_unref(window->vk_renderer);
+#else
+        UNREACHABLE();
+#endif
+    }
+
+    window_deinit(window);
 }
 
 static int dummy_window_set_cursor_locked(
@@ -1770,6 +1799,6 @@ static int dummy_window_set_cursor_locked(
     (void) kind;
     (void) has_pos;
     (void) pos;
-    UNIMPLEMENTED();
+
     return 0;
 }
