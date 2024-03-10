@@ -34,7 +34,8 @@ jobs:
             -DBUILD_GSTREAMER_AUDIO_PLAYER_PLUGIN=On \
             -DBUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN=On \
             -DENABLE_VULKAN=ON \
-            -DENABLE_OPENGL=ON
+            -DENABLE_OPENGL=ON \
+            -DCMAKE_C_COMPILER=clang
     
     - name: Analyze
       id: analyze
