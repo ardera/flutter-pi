@@ -24,11 +24,28 @@ jobs:
 
     - name: Configure
       run: |
-        cmake -B build -S . -GNinja \
-          -DBUILD_GSTREAMER_AUDIO_PLAYER_PLUGIN=On \
-          -DBUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN=On \
-          -DENABLE_VULKAN=ON \
-          -DENABLE_OPENGL=ON \
+        scan-build \
+          -o $GITHUB_WORKSPACE/reports/ \
+          cmake \
+            -B build \
+            -S . \
+            -GNinja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DBUILD_GSTREAMER_AUDIO_PLAYER_PLUGIN=On \
+            -DBUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN=On \
+            -DENABLE_VULKAN=ON \
+            -DENABLE_OPENGL=ON
     
     - name: Analyze
-      run: cmake --build build --target analyze-check
+      run: |
+        scan-build \
+          -sarif \
+          --status-bugs \
+          -o $GITHUB_WORKSPACE/reports/ \
+          cmake --build build
+
+    - name: Upload reports
+      uses: github/codeql-action/upload-sarif@v2
+      with:
+        sarif_file: $GITHUB_WORKSPACE/reports/**.sarif
+        category: "/language:cpp"
