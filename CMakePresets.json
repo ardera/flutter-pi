@@ -10,7 +10,32 @@
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Debug",
                 "CMAKE_INSTALL_PREFIX": "${sourceDir}/out/install/${presetName}",
-                "ENABLE_OPENGL": true
+                "ENABLE_OPENGL": true,
+                "BUILD_GSTREAMER_AUDIO_PLAYER_PLUGIN": true
+            }
+        },
+        {
+            "name": "cross-aarch64-default",
+            "displayName": "OpenGL AArch64 cross-build",
+            "description": "Sets Ninja generator, build and install directory",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/out/build/${presetName}",
+            "inherits": "default",
+            "cacheVariables": {
+                "CMAKE_C_COMPILER": "clang",
+                "CMAKE_C_COMPILER_TARGET": "aarch64-linux-gnu"
+            }
+        },
+        {
+            "name": "cross-armhf-default",
+            "displayName": "OpenGL armhf cross-build",
+            "description": "Sets Ninja generator, build and install directory",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/out/build/${presetName}",
+            "inherits": "default",
+            "cacheVariables": {
+                "CMAKE_C_COMPILER": "clang",
+                "CMAKE_C_COMPILER_TARGET": "arm-linux-gnueabihf"
             }
         }
     ]
