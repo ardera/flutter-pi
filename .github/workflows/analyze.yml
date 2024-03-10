@@ -11,10 +11,23 @@ jobs:
       uses: actions/checkout@v4
 
     - name: Install Dependencies
-      run: sudo apt-get install -y cmake clang-tools ninja-build
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y
+          git cmake clang clang-tools ninja-build \
+          libdrm-dev libgbm-dev fonts-liberation fontconfig libsystemd-dev libinput-dev libudev-dev \
+          libxkbcommon-dev ninja-build libgstreamer-plugins-base1.0-dev \
+          libvulkan-dev \
+          libgl1-mesa-dev libgles2-mesa-dev libegl1-mesa-dev \
+          libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libgstreamer-plugins-bad1.0-dev gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-ugly gstreamer1.0-plugins-bad gstreamer1.0-libav gstreamer1.0-alsa
 
     - name: Configure
-      run: cmake -B build -S . -GNinja
+      run: |
+        cmake -B build -S . -GNinja \
+          -DBUILD_GSTREAMER_AUDIO_PLAYER_PLUGIN=On \
+          -DBUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN=On \
+          -DENABLE_VULKAN=ON \
+          -DENABLE_OPENGL=ON \
     
     - name: Analyze
       run: cmake --build build --target analyze-check
