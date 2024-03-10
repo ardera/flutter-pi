@@ -384,6 +384,11 @@ OPTIONS:
                              If no hz value is given, the highest possible refreshrate
                              will be used.
 
+  --dummy-display            Simulate a display. Useful for running apps
+                             without a display attached.
+  --dummy-display-size "width,height" The width & height of the dummy display
+                             in pixels.
+
   -h, --help                 Show this help and exit.
 
 EXAMPLES:
