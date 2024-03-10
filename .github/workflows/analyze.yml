@@ -24,6 +24,7 @@ jobs:
 
     - name: Configure
       run: |
+        export
         scan-build \
           -o $GITHUB_WORKSPACE/reports/ \
           cmake \
@@ -34,8 +35,7 @@ jobs:
             -DBUILD_GSTREAMER_AUDIO_PLAYER_PLUGIN=On \
             -DBUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN=On \
             -DENABLE_VULKAN=ON \
-            -DENABLE_OPENGL=ON \
-            -DCMAKE_C_COMPILER=clang
+            -DENABLE_OPENGL=ON
     
     - name: Analyze
       id: analyze
