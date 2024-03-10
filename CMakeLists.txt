@@ -521,7 +521,7 @@ add_custom_target(analyze-check
     # scan-build wants Debug build, for better analysis.
     COMMAND ${SCAN_BUILD} ${CMAKE_COMMAND} ${CMAKE_SOURCE_DIR} -DCMAKE_BUILD_TYPE=Debug
     COMMAND ${SCAN_BUILD}
-                -v -v -o ${REPORTS_DIR} --status-bugs 
+                -o ${REPORTS_DIR} --status-bugs 
                 ${CMAKE_COMMAND} --build .
     WORKING_DIRECTORY ${ANALYSIS_BUILD_DIR}
 )
