@@ -50,4 +50,4 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: analysis-report
-        path: $GITHUB_WORKSPACE/reports/
+        path: ${{ github.workspace }}/reports/
