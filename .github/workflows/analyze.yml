@@ -37,15 +37,16 @@ jobs:
             -DENABLE_OPENGL=ON
     
     - name: Analyze
+      id: analyze
       run: |
         scan-build \
-          -sarif \
           --status-bugs \
           -o $GITHUB_WORKSPACE/reports/ \
           cmake --build build
 
-    - name: Upload reports
-      uses: github/codeql-action/upload-sarif@v2
+    - name: Upload report
+      if: steps.analyze.outcome == 'failure'
+      uses: actions/upload-artifact@v4
       with:
-        sarif_file: $GITHUB_WORKSPACE/reports/**.sarif
-        category: "/language:cpp"
+        name: analysis-report
+        path: $GITHUB_WORKSPACE/reports/
