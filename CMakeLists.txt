@@ -494,3 +494,38 @@ if(ENABLE_TESTS)
   add_subdirectory(third_party)
   add_subdirectory(test)
 endif()
+
+# Clang static analysis
+set(ANALYSIS_BUILD_DIR ${CMAKE_BINARY_DIR}/clang_static_analysis)
+set(SCAN_BUILD scan-build)
+set(REPORTS_DIR ${CMAKE_BINARY_DIR}/clang_static_analysis_reports)
+
+# Creates clean directory where the analysis will be built.
+add_custom_target(analyze_prepare
+    COMMAND ${CMAKE_COMMAND} -E rm -rf ${ANALYSIS_BUILD_DIR}
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${ANALYSIS_BUILD_DIR}
+    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+)
+
+# Runs the analysis from the path created specifically for that task. Use 'my own' project source directory as the source directory.
+add_custom_target(analyze
+    # scan-build wants Debug build, for better analysis.
+    COMMAND ${SCAN_BUILD} ${CMAKE_COMMAND} ${CMAKE_SOURCE_DIR} -DCMAKE_BUILD_TYPE=Debug
+    COMMAND ${SCAN_BUILD}
+                -v -v -o ${REPORTS_DIR} 
+                ${CMAKE_COMMAND} --build .
+    WORKING_DIRECTORY ${ANALYSIS_BUILD_DIR}
+)
+
+add_custom_target(analyze-check
+    # scan-build wants Debug build, for better analysis.
+    COMMAND ${SCAN_BUILD} ${CMAKE_COMMAND} ${CMAKE_SOURCE_DIR} -DCMAKE_BUILD_TYPE=Debug
+    COMMAND ${SCAN_BUILD}
+                -v -v -o ${REPORTS_DIR} --status-bugs 
+                ${CMAKE_COMMAND} --build .
+    WORKING_DIRECTORY ${ANALYSIS_BUILD_DIR}
+)
+
+# Run the *_prepare target always before the analysis
+add_dependencies(analyze analyze_prepare)
+add_dependencies(analyze-check analyze_prepare)

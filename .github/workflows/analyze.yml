@@ -1,0 +1,20 @@
+name: Lint
+
+on: [push]
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout Sources
+      uses: actions/checkout@v4
+
+    - name: Install Dependencies
+      run: sudo apt-get install -y cmake clang-tools ninja-build
+
+    - name: Configure
+      run: cmake -B build -S . -GNinja
+    
+    - name: Analyze
+      run: cmake --build build --target analyze-check
