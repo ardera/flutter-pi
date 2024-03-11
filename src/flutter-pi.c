@@ -2190,6 +2190,60 @@ fail_free_devices:
     return NULL;
 }
 
+static struct gbm_device *open_rendernode_as_gbm_device() {
+    struct gbm_device *gbm;
+    drmDevicePtr devices[64];
+    int ok, n_devices;
+
+    ok = drmGetDevices2(0, devices, sizeof(devices) / sizeof(*devices));
+    if (ok < 0) {
+        LOG_ERROR("Could not query DRM device list: %s\n", strerror(-ok));
+        return NULL;
+    }
+
+    n_devices = ok;
+
+    // find a GPU that has a primary node
+    gbm = NULL;
+    for (int i = 0; i < n_devices; i++) {
+        drmDevicePtr device;
+
+        device = devices[i];
+
+        if (!(device->available_nodes & (1 << DRM_NODE_RENDER))) {
+            // We need a primary node.
+            continue;
+        }
+
+        int fd = open(device->nodes[DRM_NODE_RENDER], O_RDWR | O_CLOEXEC);
+        if (fd < 0) {
+            LOG_ERROR("Could not open render node \"%s\". open: %s. Continuing.\n", device->nodes[DRM_NODE_RENDER], strerror(errno));
+            continue;
+        }
+
+        gbm = gbm_create_device(fd);
+        if (gbm == NULL) {
+            LOG_ERROR("Could not create gbm device from render node \"%s\". Continuing.\n", device->nodes[DRM_NODE_RENDER]);
+            close(fd);
+            continue;
+        }
+
+        break;
+    }
+
+    drmFreeDevices(devices, n_devices);
+
+    if (gbm == NULL) {
+        LOG_ERROR(
+            "flutter-pi couldn't find a usable render device.\n"
+            "Please make sure you have a GPU connected.\n"
+        );
+        return NULL;
+    }
+
+    return gbm;
+}
+
 #ifdef HAVE_LIBSEAT
 static void on_session_enable(struct libseat *seat, void *userdata) {
     struct flutterpi *fpi;
@@ -2398,16 +2452,30 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
 
     locales_print(locales);
 
-    drmdev = find_drmdev(libseat);
-    if (drmdev == NULL) {
-        goto fail_destroy_locales;
+    if (cmd_args.dummy_display) {
+        drmdev = NULL;
+
+        // for off-screen rendering, we just open the unprivileged /dev/dri/renderD128 (or whatever)
+        // render node as a GBM device.
+        // There's other ways to get an offscreen EGL display, but we need the gbm_device for other things
+        // (e.g. buffer allocating for the video player, so we just do this.)
+        gbm_device = open_rendernode_as_gbm_device();
+        if (gbm_device == NULL) {
+            goto fail_destroy_locales;
+        }
+    } else {
+        drmdev = find_drmdev(libseat);
+        if (drmdev == NULL) {
+            goto fail_destroy_locales;
+        }
+
+        gbm_device = drmdev_get_gbm_device(drmdev);
+        if (gbm_device == NULL) {
+            LOG_ERROR("Couldn't create GBM device.\n");
+            goto fail_destroy_drmdev;
+        }
     }
 
-    gbm_device = drmdev_get_gbm_device(drmdev);
-    if (gbm_device == NULL) {
-        LOG_ERROR("Couldn't create GBM device.\n");
-        goto fail_destroy_drmdev;
-    }
 
     tracer = tracer_new_with_stubs();
     if (tracer == NULL) {
@@ -2513,10 +2581,12 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
     }
 
     /// TODO: Do we really need the window after this?
-    ok = sd_event_add_io(event_loop, NULL, drmdev_get_event_fd(drmdev), EPOLLIN | EPOLLHUP | EPOLLPRI, on_drmdev_ready, drmdev);
-    if (ok < 0) {
-        LOG_ERROR("Could not add DRM pageflip event listener. sd_event_add_io: %s\n", strerror(-ok));
-        goto fail_unref_compositor;
+    if (drmdev != NULL) {
+        ok = sd_event_add_io(event_loop, NULL, drmdev_get_event_fd(drmdev), EPOLLIN | EPOLLHUP | EPOLLPRI, on_drmdev_ready, drmdev);
+        if (ok < 0) {
+            LOG_ERROR("Could not add DRM pageflip event listener. sd_event_add_io: %s\n", strerror(-ok));
+            goto fail_unref_compositor;
+        }
     }
 
     compositor_get_view_geometry(compositor, &geometry);
