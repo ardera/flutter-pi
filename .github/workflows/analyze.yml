@@ -1,0 +1,53 @@
+name: Lint
+
+on: [push]
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout Sources
+      uses: actions/checkout@v4
+
+    - name: Install Dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          git cmake clang clang-tools ninja-build \
+          libdrm-dev libgbm-dev fonts-liberation fontconfig libsystemd-dev libinput-dev libudev-dev \
+          libxkbcommon-dev ninja-build libgstreamer-plugins-base1.0-dev \
+          libvulkan-dev \
+          libgl1-mesa-dev libgles2-mesa-dev libegl1-mesa-dev \
+          libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libgstreamer-plugins-bad1.0-dev gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-ugly gstreamer1.0-plugins-bad gstreamer1.0-libav gstreamer1.0-alsa \
+          libunwind-dev
+
+    - name: Configure
+      run: |
+        export
+        scan-build \
+          -o $GITHUB_WORKSPACE/reports/ \
+          cmake \
+            -B build \
+            -S . \
+            -GNinja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DBUILD_GSTREAMER_AUDIO_PLAYER_PLUGIN=On \
+            -DBUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN=On \
+            -DENABLE_VULKAN=ON \
+            -DENABLE_OPENGL=ON
+    
+    - name: Analyze
+      id: analyze
+      run: |
+        scan-build \
+          --status-bugs \
+          -o $GITHUB_WORKSPACE/reports/ \
+          cmake --build build
+
+    - name: Upload report on failure
+      if: failure() && steps.analyze.conclusion == 'failure'
+      uses: actions/upload-artifact@v4
+      with:
+        name: analysis-report
+        path: ${{ github.workspace }}/reports/
