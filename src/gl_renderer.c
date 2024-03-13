@@ -130,6 +130,8 @@ static ATTR_PURE EGLConfig choose_config_with_pixel_format(EGLDisplay display, c
     return EGL_NO_CONFIG_KHR;
 }
 
+static const EGLint context_attribs[] = { EGL_CONTEXT_CLIENT_VERSION, 2, EGL_NONE };
+
 struct gl_renderer *gl_renderer_new_from_gbm_device(
     struct tracer *tracer,
     struct gbm_device *gbm_device,
@@ -302,8 +304,6 @@ struct gl_renderer *gl_renderer_new_from_gbm_device(
             goto fail_terminate_display;
         }
     }
-
-    static const EGLint context_attribs[] = { EGL_CONTEXT_CLIENT_VERSION, 2, EGL_NONE };
 
     root_context = eglCreateContext(egl_display, forced_egl_config, EGL_NO_CONTEXT, context_attribs);
     if (root_context == EGL_NO_CONTEXT) {
@@ -567,8 +567,13 @@ EGLContext gl_renderer_create_context(struct gl_renderer *renderer) {
     ASSERT_NOT_NULL(renderer);
 
     pthread_mutex_lock(&renderer->root_context_lock);
-    context = eglCreateContext(renderer->egl_display, renderer->forced_egl_config, renderer->root_context, NULL);
+    context = eglCreateContext(renderer->egl_display, renderer->forced_egl_config, renderer->root_context, context_attribs);
     pthread_mutex_unlock(&renderer->root_context_lock);
+
+    if (context == EGL_NO_CONTEXT) {
+        LOG_ERROR("Couldn't create a new EGL context.\n");
+        return EGL_NO_CONTEXT;
+    }
 
     return context;
 }
@@ -602,7 +607,7 @@ int gl_renderer_make_this_a_render_thread(struct gl_renderer *renderer) {
     assert(is_render_thread == false);
 
     pthread_mutex_lock(&renderer->root_context_lock);
-    context = eglCreateContext(renderer->egl_display, renderer->forced_egl_config, renderer->root_context, NULL);
+    context = eglCreateContext(renderer->egl_display, renderer->forced_egl_config, renderer->root_context, context_attribs);
     pthread_mutex_unlock(&renderer->root_context_lock);
 
     if (context == EGL_NO_CONTEXT) {

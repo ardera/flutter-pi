@@ -45,6 +45,10 @@ struct vec2i {
 
 #define VEC2I(_x, _y) ((struct vec2i){ .x = (_x), .y = (_y) })
 
+ATTR_CONST static inline struct vec2i vec2f_round_to_integer(struct vec2f a) {
+    return VEC2I((int) round(a.x), (int) round(a.y));
+}
+
 ATTR_CONST static inline struct vec2i vec2i_add(struct vec2i a, struct vec2i b) {
     return VEC2I(a.x + b.x, a.y + b.y);
 }
@@ -130,10 +134,8 @@ ATTR_CONST static inline struct quad get_quad(const struct aa_rect rect) {
 ATTR_CONST static inline bool quad_is_axis_aligned(const struct quad quad) {
     struct aa_rect aa = quad_get_aa_bounding_rect(quad);
 
-    return vec2f_equals(quad.top_left, aa_rect_top_left(aa)) &&
-        vec2f_equals(quad.top_right, aa_rect_top_right(aa)) &&
-        vec2f_equals(quad.bottom_left, aa_rect_bottom_left(aa)) &&
-        vec2f_equals(quad.bottom_right, aa_rect_bottom_right(aa));
+    return vec2f_equals(quad.top_left, aa_rect_top_left(aa)) && vec2f_equals(quad.top_right, aa_rect_top_right(aa)) &&
+           vec2f_equals(quad.bottom_left, aa_rect_bottom_left(aa)) && vec2f_equals(quad.bottom_right, aa_rect_bottom_right(aa));
 }
 
 struct mat3f {

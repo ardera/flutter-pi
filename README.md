@@ -42,6 +42,7 @@ If you encounter issues running flutter-pi on any of the supported platforms lis
 2.2 [Building the App](#building-the-app-new-method-linux-only)  
 2.3 [Running your App with flutter-pi](#running-your-app-with-flutter-pi)  
 2.4 [gstreamer video player](#gstreamer-video-player)  
+2.5 [audioplayers](#audioplayers)
 3. **[Performance](#-performance)**  
 3.1 [Graphics Performance](#graphics-performance)  
 3.2 [Touchscreen latency](#touchscreen-latency)
@@ -77,12 +78,12 @@ If you encounter issues running flutter-pi on any of the supported platforms lis
 
 3. Install cmake, graphics, system libraries and fonts:
     ```shell
-    $ sudo apt install cmake libgl1-mesa-dev libgles2-mesa-dev libegl1-mesa-dev libdrm-dev libgbm-dev ttf-mscorefonts-installer fontconfig libsystemd-dev libinput-dev libudev-dev  libxkbcommon-dev
+    sudo apt install cmake libgl1-mesa-dev libgles2-mesa-dev libegl1-mesa-dev libdrm-dev libgbm-dev ttf-mscorefonts-installer fontconfig libsystemd-dev libinput-dev libudev-dev  libxkbcommon-dev
     ```
 
     If you want to use the [gstreamer video player](#gstreamer-video-player), install these too:
     ```shell
-    $ sudo apt install libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libgstreamer-plugins-bad1.0-dev gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-ugly gstreamer1.0-plugins-bad gstreamer1.0-libav gstreamer1.0-alsa
+    sudo apt install libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libgstreamer-plugins-bad1.0-dev gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-ugly gstreamer1.0-plugins-bad gstreamer1.0-libav gstreamer1.0-alsa
     ```
 
     If you want to use the [printing](#printing), install these too:
@@ -388,6 +389,11 @@ OPTIONS:
                              If no hz value is given, the highest possible refreshrate
                              will be used.
 
+  --dummy-display            Simulate a display. Useful for running apps
+                             without a display attached.
+  --dummy-display-size "width,height" The width & height of the dummy display
+                             in pixels.
+
   -h, --help                 Show this help and exit.
 
 EXAMPLES:
@@ -428,6 +434,18 @@ Printing is a plugin that allows Flutter apps to generate and print documents to
 To use the printing plugin, just rebuild flutter-pi (delete your build folder and reconfigure) and make sure the necessary printing packages are installed. (See [dependencies](#dependencies))
 
 And then, just use the stuff in the official [printing](https://pub.dev/packages/printing) package.
+
+### audioplayers
+As of current moment flutter-pi implements plugin for `audioplayers: ^5.0.0`.
+There are several things you need to keep in mind:
+- As flutter-pi is intended for use on constrained systems like raspberry pi, you should avoid creating multiple temporary instances and instead prefer to use one global instance of `AudioPlayer`. There is limit you can easily hit if you're going to spam multiple instances of `AudioPlayer`
+- Plugin was tested to work with ALSA and `pulseaudio` might prevent the plugin from playing audio correctly:
+    - Hence please make sure you delete `pulseaudio` package from your system.
+    - Make sure you have `gstreamer1.0-alsa` package installed in addition to packages needed for gstreamer video player.
+    - Make sure you can list audio devices using command: `aplay -L`
+        - If there is error, please investigate why and fix it before using audio
+        - One of the common reasons is outdated ALSA config in which case you should delete existing config and replace it with up to date one
+- Finally, if you want to verify your audio setup is good, you can use `gst-launch` command to invoke `playbin` on audio file directly.
 
 ## 📊 Performance
 ### Graphics Performance

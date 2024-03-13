@@ -1000,6 +1000,7 @@ static void maybe_deinit(struct gstplayer *player) {
         player->bus = NULL;
     }
     if (player->pipeline != NULL) {
+        gst_element_set_state(GST_ELEMENT(player->pipeline), GST_STATE_READY);
         gst_element_set_state(GST_ELEMENT(player->pipeline), GST_STATE_NULL);
         gst_object_unref(GST_OBJECT(player->pipeline));
         player->pipeline = NULL;
