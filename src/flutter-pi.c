@@ -2523,8 +2523,6 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
                 "         This warning will probably result in a \"failed to set mode\" error\n"
                 "         later on in the initialization.\n"
             );
-            ok = EINVAL;
-            goto fail_unref_scheduler;
         }
 #else
         UNREACHABLE();
