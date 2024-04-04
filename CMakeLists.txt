@@ -64,6 +64,7 @@ option(LTO "Check for IPO/LTO support and enable, if supported. May require gold
 option(LINT_EGL_HEADERS "Set an define that'll make the egl.h only export the extension definitions, prototypes that are explicitly marked as required." OFF)
 option(DEBUG_DRM_PLANE_ALLOCATIONS "Add logging in modesetting.c for debugging the process of choosing a fitting DRM plane for a framebuffer layer." OFF)
 option(USE_LEGACY_KMS "Force the use of legacy KMS." OFF)
+option(DISABLE_CURSOR "Disable the cursor icons from rendering." OFF)
 
 set(FILESYSTEM_LAYOUTS default meta-flutter)
 set(FILESYSTEM_LAYOUT "default" CACHE STRING "Where to look for the icudtl.dat, app.so/libapp.so, flutter asset bundle.")
