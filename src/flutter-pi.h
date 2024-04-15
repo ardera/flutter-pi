@@ -29,6 +29,7 @@
 #include <xf86drmMode.h>
 
 #include "cursor.h"
+#include "pixel_format.h"
 #include "util/collection.h"
 
 enum device_orientation { kPortraitUp, kLandscapeLeft, kPortraitDown, kLandscapeRight };
@@ -113,6 +114,35 @@ struct platform_message {
     size_t message_size;
 };
 
+struct flutterpi_cmdline_args {
+    bool has_orientation;
+    enum device_orientation orientation;
+
+    bool has_rotation;
+    int rotation;
+
+    bool has_physical_dimensions;
+    struct vec2i physical_dimensions;
+
+    bool has_pixel_format;
+    enum pixfmt pixel_format;
+
+    bool has_runtime_mode;
+    enum flutter_runtime_mode runtime_mode;
+
+    char *bundle_path;
+
+    int engine_argc;
+    char **engine_argv;
+
+    bool use_vulkan;
+
+    char *desired_videomode;
+
+    bool dummy_display;
+    struct vec2i dummy_display_size;
+};
+
 int flutterpi_fill_view_properties(bool has_orientation, enum device_orientation orientation, bool has_rotation, int rotation);
 
 int flutterpi_post_platform_task(int (*callback)(void *userdata), void *userdata);
@@ -134,6 +164,8 @@ int flutterpi_respond_to_platform_message(
     const uint8_t *restrict message,
     size_t message_size
 );
+
+bool flutterpi_parse_cmdline_args(int argc, char **argv, struct flutterpi_cmdline_args *result_out);
 
 struct texture_registry *flutterpi_get_texture_registry(struct flutterpi *flutterpi);
 
