@@ -11,6 +11,13 @@
 	"features": {
 		"ghcr.io/devcontainers/features/github-cli:1": {}
 	},
+	"mounts": [
+		{
+			"source": "desktop-linux-gh",
+			"target": "/root/.config/gh/",
+			"type": "volume"
+		}
+	],
 	// Use 'forwardPorts' to make a list of ports inside the container available locally.
 	// "forwardPorts": [],
 	// Configure tool-specific properties.
