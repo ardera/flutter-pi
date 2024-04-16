@@ -51,6 +51,8 @@ void expect_parsed_cmdline_args_matches(int argc, char **argv, bool expected_res
 }
 
 static struct flutterpi_cmdline_args get_default_args() {
+    static char *engine_argv[1] = { "flutter-pi" };
+
     return (struct flutterpi_cmdline_args){
         .has_orientation = false,
         .orientation = kPortraitUp,
@@ -64,7 +66,7 @@ static struct flutterpi_cmdline_args get_default_args() {
         .runtime_mode = FLUTTER_RUNTIME_MODE_DEBUG,
         .bundle_path = BUNDLE_PATH,
         .engine_argc = 1,
-        .engine_argv = (char *[]){ "flutter-pi" },
+        .engine_argv = engine_argv,
         .use_vulkan = false,
         .desired_videomode = NULL,
         .dummy_display = false,
