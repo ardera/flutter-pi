@@ -1973,6 +1973,7 @@ static bool parse_cmd_args(int argc, char **argv, struct cmd_args *result_out) {
                     return false;
                 }
 
+                result_out->has_physical_dimensions = true;
                 break;
 
             case 'p':
