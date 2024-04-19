@@ -1443,8 +1443,12 @@ int user_input_on_fd_ready(struct user_input *input) {
         return ok;
     }
 
+#ifdef DISABLE_CURSOR
+    cursor_enabled = false;
+#else
     // record cursor state after handling events
     cursor_enabled = input->n_cursor_devices > 0;
+#endif
     cursor_x = round(input->cursor_x);
     cursor_y = round(input->cursor_y);
 
