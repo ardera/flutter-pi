@@ -1620,11 +1620,7 @@ uint32_t drmdev_add_fb_from_dmabuf_multiplanar(
     return fb;
 }
 
-uint32_t drmdev_add_fb_from_gbm_bo_locked(
-    struct drmdev *drmdev,
-    struct gbm_bo *bo,
-    bool cast_opaque
-) {
+uint32_t drmdev_add_fb_from_gbm_bo_locked(struct drmdev *drmdev, struct gbm_bo *bo, bool cast_opaque) {
     enum pixfmt format;
     uint32_t fourcc;
     int n_planes;
@@ -1638,9 +1634,9 @@ uint32_t drmdev_add_fb_from_gbm_bo_locked(
         LOG_ERROR("GBM pixel format is not supported.\n");
         return 0;
     }
-    
+
     format = get_pixfmt_for_gbm_format(fourcc);
-    
+
     if (cast_opaque) {
         format = pixfmt_opaque(format);
     }
@@ -1652,7 +1648,7 @@ uint32_t drmdev_add_fb_from_gbm_bo_locked(
     // for dumb buffers.
     uint64_t modifier = gbm_bo_get_modifier(bo);
     bool has_modifiers = modifier != DRM_FORMAT_MOD_INVALID;
-    
+
     for (int i = 0; i < n_planes; i++) {
         // gbm_bo_get_handle_for_plane will return -1 (in gbm_bo_handle.s32) and
         // set errno on failure.
@@ -1688,14 +1684,14 @@ uint32_t drmdev_add_fb_from_gbm_bo_locked(
         format,
         handles,
         pitches,
-        (uint32_t[4]) {
+        (uint32_t[4]){
             n_planes >= 1 ? gbm_bo_get_offset(bo, 0) : 0,
             n_planes >= 2 ? gbm_bo_get_offset(bo, 1) : 0,
             n_planes >= 3 ? gbm_bo_get_offset(bo, 2) : 0,
             n_planes >= 4 ? gbm_bo_get_offset(bo, 3) : 0,
         },
         has_modifiers,
-        (uint64_t[4]) {
+        (uint64_t[4]){
             n_planes >= 1 ? modifier : 0,
             n_planes >= 2 ? modifier : 0,
             n_planes >= 3 ? modifier : 0,
@@ -1704,11 +1700,7 @@ uint32_t drmdev_add_fb_from_gbm_bo_locked(
     );
 }
 
-uint32_t drmdev_add_fb_from_gbm_bo(
-    struct drmdev *drmdev,
-    struct gbm_bo *bo,
-    bool cast_opaque
-) {
+uint32_t drmdev_add_fb_from_gbm_bo(struct drmdev *drmdev, struct gbm_bo *bo, bool cast_opaque) {
     uint32_t fb;
 
     drmdev_lock(drmdev);
@@ -2569,6 +2561,10 @@ UNUSED void kms_req_swap_ptrs(struct kms_req **oldp, struct kms_req *new) {
     return kms_req_builder_swap_ptrs((struct kms_req_builder **) oldp, (struct kms_req_builder *) new);
 }
 
+static bool drm_plane_is_active(struct drm_plane *plane) {
+    return plane->committed_state.fb_id != 0 && plane->committed_state.crtc_id != 0;
+}
+
 static int
 kms_req_commit_common(struct kms_req *req, bool blocking, kms_scanout_cb_t scanout_cb, void *userdata, void_callback_t destroy_cb) {
     struct kms_req_builder *builder;
@@ -2729,11 +2725,24 @@ kms_req_commit_common(struct kms_req *req, bool blocking, kms_scanout_cb_t scano
 
         /// TODO: Call drmModeSetPlane for all other layers
         /// TODO: Assert here
-
     } else {
         /// TODO: If we can do explicit fencing, don't use the page flip event.
         /// TODO: Can we set OUT_FENCE_PTR even though we didn't set any IN_FENCE_FDs?
         flags = DRM_MODE_PAGE_FLIP_EVENT | (blocking ? 0 : DRM_MODE_ATOMIC_NONBLOCK) | (update_mode ? DRM_MODE_ATOMIC_ALLOW_MODESET : 0);
+
+        // All planes that are not used by us and are connected to our CRTC
+        // should be disabled.
+        {
+            int i;
+            BITSET_FOREACH_SET(i, builder->available_planes, 32) {
+                struct drm_plane *plane = builder->drmdev->planes + i;
+
+                if (drm_plane_is_active(plane) && plane->committed_state.crtc_id == builder->crtc->id) {
+                    drmModeAtomicAddProperty(builder->req, plane->id, plane->ids.crtc_id, 0);
+                    drmModeAtomicAddProperty(builder->req, plane->id, plane->ids.fb_id, 0);
+                }
+            }
+        }
 
         if (builder->connector != NULL) {
             // add the CRTC_ID property if that was explicitly set
