@@ -1031,7 +1031,7 @@ struct drmdev *drmdev_new_from_interface_fd(int fd, void *fd_metadata, const str
             if (drmdev->planes[i].possible_crtcs & (1 << primary_plane_index) != 0) {
                 drmdev->planes[i].possible_crtcs = (1 << primary_plane_index);
             } else {
-                LOG_DEBUG("Primary plane %d does not support CRTC %d.\n", primary_plane_index);
+                LOG_DEBUG("Primary plane %d does not support CRTC %d.\n", primary_plane_index, primary_plane_index);
             }
 
             primary_plane_index++;
@@ -1039,7 +1039,7 @@ struct drmdev *drmdev_new_from_interface_fd(int fd, void *fd_metadata, const str
             if (drmdev->planes[i].possible_crtcs & (1 << cursor_plane_index) != 0) {
                 drmdev->planes[i].possible_crtcs = (1 << cursor_plane_index);
             } else {
-                LOG_DEBUG("Cursor plane %d does not support CRTC %d.\n", cursor_plane_index);
+                LOG_DEBUG("Cursor plane %d does not support CRTC %d.\n", cursor_plane_index, cursor_plane_index);
             }
 
             cursor_plane_index++;
