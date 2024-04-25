@@ -1022,6 +1022,30 @@ struct drmdev *drmdev_new_from_interface_fd(int fd, void *fd_metadata, const str
         goto fail_free_crtcs;
     }
 
+    // Rockchip driver always wants the N-th primary/cursor plane to be associated with the N-th CRTC.
+    // If we don't respect this, commits will work but not actually show anything on screen.
+    int primary_plane_index = 0;
+    int cursor_plane_index = 0;
+    for (int i = 0; i < drmdev->n_planes; i++) {
+        if (drmdev->planes[i].type == DRM_PLANE_TYPE_PRIMARY) {
+            if (drmdev->planes[i].possible_crtcs & (1 << primary_plane_index) != 0) {
+                drmdev->planes[i].possible_crtcs = (1 << primary_plane_index);
+            } else {
+                LOG_DEBUG("Primary plane %d does not support CRTC %d.\n", primary_plane_index);
+            }
+
+            primary_plane_index++;
+        } else if (drmdev->planes[i].type == DRM_PLANE_TYPE_CURSOR) {
+            if (drmdev->planes[i].possible_crtcs & (1 << cursor_plane_index) != 0) {
+                drmdev->planes[i].possible_crtcs = (1 << cursor_plane_index);
+            } else {
+                LOG_DEBUG("Cursor plane %d does not support CRTC %d.\n", cursor_plane_index);
+            }
+
+            cursor_plane_index++;
+        }
+    }
+
     gbm_device = gbm_create_device(drmdev->fd);
     if (gbm_device == NULL) {
         LOG_ERROR("Could not create GBM device.\n");
