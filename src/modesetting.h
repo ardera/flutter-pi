@@ -588,8 +588,15 @@ struct drm_plane {
  * @param modifier The modifier of this pixel format.
  * @param userdata Userdata that was passed to @ref drm_plane_for_each_modified_format.
  */
-typedef bool (*drm_plane_modified_format_callback_t
-)(struct drm_plane *plane, int index, enum pixfmt pixel_format, uint64_t modifier, void *userdata);
+typedef bool (*drm_plane_modified_format_callback_t)(
+    struct drm_plane *plane,
+    int index,
+    enum pixfmt pixel_format,
+    uint64_t modifier,
+    void *userdata
+);
+
+struct drmdev;
 
 /**
  * @brief Iterates over every supported pixel-format & modifier pair.
@@ -598,7 +605,12 @@ typedef bool (*drm_plane_modified_format_callback_t
  */
 void drm_plane_for_each_modified_format(struct drm_plane *plane, drm_plane_modified_format_callback_t callback, void *userdata);
 
-struct drmdev;
+bool drm_plane_supports_modified_format(struct drm_plane *plane, enum pixfmt format, uint64_t modifier);
+
+bool drm_plane_supports_format(struct drm_plane *plane, enum pixfmt format);
+
+bool drm_crtc_any_plane_supports_format(struct drmdev *drmdev, struct drm_crtc *crtc, enum pixfmt pixel_format);
+
 struct _drmModeModeInfo;
 
 struct drmdev_interface {
@@ -686,11 +698,7 @@ uint32_t drmdev_add_fb_from_dmabuf_multiplanar(
     const uint64_t modifiers[4]
 );
 
-uint32_t drmdev_add_fb_from_gbm_bo(
-    struct drmdev *drmdev,
-    struct gbm_bo *bo,
-    bool cast_opaque
-);
+uint32_t drmdev_add_fb_from_gbm_bo(struct drmdev *drmdev, struct gbm_bo *bo, bool cast_opaque);
 
 int drmdev_rm_fb_locked(struct drmdev *drmdev, uint32_t fb_id);
 
@@ -747,6 +755,14 @@ DECLARE_REF_OPS(kms_req_builder);
  * @returns The drmdev associated with this KMS request builder.
  */
 struct drmdev *kms_req_builder_get_drmdev(struct kms_req_builder *builder);
+
+/**
+ * @brief Gets the CRTC associated with this KMS request builder.
+ * 
+ * @param builder The KMS request builder.
+ * @returns The CRTC associated with this KMS request builder.
+ */
+struct drm_crtc *kms_req_builder_get_crtc(struct kms_req_builder *builder);
 
 /**
  * @brief Adds a property to the KMS request that will set the given video mode

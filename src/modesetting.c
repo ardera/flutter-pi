@@ -520,6 +520,73 @@ exit:
     return;
 }
 
+static bool
+check_modified_format_supported(UNUSED struct drm_plane *plane, UNUSED int index, enum pixfmt format, uint64_t modifier, void *userdata) {
+    struct {
+        enum pixfmt format;
+        uint64_t modifier;
+        bool found;
+    } *context = userdata;
+
+    if (format == context->format && modifier == context->modifier) {
+        context->found = true;
+        return false;
+    } else {
+        return true;
+    }
+}
+
+bool drm_plane_supports_modified_format(struct drm_plane *plane, enum pixfmt format, uint64_t modifier) {
+    if (!plane->supported_modified_formats_blob) {
+        // return false if we want a modified format but the plane doesn't support modified formats
+        return false;
+    }
+
+    struct {
+        enum pixfmt format;
+        uint64_t modifier;
+        bool found;
+    } context = {
+        .format = format,
+        .modifier = modifier,
+        .found = false,
+    };
+
+    // Check if the requested format & modifier is supported.
+    drm_plane_for_each_modified_format(plane, check_modified_format_supported, &context);
+
+    // Otherwise fail.
+    return context.found;
+}
+
+bool drm_plane_supports_format(struct drm_plane *plane, enum pixfmt format) {
+    // we don't want a modified format, return false if the format is not in the list
+    // of supported (unmodified) formats
+    return !plane->supported_formats[format];
+}
+
+bool drm_crtc_any_plane_supports_format(struct drmdev *drmdev, struct drm_crtc *crtc, enum pixfmt pixel_format) {
+    struct drm_plane *plane;
+
+    for_each_plane_in_drmdev(drmdev, plane) {
+        if (!(plane->possible_crtcs & crtc->bitmask)) {
+            // Only query planes that are possible to connect to the CRTC we're using.
+            continue;
+        }
+
+        if (plane->type != kPrimary_DrmPlaneType && plane->type != kOverlay_DrmPlaneType) {
+            // We explicitly only look for primary and overlay planes.
+            continue;
+        }
+
+        if (drm_plane_supports_format(plane, pixel_format)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 struct _drmModeFB2;
 
 struct drm_mode_fb2 {
@@ -1983,22 +2050,6 @@ drmModeModeInfo *__next_mode(const struct drm_connector *connector, const drmMod
     #define LOG_DRM_PLANE_ALLOCATION_DEBUG(...)
 #endif
 
-static bool
-check_modified_format_supported(UNUSED struct drm_plane *plane, UNUSED int index, enum pixfmt format, uint64_t modifier, void *userdata) {
-    struct {
-        enum pixfmt format;
-        uint64_t modifier;
-        bool found;
-    } *context = userdata;
-
-    if (format == context->format && modifier == context->modifier) {
-        context->found = true;
-        return false;
-    } else {
-        return true;
-    }
-}
-
 static bool plane_qualifies(
     // clang-format off
     struct drm_plane *plane,
@@ -2293,6 +2344,10 @@ DEFINE_REF_OPS(kms_req_builder, n_refs)
 
 struct drmdev *kms_req_builder_get_drmdev(struct kms_req_builder *builder) {
     return builder->drmdev;
+}
+
+struct drm_crtc *kms_req_builder_get_crtc(struct kms_req_builder *builder) {
+    return builder->crtc;
 }
 
 bool kms_req_builder_prefer_next_layer_opaque(struct kms_req_builder *builder) {
