@@ -562,7 +562,7 @@ bool drm_plane_supports_modified_format(struct drm_plane *plane, enum pixfmt for
 bool drm_plane_supports_format(struct drm_plane *plane, enum pixfmt format) {
     // we don't want a modified format, return false if the format is not in the list
     // of supported (unmodified) formats
-    return !plane->supported_formats[format];
+    return plane->supported_formats[format];
 }
 
 bool drm_crtc_any_plane_supports_format(struct drmdev *drmdev, struct drm_crtc *crtc, enum pixfmt pixel_format) {
