@@ -607,7 +607,7 @@ void drm_plane_for_each_modified_format(struct drm_plane *plane, drm_plane_modif
 
 bool drm_plane_supports_modified_format(struct drm_plane *plane, enum pixfmt format, uint64_t modifier);
 
-bool drm_plane_supports_format(struct drm_plane *plane, enum pixfmt format);
+bool drm_plane_supports_unmodified_format(struct drm_plane *plane, enum pixfmt format);
 
 bool drm_crtc_any_plane_supports_format(struct drmdev *drmdev, struct drm_crtc *crtc, enum pixfmt pixel_format);
 
