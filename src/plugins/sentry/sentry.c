@@ -125,6 +125,8 @@ static void on_init_native_sdk(
     }
 
     plugin->sentry_initialized = true;
+
+    platch_respond_success_std(responsehandle, &STDNULL);
 }
 
 static void on_capture_envelope(
