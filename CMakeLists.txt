@@ -353,6 +353,7 @@ endif()
 if (BUILD_SENTRY_PLUGIN)
   add_subdirectory(third_party/sentry-native)
 
+  set(SENTRY_BACKEND "inproc")
   target_sources(flutterpi_module PRIVATE src/plugins/sentry/sentry.c)
   target_link_libraries(flutterpi_module PUBLIC sentry)
 endif()
