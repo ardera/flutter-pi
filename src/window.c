@@ -1793,6 +1793,7 @@ static int dummy_window_set_cursor_locked(
 ) {
     ASSERT_NOT_NULL(window);
 
+    (void) window;
     (void) has_enabled;
     (void) enabled;
     (void) has_kind;

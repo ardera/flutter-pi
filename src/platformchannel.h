@@ -136,6 +136,8 @@ struct std_value {
 #define STDVALUE_IS_MAP(value) ((value).type == kStdMap)
 #define STDVALUE_IS_SIZED_MAP(value, _size) ((value).size == (_size))
 
+#define STDMAP0() ((struct std_value){ .type = kStdMap, .size = 0, .keys = (struct std_value[0]){}, .values = (struct std_value[0]){} })
+
 #define STDMAP1(key1, val1) \
     ((struct std_value){ .type = kStdMap, .size = 1, .keys = (struct std_value[1]){ (key1) }, .values = (struct std_value[1]){ (val1) } })
 
@@ -1564,6 +1566,7 @@ struct std_value *stdmap_get_str(struct std_value *map, char *key);
 
 struct raw_std_value;
 
+ATTR_PURE enum std_value_type raw_std_value_get_type(const struct raw_std_value *value);
 ATTR_PURE bool raw_std_value_is_null(const struct raw_std_value *value);
 ATTR_PURE bool raw_std_value_is_true(const struct raw_std_value *value);
 ATTR_PURE bool raw_std_value_is_false(const struct raw_std_value *value);
@@ -1574,6 +1577,8 @@ ATTR_PURE int64_t raw_std_value_as_int64(const struct raw_std_value *value);
 ATTR_PURE bool raw_std_value_is_float64(const struct raw_std_value *value);
 ATTR_PURE double raw_std_value_as_float64(const struct raw_std_value *value);
 ATTR_PURE bool raw_std_value_is_string(const struct raw_std_value *value);
+ATTR_PURE size_t raw_std_string_get_length(const struct raw_std_value *value);
+ATTR_PURE const char *raw_std_string_get_nonzero_terminated(const struct raw_std_value *value);
 MALLOCLIKE MUST_CHECK char *raw_std_string_dup(const struct raw_std_value *value);
 ATTR_PURE bool raw_std_string_equals(const struct raw_std_value *value, const char *str);
 ATTR_PURE bool raw_std_value_is_uint8array(const struct raw_std_value *value);

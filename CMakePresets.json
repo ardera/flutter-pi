@@ -12,6 +12,7 @@
                 "CMAKE_INSTALL_PREFIX": "${sourceDir}/out/install/${presetName}",
                 "ENABLE_OPENGL": true,
                 "BUILD_GSTREAMER_AUDIO_PLAYER_PLUGIN": true,
+                "BUILD_SENTRY_PLUGIN": true,
                 "ENABLE_TESTS": true
             }
         },
