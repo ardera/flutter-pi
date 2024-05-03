@@ -25,16 +25,6 @@
 
 cmake_minimum_required(VERSION 3.10.0)
 
-if(NOT CMAKE_BUILD_TYPE)
-    set(CMAKE_BUILD_TYPE "Release" CACHE STRING "Choose the type of build, options are: Debug, Release, or MinSizeRel." FORCE)
-    message(STATUS "CMAKE_BUILD_TYPE not set, defaulting to Release.")
-endif()
-
-project(flutter-pi LANGUAGES C CXX ASM VERSION "1.0.0")
-
-message(STATUS "Generator .............. ${CMAKE_GENERATOR}")
-message(STATUS "Build Type ............. ${CMAKE_BUILD_TYPE}")
-
 # configure options
 option(BUILD_TEXT_INPUT_PLUGIN "Include the text input plugin in the finished binary. Enables text input (to flutter text fields, for example) via attached keyboards." ON)
 option(BUILD_RAW_KEYBOARD_PLUGIN "Include the raw keyboard plugin in the finished binary. Enables raw keycode listening in flutter via the flutter RawKeyboard interface." ON)
@@ -81,6 +71,22 @@ set(SENTRY_BACKEND "crashpad" CACHE STRING "What sentry backend to use, when the
 option(SENTRY_PLUGIN_BUNDLE_CRASHPAD_HANDLER "Bundle the crashpad_handler with the flutter-pi executable." ON)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
+if(NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE "Release" CACHE STRING "Choose the type of build, options are: Debug, Release, or MinSizeRel." FORCE)
+    message(STATUS "CMAKE_BUILD_TYPE not set, defaulting to Release.")
+endif()
+
+if (BUILD_SENTRY_PLUGIN)
+  set(flutterpi_languages C CXX ASM)
+else()
+  set(flutterpi_languages C ASM)
+endif()
+
+project(flutter-pi LANGUAGES ${flutterpi_languages} VERSION "1.0.0")
+
+message(STATUS "Generator .............. ${CMAKE_GENERATOR}")
+message(STATUS "Build Type ............. ${CMAKE_BUILD_TYPE}")
 
 include(CheckCCompilerFlag)
 
@@ -376,12 +382,7 @@ endif()
 # Sentry Plugin
 set(HAVE_BUNDLED_CRASHPAD_HANDLER OFF)
 if (BUILD_SENTRY_PLUGIN)
-  if (POLICY CMP0077)
-    cmake_policy(SET CMP0077 NEW)
-    set(SENTRY_PIC ${CMAKE_POSITION_INDEPENDENT_CODE})
-  else()
-    set(SENTRY_PIC ${CMAKE_POSITION_INDEPENDENT_CODE} CACHE BOOL)
-  endif()
+  set(SENTRY_PIC ${CMAKE_POSITION_INDEPENDENT_CODE} CACHE BOOL "")
   add_subdirectory(third_party/sentry-native)
 
   target_sources(flutterpi_module PRIVATE src/plugins/sentry/sentry.c)
