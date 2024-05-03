@@ -146,7 +146,7 @@ static void on_init_native_sdk(
 
 #ifdef HAVE_BUNDLED_CRASHPAD_HANDLER
     ok = sentry_configure_bundled_crashpad_handler(options);
-    if (!ok) {
+    if (ok != 0) {
         platch_respond_error_std(responsehandle, "1", "Failed to configure bundled Crashpad handler.", &STDNULL);
         return;
     }
