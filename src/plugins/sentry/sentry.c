@@ -1,3 +1,6 @@
+#define _POSIX_C_SOURCE 200809L
+#include <unistd.h>
+
 #include <sentry.h>
 
 #include "flutter-pi.h"
@@ -18,11 +21,34 @@ struct sentry_plugin {
     bool sentry_initialized;
 };
 
+static int sentry_configure_bundled_crashpad_handler(sentry_options_t *options) {
+    char *path = malloc(PATH_MAX);
+    if (path == NULL) {
+        return ENOMEM;
+    }
+
+    ssize_t n_read = readlink("/proc/self/exe", path, PATH_MAX);
+    if (n_read == -1) {
+        free(path);
+        return errno;
+    }
+
+    sentry_options_set_handler_path_n(options, path, n_read);
+
+    free(path);
+
+    sentry_options_add_attachment(options, "FlutterpiCrashpadHandlerMode");
+
+    return 0;
+}
+
 static void on_init_native_sdk(
     struct sentry_plugin *plugin,
     const struct raw_std_value *arg,
     const FlutterPlatformMessageResponseHandle *responsehandle
 ) {
+    int ok;
+
     (void) plugin;
     (void) arg;
     (void) responsehandle;
@@ -118,7 +144,15 @@ static void on_init_native_sdk(
         sentry_options_get_auto_session_tracking(options) ? "true" : "false"
     );
 
-    int ok = sentry_init(options);
+#ifdef HAVE_BUNDLED_CRASHPAD_HANDLER
+    ok = sentry_configure_bundled_crashpad_handler(options);
+    if (!ok) {
+        platch_respond_error_std(responsehandle, "1", "Failed to configure bundled Crashpad handler.", &STDNULL);
+        return;
+    }
+#endif
+
+    ok = sentry_init(options);
     if (ok != 0) {
         platch_respond_error_std(responsehandle, "1", "Failed to initialize Sentry.", &STDNULL);
         return;
