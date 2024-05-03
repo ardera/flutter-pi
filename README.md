@@ -1,13 +1,6 @@
 ## 📰 NEWS
+- Added a (not complete) sentry plugin, see: https://github.com/ardera/flutter-pi/wiki/Sentry-Support
 - There's now flutterpi tool to make building the app easier: https://pub.dev/packages/flutterpi_tool
-  - Currently only supported on linux at the moment.
-  - Requires flutter SDK > 3.10.5
-  - Engine binaries no longer need to be installed on the target system.
-  - See updated [Building flutter-pi on the Raspberry Pi](#-building-flutter-pi-on-the-raspberry-pi) and [Building the App](#building-the-app-new-method-linux-only) sections below.
-- Added a section for useful dart packages, See [Useful Dart Packages](#-useful-dart-packages)
-- The new latest flutter gallery commit for flutter 3.10 is `d77920b4ced4a105ad35659fbe3958800d418fb9`
-- The [gstreamer video player](#gstreamer-video-player) now supports creating players from a raw gstreamer pipeline.
-- The deprecated `omxplayer`-based video player has been removed.
 
 # flutter-pi
 A light-weight Flutter Engine Embedder for Raspberry Pi. Inspired by https://github.com/chinmaygarde/flutter_from_scratch.
@@ -455,6 +448,7 @@ This is why I created my own (userspace) touchscreen driver, for improved latenc
 | dart_periphery ([package](https://pub.dev/packages/dart_periphery)) ([repo](https://github.com/pezi/dart_periphery)) | 🖨 peripherals | [Peter Sauer](https://github.com/pezi/) | All-in-one package GPIO, I2C, SPI, Serial, PWM, Led, MMIO support using c-periphery. |
 | flutterpi_gstreamer_video_player ([package](https://pub.dev/packages/flutterpi_gstreamer_video_player)) ([repo](https://github.com/ardera/flutter_packages/tree/main/packages/flutterpi_gstreamer_video_player)) | ⏯️ multimedia | Hannes Winkler | Official video player implementation for flutter-pi. See [GStreamer video player](#gstreamer-video-player) section above. |
 | charset_converter ([package](https://pub.dev/packages/charset_converter)) ([repo](https://github.com/pr0gramista/charset_converter)) | 🗚 encoding | Bartosz Wiśniewski | Encode and decode charsets using platform built-in converter. |
+| sentry_flutter ([package](https://pub.dev/packages/sentry_flutter)) ([repo](https://github.com/getsentry/sentry-dart))|  📊 Monitoring | sentry.io | See https://github.com/ardera/flutter-pi/wiki/Sentry-Support for instructions. |
 
 ## 💬 Discord
 There a `#custom-embedders` channel on the [flutter discord](https://github.com/flutter/flutter/wiki/Chat) which you can use if you have any questions regarding flutter-pi or generally, anything related to embedding the engine for which you don't want to open issue about or write an email.
