@@ -23,7 +23,7 @@
 # SOFTWARE.
 #
 
-cmake_minimum_required(VERSION 3.14)
+cmake_minimum_required(VERSION 3.13.4)
 
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE "Release" CACHE STRING "Choose the type of build, options are: Debug, Release, or MinSizeRel." FORCE)
@@ -70,7 +70,9 @@ option(LTO "Check for IPO/LTO support and enable, if supported. May require gold
 option(LINT_EGL_HEADERS "Set an define that'll make the egl.h only export the extension definitions, prototypes that are explicitly marked as required." OFF)
 option(DEBUG_DRM_PLANE_ALLOCATIONS "Add logging in modesetting.c for debugging the process of choosing a fitting DRM plane for a framebuffer layer." OFF)
 option(USE_LEGACY_KMS "Force the use of legacy KMS." OFF)
-option(PIE "Compile as position-independent executable." OFF)
+
+# This is a CMake recognized variable, but we set it to off by default here.
+option(CMAKE_POSITION_INDEPENDENT_CODE "Enable/Disable Position Independent Code" OFF)
 
 set(FILESYSTEM_LAYOUTS default meta-flutter)
 set(FILESYSTEM_LAYOUT "default" CACHE STRING "Where to look for the icudtl.dat, app.so/libapp.so, flutter asset bundle.")
@@ -82,7 +84,6 @@ option(SENTRY_PLUGIN_BUNDLE_CRASHPAD_HANDLER "Bundle the crashpad_handler with t
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 include(CheckCCompilerFlag)
-include(CheckPIESupported)
 
 # Those libraries we definitely need.
 include(FindPkgConfig)
@@ -103,14 +104,19 @@ add_executable(
   src/main.c
 )
 
-# disable PIE for the main executable
-check_pie_supported(OUTPUT_VARIABLE CHECK_PIE_SUPPORTED_OUTPUT LANGUAGES CXX)
-set_property(TARGET flutter-pi PROPERTY POSITION_INDEPENDENT_CODE ${PIE})
-if(NOT CMAKE_CXX_LINK_PIE_SUPPORTED)
-  message(WARNING "PIE is not supported at link time: ${CHECK_PIE_SUPPORTED_OUTPUT}.\n"
-  "PIE link options will not be passed to linker.")
+# If position independent code is selected, set it for the executable.
+if(POLICY CMP0083)
+  cmake_policy(SET CMP0083 NEW)
+
+  include(CheckPIESupported)
+  check_pie_supported()
+else()
+  if (CMAKE_POSITION_INDEPENDENT_CODE)
+    target_link_options(flutter-pi PUBLIC -fPIE)
+  endif()
 endif()
-message(STATUS "PIE .................... ${PIE}")
+
+message(STATUS "PIE .................... ${CMAKE_POSITION_INDEPENDENT_CODE}")
 
 # flutterpi_module
 # We separate the actual flutter-pi code into a separate object library
@@ -142,9 +148,6 @@ add_library(
   src/dummy_render_surface.c
   src/plugins/services.c
 )
-
-# Disable PIC again just to make sure.
-set_property(TARGET flutterpi_module PROPERTY POSITION_INDEPENDENT_CODE ${PIE})
 
 target_link_libraries(flutterpi_module PUBLIC
   PkgConfig::DRM
@@ -379,7 +382,7 @@ endif()
 # Sentry Plugin
 set(HAVE_BUNDLED_CRASHPAD_HANDLER OFF)
 if (BUILD_SENTRY_PLUGIN)
-  set(SENTRY_PIC ${PIE})
+  set(SENTRY_PIC ${CMAKE_POSITION_INDEPENDENT_CODE})
   add_subdirectory(third_party/sentry-native)
 
   target_sources(flutterpi_module PRIVATE src/plugins/sentry/sentry.c)
