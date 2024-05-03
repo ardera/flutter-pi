@@ -129,9 +129,12 @@ jobs:
 
           - enable-vulkan: 'on'
             vulkan-deps: 'libvulkan-dev'
+          
+          - compiler: 'gcc'
+            gcc-deps: 'gcc g++'
 
           - compiler: 'clang'
-            clang-deps: 'clang'
+            clang-deps: 'clang clang++'
           
           - sentry-plugin: 'off'
             sentry-plugin-enable: 'off'
@@ -164,6 +167,7 @@ jobs:
             libxkbcommon-dev ninja-build libgstreamer-plugins-base1.0-dev \
             ${{ matrix.vulkan-deps }} \
             ${{ matrix.opengl-deps }} \
+            ${{ matrix.gcc-deps }} \
             ${{ matrix.clang-deps }} \
             ${{ matrix.sentry-deps }}
 
