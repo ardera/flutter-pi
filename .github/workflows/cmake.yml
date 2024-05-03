@@ -134,7 +134,7 @@ jobs:
             gcc-deps: 'gcc g++'
 
           - compiler: 'clang'
-            clang-deps: 'clang clang++'
+            clang-deps: 'clang'
           
           - sentry-plugin: 'off'
             sentry-plugin-enable: 'off'
