@@ -97,7 +97,7 @@ If you encounter issues running flutter-pi on any of the supported platforms lis
 ### Compiling
 1. Clone flutter-pi and cd into the cloned directory:
     ```bash
-    git clone https://github.com/ardera/flutter-pi
+    git clone --recursive https://github.com/ardera/flutter-pi
     cd flutter-pi
     ```
 2. Compile:
