@@ -397,8 +397,8 @@ if (BUILD_SENTRY_PLUGIN)
     target_link_libraries(flutter-pi PUBLIC ${handler_deps})
   endif()
 endif()
-message(STATUS "Sentry plugin: ${BUILD_SENTRY_PLUGIN}")
-message(STATUS "Bundle crashpad_handler: ${HAVE_BUNDLED_CRASHPAD_HANDLER}")
+message(STATUS "Sentry plugin .......... ${BUILD_SENTRY_PLUGIN}")
+message(STATUS "Bundle crashpad_handler  ${HAVE_BUNDLED_CRASHPAD_HANDLER}")
 
 # Needed so dart VM can actually resolve symbols in the same
 # executable. (For dart:ffi DynamicLibrary.executable / DynamicLibrary.process)
