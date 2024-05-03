@@ -97,6 +97,11 @@ pkg_check_modules(LIBUDEV REQUIRED IMPORTED_TARGET libudev)
 set(THREADS_PREFER_PTHREAD_FLAG ON)
 find_package(Threads REQUIRED)
 
+add_executable(
+  flutter-pi
+  src/main.c
+)
+
 add_library(
   flutterpi_module OBJECT
   src/flutter-pi.c
@@ -363,11 +368,11 @@ if (BUILD_SENTRY_PLUGIN)
   if (SENTRY_PLUGIN_BUNDLE_CRASHPAD_HANDLER)
     set(HAVE_BUNDLED_CRASHPAD_HANDLER ON)
   
-    target_sources(flutterpi_module PRIVATE src/crashpad_handler_trampoline.cc)
+    target_sources(flutter-pi PRIVATE src/crashpad_handler_trampoline.cc)
     # link against the same libraries the crashpad_handler uses
     
     get_target_property(handler_deps crashpad_handler INTERFACE_LINK_LIBRARIES)
-    target_link_libraries(flutterpi_module PUBLIC ${handler_deps})
+    target_link_libraries(flutter-pi PUBLIC ${handler_deps})
   endif()
 endif()
 message(STATUS "Sentry plugin: ${BUILD_SENTRY_PLUGIN}")
@@ -426,12 +431,8 @@ if (COMPILER_SUPPORTS_MACRO_PREFIX_MAP)
 endif()
 
 # Actual flutter-pi executable.
-add_executable(
-  flutter-pi
-  src/main.c
-)
 target_link_libraries(
-  flutter-pi
+  flutter-pi PUBLIC
   flutterpi_module
 )
 install(TARGETS flutter-pi RUNTIME DESTINATION bin)
