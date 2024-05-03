@@ -98,29 +98,20 @@ pkg_check_modules(LIBUDEV REQUIRED IMPORTED_TARGET libudev)
 set(THREADS_PREFER_PTHREAD_FLAG ON)
 find_package(Threads REQUIRED)
 
-# flutter-pi executable
-add_executable(
-  flutter-pi
-  src/main.c
-)
-
-# If position independent code is selected, set it for the executable.
 if(POLICY CMP0083)
   cmake_policy(SET CMP0083 NEW)
 
   include(CheckPIESupported)
   check_pie_supported()
-else()
-  if (CMAKE_POSITION_INDEPENDENT_CODE)
-    target_compile_options(flutter-pi PUBLIC -fPIE)
-    target_link_options(flutter-pi PUBLIC -fPIE LINKER:-pie)
-  else()
-    target_compile_options(flutter-pi PUBLIC -fno-PIE)
-    target_link_options(flutter-pi PUBLIC -fno-PIE LINKER:-no-pie)
-  endif()
 endif()
 
 message(STATUS "PIE .................... ${CMAKE_POSITION_INDEPENDENT_CODE}")
+
+# flutter-pi executable
+add_executable(
+  flutter-pi
+  src/main.c
+)
 
 # flutterpi_module
 # We separate the actual flutter-pi code into a separate object library
