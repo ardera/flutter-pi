@@ -131,9 +131,11 @@ jobs:
             vulkan-deps: 'libvulkan-dev'
           
           - compiler: 'gcc'
+            cxx-compiler: 'g++'
             gcc-deps: 'gcc g++'
 
           - compiler: 'clang'
+            cxx-compiler: 'clang++'
             clang-deps: 'clang'
           
           - sentry-plugin: 'off'
@@ -182,6 +184,7 @@ jobs:
             -S . \
             -DCMAKE_BUILD_TYPE=${{ matrix.build-type }} \
             -DCMAKE_C_COMPILER=${{ matrix.compiler }} \
+            -DCMAKE_CXX_COMPILER=${{ matrix.cxx-compiler }} \
             -DBUILD_GSTREAMER_AUDIO_PLAYER_PLUGIN=On \
             -DBUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN=On \
             -DENABLE_VULKAN=${{ matrix.enable-vulkan }} \
