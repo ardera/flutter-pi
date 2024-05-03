@@ -75,7 +75,8 @@ set(FILESYSTEM_LAYOUTS default meta-flutter)
 set(FILESYSTEM_LAYOUT "default" CACHE STRING "Where to look for the icudtl.dat, app.so/libapp.so, flutter asset bundle.")
 set_property(CACHE FILESYSTEM_LAYOUT PROPERTY STRINGS ${FILESYSTEM_LAYOUTS})
 
-set(SENTRY_BACKEND "inproc" CACHE STRING "What sentry backend to use, when the sentry plugin is built. Allowed values are inproc, crashpad and breakpad. Crashpad requires the built crashpad_handler executable that's to be present next to flutter-pi.")
+set(SENTRY_BACKEND "inproc" CACHE STRING "What sentry backend to use, when the sentry plugin is built. Allowed values are inproc, crashpad and breakpad.")
+option(SENTRY_PLUGIN_BUNDLE_CRASHPAD_HANDLER "Bundle the crashpad_handler with the flutter-pi executable." ON)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
@@ -352,13 +353,25 @@ if (BUILD_CHARSET_CONVERTER_PLUGIN)
 endif()
 
 # Sentry Plugin
+set(HAVE_BUNDLED_CRASHPAD_HANDLER OFF)
 if (BUILD_SENTRY_PLUGIN)
   add_subdirectory(third_party/sentry-native)
 
   target_sources(flutterpi_module PRIVATE src/plugins/sentry/sentry.c)
-  target_link_libraries(flutterpi_module PUBLIC sentry)
+  target_link_libraries(flutterpi_module PUBLIC sentry::sentry)
+
+  if (SENTRY_PLUGIN_BUNDLE_CRASHPAD_HANDLER)
+    set(HAVE_BUNDLED_CRASHPAD_HANDLER ON)
+  
+    target_sources(flutterpi_module PRIVATE src/crashpad_handler_trampoline.cc)
+    # link against the same libraries the crashpad_handler uses
+    
+    get_target_property(handler_deps crashpad_handler INTERFACE_LINK_LIBRARIES)
+    target_link_libraries(flutterpi_module PUBLIC ${handler_deps})
+  endif()
 endif()
 message(STATUS "Sentry plugin: ${BUILD_SENTRY_PLUGIN}")
+message(STATUS "Bundle crashpad_handler: ${HAVE_BUNDLED_CRASHPAD_HANDLER}")
 
 # Needed so dart VM can actually resolve symbols in the same
 # executable. (For dart:ffi DynamicLibrary.executable / DynamicLibrary.process)
