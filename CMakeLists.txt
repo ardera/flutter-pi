@@ -70,6 +70,7 @@ option(LTO "Check for IPO/LTO support and enable, if supported. May require gold
 option(LINT_EGL_HEADERS "Set an define that'll make the egl.h only export the extension definitions, prototypes that are explicitly marked as required." OFF)
 option(DEBUG_DRM_PLANE_ALLOCATIONS "Add logging in modesetting.c for debugging the process of choosing a fitting DRM plane for a framebuffer layer." OFF)
 option(USE_LEGACY_KMS "Force the use of legacy KMS." OFF)
+option(PIE "Compile as position-independent executable." OFF)
 
 set(FILESYSTEM_LAYOUTS default meta-flutter)
 set(FILESYSTEM_LAYOUT "default" CACHE STRING "Where to look for the icudtl.dat, app.so/libapp.so, flutter asset bundle.")
@@ -104,11 +105,12 @@ add_executable(
 
 # disable PIE for the main executable
 check_pie_supported(OUTPUT_VARIABLE CHECK_PIE_SUPPORTED_OUTPUT LANGUAGES CXX)
-set_property(TARGET flutter-pi PROPERTY POSITION_INDEPENDENT_CODE TRUE)
+set_property(TARGET flutter-pi PROPERTY POSITION_INDEPENDENT_CODE ${PIE})
 if(NOT CMAKE_CXX_LINK_PIE_SUPPORTED)
   message(WARNING "PIE is not supported at link time: ${CHECK_PIE_SUPPORTED_OUTPUT}.\n"
-                  "PIE link options will not be passed to linker.")
+  "PIE link options will not be passed to linker.")
 endif()
+message(STATUS "PIE .................... ${PIE}")
 
 # flutterpi_module
 # We separate the actual flutter-pi code into a separate object library
@@ -142,7 +144,7 @@ add_library(
 )
 
 # Disable PIC again just to make sure.
-set_property(TARGET flutterpi_module PROPERTY POSITION_INDEPENDENT_CODE OFF)
+set_property(TARGET flutterpi_module PROPERTY POSITION_INDEPENDENT_CODE ${PIE})
 
 target_link_libraries(flutterpi_module PUBLIC
   PkgConfig::DRM
@@ -377,6 +379,7 @@ endif()
 # Sentry Plugin
 set(HAVE_BUNDLED_CRASHPAD_HANDLER OFF)
 if (BUILD_SENTRY_PLUGIN)
+  set(SENTRY_PIC ${PIE})
   add_subdirectory(third_party/sentry-native)
 
   target_sources(flutterpi_module PRIVATE src/plugins/sentry/sentry.c)
