@@ -388,7 +388,7 @@ if (BUILD_SENTRY_PLUGIN)
   target_sources(flutterpi_module PRIVATE src/plugins/sentry/sentry.c)
   target_link_libraries(flutterpi_module PUBLIC sentry::sentry)
 
-  if (SENTRY_PLUGIN_BUNDLE_CRASHPAD_HANDLER)
+  if (SENTRY_BACKEND STREQUAL "crashpad" AND SENTRY_PLUGIN_BUNDLE_CRASHPAD_HANDLER)
     set(HAVE_BUNDLED_CRASHPAD_HANDLER ON)
   
     target_sources(flutter-pi PRIVATE src/crashpad_handler_trampoline.cc)
