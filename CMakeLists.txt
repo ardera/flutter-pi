@@ -75,6 +75,8 @@ set(FILESYSTEM_LAYOUTS default meta-flutter)
 set(FILESYSTEM_LAYOUT "default" CACHE STRING "Where to look for the icudtl.dat, app.so/libapp.so, flutter asset bundle.")
 set_property(CACHE FILESYSTEM_LAYOUT PROPERTY STRINGS ${FILESYSTEM_LAYOUTS})
 
+set(SENTRY_BACKEND "inproc" CACHE STRING "What sentry backend to use, when the sentry plugin is built. Allowed values are inproc, crashpad and breakpad. Crashpad requires the built crashpad_handler executable that's to be present next to flutter-pi.")
+
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 include(ExternalProject)
@@ -351,7 +353,6 @@ endif()
 
 # Sentry Plugin
 if (BUILD_SENTRY_PLUGIN)
-  set(SENTRY_BACKEND "inproc")
   add_subdirectory(third_party/sentry-native)
 
   target_sources(flutterpi_module PRIVATE src/plugins/sentry/sentry.c)
