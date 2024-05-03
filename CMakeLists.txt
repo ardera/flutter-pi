@@ -23,7 +23,7 @@
 # SOFTWARE.
 #
 
-cmake_minimum_required(VERSION 3.13.4)
+cmake_minimum_required(VERSION 3.10.0)
 
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE "Release" CACHE STRING "Choose the type of build, options are: Debug, Release, or MinSizeRel." FORCE)
@@ -112,7 +112,11 @@ if(POLICY CMP0083)
   check_pie_supported()
 else()
   if (CMAKE_POSITION_INDEPENDENT_CODE)
-    target_link_options(flutter-pi PUBLIC -fPIE)
+    target_compile_options(flutter-pi PUBLIC -fPIE)
+    target_link_options(flutter-pi PUBLIC -fPIE LINKER:-pie)
+  else()
+    target_compile_options(flutter-pi PUBLIC -fno-PIE)
+    target_link_options(flutter-pi PUBLIC -fno-PIE LINKER:-no-pie)
   endif()
 endif()
 
@@ -382,7 +386,12 @@ endif()
 # Sentry Plugin
 set(HAVE_BUNDLED_CRASHPAD_HANDLER OFF)
 if (BUILD_SENTRY_PLUGIN)
-  set(SENTRY_PIC ${CMAKE_POSITION_INDEPENDENT_CODE})
+  if (POLICY CMP0077)
+    cmake_policy(SET CMP0077 NEW)
+    set(SENTRY_PIC ${CMAKE_POSITION_INDEPENDENT_CODE})
+  else()
+    set(SENTRY_PIC ${CMAKE_POSITION_INDEPENDENT_CODE} CACHE BOOL)
+  endif()
   add_subdirectory(third_party/sentry-native)
 
   target_sources(flutterpi_module PRIVATE src/plugins/sentry/sentry.c)
