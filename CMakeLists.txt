@@ -149,7 +149,6 @@ target_include_directories(flutterpi_module PUBLIC
 )
 
 target_compile_options(flutterpi_module PUBLIC
-  --build-id=sha1
   $<$<CONFIG:Debug>:-O0 -Wall -Wextra -Wno-sign-compare -Werror -ggdb -U_FORTIFY_SOURCE -DDEBUG>
   $<$<CONFIG:RelWithDebInfo>:-O3 -Wall -Wextra -Wno-sign-compare -ggdb -DNDEBUG>
   $<$<CONFIG:Release>:-O3 -Wall -Wextra -Wno-sign-compare -DNDEBUG>
@@ -160,6 +159,9 @@ if (CMAKE_C_COMPILER_ID STREQUAL "GNU")
   if (CMAKE_C_COMPILER_VERSION VERSION_LESS "11.3")
     target_compile_options(flutterpi_module PUBLIC -Wno-missing-field-initializers)
   endif()
+  target_link_options(flutter-pi PUBLIC LINKER:--build-id)
+elseif (CMAKE_C_COMPILER_ID STREQUAL "Clang")
+  target_link_options(flutter-pi PUBLIC LINKER:--build-id=sha1)
 endif()
 
 # libinput stuff
