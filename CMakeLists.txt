@@ -80,9 +80,8 @@ option(SENTRY_PLUGIN_BUNDLE_CRASHPAD_HANDLER "Bundle the crashpad_handler with t
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-include(ExternalProject)
 include(CheckCCompilerFlag)
-include(FetchContent)
+include(CheckPIESupported)
 
 # Those libraries we definitely need.
 include(FindPkgConfig)
@@ -97,11 +96,23 @@ pkg_check_modules(LIBUDEV REQUIRED IMPORTED_TARGET libudev)
 set(THREADS_PREFER_PTHREAD_FLAG ON)
 find_package(Threads REQUIRED)
 
+# flutter-pi executable
 add_executable(
   flutter-pi
   src/main.c
 )
 
+# disable PIE for the main executable
+check_pie_supported(OUTPUT_VARIABLE CHECK_PIE_SUPPORTED_OUTPUT LANGUAGES CXX)
+set_property(TARGET flutter-pi PROPERTY POSITION_INDEPENDENT_CODE TRUE)
+if(NOT CMAKE_CXX_LINK_PIE_SUPPORTED)
+  message(WARNING "PIE is not supported at link time: ${CHECK_PIE_SUPPORTED_OUTPUT}.\n"
+                  "PIE link options will not be passed to linker.")
+endif()
+
+# flutterpi_module
+# We separate the actual flutter-pi code into a separate object library
+# so we can link against it in the tests.
 add_library(
   flutterpi_module OBJECT
   src/flutter-pi.c
@@ -129,6 +140,9 @@ add_library(
   src/dummy_render_surface.c
   src/plugins/services.c
 )
+
+# Disable PIC again just to make sure.
+set_property(TARGET flutterpi_module PROPERTY POSITION_INDEPENDENT_CODE OFF)
 
 target_link_libraries(flutterpi_module PUBLIC
   PkgConfig::DRM
