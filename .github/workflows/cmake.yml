@@ -106,6 +106,11 @@ jobs:
         build-type:
           - Debug
           - Release
+        sentry-plugin:
+          - 'off'
+          - 'on-inproc'
+          - 'on-crashpad-bundled'
+          - 'on-crashped-unbundled'
         include:
           - graphics-backends: 'vulkan-only'
             enable-vulkan: 'on'
@@ -127,6 +132,27 @@ jobs:
 
           - compiler: 'clang'
             clang-deps: 'clang'
+          
+          - sentry-plugin: 'off'
+            sentry-plugin-enable: 'off'
+            sentry-deps: ''
+          
+          - sentry-plugin: 'on-inproc'
+            sentry-plugin-enable: 'on'
+            sentry-backend: 'inproc'
+            sentry-deps: 'libcurl4-openssl-dev'
+
+          - sentry-plugin: 'on-crashpad-bundled'
+            sentry-plugin-enable: 'on'
+            sentry-backend: 'crashpad'
+            sentry-bundled-crashpad-handler: 'on'
+            sentry-deps: 'libcurl4-openssl-dev'
+
+          - senty-plugin: 'on-crashped-unbundled'
+            sentry-plugin-enable: 'on'
+            sentry-backend: 'crashpad'
+            sentry-bundled-crashpad-handler: 'off'
+            sentry-deps: 'libcurl4-openssl-dev'
     steps:
       # git needs to be installed before checking out, otherwise the checkout will fallback to the REST API,
       # and the submodule download won't work.
@@ -138,7 +164,8 @@ jobs:
             libxkbcommon-dev ninja-build libgstreamer-plugins-base1.0-dev \
             ${{ matrix.vulkan-deps }} \
             ${{ matrix.opengl-deps }} \
-            ${{ matrix.clang-deps }}
+            ${{ matrix.clang-deps }} \
+            ${{ matrix.sentry-deps }}
 
       - uses: actions/checkout@v3
         with:
@@ -156,6 +183,9 @@ jobs:
             -DENABLE_VULKAN=${{ matrix.enable-vulkan }} \
             -DENABLE_OPENGL=${{ matrix.enable-opengl }} \
             -DENABLE_TESTS=On \
+            -DBUILD_SENTRY_PLUGIN=${{ matrix.sentry-plugin-enable }} \
+            -DSENTRY_BACKEND=${{ matrix.sentry-backend }} \
+            -DSENTRY_PLUGIN_BUNDLE_CRASHPAD_HANDLER=${{ matrix.sentry-bundled-crashpad-handler }} \
             -GNinja
 
       - name: Build
