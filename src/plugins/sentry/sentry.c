@@ -21,7 +21,7 @@ struct sentry_plugin {
     bool sentry_initialized;
 };
 
-static int sentry_configure_bundled_crashpad_handler(sentry_options_t *options) {
+UNUSED static int sentry_configure_bundled_crashpad_handler(sentry_options_t *options) {
     char *path = malloc(PATH_MAX);
     if (path == NULL) {
         return ENOMEM;
