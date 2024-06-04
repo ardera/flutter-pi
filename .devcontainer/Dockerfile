@@ -1,4 +1,4 @@
-FROM debian:bookworm
+FROM mcr.microsoft.com/devcontainers/base:debian12
 
 RUN env DEBIAN_FRONTEND=noninteractive \
     apt-get update
@@ -7,4 +7,17 @@ RUN env DEBIAN_FRONTEND=noninteractive \
     apt-get install -y \
     gdb git cmake ninja-build pkg-config nano clang clang-format clang-tidy clang-tools \
     libgl1-mesa-dev libgles2-mesa-dev libegl1-mesa-dev libdrm-dev libgbm-dev fonts-liberation fontconfig libsystemd-dev libinput-dev libudev-dev libxkbcommon-dev libseat-dev \
-    libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libgstreamer-plugins-bad1.0-dev gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-ugly gstreamer1.0-plugins-bad gstreamer1.0-libav gstreamer1.0-alsa
+    libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libgstreamer-plugins-bad1.0-dev gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-ugly gstreamer1.0-plugins-bad gstreamer1.0-libav gstreamer1.0-alsa \
+    libepoxy-dev
+
+USER 1000:1000
+WORKDIR /home/vscode
+
+ARG FLUTTER_VERSION=3.22.1
+RUN env DEBIAN_FRONTEND=noninteractive \
+    git clone -b $FLUTTER_VERSION https://github.com/flutter/flutter.git
+ENV PATH "/home/vscode/flutter/bin:$PATH"
+
+RUN flutter doctor
+
+USER root
