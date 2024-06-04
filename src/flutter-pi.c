@@ -2165,14 +2165,14 @@ fail_free_devices:
     return NULL;
 }
 
-static struct gbm_device *open_rendernode_as_gbm_device() {
+UNUSED static struct gbm_device *try_open_rendernode_as_gbm_device() {
     struct gbm_device *gbm;
     drmDevicePtr devices[64];
     int ok, n_devices;
 
     ok = drmGetDevices2(0, devices, sizeof(devices) / sizeof(*devices));
     if (ok < 0) {
-        LOG_ERROR("Could not query DRM device list: %s\n", strerror(-ok));
+        LOG_DEBUG("Could not find a usable GPU, couldn't query GPU device list: drmGetDevices2: %s\n", strerror(-ok));
         return NULL;
     }
 
@@ -2209,10 +2209,7 @@ static struct gbm_device *open_rendernode_as_gbm_device() {
     drmFreeDevices(devices, n_devices);
 
     if (gbm == NULL) {
-        LOG_ERROR(
-            "flutter-pi couldn't find a usable render device.\n"
-            "Please make sure you have a GPU connected.\n"
-        );
+        LOG_DEBUG("Could not find a usable GPU.\n");
         return NULL;
     }
 
@@ -2442,10 +2439,7 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
         // render node as a GBM device.
         // There's other ways to get an offscreen EGL display, but we need the gbm_device for other things
         // (e.g. buffer allocating for the video player, so we just do this.)
-        gbm_device = open_rendernode_as_gbm_device();
-        if (gbm_device == NULL) {
-            goto fail_destroy_locales;
-        }
+        gbm_device = try_open_rendernode_as_gbm_device();
     } else {
         drmdev = find_drmdev(libseat);
         if (drmdev == NULL) {
@@ -2486,11 +2480,21 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
     } else if (renderer_type == kOpenGL_RendererType) {
 #ifdef HAVE_EGL_GLES2
         vk_renderer = NULL;
-        gl_renderer = gl_renderer_new_from_gbm_device(tracer, gbm_device, cmd_args.has_pixel_format, cmd_args.pixel_format);
-        if (gl_renderer == NULL) {
-            LOG_ERROR("Couldn't create EGL/OpenGL renderer.\n");
-            ok = EIO;
-            goto fail_unref_scheduler;
+
+        if (gbm_device != NULL) {
+            gl_renderer = gl_renderer_new_from_gbm_device(tracer, gbm_device, cmd_args.has_pixel_format, cmd_args.pixel_format);
+            if (gl_renderer == NULL) {
+                LOG_ERROR("Couldn't create EGL/OpenGL renderer.\n");
+                ok = EIO;
+                goto fail_unref_scheduler;
+            }
+        } else {
+            gl_renderer = gl_renderer_new_surfaceless(tracer, cmd_args.has_pixel_format, cmd_args.pixel_format);
+            if (gl_renderer == NULL) {
+                LOG_ERROR("Couldn't create EGL/OpenGL renderer.\n");
+                ok = EIO;
+                goto fail_unref_scheduler;
+            }
         }
 
         // it seems that after some Raspbian update, regular users are sometimes no longer allowed

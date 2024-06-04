@@ -442,6 +442,320 @@ fail_return_null:
     return NULL;
 }
 
+struct gl_renderer *gl_renderer_new_surfaceless(
+    struct tracer *tracer,
+    bool has_forced_pixel_format,
+    enum pixfmt pixel_format
+) {
+    struct gl_renderer *renderer;
+    const char *egl_client_exts, *egl_display_exts;
+    const char *gl_renderer, *gl_exts;
+    EGLContext root_context, flutter_render_context, flutter_resource_uploading_context, flutter_setup_context;
+    EGLDisplay egl_display;
+    EGLBoolean egl_ok;
+    EGLConfig forced_egl_config;
+    EGLint major, minor;
+    bool supports_egl_ext_platform_base;
+    int ok;
+
+    renderer = malloc(sizeof *renderer);
+    if (renderer == NULL) {
+        goto fail_return_null;
+    }
+
+    egl_client_exts = eglQueryString(EGL_NO_DISPLAY, EGL_EXTENSIONS);
+    if (egl_client_exts == NULL) {
+        LOG_EGL_ERROR(eglGetError(), "Couldn't query EGL client extensions. eglQueryString");
+        goto fail_free_renderer;
+    }
+
+    if (!check_egl_extension(egl_client_exts, NULL, "EGL_MESA_platform_surfaceless")) {
+        LOG_ERROR("EGL does not support surfaceless platform.\n");
+        goto fail_free_renderer;
+    }
+
+    if (check_egl_extension(egl_client_exts, NULL, "EGL_EXT_platform_base")) {
+#ifdef EGL_EXT_platform_base
+        supports_egl_ext_platform_base = true;
+#else
+        LOG_ERROR(
+            "EGL supports EGL_EXT_platform_base, but EGL headers didn't contain definitions for EGL_EXT_platform_base."
+            "eglGetPlatformDisplayEXT and eglCreatePlatformWindowSurfaceEXT will not be used to create an EGL display.\n"
+        );
+        supports_egl_ext_platform_base = false;
+#endif
+    } else {
+        supports_egl_ext_platform_base = false;
+    }
+
+// PFNEGLGETPLATFORMDISPLAYEXTPROC, PFNEGLCREATEPLATFORMWINDOWSURFACEEXTPROC
+// are defined by EGL_EXT_platform_base.
+#ifdef EGL_EXT_platform_base
+    PFNEGLGETPLATFORMDISPLAYEXTPROC egl_get_platform_display_ext;
+    PFNEGLCREATEPLATFORMWINDOWSURFACEEXTPROC egl_create_platform_window_surface_ext;
+#endif
+
+    if (supports_egl_ext_platform_base) {
+#ifdef EGL_EXT_platform_base
+        egl_get_platform_display_ext = try_get_proc_address("eglGetPlatformDisplayEXT");
+        if (egl_get_platform_display_ext == NULL) {
+            LOG_ERROR("Couldn't resolve \"eglGetPlatformDisplayEXT\" even though \"EGL_EXT_platform_base\" was listed as supported.\n");
+            supports_egl_ext_platform_base = false;
+        }
+#else
+        UNREACHABLE();
+#endif
+    }
+
+    if (supports_egl_ext_platform_base) {
+#ifdef EGL_EXT_platform_base
+        egl_create_platform_window_surface_ext = try_get_proc_address("eglCreatePlatformWindowSurfaceEXT");
+        if (egl_create_platform_window_surface_ext == NULL) {
+            LOG_ERROR(
+                "Couldn't resolve \"eglCreatePlatformWindowSurfaceEXT\" even though \"EGL_EXT_platform_base\" was listed as supported.\n"
+            );
+            egl_get_platform_display_ext = NULL;
+            supports_egl_ext_platform_base = false;
+        }
+#else
+        UNREACHABLE();
+#endif
+    }
+
+// EGL_PLATFORM_GBM_KHR is defined by EGL_KHR_platform_gbm.
+#ifndef EGL_KHR_platform_gbm
+    #error "EGL extension EGL_KHR_platform_gbm is required."
+#endif
+
+    egl_display = EGL_NO_DISPLAY;
+    bool failed_before = false;
+
+#ifdef EGL_VERSION_1_5
+    PFNEGLGETPLATFORMDISPLAYPROC egl_get_platform_display = try_get_proc_address("eglGetPlatformDisplay");
+
+    if (egl_display == EGL_NO_DISPLAY && egl_get_platform_display != NULL) {
+        egl_display = egl_get_platform_display(EGL_PLATFORM_SURFACELESS_MESA, EGL_DEFAULT_DISPLAY, NULL);
+        if (egl_display == EGL_NO_DISPLAY) {
+            LOG_EGL_ERROR(eglGetError(), "Could not get surfaceless EGL display. eglGetPlatformDisplay");
+            failed_before = true;
+        }
+    }
+#endif
+
+#ifdef EGL_EXT_platform_base
+    if (egl_display == EGL_NO_DISPLAY && egl_get_platform_display_ext != NULL) {
+        if (failed_before) {
+            LOG_DEBUG("Attempting eglGetPlatformDisplayEXT...\n");
+        }
+
+        egl_display = egl_get_platform_display_ext(EGL_PLATFORM_SURFACELESS_MESA, EGL_DEFAULT_DISPLAY, NULL);
+        if (egl_display == EGL_NO_DISPLAY) {
+            LOG_EGL_ERROR(eglGetError(), "Could not get EGL display from GBM device. eglGetPlatformDisplayEXT");
+            failed_before = true;
+        }
+    }
+#endif
+
+    if (egl_display == EGL_NO_DISPLAY) {
+        if (failed_before) {
+            LOG_DEBUG("Attempting eglGetDisplay...\n");
+        }
+
+        egl_display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
+        if (egl_display == EGL_NO_DISPLAY) {
+            LOG_EGL_ERROR(eglGetError(), "Could not get surfaceless EGL display. eglGetDisplay");
+        }
+    }
+
+    if (egl_display == EGL_NO_DISPLAY) {
+        LOG_ERROR("Could not get EGL Display from any function.\n");
+        goto fail_free_renderer;
+    }
+
+    egl_ok = eglInitialize(egl_display, &major, &minor);
+    if (egl_ok != EGL_TRUE) {
+        LOG_EGL_ERROR(eglGetError(), "Failed to initialize EGL! eglInitialize:");
+        goto fail_free_renderer;
+    }
+
+    egl_display_exts = eglQueryString(egl_display, EGL_EXTENSIONS);
+    if (egl_display_exts == NULL) {
+        LOG_EGL_ERROR(eglGetError(), "Couldn't query EGL display extensions. eglQueryString");
+        goto fail_terminate_display;
+    }
+
+    if (!check_egl_extension(egl_client_exts, egl_display_exts, "EGL_KHR_surfaceless_context")) {
+        LOG_ERROR("EGL doesn't support the EGL_KHR_surfaceless_context extension, which is required by flutter-pi.\n");
+        goto fail_terminate_display;
+    }
+
+    egl_ok = eglBindAPI(EGL_OPENGL_ES_API);
+    if (egl_ok != EGL_TRUE) {
+        LOG_EGL_ERROR(eglGetError(), "Couldn't bind OpenGL ES API to EGL. eglBindAPI");
+        goto fail_terminate_display;
+    }
+
+    if (check_egl_extension(egl_client_exts, egl_display_exts, "EGL_KHR_no_config_context")) {
+        // EGL supports creating contexts without an EGLConfig, which is nice.
+        // Just create a context without selecting a config and let the backing stores (when they're created) select
+        // the framebuffer config instead.
+        forced_egl_config = EGL_NO_CONFIG_KHR;
+    } else {
+        // choose a config
+        const EGLint config_attribs[] = {
+            EGL_SURFACE_TYPE, EGL_WINDOW_BIT, EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT, EGL_SAMPLES, 0, EGL_NONE,
+        };
+
+        if (has_forced_pixel_format == false) {
+            has_forced_pixel_format = true;
+            pixel_format = PIXFMT_ARGB8888;
+        }
+
+        forced_egl_config = choose_config_with_pixel_format(egl_display, config_attribs, pixel_format);
+        if (forced_egl_config == EGL_NO_CONFIG_KHR) {
+            LOG_ERROR("No fitting EGL framebuffer configuration found.\n");
+            goto fail_terminate_display;
+        }
+    }
+
+    root_context = eglCreateContext(egl_display, forced_egl_config, EGL_NO_CONTEXT, context_attribs);
+    if (root_context == EGL_NO_CONTEXT) {
+        LOG_EGL_ERROR(eglGetError(), "Could not create EGL context for OpenGL ES. eglCreateContext");
+        goto fail_terminate_display;
+    }
+
+    flutter_render_context = eglCreateContext(egl_display, forced_egl_config, root_context, context_attribs);
+    if (flutter_render_context == EGL_NO_CONTEXT) {
+        LOG_EGL_ERROR(eglGetError(), "Could not create EGL OpenGL ES context for flutter rendering. eglCreateContext");
+        goto fail_destroy_root_context;
+    }
+
+    flutter_resource_uploading_context = eglCreateContext(egl_display, forced_egl_config, root_context, context_attribs);
+    if (flutter_resource_uploading_context == EGL_NO_CONTEXT) {
+        LOG_EGL_ERROR(eglGetError(), "Could not create EGL OpenGL ES context for flutter resource uploads. eglCreateContext");
+        goto fail_destroy_flutter_render_context;
+    }
+
+    flutter_setup_context = eglCreateContext(egl_display, forced_egl_config, root_context, context_attribs);
+    if (flutter_setup_context == EGL_NO_CONTEXT) {
+        LOG_EGL_ERROR(eglGetError(), "Could not create EGL OpenGL ES context for flutter initialization. eglCreateContext");
+        goto fail_destroy_flutter_resource_uploading_context;
+    }
+
+    egl_ok = eglMakeCurrent(egl_display, EGL_NO_SURFACE, EGL_NO_SURFACE, root_context);
+    if (egl_ok != EGL_TRUE) {
+        LOG_EGL_ERROR(eglGetError(), "Could not make EGL OpenGL ES root context current to query OpenGL information. eglMakeCurrent");
+        goto fail_destroy_flutter_setup_context;
+    }
+
+    gl_renderer = (const char *) glGetString(GL_RENDERER);
+    if (gl_renderer == NULL) {
+        LOG_ERROR("Couldn't query OpenGL ES renderer information.\n");
+        goto fail_clear_current;
+    }
+
+    gl_exts = (const char *) glGetString(GL_EXTENSIONS);
+    if (gl_exts == NULL) {
+        LOG_ERROR("Couldn't query supported OpenGL ES extensions.\n");
+        goto fail_clear_current;
+    }
+
+    LOG_DEBUG_UNPREFIXED(
+        "===================================\n"
+        "EGL information:\n"
+        "  version: %s\n"
+        "  vendor: %s\n"
+        "  client extensions: %s\n"
+        "  display extensions: %s\n"
+        "===================================\n",
+        eglQueryString(egl_display, EGL_VERSION),
+        eglQueryString(egl_display, EGL_VENDOR),
+        egl_client_exts,
+        egl_display_exts
+    );
+
+    // this needs to be here because the EGL context needs to be current.
+    LOG_DEBUG_UNPREFIXED(
+        "===================================\n"
+        "OpenGL ES information:\n"
+        "  version: \"%s\"\n"
+        "  shading language version: \"%s\"\n"
+        "  vendor: \"%s\"\n"
+        "  renderer: \"%s\"\n"
+        "  extensions: \"%s\"\n"
+        "===================================\n",
+        glGetString(GL_VERSION),
+        glGetString(GL_SHADING_LANGUAGE_VERSION),
+        glGetString(GL_VENDOR),
+        gl_renderer,
+        gl_exts
+    );
+
+    egl_ok = eglMakeCurrent(egl_display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+    if (egl_ok != EGL_TRUE) {
+        LOG_EGL_ERROR(eglGetError(), "Could not clear EGL OpenGL ES context. eglMakeCurrent");
+        goto fail_destroy_flutter_resource_uploading_context;
+    }
+
+    ok = pthread_mutex_init(&renderer->root_context_lock, NULL);
+    if (ok < 0) {
+        goto fail_destroy_flutter_resource_uploading_context;
+    }
+
+    renderer->n_refs = REFCOUNT_INIT_1;
+    renderer->tracer = tracer_ref(tracer);
+    renderer->gbm_device = NULL;
+    renderer->egl_display = egl_display;
+    renderer->root_context = root_context;
+    renderer->flutter_rendering_context = flutter_render_context;
+    renderer->flutter_resource_uploading_context = flutter_resource_uploading_context;
+    renderer->flutter_setup_context = flutter_setup_context;
+    renderer->has_forced_pixel_format = has_forced_pixel_format;
+    renderer->pixel_format = pixel_format;
+    renderer->forced_egl_config = forced_egl_config;
+    renderer->major = major;
+    renderer->minor = minor;
+    renderer->egl_client_exts = egl_client_exts;
+    renderer->egl_display_exts = egl_display_exts;
+    renderer->gl_renderer = gl_renderer;
+    renderer->gl_exts = gl_exts;
+    renderer->supports_egl_ext_platform_base = supports_egl_ext_platform_base;
+#ifdef EGL_EXT_platform_base
+    renderer->egl_get_platform_display_ext = egl_get_platform_display_ext;
+    renderer->egl_create_platform_window_surface_ext = egl_create_platform_window_surface_ext;
+#endif
+#ifdef EGL_VERSION_1_5
+    renderer->egl_get_platform_display = egl_get_platform_display;
+    renderer->egl_create_platform_window_surface = NULL;
+#endif
+    return renderer;
+
+fail_clear_current:
+    eglMakeCurrent(egl_display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+
+fail_destroy_flutter_setup_context:
+    eglDestroyContext(egl_display, flutter_setup_context);
+
+fail_destroy_flutter_resource_uploading_context:
+    eglDestroyContext(egl_display, flutter_resource_uploading_context);
+
+fail_destroy_flutter_render_context:
+    eglDestroyContext(egl_display, flutter_render_context);
+
+fail_destroy_root_context:
+    eglDestroyContext(egl_display, root_context);
+
+fail_terminate_display:
+    eglTerminate(egl_display);
+
+fail_free_renderer:
+    free(renderer);
+
+fail_return_null:
+    return NULL;
+}
+
+
 void gl_renderer_destroy(struct gl_renderer *renderer) {
     ASSERT_NOT_NULL(renderer);
     tracer_unref(renderer->tracer);
@@ -731,6 +1045,24 @@ EGLSurface gl_renderer_create_gbm_window_surface(
         if (surface == EGL_NO_SURFACE) {
             LOG_EGL_ERROR(eglGetError(), "Couldn't create gbm_surface backend window surface. eglCreateWindowSurface");
         }
+    }
+
+    return surface;
+}
+
+EGLSurface gl_renderer_create_pbuffer_surface(
+    struct gl_renderer *renderer,
+    EGLConfig config,
+    const EGLAttribKHR *attrib_list,
+    const EGLint *int_attrib_list
+) {
+    EGLSurface surface;
+
+    (void) attrib_list;
+
+    surface = eglCreatePbufferSurface(renderer->egl_display, config, int_attrib_list);
+    if (surface == EGL_NO_SURFACE) {
+        LOG_EGL_ERROR(eglGetError(), "Couldn't create pixelbuffer surface. eglCreatePbufferSurface");
     }
 
     return surface;

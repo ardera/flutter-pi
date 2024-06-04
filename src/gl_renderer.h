@@ -35,6 +35,12 @@ struct gl_renderer *gl_renderer_new_from_gbm_device(
     enum pixfmt pixel_format
 );
 
+struct gl_renderer *gl_renderer_new_surfaceless(
+    struct tracer *tracer,
+    bool has_forced_pixel_format,
+    enum pixfmt pixel_format
+);
+
 void gl_renderer_destroy(struct gl_renderer *renderer);
 
 DECLARE_REF_OPS(gl_renderer)
@@ -81,6 +87,13 @@ EGLSurface gl_renderer_create_gbm_window_surface(
     struct gl_renderer *renderer,
     EGLConfig config,
     struct gbm_surface *gbm_surface,
+    const EGLAttribKHR *attrib_list,
+    const EGLint *int_attrib_list
+);
+
+EGLSurface gl_renderer_create_pbuffer_surface(
+    struct gl_renderer *renderer,
+    EGLConfig config,
     const EGLAttribKHR *attrib_list,
     const EGLint *int_attrib_list
 );
