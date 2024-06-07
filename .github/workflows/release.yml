@@ -91,7 +91,7 @@ jobs:
             -DENABLE_OPENGL=ON \
             -DENABLE_TESTS=On \
             -DBUILD_SENTRY_PLUGIN=OFF \
-            -DCMAKE_INSTALL_PREFIX=${{ github.workspace }}/dist \
+            -DCMAKE_INSTALL_PREFIX=$PWD/dist \
             -GNinja
       
       - name: Build & Install
@@ -101,7 +101,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: flutterpi-${{ matrix.target }}-${{ matrix.buildtype }}
-          path: ${{ github.workspace }}/dist/bin/flutter-pi
+          path: dist/bin/flutter-pi
+          if-no-files-found: error
       
   publish:
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/release/')
