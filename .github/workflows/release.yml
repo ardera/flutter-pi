@@ -118,7 +118,7 @@ jobs:
       - name: Publish Release
         uses: softprops/action-gh-release@v1
         with:
+          fail_on_unmatched_files: true
           files: binaries/*
-          tag_name: ${{ github.ref }}
           name: ${{ github.ref_name }}
           body: ${{ github.event.head_commit.message }}
