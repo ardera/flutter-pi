@@ -56,7 +56,8 @@ jobs:
             libdrm-dev:$ARCH libgbm-dev:$ARCH libsystemd-dev:$ARCH libinput-dev:$ARCH libudev-dev:$ARCH libxkbcommon-dev:$ARCH \
             libgstreamer-plugins-base1.0-dev:$ARCH \
             libvulkan-dev:$ARCH \
-            libgl1-mesa-dev:$ARCH libgles2-mesa-dev:$ARCH libegl1-mesa-dev:$ARCH
+            libgl1-mesa-dev:$ARCH libgles2-mesa-dev:$ARCH libegl1-mesa-dev:$ARCH \
+            ${{ matrix.is-cross && format('gcc-{0} g++-${0}', matrix.target) || '' }}
       
       - uses: actions/checkout@v3
         with:
