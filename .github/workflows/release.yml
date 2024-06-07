@@ -98,7 +98,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: flutterpi-${{ matrix.target }}-${{ matrix.buildtype }}
-          path: $HOME/flutterpi-dist/flutter-pi
+          path: $HOME/flutterpi-dist/bin/flutter-pi
       
   publish:
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/release/')
