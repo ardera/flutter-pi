@@ -33,6 +33,7 @@
 
 #ifdef HAVE_EGL_GLES2
     #include "egl_gbm_render_surface.h"
+    #include "egl_offscreen_render_surface.h"
     #include "gl_renderer.h"
 #endif
 
@@ -943,9 +944,8 @@ MUST_CHECK struct window *kms_window_new(
         has_dimensions = true;
         width_mm = selected_connector->variable_state.width_mm;
         height_mm = selected_connector->variable_state.height_mm;
-    } else if (selected_connector->type == DRM_MODE_CONNECTOR_DSI
-        && selected_connector->variable_state.width_mm == 0
-        && selected_connector->variable_state.height_mm == 0) {
+    } else if (selected_connector->type == DRM_MODE_CONNECTOR_DSI && selected_connector->variable_state.width_mm == 0 &&
+               selected_connector->variable_state.height_mm == 0) {
         // assume this is the official Raspberry Pi DSI display.
         has_dimensions = true;
         width_mm = 155;
@@ -1693,22 +1693,38 @@ static struct render_surface *dummy_window_get_render_surface_internal(struct wi
     #ifndef EGL_KHR_no_config_context
         #error "EGL header definitions for extension EGL_KHR_no_config_context are required."
     #endif
+        struct gbm_device *gbm_device = gl_renderer_get_gbm_device(window->gl_renderer);
 
-        struct egl_gbm_render_surface *egl_surface = egl_gbm_render_surface_new_with_egl_config(
-            window->tracer,
-            size,
-            gl_renderer_get_gbm_device(window->gl_renderer),
-            window->gl_renderer,
-            window->has_forced_pixel_format ? window->forced_pixel_format : PIXFMT_ARGB8888,
-            EGL_NO_CONFIG_KHR,
-            NULL,
-            0
-        );
-        if (egl_surface == NULL) {
-            LOG_ERROR("Couldn't create EGL GBM rendering surface.\n");
-            render_surface = NULL;
+        if (gbm_device != NULL) {
+            struct egl_gbm_render_surface *egl_surface = egl_gbm_render_surface_new_with_egl_config(
+                window->tracer,
+                size,
+                gl_renderer_get_gbm_device(window->gl_renderer),
+                window->gl_renderer,
+                window->has_forced_pixel_format ? window->forced_pixel_format : PIXFMT_ARGB8888,
+                EGL_NO_CONFIG_KHR,
+                NULL,
+                0
+            );
+            if (egl_surface == NULL) {
+                LOG_ERROR("Couldn't create EGL GBM rendering surface.\n");
+                render_surface = NULL;
+            } else {
+                render_surface = CAST_RENDER_SURFACE(egl_surface);
+            }
         } else {
-            render_surface = CAST_RENDER_SURFACE(egl_surface);
+            struct egl_offscreen_render_surface *egl_surface = egl_offscreen_render_surface_new(
+                window->tracer,
+                size,
+                window->gl_renderer,
+                window->has_forced_pixel_format ? window->forced_pixel_format : PIXFMT_ARGB8888
+            );
+            if (egl_surface == NULL) {
+                LOG_ERROR("Couldn't create EGL offscreen rendering surface.\n");
+                render_surface = NULL;
+            } else {
+                render_surface = CAST_RENDER_SURFACE(egl_surface);
+            }
         }
 
 #else

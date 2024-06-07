@@ -442,11 +442,7 @@ fail_return_null:
     return NULL;
 }
 
-struct gl_renderer *gl_renderer_new_surfaceless(
-    struct tracer *tracer,
-    bool has_forced_pixel_format,
-    enum pixfmt pixel_format
-) {
+struct gl_renderer *gl_renderer_new_surfaceless(struct tracer *tracer, bool has_forced_pixel_format, enum pixfmt pixel_format) {
     struct gl_renderer *renderer;
     const char *egl_client_exts, *egl_display_exts;
     const char *gl_renderer, *gl_exts;
@@ -492,7 +488,6 @@ struct gl_renderer *gl_renderer_new_surfaceless(
 // are defined by EGL_EXT_platform_base.
 #ifdef EGL_EXT_platform_base
     PFNEGLGETPLATFORMDISPLAYEXTPROC egl_get_platform_display_ext;
-    PFNEGLCREATEPLATFORMWINDOWSURFACEEXTPROC egl_create_platform_window_surface_ext;
 #endif
 
     if (supports_egl_ext_platform_base) {
@@ -506,26 +501,6 @@ struct gl_renderer *gl_renderer_new_surfaceless(
         UNREACHABLE();
 #endif
     }
-
-    if (supports_egl_ext_platform_base) {
-#ifdef EGL_EXT_platform_base
-        egl_create_platform_window_surface_ext = try_get_proc_address("eglCreatePlatformWindowSurfaceEXT");
-        if (egl_create_platform_window_surface_ext == NULL) {
-            LOG_ERROR(
-                "Couldn't resolve \"eglCreatePlatformWindowSurfaceEXT\" even though \"EGL_EXT_platform_base\" was listed as supported.\n"
-            );
-            egl_get_platform_display_ext = NULL;
-            supports_egl_ext_platform_base = false;
-        }
-#else
-        UNREACHABLE();
-#endif
-    }
-
-// EGL_PLATFORM_GBM_KHR is defined by EGL_KHR_platform_gbm.
-#ifndef EGL_KHR_platform_gbm
-    #error "EGL extension EGL_KHR_platform_gbm is required."
-#endif
 
     egl_display = EGL_NO_DISPLAY;
     bool failed_before = false;
@@ -574,7 +549,7 @@ struct gl_renderer *gl_renderer_new_surfaceless(
 
     egl_ok = eglInitialize(egl_display, &major, &minor);
     if (egl_ok != EGL_TRUE) {
-        LOG_EGL_ERROR(eglGetError(), "Failed to initialize EGL! eglInitialize:");
+        LOG_EGL_ERROR(eglGetError(), "Failed to initialize EGL! eglInitialize");
         goto fail_free_renderer;
     }
 
@@ -722,7 +697,7 @@ struct gl_renderer *gl_renderer_new_surfaceless(
     renderer->supports_egl_ext_platform_base = supports_egl_ext_platform_base;
 #ifdef EGL_EXT_platform_base
     renderer->egl_get_platform_display_ext = egl_get_platform_display_ext;
-    renderer->egl_create_platform_window_surface_ext = egl_create_platform_window_surface_ext;
+    renderer->egl_create_platform_window_surface_ext = NULL;
 #endif
 #ifdef EGL_VERSION_1_5
     renderer->egl_get_platform_display = egl_get_platform_display;
@@ -754,7 +729,6 @@ fail_free_renderer:
 fail_return_null:
     return NULL;
 }
-
 
 void gl_renderer_destroy(struct gl_renderer *renderer) {
     ASSERT_NOT_NULL(renderer);
