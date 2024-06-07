@@ -57,7 +57,7 @@ jobs:
             libgstreamer-plugins-base1.0-dev:$ARCH \
             libvulkan-dev:$ARCH \
             libgl1-mesa-dev:$ARCH libgles2-mesa-dev:$ARCH libegl1-mesa-dev:$ARCH \
-            ${{ matrix.is-cross && format('gcc-{0} g++-${0}', matrix.target) || '' }}
+            ${{ matrix.is-cross && format('gcc-{0} g++-{0}', matrix.target) || '' }}
       
       - uses: actions/checkout@v3
         with:
