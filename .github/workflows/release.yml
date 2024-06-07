@@ -25,8 +25,15 @@ jobs:
           - aarch64-linux-gnu
           - x86_64-linux-gnu
         buildtype:
-          - Debug
-          - Release
+          - debug
+          - release
+        include:
+          - target: 'x86_64-linux-gnu'
+            is-cross: false
+          - target: 'aarch64-linux-gnu'
+            is-cross: true
+          - target: 'arm-linux-gnueabihf'
+            is-cross: true
     steps:
       # git needs to be installed before checking out, otherwise the checkout will fallback to the REST API,
       # and the submodule download won't work.
@@ -46,9 +53,9 @@ jobs:
       
       - name: Configure CMake
         env:
-          CMAKE_SYSTEM_NAME: matrix.target != 'x86_64-linux-gnu' && format('-DCMAKE_SYSTEM_NAME={0}') || ''
-          CMAKE_C_COMPILER_TARGET: matrix.target != 'x86_64-linux-gnu' && format('-DCMAKE_C_COMPILER_TARGET={0}') || ''
-          CMAKE_CXX_COMPILER_TARGET: matrix.target != 'x86_64-linux-gnu' && format('-DCMAKE_CXX_COMPILER_TARGET={0}') || ''
+          CMAKE_SYSTEM_NAME: ${{ matrix.is-cross && '-DCMAKE_SYSTEM_NAME=Linux' || '' }}
+          CMAKE_C_COMPILER_TARGET: ${{ matrix.is-cross && format('-DCMAKE_C_COMPILER_TARGET={0}', matrix.target) || '' }}
+          CMAKE_CXX_COMPILER_TARGET: ${{ matrix.is-cross && format('-DCMAKE_CXX_COMPILER_TARGET={0}', matrix.target) || '' }}
         run: |
           cmake \
             -B ./build \
