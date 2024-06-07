@@ -45,6 +45,7 @@ jobs:
             libxkbcommon-dev ninja-build libgstreamer-plugins-base1.0-dev \
             libvulkan-dev \
             libgl1-mesa-dev libgles2-mesa-dev libegl1-mesa-dev \
+            lld \
             clang
       
       - uses: actions/checkout@v3
@@ -65,6 +66,8 @@ jobs:
             $CMAKE_C_COMPILER_TARGET \
             $CMAKE_CXX_COMPILER_TARGET \
             -DCMAKE_C_COMPILER=clang \
+            -DCMAKE_C_FLAGS="-fuse-ld=lld" \
+            -DCMAKE_CXX_FLAGS="-fuse-ld=lld" \
             -DCMAKE_CXX_COMPILER=clang++ \
             -DBUILD_GSTREAMER_AUDIO_PLAYER_PLUGIN=On \
             -DBUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN=On \
