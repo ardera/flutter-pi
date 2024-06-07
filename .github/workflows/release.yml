@@ -67,6 +67,9 @@ jobs:
           CMAKE_SYSTEM_NAME: ${{ matrix.is-cross && '-DCMAKE_SYSTEM_NAME=Linux' || '' }}
           CMAKE_C_COMPILER_TARGET: ${{ matrix.is-cross && format('-DCMAKE_C_COMPILER_TARGET={0}', matrix.target) || '' }}
           CMAKE_CXX_COMPILER_TARGET: ${{ matrix.is-cross && format('-DCMAKE_CXX_COMPILER_TARGET={0}', matrix.target) || '' }}
+          PKG_CONFIG_PATH: ${{ format('/usr/lib/{0}/pkgconfig:/usr/share/pkgconfig', matrix.target) }}
+          PKG_CONFIG_LIBDIR: ${{ format('/usr/lib/{0}', matrix.target) }}
+          PKG_CONFIG_SYSROOT_DIR: ''
         run: |
           cmake \
             -B ./build \
@@ -76,8 +79,7 @@ jobs:
             $CMAKE_C_COMPILER_TARGET \
             $CMAKE_CXX_COMPILER_TARGET \
             -DCMAKE_C_COMPILER=clang \
-            -DCMAKE_C_FLAGS="-fuse-ld=lld" \
-            -DCMAKE_CXX_FLAGS="-fuse-ld=lld" \
+            -DCMAKE_EXE_LINKER_FLAGS="-fuse-ld=lld" \
             -DCMAKE_CXX_COMPILER=clang++ \
             -DBUILD_GSTREAMER_AUDIO_PLAYER_PLUGIN=On \
             -DBUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN=On \
@@ -89,7 +91,7 @@ jobs:
             -GNinja
       
       - name: Build & Install
-        run: cmake --build ./build --target install --config Release
+        run: cmake --build ./build --target install --config ${{ matrix.buildtype }}
       
       - name: Upload artifact
         uses: actions/upload-artifact@v4
