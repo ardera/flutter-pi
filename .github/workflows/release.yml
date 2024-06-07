@@ -62,7 +62,7 @@ jobs:
             libgl1-mesa-dev:$ARCH libgles2-mesa-dev:$ARCH libegl1-mesa-dev:$ARCH \
             ${{ matrix.is-cross && format('gcc-{0} g++-{0}', matrix.target) || '' }}
       
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           submodules: 'recursive'
       
@@ -91,7 +91,7 @@ jobs:
             -DENABLE_OPENGL=ON \
             -DENABLE_TESTS=On \
             -DBUILD_SENTRY_PLUGIN=OFF \
-            -DCMAKE_INSTALL_PREFIX=$HOME/flutterpi-dist \
+            -DCMAKE_INSTALL_PREFIX=${{ github.workspace }}/dist \
             -GNinja
       
       - name: Build & Install
@@ -101,7 +101,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: flutterpi-${{ matrix.target }}-${{ matrix.buildtype }}
-          path: $HOME/flutterpi-dist/bin/flutter-pi
+          path: ${{ github.workspace }}/dist/bin/flutter-pi
       
   publish:
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/release/')
