@@ -30,23 +30,33 @@ jobs:
         include:
           - target: 'x86_64-linux-gnu'
             is-cross: false
+            debian-arch: 'amd64'
+
           - target: 'aarch64-linux-gnu'
             is-cross: true
+            debian-arch: 'arm64'
+
           - target: 'arm-linux-gnueabihf'
             is-cross: true
+            debian-arch: 'armhf'
+
     steps:
+      - name: Add debian multiarch
+        if: matrix.is-cross
+        run: dpkg --add-architecture ${{ matrix.debian-arch }}
+
       # git needs to be installed before checking out, otherwise the checkout will fallback to the REST API,
       # and the submodule download won't work.
       - name: Install dependencies
+        env:
+          ARCH: ${{ matrix.debian-arch }}
         run: |
           apt-get update && apt-get install -y \
-            git cmake libdrm-dev libgbm-dev \
-            fonts-liberation fontconfig libsystemd-dev libinput-dev libudev-dev \
-            libxkbcommon-dev ninja-build libgstreamer-plugins-base1.0-dev \
-            libvulkan-dev \
-            libgl1-mesa-dev libgles2-mesa-dev libegl1-mesa-dev \
-            lld \
-            clang
+            git cmake ninja-build clang lld \
+            libdrm-dev:$ARCH libgbm-dev:$ARCH libsystemd-dev:$ARCH libinput-dev:$ARCH libudev-dev:$ARCH libxkbcommon-dev:$ARCH \
+            libgstreamer-plugins-base1.0-dev:$ARCH \
+            libvulkan-dev:$ARCH \
+            libgl1-mesa-dev:$ARCH libgles2-mesa-dev:$ARCH libegl1-mesa-dev:$ARCH
       
       - uses: actions/checkout@v3
         with:
