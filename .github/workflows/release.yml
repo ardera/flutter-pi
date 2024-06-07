@@ -118,4 +118,3 @@ jobs:
           tag_name: ${{ github.ref }}
           name: ${{ github.ref_name }}
           body: ${{ github.event.head_commit.message }}
-          token: ${{ secrets.GITHUB_TOKEN }}
