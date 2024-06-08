@@ -102,7 +102,7 @@ jobs:
           mkdir -p artifact && cd artifact
           cp -r ../dist/bin/flutter-pi .
 
-          tar -cJf ../flutter-pi-${{ matrix.target }}-${{ matrix.buildtype }}.tar.xz .
+          tar -cJf ../flutterpi-${{ matrix.target }}-${{ matrix.buildtype }}.tar.xz .
       
       - name: Upload artifact
         uses: actions/upload-artifact@v4
