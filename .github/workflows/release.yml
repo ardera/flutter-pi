@@ -97,11 +97,20 @@ jobs:
       - name: Build & Install
         run: cmake --build ./build --target install --config ${{ matrix.buildtype }}
       
+      - name: Package
+        run: |
+          mkdir -p artifact
+
+          pushd artifact
+          cp -r ../dist/bin/flutter-pi .
+
+          tar -cJf ../flutter-pi-${{ matrix.target }}-${{ matrix.buildtype }}.tar.xz .
+      
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: flutterpi-${{ matrix.target }}-${{ matrix.buildtype }}
-          path: dist/bin/flutter-pi
+          name: flutterpi-${{ matrix.target }}-${{ matrix.buildtype }}-tar-xz
+          path: .
           if-no-files-found: error
       
   publish:
@@ -110,15 +119,20 @@ jobs:
     runs-on: ubuntu-latest
     needs: build
     steps:
-      - name: Download artifact
+      - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
-          path: binaries
+          path: artifacts
+
+      - name: Prepare release
+        run: |
+          mkdir -p release-files
+          mv artifacts/*-tar-xz/* .
       
       - name: Publish Release
         uses: softprops/action-gh-release@v1
         with:
           fail_on_unmatched_files: true
-          files: binaries/*
+          files: release-files/*
           name: ${{ github.ref_name }}
           body: ${{ github.event.head_commit.message }}
