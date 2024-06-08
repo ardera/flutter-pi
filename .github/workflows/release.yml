@@ -108,7 +108,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: flutterpi-${{ matrix.target }}-${{ matrix.buildtype }}-tar-xz
-          path: .
+          path: flutterpi-${{ matrix.target }}-${{ matrix.buildtype }}.tar.xz
           if-no-files-found: error
       
   publish:
@@ -125,7 +125,7 @@ jobs:
       - name: Prepare release
         run: |
           mkdir -p release-files
-          mv artifacts/*-tar-xz/* .
+          mv artifacts/*-tar-xz/* release-files/
       
       - name: Publish Release
         uses: softprops/action-gh-release@v1
