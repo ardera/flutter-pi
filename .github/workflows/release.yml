@@ -99,9 +99,7 @@ jobs:
       
       - name: Package
         run: |
-          mkdir -p artifact
-
-          pushd artifact
+          mkdir -p artifact && cd artifact
           cp -r ../dist/bin/flutter-pi .
 
           tar -cJf ../flutter-pi-${{ matrix.target }}-${{ matrix.buildtype }}.tar.xz .
