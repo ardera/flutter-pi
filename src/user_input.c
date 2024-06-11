@@ -200,6 +200,57 @@ static inline FlutterPointerEvent make_mouse_hover_event(size_t timestamp, struc
     return make_mouse_event(kHover, timestamp, pos, device_id, kFlutterPointerSignalKindNone, VEC2F(0, 0), buttons);
 }
 
+static inline FlutterPointerEvent make_stylus_event(FlutterPointerPhase phase, size_t timestamp, struct vec2f pos, int32_t device_id) {
+    FlutterPointerEvent event;
+    memset(&event, 0, sizeof(event));
+
+    event.struct_size = sizeof(event);
+    event.phase = phase;
+    event.timestamp = timestamp;
+    event.x = pos.x;
+    event.y = pos.y;
+    event.device = device_id;
+    event.signal_kind = kFlutterPointerSignalKindNone;
+    event.scroll_delta_x = 0.0;
+    event.scroll_delta_y = 0.0;
+    event.device_kind = kFlutterPointerDeviceKindStylus;
+    event.buttons = 0;
+    event.pan_x = 0.0;
+    event.pan_y = 0.0;
+    event.scale = 0.0;
+    event.rotation = 0.0;
+
+    return event;
+}
+
+UNUSED static inline FlutterPointerEvent make_stylus_cancel_event(size_t timestamp, struct vec2f pos, int32_t device_id) {
+    return make_stylus_event(kCancel, timestamp, pos, device_id);
+}
+
+static inline FlutterPointerEvent make_stylus_up_event(size_t timestamp, struct vec2f pos, int32_t device_id) {
+    return make_stylus_event(kUp, timestamp, pos, device_id);
+}
+
+static inline FlutterPointerEvent make_stylus_down_event(size_t timestamp, struct vec2f pos, int32_t device_id) {
+    return make_stylus_event(kDown, timestamp, pos, device_id);
+}
+
+static inline FlutterPointerEvent make_stylus_move_event(size_t timestamp, struct vec2f pos, int32_t device_id) {
+    return make_stylus_event(kMove, timestamp, pos, device_id);
+}
+
+static inline FlutterPointerEvent make_stylus_hover_event(size_t timestamp, struct vec2f pos, int32_t device_id) {
+    return make_stylus_event(kHover, timestamp, pos, device_id);
+}
+
+static inline FlutterPointerEvent make_stylus_add_event(size_t timestamp, struct vec2f pos, int32_t device_id) {
+    return make_stylus_event(kAdd, timestamp, pos, device_id);
+}
+
+static inline FlutterPointerEvent make_stylus_remove_event(size_t timestamp, struct vec2f pos, int32_t device_id) {
+    return make_stylus_event(kRemove, timestamp, pos, device_id);
+}
+
 // libinput interface
 static int on_open(const char *path, int flags, void *userdata) {
     struct user_input *input;
@@ -1152,27 +1203,46 @@ static int on_tablet_tool_axis(struct user_input *input, struct libinput_event *
 
     device_id = data->flutter_device_id_offset;
 
-    // Only report down events when the tool is in contact with the tablet.
-    /// TODO: Maybe report hover events when it's not in contact?
-    /// FIXME: Use kFlutterPointerDeviceKindStylus here
+    pos.x = libinput_event_tablet_tool_get_x_transformed(tablet_event, input->display_width - 1);
+    pos.y = libinput_event_tablet_tool_get_y_transformed(tablet_event, input->display_height - 1);
+
+    pos = transform_point(input->display_to_view_transform, pos);
+
     if (data->tip) {
-        pos.x = libinput_event_tablet_tool_get_x_transformed(tablet_event, input->display_width - 1);
-        pos.y = libinput_event_tablet_tool_get_y_transformed(tablet_event, input->display_height - 1);
-
-        pos = transform_point(input->display_to_view_transform, pos);
-
-        emit_pointer_event(input, make_touch_move_event(timestamp, pos, device_id));
+        emit_pointer_event(input, make_stylus_down_event(timestamp, pos, device_id));
+    } else {
+        emit_pointer_event(input, make_stylus_hover_event(timestamp, pos, device_id));
     }
 
     return 0;
 }
 
 static int on_tablet_tool_proximity(struct user_input *input, struct libinput_event *event) {
+    struct libinput_event_tablet_tool *tablet_event;
+    struct input_device_data *data;
+    struct vec2f pos;
+    uint64_t timestamp;
+    int64_t device_id;
+
     ASSERT_NOT_NULL(input);
     ASSERT_NOT_NULL(event);
 
-    (void) input;
-    (void) event;
+    data = libinput_device_get_user_data(libinput_event_get_device(event));
+    ASSERT_NOT_NULL(data);
+
+    tablet_event = libinput_event_get_tablet_tool_event(event);
+    timestamp = libinput_event_tablet_tool_get_time_usec(tablet_event);
+
+    device_id = data->flutter_device_id_offset;
+
+    pos.x = libinput_event_tablet_tool_get_x_transformed(tablet_event, input->display_width - 1);
+    pos.y = libinput_event_tablet_tool_get_y_transformed(tablet_event, input->display_height - 1);
+
+    pos = transform_point(input->display_to_view_transform, pos);
+
+    if (!data->tip) {
+        emit_pointer_event(input, make_stylus_hover_event(timestamp, pos, device_id));
+    }
 
     return 0;
 }
@@ -1200,13 +1270,12 @@ static int on_tablet_tool_tip(struct user_input *input, struct libinput_event *e
 
     pos = transform_point(input->display_to_view_transform, pos);
 
-    /// FIXME: Use kFlutterPointerDeviceKindStylus here
     if (libinput_event_tablet_tool_get_tip_state(tablet_event) == LIBINPUT_TABLET_TOOL_TIP_DOWN) {
         data->tip = true;
-        emit_pointer_event(input, make_touch_down_event(timestamp, pos, device_id));
+        emit_pointer_event(input, make_stylus_down_event(timestamp, pos, device_id));
     } else {
         data->tip = false;
-        emit_pointer_event(input, make_touch_up_event(timestamp, pos, device_id));
+        emit_pointer_event(input, make_stylus_up_event(timestamp, pos, device_id));
     }
 
     return 0;
