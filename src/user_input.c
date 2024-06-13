@@ -25,7 +25,6 @@
 #define THIS_LIBINPUT_VER LIBINPUT_VER(LIBINPUT_VERSION_MAJOR, LIBINPUT_VERSION_MINOR, LIBINPUT_VERSION_PATCH)
 
 struct input_device_data {
-    int64_t flutter_device_id_offset;
     struct keyboard_state *keyboard_state;
     int64_t buttons;
     uint64_t timestamp;
@@ -49,6 +48,9 @@ struct input_device_data {
      *  
      */
     struct vec2f *positions;
+
+    int64_t touch_device_id_offset;
+    int64_t stylus_device_id;
 };
 
 struct user_input {
@@ -543,7 +545,8 @@ static int on_device_added(struct user_input *input, struct libinput_event *even
         return ENOMEM;
     }
 
-    data->flutter_device_id_offset = input->next_unused_flutter_device_id;
+    data->touch_device_id_offset = -1;
+    data->stylus_device_id = -1;
     data->keyboard_state = NULL;
     data->buttons = 0;
     data->timestamp = timestamp;
@@ -574,6 +577,8 @@ static int on_device_added(struct user_input *input, struct libinput_event *even
             goto fail_free_data;
         }
 
+        data->touch_device_id_offset = input->next_unused_flutter_device_id;
+
         for (int i = 0; i < n_slots; i++) {
             device_id = input->next_unused_flutter_device_id++;
 
@@ -601,8 +606,9 @@ static int on_device_added(struct user_input *input, struct libinput_event *even
     if (libinput_device_has_capability(device, LIBINPUT_DEVICE_CAP_TABLET_TOOL)) {
         device_id = input->next_unused_flutter_device_id++;
 
-        /// TODO: Use kFlutterPointerDeviceKindStylus here
-        emit_pointer_event(input, make_touch_add_event(timestamp, VEC2F(0, 0), device_id));
+        data->stylus_device_id = device_id;
+
+        emit_pointer_event(input, make_stylus_add_event(timestamp, VEC2F(0, 0), device_id));
     }
 
     return 0;
@@ -645,19 +651,25 @@ static int on_device_removed(struct user_input *input, struct libinput_event *ev
             }
         }
     }
+
     if (libinput_device_has_capability(device, LIBINPUT_DEVICE_CAP_TOUCH)) {
         // add all touch slots as individual touch devices to flutter
         if (emit_flutter_events) {
             for (int i = 0; i < libinput_device_touch_get_touch_count(device); i++) {
-                emit_pointer_event(input, make_touch_remove_event(timestamp, VEC2F(0, 0), data->flutter_device_id_offset + i));
+                emit_pointer_event(input, make_touch_remove_event(timestamp, VEC2F(0, 0), data->touch_device_id_offset + i));
             }
         }
     }
+
     if (libinput_device_has_capability(device, LIBINPUT_DEVICE_CAP_KEYBOARD)) {
         // create a new keyboard state for this keyboard
         if (data->keyboard_state != NULL) {
             keyboard_state_destroy(data->keyboard_state);
         }
+    }
+
+    if (libinput_device_has_capability(device, LIBINPUT_DEVICE_CAP_TABLET_TOOL)) {
+        emit_pointer_event(input, make_stylus_remove_event(timestamp, VEC2F(0, 0), data->stylus_device_id));
     }
 
     if (data != NULL) {
@@ -1071,7 +1083,7 @@ static int on_touch_down(struct user_input *input, struct libinput_event *event)
         slot = 0;
     }
 
-    device_id = data->flutter_device_id_offset + slot;
+    device_id = data->touch_device_id_offset + slot;
 
     // transform the display coordinates to view (flutter) coordinates
     pos_view = transform_point(
@@ -1113,7 +1125,7 @@ static int on_touch_up(struct user_input *input, struct libinput_event *event) {
         slot = 0;
     }
 
-    device_id = data->flutter_device_id_offset + slot;
+    device_id = data->touch_device_id_offset + slot;
 
     emit_pointer_event(input, make_touch_up_event(timestamp, data->positions[slot], device_id));
 
@@ -1142,7 +1154,7 @@ static int on_touch_motion(struct user_input *input, struct libinput_event *even
         slot = 0;
     }
 
-    device_id = data->flutter_device_id_offset + slot;
+    device_id = data->touch_device_id_offset + slot;
 
     // transform the display coordinates to view (flutter) coordinates
     pos_view = transform_point(
@@ -1201,7 +1213,7 @@ static int on_tablet_tool_axis(struct user_input *input, struct libinput_event *
     tablet_event = libinput_event_get_tablet_tool_event(event);
     timestamp = libinput_event_tablet_tool_get_time_usec(tablet_event);
 
-    device_id = data->flutter_device_id_offset;
+    device_id = data->stylus_device_id;
 
     pos.x = libinput_event_tablet_tool_get_x_transformed(tablet_event, input->display_width - 1);
     pos.y = libinput_event_tablet_tool_get_y_transformed(tablet_event, input->display_height - 1);
@@ -1209,7 +1221,7 @@ static int on_tablet_tool_axis(struct user_input *input, struct libinput_event *
     pos = transform_point(input->display_to_view_transform, pos);
 
     if (data->tip) {
-        emit_pointer_event(input, make_stylus_down_event(timestamp, pos, device_id));
+        emit_pointer_event(input, make_stylus_move_event(timestamp, pos, device_id));
     } else {
         emit_pointer_event(input, make_stylus_hover_event(timestamp, pos, device_id));
     }
@@ -1233,7 +1245,7 @@ static int on_tablet_tool_proximity(struct user_input *input, struct libinput_ev
     tablet_event = libinput_event_get_tablet_tool_event(event);
     timestamp = libinput_event_tablet_tool_get_time_usec(tablet_event);
 
-    device_id = data->flutter_device_id_offset;
+    device_id = data->stylus_device_id;
 
     pos.x = libinput_event_tablet_tool_get_x_transformed(tablet_event, input->display_width - 1);
     pos.y = libinput_event_tablet_tool_get_y_transformed(tablet_event, input->display_height - 1);
@@ -1263,7 +1275,7 @@ static int on_tablet_tool_tip(struct user_input *input, struct libinput_event *e
     tablet_event = libinput_event_get_tablet_tool_event(event);
     timestamp = libinput_event_tablet_tool_get_time_usec(tablet_event);
 
-    device_id = data->flutter_device_id_offset;
+    device_id = data->stylus_device_id;
 
     pos.x = libinput_event_tablet_tool_get_x_transformed(tablet_event, input->display_width - 1);
     pos.y = libinput_event_tablet_tool_get_y_transformed(tablet_event, input->display_height - 1);
