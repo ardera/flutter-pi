@@ -24,19 +24,10 @@ ATTR_PURE struct egl_offscreen_render_surface *__checked_cast_egl_offscreen_rend
     #define CAST_EGL_OFFSCREEN_RENDER_SURFACE(ptr) CAST_EGL_OFFSCREEN_RENDER_SURFACE_UNCHECKED(ptr)
 #endif
 
-struct egl_offscreen_render_surface *egl_offscreen_render_surface_new_with_egl_config(
-    struct tracer *tracer,
-    struct vec2i size,
-    struct gl_renderer *renderer,
-    enum pixfmt pixel_format,
-    EGLConfig egl_config
-);
-
 struct egl_offscreen_render_surface *egl_offscreen_render_surface_new(
     struct tracer *tracer,
     struct vec2i size,
-    struct gl_renderer *renderer,
-    enum pixfmt pixel_format
+    struct gl_renderer *renderer
 );
 
 ATTR_PURE EGLSurface egl_offscreen_render_surface_get_egl_surface(struct egl_offscreen_render_surface *s);

@@ -38,7 +38,6 @@ struct egl_offscreen_render_surface {
     uuid_t uuid;
 #endif
 
-    enum pixfmt pixel_format;
     EGLDisplay egl_display;
     EGLSurface egl_surface;
     EGLConfig egl_config;
@@ -67,7 +66,8 @@ ATTR_PURE struct egl_offscreen_render_surface *__checked_cast_egl_offscreen_rend
 
 void egl_offscreen_render_surface_deinit(struct surface *s);
 static int egl_offscreen_render_surface_present_kms(struct surface *s, const struct fl_layer_props *props, struct kms_req_builder *builder);
-static int egl_offscreen_render_surface_present_fbdev(struct surface *s, const struct fl_layer_props *props, struct fbdev_commit_builder *builder);
+static int
+egl_offscreen_render_surface_present_fbdev(struct surface *s, const struct fl_layer_props *props, struct fbdev_commit_builder *builder);
 static int egl_offscreen_render_surface_fill(struct render_surface *s, FlutterBackingStore *fl_store);
 static int egl_offscreen_render_surface_queue_present(struct render_surface *s, const FlutterBackingStore *fl_store);
 
@@ -75,49 +75,26 @@ static int egl_offscreen_render_surface_init(
     struct egl_offscreen_render_surface *s,
     struct tracer *tracer,
     struct vec2i size,
-    struct gl_renderer *renderer,
-    enum pixfmt pixel_format,
-    EGLConfig egl_config
+    struct gl_renderer *renderer
 ) {
     EGLDisplay egl_display;
     EGLSurface egl_surface;
     EGLBoolean egl_ok;
+    EGLConfig egl_config;
     int ok;
 
     ASSERT_NOT_NULL(renderer);
-    ASSUME_PIXFMT_VALID(pixel_format);
     egl_display = gl_renderer_get_egl_display(renderer);
     ASSERT_NOT_NULL(egl_display);
 
-#ifdef DEBUG
-    if (egl_config != EGL_NO_CONFIG_KHR) {
-        EGLint value = 0;
-
-        egl_ok = eglGetConfigAttrib(egl_display, egl_config, EGL_NATIVE_VISUAL_ID, &value);
-        if (egl_ok == EGL_FALSE) {
-            LOG_EGL_ERROR(eglGetError(), "Couldn't query pixel format of EGL framebuffer config. eglGetConfigAttrib");
-            return EIO;
-        }
-
-        ASSERT_EQUALS_MSG(
-            value,
-            get_pixfmt_info(pixel_format)->gbm_format,
-            "EGL framebuffer config pixel format doesn't match the argument pixel format."
-        );
-    }
-#endif
-
     /// TODO: Think about allowing different tilings / modifiers here
+    // choose a config
+    egl_config = gl_renderer_choose_pbuffer_config(renderer, 8, 8, 8, 8);
     if (egl_config == EGL_NO_CONFIG_KHR) {
-        // choose a config
-        egl_config = gl_renderer_choose_config_direct(renderer, pixel_format);
-        if (egl_config == EGL_NO_CONFIG_KHR) {
-            LOG_ERROR(
-                "EGL doesn't supported the specified pixel format %s. Try a different one (ARGB8888 should always work).\n",
-                get_pixfmt_info(pixel_format)->name
-            );
-            return EINVAL;
-        }
+        LOG_ERROR(
+            "EGL doesn't supported the hardcoded software rendering pixel format ARGB8888.\n"
+        );
+        return EINVAL;
     }
 
 // EGLAttribKHR is defined by EGL_KHR_cl_event2.
@@ -160,7 +137,6 @@ static int egl_offscreen_render_surface_init(
 #ifdef DEBUG
     uuid_copy(&s->uuid, uuid);
 #endif
-    s->pixel_format = pixel_format;
     s->egl_display = egl_display;
     s->egl_surface = egl_surface;
     s->egl_config = egl_config;
@@ -179,19 +155,12 @@ fail_destroy_egl_surface:
  * @param compositor The compositor that this surface will be registered to when calling surface_register.
  * @param size The size of the surface.
  * @param renderer The EGL/OpenGL used to create any GL surfaces.
- * @param pixel_format The pixel format to be used by the framebuffers of the surface.
- * @param egl_config The EGLConfig used for creating the EGLSurface.
- * @param allowed_modifiers The list of modifiers that gbm_surface_create_with_modifiers can choose from.
- *                          NULL if not specified. (In that case, gbm_surface_create will be used)
- * @param n_allowed_modifiers The number of modifiers in @param allowed_modifiers.
  * @return struct egl_offscreen_render_surface*
  */
-struct egl_offscreen_render_surface *egl_offscreen_render_surface_new_with_egl_config(
+struct egl_offscreen_render_surface *egl_offscreen_render_surface_new(
     struct tracer *tracer,
     struct vec2i size,
-    struct gl_renderer *renderer,
-    enum pixfmt pixel_format,
-    EGLConfig egl_config
+    struct gl_renderer *renderer
 ) {
     struct egl_offscreen_render_surface *surface;
     int ok;
@@ -201,14 +170,7 @@ struct egl_offscreen_render_surface *egl_offscreen_render_surface_new_with_egl_c
         goto fail_return_null;
     }
 
-    ok = egl_offscreen_render_surface_init(
-        surface,
-        tracer,
-        size,
-        renderer,
-        pixel_format,
-        egl_config
-    );
+    ok = egl_offscreen_render_surface_init(surface, tracer, size, renderer);
     if (ok != 0) {
         goto fail_free_surface;
     }
@@ -220,25 +182,6 @@ fail_free_surface:
 
 fail_return_null:
     return NULL;
-}
-
-/**
- * @brief Create a new gbm_surface based render surface.
- *
- * @param compositor The compositor that this surface will be registered to when calling surface_register.
- * @param size The size of the surface.
- * @param device The GBM device used to allocate the surface.
- * @param renderer The EGL/OpenGL used to create any GL surfaces.
- * @param pixel_format The pixel format to be used by the framebuffers of the surface.
- * @return struct egl_offscreen_render_surface*
- */
-struct egl_offscreen_render_surface *egl_offscreen_render_surface_new(
-    struct tracer *tracer,
-    struct vec2i size,
-    struct gl_renderer *renderer,
-    enum pixfmt pixel_format
-) {
-    return egl_offscreen_render_surface_new_with_egl_config(tracer, size, renderer, pixel_format, EGL_NO_CONFIG_KHR);
 }
 
 void egl_offscreen_render_surface_deinit(struct surface *s) {
@@ -279,30 +222,33 @@ egl_offscreen_render_surface_present_fbdev(struct surface *s, const struct fl_la
 
 static int egl_offscreen_render_surface_fill(struct render_surface *s, FlutterBackingStore *fl_store) {
     fl_store->type = kFlutterBackingStoreTypeOpenGL;
-    fl_store->open_gl = (FlutterOpenGLBackingStore
-    ){ .type = kFlutterOpenGLTargetTypeFramebuffer,
-       .framebuffer = { /* for some reason flutter wants this to be GL_BGRA8_EXT, contrary to what the docs say */
-                        .target = GL_BGRA8_EXT,
+    fl_store->open_gl = (FlutterOpenGLBackingStore) {
+        .type = kFlutterOpenGLTargetTypeFramebuffer,
+        .framebuffer = {
+            /* for some reason flutter wants this to be GL_BGRA8_EXT, contrary to what the docs say */
+            .target = GL_BGRA8_EXT,
 
-                        /* 0 refers to the window surface, instead of to an FBO */
-                        .name = 0,
+            /* 0 refers to the window surface, instead of to an FBO */
+            .name = 0,
 
-                        /*
+            /*
              * even though the compositor will call surface_ref too to fill the FlutterBackingStore.user_data,
              * we need to ref two times because flutter will call both this destruction callback and the
              * compositor collect callback
              */
-                        .user_data = surface_ref(CAST_SURFACE_UNCHECKED(s)),
-                        .destruction_callback = surface_unref_void } };
+            .user_data = surface_ref(CAST_SURFACE_UNCHECKED(s)),
+            .destruction_callback = surface_unref_void,
+        },
+    };
     return 0;
 }
 
 static int egl_offscreen_render_surface_queue_present(struct render_surface *s, const FlutterBackingStore *fl_store) {
     (void) s;
     (void) fl_store;
-    
+
     // nothing to do here
-    
+
     return 0;
 }
 

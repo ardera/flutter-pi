@@ -2482,14 +2482,14 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
         vk_renderer = NULL;
 
         if (gbm_device != NULL) {
-            gl_renderer = gl_renderer_new_from_gbm_device(tracer, gbm_device, cmd_args.has_pixel_format, cmd_args.pixel_format);
+            gl_renderer = gl_renderer_new_from_gbm_device(tracer, gbm_device);
             if (gl_renderer == NULL) {
                 LOG_ERROR("Couldn't create EGL/OpenGL renderer.\n");
                 ok = EIO;
                 goto fail_unref_scheduler;
             }
         } else {
-            gl_renderer = gl_renderer_new_surfaceless(tracer, cmd_args.has_pixel_format, cmd_args.pixel_format);
+            gl_renderer = gl_renderer_new_surfaceless(tracer);
             if (gl_renderer == NULL) {
                 LOG_ERROR("Couldn't create EGL/OpenGL renderer.\n");
                 ok = EIO;

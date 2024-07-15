@@ -30,16 +30,10 @@ struct tracer;
 
 struct gl_renderer *gl_renderer_new_from_gbm_device(
     struct tracer *tracer,
-    struct gbm_device *gbm_device,
-    bool has_forced_pixel_format,
-    enum pixfmt pixel_format
+    struct gbm_device *gbm_device
 );
 
-struct gl_renderer *gl_renderer_new_surfaceless(
-    struct tracer *tracer,
-    bool has_forced_pixel_format,
-    enum pixfmt pixel_format
-);
+struct gl_renderer *gl_renderer_new_surfaceless(struct tracer *tracer);
 
 void gl_renderer_destroy(struct gl_renderer *renderer);
 
@@ -79,9 +73,18 @@ int gl_renderer_make_this_a_render_thread(struct gl_renderer *renderer);
 
 void gl_renderer_cleanup_this_render_thread();
 
-ATTR_PURE EGLConfig gl_renderer_choose_config(struct gl_renderer *renderer, bool has_desired_pixel_format, enum pixfmt desired_pixel_format);
+ATTR_PURE EGLConfig gl_renderer_choose_gbm_window_config(
+    struct gl_renderer *renderer,
+    enum pixfmt pixel_format
+);
 
-ATTR_PURE EGLConfig gl_renderer_choose_config_direct(struct gl_renderer *renderer, enum pixfmt pixel_format);
+ATTR_PURE EGLConfig gl_renderer_choose_pbuffer_config(
+    struct gl_renderer *renderer,
+    int red_size,
+    int green_size,
+    int blue_size,
+    int alpha_size
+);
 
 EGLSurface gl_renderer_create_gbm_window_surface(
     struct gl_renderer *renderer,

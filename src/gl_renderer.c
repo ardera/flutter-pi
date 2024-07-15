@@ -32,18 +32,6 @@ struct gl_renderer {
     EGLContext root_context, flutter_rendering_context, flutter_resource_uploading_context, flutter_setup_context;
     pthread_mutex_t root_context_lock;
 
-    bool has_forced_pixel_format;
-    enum pixfmt pixel_format;
-
-    /**
-     * @brief If EGL doesn't support EGL_KHR_no_config_context, we need to specify an EGLConfig (basically the framebuffer format)
-     * for the context. And since all shared contexts need to have the same EGL Config, we basically have to choose a single global config
-     * for the display.
-     *
-     * If this field is not EGL_NO_CONFIG_KHR, all contexts we create need to have exactly this EGL Config.
-     */
-    EGLConfig forced_egl_config;
-
     EGLint major, minor;
     const char *egl_client_exts;
     const char *egl_display_exts;
@@ -90,14 +78,17 @@ static void *get_proc_address(const char *name) {
     return address;
 }
 
-static ATTR_PURE EGLConfig choose_config_with_pixel_format(EGLDisplay display, const EGLint *attrib_list, enum pixfmt pixel_format) {
+static ATTR_PURE EGLConfig choose_config(
+    EGLDisplay display,
+    const EGLint *attrib_list,
+    bool has_native_visual_id, EGLint native_visual_id,
+    int red_size, int green_size, int blue_size, int alpha_size
+) {
     EGLConfig *matching;
     EGLBoolean egl_ok;
     EGLint value, n_matched;
 
     assert(display != EGL_NO_DISPLAY);
-
-    LOG_DEBUG("Choosing EGL config with pixel format %s...\n", get_pixfmt_info(pixel_format)->name);
 
     n_matched = 0;
     egl_ok = eglChooseConfig(display, attrib_list, NULL, 0, &n_matched);
@@ -115,14 +106,69 @@ static ATTR_PURE EGLConfig choose_config_with_pixel_format(EGLDisplay display, c
     }
 
     for (int i = 0; i < n_matched; i++) {
-        egl_ok = eglGetConfigAttrib(display, matching[i], EGL_NATIVE_VISUAL_ID, &value);
-        if (egl_ok != EGL_TRUE) {
-            LOG_EGL_ERROR(eglGetError(), "Could not query pixel format of EGL framebuffer config. eglGetConfigAttrib");
-            return EGL_NO_CONFIG_KHR;
-        }
+        if (has_native_visual_id) {
+            egl_ok = eglGetConfigAttrib(display, matching[i], EGL_NATIVE_VISUAL_ID, &value);
+            if (egl_ok != EGL_TRUE) {
+                LOG_EGL_ERROR(eglGetError(), "Could not query pixel format of EGL framebuffer config. eglGetConfigAttrib");
+                return EGL_NO_CONFIG_KHR;
+            }
 
-        if (int32_to_uint32(value) == get_pixfmt_info(pixel_format)->gbm_format) {
-            // found a config with matching pixel format.
+            if (value == native_visual_id) {
+                // found a config with matching pixel format.
+                return matching[i];
+            }
+        } else {
+            egl_ok = eglGetConfigAttrib(display, matching[i], EGL_COLOR_BUFFER_TYPE, &value);
+            if (egl_ok != EGL_TRUE) {
+                LOG_EGL_ERROR(eglGetError(), "Could not query buffer type of EGL framebuffer config. eglGetConfigAttrib");
+                return EGL_NO_CONFIG_KHR;
+            }
+
+            if (value != EGL_RGB_BUFFER) {
+                continue;
+            }
+
+            egl_ok = eglGetConfigAttrib(display, matching[i], EGL_RED_SIZE, &value);
+            if (egl_ok != EGL_TRUE) {
+                LOG_EGL_ERROR(eglGetError(), "Could not query pixel format of EGL framebuffer config. eglGetConfigAttrib");
+                return EGL_NO_CONFIG_KHR;
+            }
+
+            /// TODO: This implicitly depends on fbdev
+            if (value != red_size) {
+                continue;
+            }
+
+            egl_ok = eglGetConfigAttrib(display, matching[i], EGL_GREEN_SIZE, &value);
+            if (egl_ok != EGL_TRUE) {
+                LOG_EGL_ERROR(eglGetError(), "Could not query pixel format of EGL framebuffer config. eglGetConfigAttrib");
+                return EGL_NO_CONFIG_KHR;
+            }
+
+            if (value != green_size) {
+                continue;
+            }
+
+            egl_ok = eglGetConfigAttrib(display, matching[i], EGL_BLUE_SIZE, &value);
+            if (egl_ok != EGL_TRUE) {
+                LOG_EGL_ERROR(eglGetError(), "Could not query pixel format of EGL framebuffer config. eglGetConfigAttrib");
+                return EGL_NO_CONFIG_KHR;
+            }
+
+            if (value != blue_size) {
+                continue;
+            }
+
+            egl_ok = eglGetConfigAttrib(display, matching[i], EGL_ALPHA_SIZE, &value);
+            if (egl_ok != EGL_TRUE) {
+                LOG_EGL_ERROR(eglGetError(), "Could not query pixel format of EGL framebuffer config. eglGetConfigAttrib");
+                return EGL_NO_CONFIG_KHR;
+            }
+
+            if (value != alpha_size) {
+                continue;
+            }
+
             return matching[i];
         }
     }
@@ -134,9 +180,7 @@ static const EGLint context_attribs[] = { EGL_CONTEXT_CLIENT_VERSION, 2, EGL_NON
 
 struct gl_renderer *gl_renderer_new_from_gbm_device(
     struct tracer *tracer,
-    struct gbm_device *gbm_device,
-    bool has_forced_pixel_format,
-    enum pixfmt pixel_format
+    struct gbm_device *gbm_device
 ) {
     struct gl_renderer *renderer;
     const char *egl_client_exts, *egl_display_exts;
@@ -144,7 +188,6 @@ struct gl_renderer *gl_renderer_new_from_gbm_device(
     EGLContext root_context, flutter_render_context, flutter_resource_uploading_context, flutter_setup_context;
     EGLDisplay egl_display;
     EGLBoolean egl_ok;
-    EGLConfig forced_egl_config;
     EGLint major, minor;
     bool supports_egl_ext_platform_base;
     int ok;
@@ -282,48 +325,30 @@ struct gl_renderer *gl_renderer_new_from_gbm_device(
         goto fail_terminate_display;
     }
 
-    if (check_egl_extension(egl_client_exts, egl_display_exts, "EGL_KHR_no_config_context")) {
-        // EGL supports creating contexts without an EGLConfig, which is nice.
-        // Just create a context without selecting a config and let the backing stores (when they're created) select
-        // the framebuffer config instead.
-        forced_egl_config = EGL_NO_CONFIG_KHR;
-    } else {
-        // choose a config
-        const EGLint config_attribs[] = {
-            EGL_SURFACE_TYPE, EGL_WINDOW_BIT, EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT, EGL_SAMPLES, 0, EGL_NONE,
-        };
-
-        if (has_forced_pixel_format == false) {
-            has_forced_pixel_format = true;
-            pixel_format = PIXFMT_ARGB8888;
-        }
-
-        forced_egl_config = choose_config_with_pixel_format(egl_display, config_attribs, pixel_format);
-        if (forced_egl_config == EGL_NO_CONFIG_KHR) {
-            LOG_ERROR("No fitting EGL framebuffer configuration found.\n");
-            goto fail_terminate_display;
-        }
+    if (!check_egl_extension(egl_client_exts, egl_display_exts, "EGL_KHR_no_config_context")) {
+        LOG_ERROR("EGL does not support EGL_no_config_context, which is required for flutter-pi.\n");
+        goto fail_terminate_display;
     }
 
-    root_context = eglCreateContext(egl_display, forced_egl_config, EGL_NO_CONTEXT, context_attribs);
+    root_context = eglCreateContext(egl_display, EGL_NO_CONFIG_KHR, EGL_NO_CONTEXT, context_attribs);
     if (root_context == EGL_NO_CONTEXT) {
         LOG_EGL_ERROR(eglGetError(), "Could not create EGL context for OpenGL ES. eglCreateContext");
         goto fail_terminate_display;
     }
 
-    flutter_render_context = eglCreateContext(egl_display, forced_egl_config, root_context, context_attribs);
+    flutter_render_context = eglCreateContext(egl_display, EGL_NO_CONFIG_KHR, root_context, context_attribs);
     if (flutter_render_context == EGL_NO_CONTEXT) {
         LOG_EGL_ERROR(eglGetError(), "Could not create EGL OpenGL ES context for flutter rendering. eglCreateContext");
         goto fail_destroy_root_context;
     }
 
-    flutter_resource_uploading_context = eglCreateContext(egl_display, forced_egl_config, root_context, context_attribs);
+    flutter_resource_uploading_context = eglCreateContext(egl_display, EGL_NO_CONFIG_KHR, root_context, context_attribs);
     if (flutter_resource_uploading_context == EGL_NO_CONTEXT) {
         LOG_EGL_ERROR(eglGetError(), "Could not create EGL OpenGL ES context for flutter resource uploads. eglCreateContext");
         goto fail_destroy_flutter_render_context;
     }
 
-    flutter_setup_context = eglCreateContext(egl_display, forced_egl_config, root_context, context_attribs);
+    flutter_setup_context = eglCreateContext(egl_display, EGL_NO_CONFIG_KHR, root_context, context_attribs);
     if (flutter_setup_context == EGL_NO_CONTEXT) {
         LOG_EGL_ERROR(eglGetError(), "Could not create EGL OpenGL ES context for flutter initialization. eglCreateContext");
         goto fail_destroy_flutter_resource_uploading_context;
@@ -397,9 +422,6 @@ struct gl_renderer *gl_renderer_new_from_gbm_device(
     renderer->flutter_rendering_context = flutter_render_context;
     renderer->flutter_resource_uploading_context = flutter_resource_uploading_context;
     renderer->flutter_setup_context = flutter_setup_context;
-    renderer->has_forced_pixel_format = has_forced_pixel_format;
-    renderer->pixel_format = pixel_format;
-    renderer->forced_egl_config = forced_egl_config;
     renderer->major = major;
     renderer->minor = minor;
     renderer->egl_client_exts = egl_client_exts;
@@ -442,18 +464,13 @@ fail_return_null:
     return NULL;
 }
 
-struct gl_renderer *gl_renderer_new_surfaceless(
-    struct tracer *tracer,
-    bool has_forced_pixel_format,
-    enum pixfmt pixel_format
-) {
+struct gl_renderer *gl_renderer_new_surfaceless(struct tracer *tracer) {
     struct gl_renderer *renderer;
     const char *egl_client_exts, *egl_display_exts;
     const char *gl_renderer, *gl_exts;
     EGLContext root_context, flutter_render_context, flutter_resource_uploading_context, flutter_setup_context;
     EGLDisplay egl_display;
     EGLBoolean egl_ok;
-    EGLConfig forced_egl_config;
     EGLint major, minor;
     bool supports_egl_ext_platform_base;
     int ok;
@@ -595,48 +612,30 @@ struct gl_renderer *gl_renderer_new_surfaceless(
         goto fail_terminate_display;
     }
 
-    if (check_egl_extension(egl_client_exts, egl_display_exts, "EGL_KHR_no_config_context")) {
-        // EGL supports creating contexts without an EGLConfig, which is nice.
-        // Just create a context without selecting a config and let the backing stores (when they're created) select
-        // the framebuffer config instead.
-        forced_egl_config = EGL_NO_CONFIG_KHR;
-    } else {
-        // choose a config
-        const EGLint config_attribs[] = {
-            EGL_SURFACE_TYPE, EGL_WINDOW_BIT, EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT, EGL_SAMPLES, 0, EGL_NONE,
-        };
-
-        if (has_forced_pixel_format == false) {
-            has_forced_pixel_format = true;
-            pixel_format = PIXFMT_ARGB8888;
-        }
-
-        forced_egl_config = choose_config_with_pixel_format(egl_display, config_attribs, pixel_format);
-        if (forced_egl_config == EGL_NO_CONFIG_KHR) {
-            LOG_ERROR("No fitting EGL framebuffer configuration found.\n");
-            goto fail_terminate_display;
-        }
+    if (!check_egl_extension(egl_client_exts, egl_display_exts, "EGL_KHR_no_config_context")) {
+        LOG_ERROR("EGL does not support EGL_no_config_context, which is required for flutter-pi.\n");
+        goto fail_terminate_display;
     }
 
-    root_context = eglCreateContext(egl_display, forced_egl_config, EGL_NO_CONTEXT, context_attribs);
+    root_context = eglCreateContext(egl_display, EGL_NO_CONFIG_KHR, EGL_NO_CONTEXT, context_attribs);
     if (root_context == EGL_NO_CONTEXT) {
         LOG_EGL_ERROR(eglGetError(), "Could not create EGL context for OpenGL ES. eglCreateContext");
         goto fail_terminate_display;
     }
 
-    flutter_render_context = eglCreateContext(egl_display, forced_egl_config, root_context, context_attribs);
+    flutter_render_context = eglCreateContext(egl_display, EGL_NO_CONFIG_KHR, root_context, context_attribs);
     if (flutter_render_context == EGL_NO_CONTEXT) {
         LOG_EGL_ERROR(eglGetError(), "Could not create EGL OpenGL ES context for flutter rendering. eglCreateContext");
         goto fail_destroy_root_context;
     }
 
-    flutter_resource_uploading_context = eglCreateContext(egl_display, forced_egl_config, root_context, context_attribs);
+    flutter_resource_uploading_context = eglCreateContext(egl_display, EGL_NO_CONFIG_KHR, root_context, context_attribs);
     if (flutter_resource_uploading_context == EGL_NO_CONTEXT) {
         LOG_EGL_ERROR(eglGetError(), "Could not create EGL OpenGL ES context for flutter resource uploads. eglCreateContext");
         goto fail_destroy_flutter_render_context;
     }
 
-    flutter_setup_context = eglCreateContext(egl_display, forced_egl_config, root_context, context_attribs);
+    flutter_setup_context = eglCreateContext(egl_display, EGL_NO_CONFIG_KHR, root_context, context_attribs);
     if (flutter_setup_context == EGL_NO_CONTEXT) {
         LOG_EGL_ERROR(eglGetError(), "Could not create EGL OpenGL ES context for flutter initialization. eglCreateContext");
         goto fail_destroy_flutter_resource_uploading_context;
@@ -710,9 +709,6 @@ struct gl_renderer *gl_renderer_new_surfaceless(
     renderer->flutter_rendering_context = flutter_render_context;
     renderer->flutter_resource_uploading_context = flutter_resource_uploading_context;
     renderer->flutter_setup_context = flutter_setup_context;
-    renderer->has_forced_pixel_format = has_forced_pixel_format;
-    renderer->pixel_format = pixel_format;
-    renderer->forced_egl_config = forced_egl_config;
     renderer->major = major;
     renderer->minor = minor;
     renderer->egl_client_exts = egl_client_exts;
@@ -768,27 +764,6 @@ void gl_renderer_destroy(struct gl_renderer *renderer) {
 }
 
 DEFINE_REF_OPS(gl_renderer, n_refs)
-
-bool gl_renderer_has_forced_pixel_format(struct gl_renderer *renderer) {
-    ASSERT_NOT_NULL(renderer);
-    return renderer->has_forced_pixel_format;
-}
-
-enum pixfmt gl_renderer_get_forced_pixel_format(struct gl_renderer *renderer) {
-    ASSERT_NOT_NULL(renderer);
-    assert(renderer->has_forced_pixel_format);
-    return renderer->pixel_format;
-}
-
-bool gl_renderer_has_forced_egl_config(struct gl_renderer *renderer) {
-    ASSERT_NOT_NULL(renderer);
-    return renderer->forced_egl_config != EGL_NO_CONFIG_KHR;
-}
-
-EGLConfig gl_renderer_get_forced_egl_config(struct gl_renderer *renderer) {
-    ASSERT_NOT_NULL(renderer);
-    return renderer->forced_egl_config;
-}
 
 struct gbm_device *gl_renderer_get_gbm_device(struct gl_renderer *renderer) {
     return renderer->gbm_device;
@@ -881,7 +856,7 @@ EGLContext gl_renderer_create_context(struct gl_renderer *renderer) {
     ASSERT_NOT_NULL(renderer);
 
     pthread_mutex_lock(&renderer->root_context_lock);
-    context = eglCreateContext(renderer->egl_display, renderer->forced_egl_config, renderer->root_context, context_attribs);
+    context = eglCreateContext(renderer->egl_display, EGL_NO_CONFIG_KHR, renderer->root_context, context_attribs);
     pthread_mutex_unlock(&renderer->root_context_lock);
 
     if (context == EGL_NO_CONTEXT) {
@@ -921,7 +896,7 @@ int gl_renderer_make_this_a_render_thread(struct gl_renderer *renderer) {
     assert(is_render_thread == false);
 
     pthread_mutex_lock(&renderer->root_context_lock);
-    context = eglCreateContext(renderer->egl_display, renderer->forced_egl_config, renderer->root_context, context_attribs);
+    context = eglCreateContext(renderer->egl_display, EGL_NO_CONFIG_KHR, renderer->root_context, context_attribs);
     pthread_mutex_unlock(&renderer->root_context_lock);
 
     if (context == EGL_NO_CONTEXT) {
@@ -968,34 +943,52 @@ void gl_renderer_cleanup_this_render_thread() {
     }
 }
 
-ATTR_PURE EGLConfig
-gl_renderer_choose_config(struct gl_renderer *renderer, bool has_desired_pixel_format, enum pixfmt desired_pixel_format) {
-    ASSERT_NOT_NULL(renderer);
-
-    if (renderer->forced_egl_config != EGL_NO_CONFIG_KHR) {
-        return renderer->forced_egl_config;
-    }
-
-    const EGLint config_attribs[] = { EGL_SURFACE_TYPE, EGL_WINDOW_BIT, EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT, EGL_SAMPLES, 0, EGL_NONE };
-
-    return choose_config_with_pixel_format(
-        renderer->egl_display,
-        config_attribs,
-        renderer->has_forced_pixel_format ? renderer->pixel_format :
-        has_desired_pixel_format          ? desired_pixel_format :
-                                            PIXFMT_ARGB8888
-    );
-}
-
-ATTR_PURE EGLConfig gl_renderer_choose_config_direct(struct gl_renderer *renderer, enum pixfmt pixel_format) {
+ATTR_PURE EGLConfig gl_renderer_choose_gbm_window_config(
+    struct gl_renderer *renderer,
+    enum pixfmt pixel_format
+) {
     ASSERT_NOT_NULL(renderer);
     ASSUME_PIXFMT_VALID(pixel_format);
 
     const EGLint config_attribs[] = {
-        EGL_SURFACE_TYPE, EGL_WINDOW_BIT, EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT, EGL_SAMPLES, 0, EGL_NONE,
+        EGL_SURFACE_TYPE, EGL_WINDOW_BIT,
+        EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
+        EGL_SAMPLES, 0,
+        EGL_NONE,
     };
 
-    return choose_config_with_pixel_format(renderer->egl_display, config_attribs, pixel_format);
+    return choose_config(
+        renderer->egl_display,
+        config_attribs,
+        true,
+        get_pixfmt_info(pixel_format)->gbm_format,
+        -1, -1, -1, -1
+    );
+}
+
+ATTR_PURE EGLConfig gl_renderer_choose_pbuffer_config(
+    struct gl_renderer *renderer,
+    int red_size,
+    int green_size,
+    int blue_size,
+    int alpha_size
+) {
+    ASSERT_NOT_NULL(renderer);
+
+    const EGLint config_attribs[] = {
+        EGL_SURFACE_TYPE, EGL_PBUFFER_BIT,
+        EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
+        EGL_SAMPLES, 0,
+        EGL_NONE,
+    };
+
+    return choose_config(
+        renderer->egl_display,
+        config_attribs,
+        false,
+        EGL_NONE,
+        red_size, green_size, blue_size, alpha_size
+    );
 }
 
 EGLSurface gl_renderer_create_gbm_window_surface(
