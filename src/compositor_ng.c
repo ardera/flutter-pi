@@ -163,7 +163,7 @@ MUST_CHECK struct compositor *compositor_new(struct tracer *tracer, struct windo
     compositor->main_window = window_ref(main_window);
 
     // just so we get an error if the FlutterCompositor struct was updated
-    COMPILE_ASSERT(sizeof(FlutterCompositor) == 24 || sizeof(FlutterCompositor) == 48);
+    COMPILE_ASSERT(sizeof(FlutterCompositor) == 28 || sizeof(FlutterCompositor) == 56);
     memset(&compositor->flutter_compositor, 0, sizeof(FlutterCompositor));
 
     compositor->flutter_compositor.struct_size = sizeof(FlutterCompositor);
