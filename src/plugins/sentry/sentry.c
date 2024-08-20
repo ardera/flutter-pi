@@ -789,7 +789,7 @@ enum plugin_init_result sentry_plugin_init(struct flutterpi *flutterpi, void **u
     return PLUGIN_INIT_RESULT_INITIALIZED;
 }
 
-void sentry_plugin_fini(struct flutterpi *flutterpi, void *userdata) {
+void sentry_plugin_deinit(struct flutterpi *flutterpi, void *userdata) {
     struct sentry_plugin *plugin;
 
     ASSERT_NOT_NULL(userdata);
@@ -803,4 +803,4 @@ void sentry_plugin_fini(struct flutterpi *flutterpi, void *userdata) {
     free(plugin);
 }
 
-FLUTTERPI_PLUGIN("sentry", sentry, sentry_plugin_init, sentry_plugin_fini)
+FLUTTERPI_PLUGIN("sentry", sentry_plugin, sentry_plugin_init, sentry_plugin_deinit);

@@ -21,7 +21,8 @@
 #include "cursor.h"
 #include "flutter-pi.h"
 #include "frame_scheduler.h"
-#include "modesetting.h"
+#include "kms/req_builder.h"
+#include "kms/resources.h"
 #include "render_surface.h"
 #include "surface.h"
 #include "tracer.h"
@@ -162,6 +163,7 @@ struct window {
      */
     struct {
         struct drmdev *drmdev;
+        struct drm_resources *resources;
         struct drm_connector *connector;
         struct drm_encoder *encoder;
         struct drm_crtc *crtc;
@@ -171,6 +173,8 @@ struct window {
 
         const struct pointer_icon *pointer_icon;
         struct cursor_buffer *cursor;
+        
+        bool cursor_works;
     } kms;
 
     /**
@@ -490,6 +494,8 @@ EGLSurface window_get_egl_surface(struct window *window) {
 }
 #endif
 
+/// TODO: Once we enable the backing store cache, we can actually sanely manage lifetimes and
+///       rename this to window_create_render_surface.
 struct render_surface *window_get_render_surface(struct window *window, struct vec2i size) {
     ASSERT_NOT_NULL(window);
     ASSERT_NOT_NULL(window->get_render_surface);
@@ -701,28 +707,10 @@ static void cursor_buffer_destroy(struct cursor_buffer *buffer) {
     free(buffer);
 }
 
-static void cursor_buffer_destroy_with_locked_drmdev(struct cursor_buffer *buffer) {
-    drmdev_rm_fb_locked(buffer->drmdev, buffer->drm_fb_id);
-    gbm_bo_destroy(buffer->bo);
-    drmdev_unref(buffer->drmdev);
-    free(buffer);
-}
-
 DEFINE_STATIC_REF_OPS(cursor_buffer, n_refs)
 
-static void cursor_buffer_unref_with_locked_drmdev(void *userdata) {
-    struct cursor_buffer *cursor;
-
-    ASSERT_NOT_NULL(userdata);
-    cursor = userdata;
-
-    if (refcount_dec(&cursor->n_refs) == false) {
-        cursor_buffer_destroy_with_locked_drmdev(cursor);
-    }
-}
-
 static int select_mode(
-    struct drmdev *drmdev,
+    struct drm_resources *resources,
     struct drm_connector **connector_out,
     struct drm_encoder **encoder_out,
     struct drm_crtc **crtc_out,
@@ -732,12 +720,13 @@ static int select_mode(
     struct drm_connector *connector;
     struct drm_encoder *encoder;
     struct drm_crtc *crtc;
-    drmModeModeInfo *mode, *mode_iter;
+    drmModeModeInfo *mode;
     int ok;
 
     // find any connected connector
-    for_each_connector_in_drmdev(drmdev, connector) {
-        if (connector->variable_state.connection_state == kConnected_DrmConnectionState) {
+    drm_resources_for_each_connector(resources, connector_it) {
+        if (connector_it->variable_state.connection_state == DRM_CONNSTATE_CONNECTED) {
+            connector = connector_it;
             break;
         }
     }
@@ -749,7 +738,7 @@ static int select_mode(
 
     mode = NULL;
     if (desired_videomode != NULL) {
-        for_each_mode_in_connector(connector, mode_iter) {
+        drm_connector_for_each_mode(connector, mode_iter) {
             char *modeline = NULL, *modeline_nohz = NULL;
 
             ok = asprintf(&modeline, "%" PRIu16 "x%" PRIu16 "@%" PRIu32, mode_iter->hdisplay, mode_iter->vdisplay, mode_iter->vrefresh);
@@ -786,7 +775,7 @@ static int select_mode(
     // Alternatively, find the mode with the highest width*height. If there are multiple modes with the same w*h,
     // prefer higher refresh rates. After that, prefer progressive scanout modes.
     if (mode == NULL) {
-        for_each_mode_in_connector(connector, mode_iter) {
+        drm_connector_for_each_mode(connector, mode_iter) {
             if (mode_iter->type & DRM_MODE_TYPE_PREFERRED) {
                 mode = mode_iter;
                 break;
@@ -812,8 +801,9 @@ static int select_mode(
     ASSERT_NOT_NULL(mode);
 
     // Find the encoder that's linked to the connector right now
-    for_each_encoder_in_drmdev(drmdev, encoder) {
-        if (encoder->encoder->encoder_id == connector->committed_state.encoder_id) {
+    drm_resources_for_each_encoder(resources, encoder_it) {
+        if (encoder_it->id == connector->committed_state.encoder_id) {
+            encoder = encoder_it;
             break;
         }
     }
@@ -821,13 +811,13 @@ static int select_mode(
     // Otherwise use use any encoder that the connector supports linking to
     if (encoder == NULL) {
         for (int i = 0; i < connector->n_encoders; i++, encoder = NULL) {
-            for_each_encoder_in_drmdev(drmdev, encoder) {
-                if (encoder->encoder->encoder_id == connector->encoders[i]) {
+            drm_resources_for_each_encoder(resources, encoder_it) {
+                if (encoder_it->id == connector->encoders[i]) {
                     break;
                 }
             }
 
-            if (encoder->encoder->possible_crtcs) {
+            if (encoder->possible_crtcs) {
                 // only use this encoder if there's a crtc we can use with it
                 break;
             }
@@ -840,17 +830,19 @@ static int select_mode(
     }
 
     // Find the CRTC that's currently linked to this encoder
-    for_each_crtc_in_drmdev(drmdev, crtc) {
-        if (crtc->id == encoder->encoder->crtc_id) {
+    drm_resources_for_each_crtc(resources, crtc_it) {
+        if (crtc_it->id == encoder->variable_state.crtc_id) {
+            crtc = crtc_it;
             break;
         }
     }
 
     // Otherwise use any CRTC that this encoder supports linking to
     if (crtc == NULL) {
-        for_each_crtc_in_drmdev(drmdev, crtc) {
-            if (encoder->encoder->possible_crtcs & crtc->bitmask) {
+        drm_resources_for_each_crtc(resources, crtc_it) {
+            if (encoder->possible_crtcs & crtc_it->bitmask) {
                 // find a CRTC that is possible to use with this encoder
+                crtc = crtc_it;
                 break;
             }
         }
@@ -898,6 +890,7 @@ MUST_CHECK struct window *kms_window_new(
     bool has_explicit_dimensions, int width_mm, int height_mm,
     bool has_forced_pixel_format, enum pixfmt forced_pixel_format,
     struct drmdev *drmdev,
+    struct drm_resources *resources,
     const char *desired_videomode
     // clang-format on
 ) {
@@ -910,6 +903,7 @@ MUST_CHECK struct window *kms_window_new(
     int ok;
 
     ASSERT_NOT_NULL(drmdev);
+    ASSERT_NOT_NULL(resources);
 
 #if !defined(HAVE_VULKAN)
     ASSUME(renderer_type != kVulkan_RendererType);
@@ -930,7 +924,7 @@ MUST_CHECK struct window *kms_window_new(
         return NULL;
     }
 
-    ok = select_mode(drmdev, &selected_connector, &selected_encoder, &selected_crtc, &selected_mode, desired_videomode);
+    ok = select_mode(resources, &selected_connector, &selected_encoder, &selected_crtc, &selected_mode, desired_videomode);
     if (ok != 0) {
         goto fail_free_window;
     }
@@ -989,6 +983,7 @@ MUST_CHECK struct window *kms_window_new(
     );
 
     window->kms.drmdev = drmdev_ref(drmdev);
+    window->kms.resources = drm_resources_ref(resources);
     window->kms.connector = selected_connector;
     window->kms.encoder = selected_encoder;
     window->kms.crtc = selected_crtc;
@@ -996,6 +991,7 @@ MUST_CHECK struct window *kms_window_new(
     window->kms.should_apply_mode = true;
     window->kms.cursor = NULL;
     window->kms.pointer_icon = NULL;
+    window->kms.cursor_works = true;
     window->renderer_type = renderer_type;
     if (gl_renderer != NULL) {
 #ifdef HAVE_EGL_GLES2
@@ -1080,12 +1076,11 @@ void kms_window_deinit(struct window *window) {
 struct frame {
     struct tracer *tracer;
     struct kms_req *req;
+    struct drmdev *drmdev;
     bool unset_should_apply_mode_on_commit;
 };
 
-UNUSED static void on_scanout(struct drmdev *drmdev, uint64_t vblank_ns, void *userdata) {
-    ASSERT_NOT_NULL(drmdev);
-    (void) drmdev;
+UNUSED static void on_scanout(uint64_t vblank_ns, void *userdata) {
     (void) vblank_ns;
     (void) userdata;
 
@@ -1101,7 +1096,7 @@ static void on_present_frame(void *userdata) {
     frame = userdata;
 
     TRACER_BEGIN(frame->tracer, "kms_req_commit_nonblocking");
-    ok = kms_req_commit_blocking(frame->req, NULL);
+    ok = kms_req_commit_nonblocking(frame->req, frame->drmdev, on_scanout, NULL, NULL);
     TRACER_END(frame->tracer, "kms_req_commit_nonblocking");
 
     if (ok != 0) {
@@ -1121,6 +1116,7 @@ static void on_cancel_frame(void *userdata) {
 
     tracer_unref(frame->tracer);
     kms_req_unref(frame->req);
+    drmdev_unref(frame->drmdev);
     free(frame);
 }
 
@@ -1151,7 +1147,7 @@ static int kms_window_push_composition_locked(struct window *window, struct fl_l
     /// TODO: If we don't have new revisions, we don't need to scanout anything.
     fl_layer_composition_swap_ptrs(&window->composition, composition);
 
-    builder = drmdev_create_request_builder(window->kms.drmdev, window->kms.crtc->id);
+    builder = kms_req_builder_new_atomic(window->kms.drmdev, window->kms.resources, window->kms.crtc->id);
     if (builder == NULL) {
         ok = ENOMEM;
         goto fail_unref_builder;
@@ -1205,12 +1201,16 @@ static int kms_window_push_composition_locked(struct window *window, struct fl_l
                 .in_fence_fd = 0,
                 .prefer_cursor = true,
             },
-            cursor_buffer_unref_with_locked_drmdev,
+            cursor_buffer_unref_void,
             NULL,
             window->kms.cursor
         );
         if (ok != 0) {
-            LOG_ERROR("Couldn't present cursor.\n");
+            LOG_ERROR("Couldn't present cursor. Hardware cursor will be disabled.\n");
+
+            window->kms.cursor_works = false;
+            window->cursor_enabled = false;
+            cursor_buffer_unrefp(&window->kms.cursor);
         } else {
             cursor_buffer_ref(window->kms.cursor);
         }
@@ -1233,6 +1233,7 @@ static int kms_window_push_composition_locked(struct window *window, struct fl_l
 
     frame->req = req;
     frame->tracer = tracer_ref(window->tracer);
+    frame->drmdev = drmdev_ref(window->kms.drmdev);
     frame->unset_should_apply_mode_on_commit = window->kms.should_apply_mode;
 
     frame_scheduler_present_frame(window->frame_scheduler, on_present_frame, frame, on_cancel_frame);
@@ -1392,54 +1393,47 @@ static struct render_surface *kms_window_get_render_surface_internal(struct wind
     // For now just set the supported modifiers for the first plane that supports this pixel format
     // as the allowed modifiers.
     /// TODO: Find a way to rank pixel formats, maybe by number of planes that support them for scanout.
-    {
-        struct drm_plane *plane;
-        for_each_plane_in_drmdev(window->kms.drmdev, plane) {
-            if (!(plane->possible_crtcs & window->kms.crtc->bitmask)) {
-                // Only query planes that are possible to connect to the CRTC we're using.
-                continue;
-            }
-
-            if (plane->type != kPrimary_DrmPlaneType && plane->type != kOverlay_DrmPlaneType) {
-                // We explicitly only look for primary and overlay planes.
-                continue;
-            }
-
-            if (!plane->supports_modifiers) {
-                // The plane does not have an IN_FORMATS property and does not support
-                // explicit modifiers.
-                //
-                // Calling drm_plane_for_each_modified_format below will segfault.
-                continue;
-            }
-
-            struct {
-                enum pixfmt format;
-                uint64_t *modifiers;
-                size_t n_modifiers;
-                int index;
-            } context = {
-                .format = pixel_format,
-                .modifiers = NULL,
-                .n_modifiers = 0,
-                .index = 0,
-            };
-
-            // First, count the allowed modifiers for this pixel format.
-            drm_plane_for_each_modified_format(plane, count_modifiers_for_pixel_format, &context);
-
-            n_allowed_modifiers = context.n_modifiers;
-            if (n_allowed_modifiers) {
-                allowed_modifiers = calloc(n_allowed_modifiers, sizeof(*context.modifiers));
-                context.modifiers = allowed_modifiers;
-
-                // Next, fill context.modifiers with the allowed modifiers.
-                drm_plane_for_each_modified_format(plane, extract_modifiers_for_pixel_format, &context);
-            } else {
-                allowed_modifiers = NULL;
-            }
-            break;
+    drm_resources_for_each_plane(window->kms.resources, plane_it) {
+        if (!(plane_it->possible_crtcs & window->kms.crtc->bitmask)) {
+            // Only query planes that are possible to connect to the CRTC we're using.
+            continue;
         }
+
+        if (plane_it->type != DRM_PRIMARY_PLANE && plane_it->type != DRM_OVERLAY_PLANE) {
+            // We explicitly only look for primary and overlay planes.
+            continue;
+        }
+
+        if (!plane_it->supports_modifiers) {
+            // The plane does not have an IN_FORMATS property and does not support
+            // explicit modifiers.
+            //
+            // Calling drm_plane_for_each_modified_format below will segfault.
+            continue;
+        }
+
+        struct {
+            enum pixfmt format;
+            uint64_t *modifiers;
+            size_t n_modifiers;
+            int index;
+        } context = {
+            .format = pixel_format,
+            .modifiers = NULL,
+            .n_modifiers = 0,
+            .index = 0,
+        };
+
+        // First, count the allowed modifiers for this pixel format.
+        drm_plane_for_each_modified_format(plane_it, count_modifiers_for_pixel_format, &context);
+
+        n_allowed_modifiers = context.n_modifiers;
+        allowed_modifiers = calloc(n_allowed_modifiers, sizeof(*context.modifiers));
+        context.modifiers = allowed_modifiers;
+
+        // Next, fill context.modifiers with the allowed modifiers.
+        drm_plane_for_each_modified_format(plane_it, extract_modifiers_for_pixel_format, &context);
+        break;
     }
 
     if (window->renderer_type == kOpenGL_RendererType) {
@@ -1542,6 +1536,11 @@ static int kms_window_set_cursor_locked(
     icon = has_kind ? pointer_icon_for_details(kind, window->pixel_ratio) : window->kms.pointer_icon;
     pos = has_pos ? pos : window->cursor_pos;
     cursor = window->kms.cursor;
+
+    if (enabled && !window->kms.cursor_works) {
+        // hardware cursor is disabled, so we can't enable it.
+        return EIO;
+    }
 
     if (enabled && icon == NULL) {
         // default to the arrow icon.

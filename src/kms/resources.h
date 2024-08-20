@@ -1,28 +1,33 @@
-// SPDX-License-Identifier: MIT
-/*
- * KMS Modesetting
- *
- * - implements the interface to linux kernel modesetting
- * - allows querying connected screens, crtcs, planes, etc
- * - allows setting video modes, showing things on screen
- *
- * Copyright (c) 2022, Hannes Winkler <hanneswinkler2000@web.de>
- */
+#ifndef _FLUTTERPI_MODESETTING_RESOURCES_H
+#define _FLUTTERPI_MODESETTING_RESOURCES_H
 
-#ifndef _FLUTTERPI_SRC_MODESETTING_H
-#define _FLUTTERPI_SRC_MODESETTING_H
+#include <errno.h>
+#include <inttypes.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
-#include <stdbool.h>
-
+#include <fcntl.h>
+#include <sys/mman.h>
+#include <unistd.h>
 #include <pthread.h>
 
+#include <sys/epoll.h>
+#include <sys/ioctl.h>
 #include <xf86drm.h>
 #include <xf86drmMode.h>
+#include <libudev.h>
 
 #include "pixel_format.h"
-#include "util/collection.h"
-#include "util/geometry.h"
+#include "monitor.h"
+#include "util/bitset.h"
+#include "util/list.h"
+#include "util/lock_ops.h"
+#include "util/logging.h"
+#include "util/macros.h"
 #include "util/refcounting.h"
+
 
 #define DRM_ID_NONE ((uint32_t) 0xFFFFFFFF)
 
@@ -218,12 +223,12 @@
 #define DRM_BLEND_ALPHA_OPAQUE 0xFFFF
 
 enum drm_blend_mode {
-    kPremultiplied_DrmBlendMode,
-    kCoverage_DrmBlendMode,
-    kNone_DrmBlendMode,
+    DRM_BLEND_MODE_PREMULTIPLIED,
+    DRM_BLEND_MODE_COVERAGE,
+    DRM_BLEND_MODE_NONE,
 
-    kMax_DrmBlendMode = kNone_DrmBlendMode,
-    kCount_DrmBlendMode = kMax_DrmBlendMode + 1
+    DRM_BLEND_MODE_MAX = DRM_BLEND_MODE_NONE,
+    DRM_BLEND_MODE_COUNT = DRM_BLEND_MODE_MAX + 1
 };
 
 struct drm_connector_prop_ids {
@@ -308,55 +313,52 @@ enum drm_plane_rotation {
 */
 
 enum drm_plane_type {
-    kPrimary_DrmPlaneType = DRM_PLANE_TYPE_PRIMARY,
-    kOverlay_DrmPlaneType = DRM_PLANE_TYPE_OVERLAY,
-    kCursor_DrmPlaneType = DRM_PLANE_TYPE_CURSOR
-};
-
-struct drm_mode_blob {
-    int drm_fd;
-    uint32_t blob_id;
-    drmModeModeInfo mode;
+    DRM_PRIMARY_PLANE = DRM_PLANE_TYPE_PRIMARY,
+    DRM_OVERLAY_PLANE = DRM_PLANE_TYPE_OVERLAY,
+    DRM_CURSOR_PLANE = DRM_PLANE_TYPE_CURSOR
 };
 
 enum drm_connector_type {
-    kUnknown_DrmConnectorType = DRM_MODE_CONNECTOR_Unknown,
-    kVGA_DrmConnectorType = DRM_MODE_CONNECTOR_VGA,
-    kDVII_DrmConnectorType = DRM_MODE_CONNECTOR_DVII,
-    kDVID_DrmConnectorType = DRM_MODE_CONNECTOR_DVID,
-    kDVIA_DrmConnectorType = DRM_MODE_CONNECTOR_DVIA,
-    kComposite_DrmConnectorType = DRM_MODE_CONNECTOR_Composite,
-    kSVIDEO_DrmConnectorType = DRM_MODE_CONNECTOR_SVIDEO,
-    kLVDS_DrmConnectorType = DRM_MODE_CONNECTOR_LVDS,
-    kComponent_DrmConnectorType = DRM_MODE_CONNECTOR_Component,
-    k9PinDIN_DrmConnectorType = DRM_MODE_CONNECTOR_9PinDIN,
-    kDisplayPort_DrmConnectorType = DRM_MODE_CONNECTOR_DisplayPort,
-    kHDMIA_DrmConnectorType = DRM_MODE_CONNECTOR_HDMIA,
-    kHDMIB_DrmConnectorType = DRM_MODE_CONNECTOR_HDMIB,
-    kTV_DrmConnectorType = DRM_MODE_CONNECTOR_TV,
-    keDP_DrmConnectorType = DRM_MODE_CONNECTOR_eDP,
-    kVIRTUAL_DrmConnectorType = DRM_MODE_CONNECTOR_VIRTUAL,
-    kDSI_DrmConnectorType = DRM_MODE_CONNECTOR_DSI,
-    kDPI_DrmConnectorType = DRM_MODE_CONNECTOR_DPI,
-    kWRITEBACK_DrmConnectorType = DRM_MODE_CONNECTOR_WRITEBACK,
+    DRM_CONNECTOR_TYPE_UNKNOWN = DRM_MODE_CONNECTOR_Unknown,
+    DRM_CONNECTOR_TYPE_VGA = DRM_MODE_CONNECTOR_VGA,
+    DRM_CONNECTOR_TYPE_DVII = DRM_MODE_CONNECTOR_DVII,
+    DRM_CONNECTOR_TYPE_DVID = DRM_MODE_CONNECTOR_DVID,
+    DRM_CONNECTOR_TYPE_DVIA = DRM_MODE_CONNECTOR_DVIA,
+    DRM_CONNECTOR_TYPE_COMPOSITE = DRM_MODE_CONNECTOR_Composite,
+    DRM_CONNECTOR_TYPE_SVIDEO = DRM_MODE_CONNECTOR_SVIDEO,
+    DRM_CONNECTOR_TYPE_LVDS = DRM_MODE_CONNECTOR_LVDS,
+    DRM_CONNECTOR_TYPE_COMPONENT = DRM_MODE_CONNECTOR_Component,
+    DRM_CONNECTOR_TYPE_DIN = DRM_MODE_CONNECTOR_9PinDIN,
+    DRM_CONNECTOR_TYPE_DISPLAYPORT = DRM_MODE_CONNECTOR_DisplayPort,
+    DRM_CONNECTOR_TYPE_HDMIA = DRM_MODE_CONNECTOR_HDMIA,
+    DRM_CONNECTOR_TYPE_HDMIB = DRM_MODE_CONNECTOR_HDMIB,
+    DRM_CONNECTOR_TYPE_TV = DRM_MODE_CONNECTOR_TV,
+    DRM_CONNECTOR_TYPE_EDP = DRM_MODE_CONNECTOR_eDP,
+    DRM_CONNECTOR_TYPE_VIRTUAL = DRM_MODE_CONNECTOR_VIRTUAL,
+    DRM_CONNECTOR_TYPE_DSI = DRM_MODE_CONNECTOR_DSI,
+    DRM_CONNECTOR_TYPE_DPI = DRM_MODE_CONNECTOR_DPI,
+    DRM_CONNECTOR_TYPE_WRITEBACK = DRM_MODE_CONNECTOR_WRITEBACK,
 #ifdef DRM_MODE_CONNECTOR_SPI
-    kSPI_DrmConnectorType = DRM_MODE_CONNECTOR_SPI
+    DRM_CONNECTOR_TYPE_SPI = DRM_MODE_CONNECTOR_SPI,
+#endif
+#ifdef DRM_MODE_CONNECTOR_USB
+    DRM_CONNECTOR_TYPE_USB = DRM_MODE_CONNECTOR_USB,
 #endif
 };
 
 enum drm_connection_state {
-    kConnected_DrmConnectionState = DRM_MODE_CONNECTED,
-    kDisconnected_DrmConnectionState = DRM_MODE_DISCONNECTED,
-    kUnknown_DrmConnectionState = DRM_MODE_UNKNOWNCONNECTION
+    DRM_CONNSTATE_CONNECTED = DRM_MODE_CONNECTED,
+    DRM_CONNSTATE_DISCONNECTED = DRM_MODE_DISCONNECTED,
+    DRM_CONNSTATE_UNKNOWN = DRM_MODE_UNKNOWNCONNECTION
 };
 
 enum drm_subpixel_layout {
-    kUnknown_DrmSubpixelLayout = DRM_MODE_SUBPIXEL_UNKNOWN,
-    kHorizontalRRB_DrmSubpixelLayout = DRM_MODE_SUBPIXEL_HORIZONTAL_RGB,
-    kHorizontalBGR_DrmSubpixelLayout = DRM_MODE_SUBPIXEL_HORIZONTAL_BGR,
-    kVerticalRGB_DrmSubpixelLayout = DRM_MODE_SUBPIXEL_VERTICAL_RGB,
-    kVerticalBGR_DrmSubpixelLayout = DRM_MODE_SUBPIXEL_VERTICAL_BGR,
-    kNone_DrmSubpixelLayout = DRM_MODE_SUBPIXEL_NONE
+    DRM_SUBPIXEL_UNKNOWN = DRM_MODE_SUBPIXEL_UNKNOWN,
+    DRM_SUBPIXEL_HORIZONTAL = DRM_MODE_SUBPIXEL_HORIZONTAL_RGB,
+    DRM_SUBPIXEL_HORIZONTAL_BGR = DRM_MODE_SUBPIXEL_HORIZONTAL_BGR,
+    DRM_SUBPIXEL_VERTICAL_RGB = DRM_MODE_SUBPIXEL_VERTICAL_RGB,
+    DRM_SUBPIXEL_VERTICAL_BGR = DRM_MODE_SUBPIXEL_VERTICAL_BGR,
+    DRM_SUBPIXEL_NONE = DRM_MODE_SUBPIXEL_NONE
 };
 
 struct drm_connector {
@@ -384,8 +386,29 @@ struct drm_connector {
     } committed_state;
 };
 
+enum drm_encoder_type {
+    DRM_ENCODER_TYPE_NONE = DRM_MODE_ENCODER_NONE,
+    DRM_ENCODER_TYPE_TMDS = DRM_MODE_ENCODER_TMDS,
+    DRM_ENCODER_TYPE_DAC = DRM_MODE_ENCODER_DAC,
+    DRM_ENCODER_TYPE_LVDS = DRM_MODE_ENCODER_LVDS,
+    DRM_ENCODER_TYPE_TVDAC = DRM_MODE_ENCODER_TVDAC,
+    DRM_ENCODER_TYPE_VIRTUAL = DRM_MODE_ENCODER_VIRTUAL,
+    DRM_ENCODER_TYPE_DSI = DRM_MODE_ENCODER_DSI,
+    DRM_ENCODER_TYPE_DPMST = DRM_MODE_ENCODER_DPMST,
+    DRM_ENCODER_TYPE_DPI = DRM_MODE_ENCODER_DPI,
+    DRM_ENCODER_TYPE_MAX = DRM_MODE_ENCODER_DPI,
+};
+
 struct drm_encoder {
-    drmModeEncoder *encoder;
+    uint32_t id;
+	enum drm_encoder_type type;
+	
+	uint32_t possible_crtcs;
+	uint32_t possible_clones;
+
+    struct {
+        uint32_t crtc_id;
+    } variable_state;
 };
 
 struct drm_crtc {
@@ -398,7 +421,7 @@ struct drm_crtc {
     struct {
         bool has_mode;
         drmModeModeInfo mode;
-        struct drm_mode_blob *mode_blob;
+        struct drm_blob *mode_blob;
     } committed_state;
 };
 
@@ -508,7 +531,7 @@ struct drm_plane {
     /// @brief The supported blend modes.
     ///
     /// Only valid if @ref has_blend_mode is true.
-    bool supported_blend_modes[kCount_DrmBlendMode];
+    bool supported_blend_modes[DRM_BLEND_MODE_COUNT];
 
     struct {
         /// @brief The committed CRTC id.
@@ -596,7 +619,47 @@ typedef bool (*drm_plane_modified_format_callback_t)(
     void *userdata
 );
 
-struct drmdev;
+/**
+ * @brief A set of DRM resources, e.g. connectors, encoders, CRTCs, planes.
+ * 
+ * This struct is refcounted, so you should use @ref drm_resources_ref and @ref drm_resources_unref
+ * to manage its lifetime.
+ * 
+ * DRM resources can change, e.g. when a monitor is plugged in or out, or a connector is added.
+ * You can update the resources with @ref drm_resources_update.
+ * 
+ * @attention DRM resources are not thread-safe. They should only be accessed on a single thread
+ * in their entire lifetime. This includes updates using @ref drm_resources_update.
+ * 
+ */
+struct drm_resources {
+    refcount_t n_refs;
+
+    bool have_filter;
+    struct {
+        uint32_t connector_id;
+        uint32_t encoder_id;
+        uint32_t crtc_id;
+
+        size_t n_planes;
+        uint32_t plane_ids[32];
+    } filter;
+
+    uint32_t min_width, max_width;
+	uint32_t min_height, max_height;
+
+    size_t n_connectors;
+    struct drm_connector *connectors;
+
+    size_t n_encoders;
+    struct drm_encoder *encoders;
+
+    size_t n_crtcs;
+    struct drm_crtc *crtcs;
+
+    size_t n_planes;
+    struct drm_plane *planes;
+};
 
 /**
  * @brief Iterates over every supported pixel-format & modifier pair.
@@ -605,337 +668,137 @@ struct drmdev;
  */
 void drm_plane_for_each_modified_format(struct drm_plane *plane, drm_plane_modified_format_callback_t callback, void *userdata);
 
+bool drm_plane_supports_modified_formats(struct drm_plane *plane);
+
 bool drm_plane_supports_modified_format(struct drm_plane *plane, enum pixfmt format, uint64_t modifier);
 
 bool drm_plane_supports_unmodified_format(struct drm_plane *plane, enum pixfmt format);
 
-bool drm_crtc_any_plane_supports_format(struct drmdev *drmdev, struct drm_crtc *crtc, enum pixfmt pixel_format);
+bool drm_resources_any_crtc_plane_supports_format(struct drm_resources *res, uint32_t crtc_id, enum pixfmt pixel_format);
 
-struct _drmModeModeInfo;
 
-struct drmdev_interface {
-    int (*open)(const char *path, int flags, void **fd_metadata_out, void *userdata);
-    void (*close)(int fd, void *fd_metadata, void *userdata);
-};
+/**
+ * @brief Create a new drm_resources object
+ */
+struct drm_resources *drm_resources_new(int drm_fd);
 
-struct drmdev *drmdev_new_from_interface_fd(int fd, void *fd_metadata, const struct drmdev_interface *interface, void *userdata);
+struct drm_resources *drm_resources_new_filtered(int drm_fd, uint32_t connector_id, uint32_t encoder_id, uint32_t crtc_id, size_t n_planes, const uint32_t *plane_ids);
 
-struct drmdev *drmdev_new_from_path(const char *path, const struct drmdev_interface *interface, void *userdata);
+struct drm_resources *drm_resources_dup_filtered(struct drm_resources *res, uint32_t connector_id, uint32_t encoder_id, uint32_t crtc_id, size_t n_planes, const uint32_t *plane_ids);
 
-DECLARE_REF_OPS(drmdev)
+void drm_resources_destroy(struct drm_resources *r);
 
-struct drmdev;
-struct _drmModeModeInfo;
+DECLARE_REF_OPS(drm_resources)
 
-int drmdev_get_fd(struct drmdev *drmdev);
-int drmdev_get_event_fd(struct drmdev *drmdev);
-bool drmdev_supports_dumb_buffers(struct drmdev *drmdev);
-int drmdev_create_dumb_buffer(
-    struct drmdev *drmdev,
-    int width,
-    int height,
-    int bpp,
-    uint32_t *gem_handle_out,
-    uint32_t *pitch_out,
-    size_t *size_out
-);
-void drmdev_destroy_dumb_buffer(struct drmdev *drmdev, uint32_t gem_handle);
-void *drmdev_map_dumb_buffer(struct drmdev *drmdev, uint32_t gem_handle, size_t size);
-void drmdev_unmap_dumb_buffer(struct drmdev *drmdev, void *map, size_t size);
-int drmdev_on_event_fd_ready(struct drmdev *drmdev);
-const struct drm_connector *drmdev_get_selected_connector(struct drmdev *drmdev);
-const struct drm_encoder *drmdev_get_selected_encoder(struct drmdev *drmdev);
-const struct drm_crtc *drmdev_get_selected_crtc(struct drmdev *drmdev);
-const struct _drmModeModeInfo *drmdev_get_selected_mode(struct drmdev *drmdev);
+/**
+ * @brief Update the resources with the current state of the DRM device.
+ * 
+ * @param r The resources to update.
+ * @param drm_fd The file descriptor of the DRM device.
+ * @param event The event that triggered the update, or NULL if the update was not triggered by an event.
+ * @returns 0 on success, negative error code on failure.
+ */
+int drm_resources_update(struct drm_resources *r, int drm_fd, const struct drm_uevent *event);
 
-struct gbm_device *drmdev_get_gbm_device(struct drmdev *drmdev);
+/**
+ * @brief Apply a workaround for the Rockchip DRM driver.
+ *
+ * The rockchip driver has special requirements as to which CRTCs can be used with which planes.
+ * This function will restrict the possible_crtcs property for each plane to satisfy that requirement.
+ * 
+ * @attention This function can only be called on un-filtered resources, and should be called after each drm_resources_update.
+ * 
+ * @param r The resources to apply the workaround to.
+ * 
+ */
+void drm_resources_apply_rockchip_workaround(struct drm_resources *r);
 
-uint32_t drmdev_add_fb(
-    struct drmdev *drmdev,
-    uint32_t width,
-    uint32_t height,
-    enum pixfmt pixel_format,
-    uint32_t bo_handle,
-    uint32_t pitch,
-    uint32_t offset,
-    bool has_modifier,
-    uint64_t modifier
-);
 
-uint32_t drmdev_add_fb_multiplanar(
-    struct drmdev *drmdev,
-    uint32_t width,
-    uint32_t height,
-    enum pixfmt pixel_format,
-    const uint32_t bo_handles[4],
-    const uint32_t pitches[4],
-    const uint32_t offsets[4],
-    bool has_modifiers,
-    const uint64_t modifiers[4]
-);
+bool drm_resources_has_connector(struct drm_resources *r, uint32_t connector_id);
 
-uint32_t drmdev_add_fb_from_dmabuf(
-    struct drmdev *drmdev,
-    uint32_t width,
-    uint32_t height,
-    enum pixfmt pixel_format,
-    int prime_fd,
-    uint32_t pitch,
-    uint32_t offset,
-    bool has_modifier,
-    uint64_t modifier
-);
+struct drm_connector *drm_resources_get_connector(struct drm_resources *r, uint32_t connector_id);
 
-uint32_t drmdev_add_fb_from_dmabuf_multiplanar(
-    struct drmdev *drmdev,
-    uint32_t width,
-    uint32_t height,
-    enum pixfmt pixel_format,
-    const int prime_fds[4],
-    const uint32_t pitches[4],
-    const uint32_t offsets[4],
-    bool has_modifiers,
-    const uint64_t modifiers[4]
-);
+bool drm_resources_has_encoder(struct drm_resources *r, uint32_t encoder_id);
 
-uint32_t drmdev_add_fb_from_gbm_bo(struct drmdev *drmdev, struct gbm_bo *bo, bool cast_opaque);
+struct drm_encoder *drm_resources_get_encoder(struct drm_resources *r, uint32_t encoder_id);
 
-int drmdev_rm_fb_locked(struct drmdev *drmdev, uint32_t fb_id);
+bool drm_resources_has_crtc(struct drm_resources *r, uint32_t crtc_id);
 
-int drmdev_rm_fb(struct drmdev *drmdev, uint32_t fb_id);
+struct drm_crtc *drm_resources_get_crtc(struct drm_resources *r, uint32_t crtc_id);
 
-int drmdev_get_last_vblank(struct drmdev *drmdev, uint32_t crtc_id, uint64_t *last_vblank_ns_out);
+int64_t drm_resources_get_min_zpos_for_crtc(struct drm_resources *r, uint32_t crtc_id);
 
-bool drmdev_can_modeset(struct drmdev *drmdev);
+uint32_t drm_resources_get_possible_planes_for_crtc(struct drm_resources *r, uint32_t crtc_id);
 
-void drmdev_suspend(struct drmdev *drmdev);
+bool drm_resources_has_plane(struct drm_resources *r, uint32_t plane_id);
 
-int drmdev_resume(struct drmdev *drmdev);
+struct drm_plane *drm_resources_get_plane(struct drm_resources *r, uint32_t plane_id);
 
-int drmdev_move_cursor(struct drmdev *drmdev, uint32_t crtc_id, struct vec2i pos);
+unsigned int drm_resources_get_plane_index(struct drm_resources *r, uint32_t plane_id);
 
+
+struct drm_connector *drm_resources_connector_first(struct drm_resources *r);
+
+struct drm_connector *drm_resources_connector_end(struct drm_resources *r);
+
+struct drm_connector *drm_resources_connector_next(struct drm_resources *r, struct drm_connector *current);
+
+
+drmModeModeInfo *drm_connector_mode_first(struct drm_connector *c);
+
+drmModeModeInfo *drm_connector_mode_end(struct drm_connector *c);
+
+drmModeModeInfo *drm_connector_mode_next(struct drm_connector *c, drmModeModeInfo *current);
+
+
+struct drm_encoder *drm_resources_encoder_first(struct drm_resources *r);
+
+struct drm_encoder *drm_resources_encoder_end(struct drm_resources *r);
+
+struct drm_encoder *drm_resources_encoder_next(struct drm_resources *r, struct drm_encoder *current);
+
+
+struct drm_crtc *drm_resources_crtc_first(struct drm_resources *r);
+
+struct drm_crtc *drm_resources_crtc_end(struct drm_resources *r);
+
+struct drm_crtc *drm_resources_crtc_next(struct drm_resources *r, struct drm_crtc *current);
+
+
+struct drm_plane *drm_resources_plane_first(struct drm_resources *r);
+
+struct drm_plane *drm_resources_plane_end(struct drm_resources *r);
+
+struct drm_plane *drm_resources_plane_next(struct drm_resources *r, struct drm_plane *current);
+
+
+#define drm_resources_for_each_connector(res, connector) \
+    for (struct drm_connector *(connector) = drm_resources_connector_first(res); (connector) != drm_resources_connector_end(res); (connector) = drm_resources_connector_next((res), (connector)))
+
+#define drm_connector_for_each_mode(connector, mode) \
+    for (drmModeModeInfo *(mode) = drm_connector_mode_first(connector); (mode) != drm_connector_mode_end(connector); (mode) = drm_connector_mode_next((connector), (mode)))
+
+#define drm_resources_for_each_encoder(res, encoder) \
+    for (struct drm_encoder *(encoder) = drm_resources_encoder_first(res); (encoder) != drm_resources_encoder_end(res); (encoder) = drm_resources_encoder_next((res), (encoder)))
+
+#define drm_resources_for_each_crtc(res, crtc) \
+    for (struct drm_crtc *(crtc) = drm_resources_crtc_first(res); (crtc) != drm_resources_crtc_end(res); (crtc) = drm_resources_crtc_next((res), (crtc)))
+
+#define drm_resources_for_each_plane(res, plane) \
+    for (struct drm_plane *(plane) = drm_resources_plane_first(res); (plane) != drm_resources_plane_end(res); (plane) = drm_resources_plane_next((res), (plane)))
+
+
+struct drm_blob *drm_blob_new_mode(int drm_fd, const drmModeModeInfo *mode, bool dup_fd);
+
+void drm_blob_destroy(struct drm_blob *blob);
+
+int drm_blob_get_id(struct drm_blob *blob);
+
+/**
+ * @brief Get the precise refresh rate of a video mode.
+ */
 static inline double mode_get_vrefresh(const drmModeModeInfo *mode) {
     return mode->clock * 1000.0 / (mode->htotal * mode->vtotal);
 }
 
-typedef void (*kms_scanout_cb_t)(struct drmdev *drmdev, uint64_t vblank_ns, void *userdata);
-
-struct kms_fb_layer {
-    uint32_t drm_fb_id;
-    enum pixfmt format;
-    bool has_modifier;
-    uint64_t modifier;
-
-    int32_t src_x, src_y, src_w, src_h;
-    int32_t dst_x, dst_y, dst_w, dst_h;
-
-    bool has_rotation;
-    drm_plane_transform_t rotation;
-
-    bool has_in_fence_fd;
-    int in_fence_fd;
-
-    bool prefer_cursor;
-};
-
-typedef void (*kms_fb_release_cb_t)(void *userdata);
-
-typedef void (*kms_deferred_fb_release_cb_t)(void *userdata, int syncfile_fd);
-
-struct kms_req_builder;
-
-struct kms_req_builder *drmdev_create_request_builder(struct drmdev *drmdev, uint32_t crtc_id);
-
-DECLARE_REF_OPS(kms_req_builder)
-
-/**
- * @brief Gets the @ref drmdev associated with this KMS request builder.
- * 
- * @param builder The KMS request builder.
- * @returns The drmdev associated with this KMS request builder.
- */
-struct drmdev *kms_req_builder_get_drmdev(struct kms_req_builder *builder);
-
-/**
- * @brief Gets the CRTC associated with this KMS request builder.
- * 
- * @param builder The KMS request builder.
- * @returns The CRTC associated with this KMS request builder.
- */
-struct drm_crtc *kms_req_builder_get_crtc(struct kms_req_builder *builder);
-
-/**
- * @brief Adds a property to the KMS request that will set the given video mode
- * on this CRTC on commit, regardless of whether the currently committed output
- * mode is the same.
- * 
- * @param builder The KMS request builder.
- * @param mode The output mode to set (on @ref kms_req_commit)
- * @returns Zero if successful, positive errno-style error on failure.
- */
-int kms_req_builder_set_mode(struct kms_req_builder *builder, const drmModeModeInfo *mode);
-
-/**
- * @brief Adds a property to the KMS request that will unset the configured
- * output mode for this CRTC on commit, regardless of whether the currently
- * committed output mdoe is already unset.
- * 
- * @param builder The KMS request builder.
- * @returns Zero if successful, positive errno-style error on failure.
- */
-int kms_req_builder_unset_mode(struct kms_req_builder *builder);
-
-/**
- * @brief Adds a property to the KMS request that will change the connector
- * that this CRTC is displaying content on to @param connector_id.
- * 
- * @param builder The KMS request builder.
- * @param connector_id The connector that this CRTC should display contents on.
- * @returns Zero if successful, EINVAL if the @param connector_id is invalid.
- */
-int kms_req_builder_set_connector(struct kms_req_builder *builder, uint32_t connector_id);
-
-/**
- * @brief True if the next layer pushed using @ref kms_req_builder_push_fb_layer
- * should be opaque, i.e. use a framebuffer which has a pixel format that has no
- * alpha channel.
- * 
- * This is true for the bottom-most layer. There are some display controllers
- * that don't support non-opaque pixel formats for the bottom-most (primary)
- * plane. So ignoring this might lead to an EINVAL on commit.
- * 
- * @param builder The KMS request builder.
- * @returns True if the next layer should preferably be opaque, false if there's
- *          no preference.
- */
-bool kms_req_builder_prefer_next_layer_opaque(struct kms_req_builder *builder);
-
-/**
- * @brief Adds a new framebuffer (display) layer on top of the last layer.
- * 
- * If this is the first layer, the framebuffer should cover the entire screen
- * (CRTC).
- * 
- * To allow the use of explicit fencing, specify an in_fence_fd in @param layer
- * and a @param deferred_release_callback.
- * 
- * If explicit fencing is supported:
- *   - the in_fence_fd should be a DRM syncobj fd that signals
- *     when the GPU has finished rendering to the framebuffer and is ready
- *     to be scanned out.
- *   - @param deferred_release_callback will be called
- *     with a DRM syncobj fd that is signaled once the framebuffer is no longer
- *     being displayed on screen (and can be rendered into again)
- * 
- * If explicit fencing is not supported:
- *   - the in_fence_fd in @param layer will be closed by this procedure.
- *   - @param deferred_release_callback will NOT be called and
- *     @param release_callback will be called instead.
- * 
- * Explicit fencing is supported: When atomic modesetting is being used and
- * the driver supports it. (Driver has IN_FENCE_FD plane and OUT_FENCE_PTR crtc
- * properties)
- * 
- * @param builder          The KMS request builder.
- * @param layer            The exact details (src pos, output pos, rotation,
- *                         framebuffer) of the layer that should be shown on
- *                         screen.
- * @param release_callback Called when the framebuffer of this layer is no
- *                         longer being shown on screen. This is called with the
- *                         drmdev locked, so make sure to use _locked variants
- *                         of any drmdev calls.
- * @param deferred_release_callback (Unimplemented right now) If this is present,
- *                                  this callback might be called instead of
- *                                  @param release_callback.
- *                                  This is called with a DRM syncobj fd that is
- *                                  signaled when the framebuffer is no longer
- *                                  shown on screen.
- *                                  Legacy DRM modesetting does not support
- *                                  explicit fencing, in which case
- *                                  @param release_callback will be called
- *                                  instead.
- * @param userdata Userdata pointer that's passed to the release_callback or
- *                 deferred_release_callback as-is.
- * @returns Zero on success, otherwise:
- *            - EINVAL: if attempting to push a second framebuffer layer, if
- *                driver supports atomic modesetting but legacy modesetting is
- *                being used.
- *            - EIO: if no DRM plane could be found that supports displaying
- *                this framebuffer layer. Either the pixel format is not
- *                supported, the modifier, the rotation or the drm device
- *                doesn't have enough planes.
- *            - The error returned by @ref close if closing the in_fence_fd
- *              fails.
- */
-int kms_req_builder_push_fb_layer(
-    struct kms_req_builder *builder,
-    const struct kms_fb_layer *layer,
-    kms_fb_release_cb_t release_callback,
-    kms_deferred_fb_release_cb_t deferred_release_callback,
-    void *userdata
-);
-
-/**
- * @brief Push a "fake" layer that just keeps one zpos free, incase something
- * other than KMS wants to display contents there. (e.g. omxplayer)
- * 
- * @param builder The KMS request builder.
- * @param zpos_out Filled with the zpos that won't be occupied by the request
- *                 builder.
- * @returns Zero.
- */
-int kms_req_builder_push_zpos_placeholder_layer(struct kms_req_builder *builder, int64_t *zpos_out);
-
-/**
- * @brief A KMS request (atomic or legacy modesetting) that can be committed to
- * change the state of a single CRTC.
- * 
- * Only way to construct this is by building a KMS request using
- * @ref kms_req_builder and then calling @ref kms_req_builder_build.
- */
-struct kms_req;
-
-DECLARE_REF_OPS(kms_req)
-
-/**
- * @brief Build the KMS request builder into an actual, immutable KMS request
- * that can be committed. Internally this doesn't do much at all.
- * 
- * @param builder The KMS request builder that should be built.
- * @returns KMS request that can be committed using @ref kms_req_commit_blocking
- *          or @ref kms_req_commit_nonblocking.
- *          The returned KMS request has refcount 1. Unref using
- *          @ref kms_req_unref after usage.
- */
-struct kms_req *kms_req_builder_build(struct kms_req_builder *builder);
-
-int kms_req_commit_blocking(struct kms_req *req, uint64_t *vblank_ns_out);
-
-int kms_req_commit_nonblocking(struct kms_req *req, kms_scanout_cb_t scanout_cb, void *userdata, void_callback_t destroy_cb);
-
-struct drm_connector *__next_connector(const struct drmdev *drmdev, const struct drm_connector *connector);
-
-struct drm_encoder *__next_encoder(const struct drmdev *drmdev, const struct drm_encoder *encoder);
-
-struct drm_crtc *__next_crtc(const struct drmdev *drmdev, const struct drm_crtc *crtc);
-
-struct drm_plane *__next_plane(const struct drmdev *drmdev, const struct drm_plane *plane);
-
-drmModeModeInfo *__next_mode(const struct drm_connector *connector, const drmModeModeInfo *mode);
-
-#define for_each_connector_in_drmdev(drmdev, connector) \
-    for (connector = __next_connector(drmdev, NULL); connector != NULL; connector = __next_connector(drmdev, connector))
-
-#define for_each_encoder_in_drmdev(drmdev, encoder) \
-    for (encoder = __next_encoder(drmdev, NULL); encoder != NULL; encoder = __next_encoder(drmdev, encoder))
-
-#define for_each_crtc_in_drmdev(drmdev, crtc) for (crtc = __next_crtc(drmdev, NULL); crtc != NULL; crtc = __next_crtc(drmdev, crtc))
-
-#define for_each_plane_in_drmdev(drmdev, plane) for (plane = __next_plane(drmdev, NULL); plane != NULL; plane = __next_plane(drmdev, plane))
-
-#define for_each_mode_in_connector(connector, mode) \
-    for (mode = __next_mode(connector, NULL); mode != NULL; mode = __next_mode(connector, mode))
-
-#define for_each_unreserved_plane_in_atomic_req(atomic_req, plane) for_each_pointer_in_pset(&(atomic_req)->available_planes, plane)
-
-#endif  // _FLUTTERPI_SRC_MODESETTING_H
+#endif
