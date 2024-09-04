@@ -80,4 +80,6 @@ void frame_scheduler_on_fb_released(struct frame_scheduler *scheduler, bool has_
  */
 void frame_scheduler_present_frame(struct frame_scheduler *scheduler, void_callback_t present_cb, void *userdata, void_callback_t cancel_cb);
 
+void frame_scheduler_on_scanout(struct frame_scheduler *scheduler, bool has_timestamp, uint64_t timestamp_ns);
+
 #endif  // _FLUTTERPI_SRC_FRAME_SCHEDULER_H
