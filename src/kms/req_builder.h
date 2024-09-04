@@ -201,6 +201,6 @@ struct kms_req *kms_req_builder_build(struct kms_req_builder *builder);
 
 int kms_req_commit_blocking(struct kms_req *req, struct drmdev *drmdev, uint64_t *vblank_ns_out);
 
-int kms_req_commit_nonblocking(struct kms_req *req, struct drmdev *drmdev, kmsreq_scanout_cb_t scanout_cb, void *userdata, void_callback_t destroy_cb);
+int kms_req_commit_nonblocking(struct kms_req *req, struct drmdev *drmdev, kmsreq_scanout_cb_t scanout_cb, void *userdata, void_callback_t release_cb);
 
 #endif // _FLUTTERPI_SRC_MODESETTING_REQ_BUILDER_H_
