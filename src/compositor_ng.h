@@ -90,7 +90,26 @@ struct drm_resources;
 
 typedef void (*compositor_frame_begin_cb_t)(void *userdata, uint64_t vblank_ns, uint64_t next_vblank_ns);
 
-struct compositor *compositor_new(struct tracer *tracer, struct evloop *raster_loop, struct window *main_window, struct udev *udev, struct drmdev *drmdev, struct drm_resources *resources);
+struct fl_display_interface {
+    FlutterEngineNotifyDisplayUpdateFnPtr notify_display_update;
+    FlutterEngine engine;
+};
+
+struct compositor *compositor_new_multiview(
+    struct tracer *tracer,
+    struct evloop *raster_loop,
+    struct udev *udev,
+    struct drmdev *drmdev,
+    struct drm_resources *resources,
+    const struct fl_display_interface *display_interface
+);
+
+struct compositor *compositor_new_singleview(
+    struct tracer *tracer,
+    struct evloop *raster_loop,
+    struct window *window,
+    const struct fl_display_interface *display_interface
+);
 
 void compositor_destroy(struct compositor *compositor);
 
@@ -278,6 +297,23 @@ void compositor_for_each_display(
     display_callback_t callback,
     void *userdata
 );
+
+
+struct display_setup {
+    size_t n_connectors;
+    struct connector *connectors;
+
+    size_t n_displays;
+    struct display *displays;
+};
+
+/**
+ * @brief Gets a value notifier for the displays & connectors attached to the compositor.
+ * 
+ * The value is a @ref struct display_setup.
+ */
+struct notifier *compositor_get_display_setup_notifier(struct compositor *compositor);
+
 
 struct fl_layer_composition;
 

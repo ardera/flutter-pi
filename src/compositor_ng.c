@@ -149,6 +149,10 @@ struct compositor {
 
     struct evloop *raster_loop;
     struct evsrc *drm_monitor_evsrc;
+
+    struct fl_display_interface display_interface;
+    struct display_setup *display_setup;
+    struct notifier display_setup_notifier;
 };
 
 static bool on_flutter_present_layers(const FlutterLayer **layers, size_t layers_count, void *userdata);
@@ -193,7 +197,105 @@ static const struct drm_uevent_listener uevent_listener = {
     .on_uevent = on_drm_uevent,
 };
 
-MUST_CHECK struct compositor *compositor_new(struct tracer *tracer, struct evloop *raster_loop, struct window *main_window, struct udev *udev, struct drmdev *drmdev, struct drm_resources *resources) {
+static void connector_init(const struct drm_connector *connector, struct connector *out) {
+    static const enum connector_type connector_types[] = {
+        [DRM_MODE_CONNECTOR_Unknown] = CONNECTOR_TYPE_OTHER,
+        [DRM_MODE_CONNECTOR_VGA] = CONNECTOR_TYPE_VGA,
+        [DRM_MODE_CONNECTOR_DVII] = CONNECTOR_TYPE_DVI,
+        [DRM_MODE_CONNECTOR_DVID] = CONNECTOR_TYPE_DVI,
+        [DRM_MODE_CONNECTOR_DVIA] = CONNECTOR_TYPE_DVI,
+        [DRM_MODE_CONNECTOR_Composite] = CONNECTOR_TYPE_OTHER,
+        [DRM_MODE_CONNECTOR_SVIDEO] = CONNECTOR_TYPE_OTHER,
+        [DRM_MODE_CONNECTOR_LVDS] = CONNECTOR_TYPE_LVDS,
+        [DRM_MODE_CONNECTOR_Component] = CONNECTOR_TYPE_OTHER,
+        [DRM_MODE_CONNECTOR_9PinDIN] = CONNECTOR_TYPE_OTHER,
+        [DRM_MODE_CONNECTOR_DisplayPort] = CONNECTOR_TYPE_DISPLAY_PORT,
+        [DRM_MODE_CONNECTOR_HDMIA] = CONNECTOR_TYPE_HDMI,
+        [DRM_MODE_CONNECTOR_HDMIB] = CONNECTOR_TYPE_HDMI,
+        [DRM_MODE_CONNECTOR_TV] = CONNECTOR_TYPE_TV,
+        [DRM_MODE_CONNECTOR_eDP] = CONNECTOR_TYPE_EDP,
+        [DRM_MODE_CONNECTOR_VIRTUAL] = CONNECTOR_TYPE_OTHER,
+        [DRM_MODE_CONNECTOR_DSI] = CONNECTOR_TYPE_DSI,
+        [DRM_MODE_CONNECTOR_DPI] = CONNECTOR_TYPE_DPI,
+        [DRM_MODE_CONNECTOR_WRITEBACK] = CONNECTOR_TYPE_OTHER,
+        [DRM_MODE_CONNECTOR_SPI] = CONNECTOR_TYPE_OTHER,
+        [DRM_MODE_CONNECTOR_USB] = CONNECTOR_TYPE_OTHER,
+    };
+
+    enum connector_type type = connector_types[connector->type];
+    const char *type_name = drmModeGetConnectorTypeName(connector->type) ?: "Unknown";
+
+    out->id = asprintf("%s-%"PRIu32, type_name, connector->id);
+    out->type = type;
+    if (type == CONNECTOR_TYPE_OTHER) {
+        out->other_type_name = type_name;
+    } else {
+        out->other_type_name = NULL;
+    }
+}
+
+static void connector_fini(struct connector *connector) {
+    free(connector->id);
+}
+
+static void display_init(struct display *display, struct drm_crtc *crtc, struct drm_encoder *encoder, struct drm_connector *connector) {
+    
+}
+
+static void display_fini(struct display *display) {
+    
+}
+
+struct display_setup *display_setup_new(struct drm_resources *resources) {
+    struct display_setup *setup = malloc(sizeof *setup);
+    if (setup == NULL) {
+        return NULL;
+    }
+
+    setup->n_connectors = resources->n_connectors;
+    setup->connectors = malloc(setup->n_connectors * sizeof *setup->connectors);
+    if (setup->connectors == NULL) {
+        goto fail_free_setup;
+    }
+
+    for (int i = 0; i < setup->n_connectors; i++) {
+        connector_init(resources->connectors + i, setup->connectors + i);
+    }
+
+    setup->n_displays = 0;
+    drm_resources_for_each_connector(resources, connector) {
+        if (connector->variable_state.connection_state == DRM_CONNSTATE_CONNECTED) {
+            setup->n_displays++;
+        }
+    }
+
+    setup->displays = malloc(setup->n_displays * sizeof *setup->displays);
+    if (setup->displays == NULL) {
+        goto fail_fini_connectors;
+    }
+
+    return setup;
+
+fail_fini_connectors:
+    for (int i = 0; i < setup->n_connectors; i++) {
+        connector_fini(setup->connectors + i);
+    }
+    free(setup->connectors);
+
+fail_free_setup:
+    free(setup->connectors);
+    return NULL;
+}
+
+MUST_CHECK struct compositor *compositor_new_multiview(
+    struct tracer *tracer,
+    struct evloop *raster_loop,
+    struct window *main_window,
+    struct udev *udev,
+    struct drmdev *drmdev,
+    struct drm_resources *resources,
+    const struct fl_display_interface *display_interface
+) {
     struct compositor *c;
     int bucket_status;
 
@@ -239,7 +341,6 @@ MUST_CHECK struct compositor *compositor_new(struct tracer *tracer, struct evloo
     c->next_view_id = 1;
     c->next_platform_view_id = 1;
 
-
     c->raster_loop = evloop_ref(raster_loop);
     c->drmdev = drmdev_ref(drmdev);
 
@@ -262,12 +363,22 @@ MUST_CHECK struct compositor *compositor_new(struct tracer *tracer, struct evloo
     }
 
     c->resources = resources != NULL ? drm_resources_ref(resources) : drmdev_query_resources(drmdev);
-
     c->drm_monitor_evsrc = evloop_add_io(raster_loop, drm_monitor_get_fd(c->monitor), EPOLLIN, on_drm_monitor_ready, c);
+
+    value_notifier_init(&c->display_setup_notifier, );
     return c;
 
 fail_return_null:
     return NULL;
+}
+
+struct compositor *compositor_new_singleview(
+    struct tracer *tracer,
+    struct evloop *raster_loop,
+    struct window *window,
+    const struct fl_display_interface *display_interface
+) {
+    return compositor_new_multiview(tracer, raster_loop, window, NULL, NULL, NULL, display_interface);
 }
 
 void compositor_destroy(struct compositor *compositor) {
@@ -964,4 +1075,9 @@ void compositor_for_each_connector(
             break;
         }
     }
+}
+
+struct notifier *compositor_get_display_setup_notifier(struct compositor *compositor) {
+    ASSERT_NOT_NULL(compositor);
+    return &compositor->display_setup_notifier;
 }
