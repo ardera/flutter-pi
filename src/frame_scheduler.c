@@ -40,12 +40,10 @@ DEFINE_STATIC_LOCK_OPS(frame_scheduler, mutex)
 
 struct frame_scheduler *
 frame_scheduler_new(bool uses_frame_requests, enum present_mode present_mode, fl_vsync_callback_t vsync_cb, void *userdata) {
-    struct frame_scheduler *scheduler;
-
     // uses_frame_requests? => vsync_cb != NULL
     assert(!uses_frame_requests || vsync_cb != NULL);
 
-    scheduler = malloc(sizeof *scheduler);
+    struct frame_scheduler *scheduler = calloc(1, sizeof *scheduler);
     if (scheduler == NULL) {
         return NULL;
     }

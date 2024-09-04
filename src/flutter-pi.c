@@ -262,6 +262,8 @@ struct flutterpi {
     bool session_active;
 
     char *desired_videomode;
+
+    struct frame_scheduler *scheduler;
 };
 
 struct device_id_and_fd {
@@ -470,16 +472,13 @@ struct frame_req {
 };
 
 static int on_deferred_begin_frame(void *userdata) {
-    FlutterEngineResult engine_result;
-    struct frame_req *req;
-
     ASSERT_NOT_NULL(userdata);
-    req = userdata;
+    struct frame_req *req = userdata;
 
     assert(flutterpi_runs_platform_tasks_on_current_thread(req->flutterpi));
 
     TRACER_INSTANT(req->flutterpi->tracer, "FlutterEngineOnVsync");
-    engine_result = req->flutterpi->flutter.procs.OnVsync(req->flutterpi->flutter.engine, req->baton, req->vblank_ns, req->next_vblank_ns);
+    FlutterEngineResult engine_result = req->flutterpi->flutter.procs.OnVsync(req->flutterpi->flutter.engine, req->baton, req->vblank_ns, req->next_vblank_ns);
 
     free(req);
 
@@ -491,88 +490,39 @@ static int on_deferred_begin_frame(void *userdata) {
     return 0;
 }
 
-UNUSED static void on_begin_frame(void *userdata, uint64_t vblank_ns, uint64_t next_vblank_ns) {
-    FlutterEngineResult engine_result;
-    struct frame_req *req;
-    int ok;
-
+static void on_begin_frame(void *userdata, intptr_t baton, uint64_t vblank_ns, uint64_t next_vblank_ns) {
     ASSERT_NOT_NULL(userdata);
-    req = userdata;
+    struct flutterpi *flutterpi = userdata;
 
-    if (flutterpi_runs_platform_tasks_on_current_thread(req->flutterpi)) {
-        TRACER_INSTANT(req->flutterpi->tracer, "FlutterEngineOnVsync");
+    if (flutterpi_runs_platform_tasks_on_current_thread(flutterpi)) {
+        TRACER_INSTANT(flutterpi->tracer, "FlutterEngineOnVsync");
 
-        engine_result = req->flutterpi->flutter.procs.OnVsync(req->flutterpi->flutter.engine, req->baton, vblank_ns, next_vblank_ns);
+        FlutterEngineResult engine_result = flutterpi->flutter.procs.OnVsync(flutterpi->flutter.engine, baton, vblank_ns, next_vblank_ns);
         if (engine_result != kSuccess) {
             LOG_ERROR("Couldn't signal frame begin to flutter engine. FlutterEngineOnVsync: %s\n", FLUTTER_RESULT_TO_STRING(engine_result));
-            goto fail_free_req;
         }
-
-        free(req);
     } else {
+        struct frame_req *req = malloc(sizeof(struct frame_req));
+        req->flutterpi = flutterpi;
+        req->baton = baton;
         req->vblank_ns = vblank_ns;
         req->next_vblank_ns = next_vblank_ns;
-        ok = flutterpi_post_platform_task(on_deferred_begin_frame, req);
+
+        int ok = flutterpi_post_platform_task(on_deferred_begin_frame, req);
         if (ok != 0) {
             LOG_ERROR("Couldn't defer signalling frame begin.\n");
-            goto fail_free_req;
+            free(req);
         }
     }
-
-    return;
-
-fail_free_req:
-    free(req);
-    return;
 }
 
-/// Called on some flutter internal thread to request a frame,
-/// and also get the vblank timestamp of the pageflip preceding that frame.
-UNUSED static void on_frame_request(void *userdata, intptr_t baton) {
-    FlutterEngineResult engine_result;
-    struct flutterpi *flutterpi;
-    struct frame_req *req;
-    int ok;
-
+static void on_frame_timings_request(void *userdata, intptr_t baton) {
     ASSERT_NOT_NULL(userdata);
-    flutterpi = userdata;
+    struct flutterpi *flutterpi = userdata;
 
-    TRACER_INSTANT(flutterpi->tracer, "on_frame_request");
+    TRACER_INSTANT(flutterpi->tracer, "on_frame_timings_request");
 
-    req = malloc(sizeof *req);
-    if (req == NULL) {
-        LOG_ERROR("Out of memory\n");
-        return;
-    }
-
-    req->flutterpi = flutterpi;
-    req->baton = baton;
-    req->vblank_ns = get_monotonic_time();
-    req->next_vblank_ns = req->vblank_ns + (uint64_t) (1000000000.0 / compositor_get_refresh_rate(flutterpi->compositor));
-
-    if (flutterpi_runs_platform_tasks_on_current_thread(req->flutterpi)) {
-        TRACER_INSTANT(req->flutterpi->tracer, "FlutterEngineOnVsync");
-
-        engine_result =
-            req->flutterpi->flutter.procs.OnVsync(req->flutterpi->flutter.engine, req->baton, req->vblank_ns, req->next_vblank_ns);
-        if (engine_result != kSuccess) {
-            LOG_ERROR("Couldn't signal frame begin to flutter engine. FlutterEngineOnVsync: %s\n", FLUTTER_RESULT_TO_STRING(engine_result));
-            goto fail_free_req;
-        }
-
-        free(req);
-    } else {
-        ok = flutterpi_post_platform_task(on_deferred_begin_frame, req);
-        if (ok != 0) {
-            LOG_ERROR("Couldn't defer signalling frame begin.\n");
-            goto fail_free_req;
-        }
-    }
-
-    return;
-
-fail_free_req:
-    free(req);
+    frame_scheduler_on_fl_vsync_request(flutterpi->scheduler, baton);
 }
 
 UNUSED static FlutterTransformation on_get_transformation(void *userdata) {
@@ -1356,7 +1306,7 @@ static FlutterEngine create_flutter_engine(
     project_args.update_semantics_custom_action_callback = NULL;
     project_args.persistent_cache_path = paths->asset_bundle_path;
     project_args.is_persistent_cache_read_only = false;
-    project_args.vsync_callback = NULL;  // on_frame_request, /* broken since 2.2, kinda *
+    project_args.vsync_callback = on_frame_timings_request;
     project_args.custom_dart_entrypoint = NULL;
     project_args.custom_task_runners = &custom_task_runners;
     project_args.shutdown_dart_vm_when_done = true;
@@ -2257,7 +2207,6 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
     enum renderer_type renderer_type;
     struct texture_registry *texture_registry;
     struct plugin_registry *plugin_registry;
-    struct frame_scheduler *scheduler;
     struct flutter_paths *paths;
     struct view_geometry geometry;
     FlutterEngineAOTData aot_data;
@@ -2278,7 +2227,7 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
     char **engine_argv, *desired_videomode;
     int ok, engine_argc, wakeup_fd;
 
-    fpi = malloc(sizeof *fpi);
+    fpi = calloc(1, sizeof *fpi);
     if (fpi == NULL) {
         return NULL;
     }
@@ -2430,8 +2379,8 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
         goto fail_destroy_drmdev;
     }
 
-    scheduler = frame_scheduler_new(false, kDoubleBufferedVsync_PresentMode, NULL, NULL);
-    if (scheduler == NULL) {
+    fpi->scheduler = frame_scheduler_new(true, kDoubleBufferedVsync_PresentMode, on_begin_frame, fpi);
+    if (fpi->scheduler == NULL) {
         LOG_ERROR("Couldn't create frame scheduler.\n");
         goto fail_unref_tracer;
     }
@@ -2480,7 +2429,7 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
     if (cmd_args.dummy_display) {
         window = dummy_window_new(
             tracer,
-            scheduler,
+            fpi->scheduler,
             renderer_type,
             gl_renderer,
             vk_renderer,
@@ -2494,7 +2443,7 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
         window = kms_window_new(
             // clang-format off
             tracer,
-            scheduler,
+            fpi->scheduler,
             renderer_type,
             gl_renderer,
             vk_renderer,
@@ -2658,7 +2607,6 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
     }
 
     // We don't need these anymore.
-    frame_scheduler_unref(scheduler);
     window_unref(window);
 
     free(cmd_args.bundle_path);
@@ -2720,7 +2668,7 @@ fail_unref_renderer:
     }
 
 fail_unref_scheduler:
-    frame_scheduler_unref(scheduler);
+    frame_scheduler_unref(fpi->scheduler);
 
 fail_unref_tracer:
     tracer_unref(tracer);
