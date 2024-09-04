@@ -759,8 +759,9 @@ static int egl_gbm_render_surface_queue_present(struct render_surface *s, const 
     goto fail_release_bo;
 
 locked:
-    /// TODO: Remove this once we're using triple buffering
-    //ASSERT_MSG(atomic_fetch_add(&render_surface->n_locked_fbs, 1) <= 1, "sanity check failed: too many locked fbs for double-buffered vsync");
+#ifdef DEBUG
+    ASSERT_MSG(atomic_fetch_add(&egl_surface->n_locked_fbs, 1) + 1 <= 3, "Sanity check failed: Too many locked framebuffers for triple buffering.");
+#endif
     egl_surface->locked_fbs[i].bo = bo;
     egl_surface->locked_fbs[i].surface = CAST_THIS(surface_ref(CAST_SURFACE(s)));
     egl_surface->locked_fbs[i].n_refs = REFCOUNT_INIT_1;
