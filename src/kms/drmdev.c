@@ -299,12 +299,12 @@ static void drmdev_on_page_flip(
         mutex_unlock(&drmdev->mutex);
     }
 
-    if (cbs_copy.callbacks[cbs_copy.index].scanout_callback != NULL) {
-        cbs_copy.callbacks[cbs_copy.index].scanout_callback(vblank_ns, cbs_copy.callbacks[cbs_copy.index].scanout_callback_userdata);
-    }
-
     if (cbs_copy.callbacks[cbs_copy.index].void_callback != NULL) {
         cbs_copy.callbacks[cbs_copy.index].void_callback(cbs_copy.callbacks[cbs_copy.index].void_callback_userdata);
+    }
+
+    if (cbs_copy.callbacks[cbs_copy.index].scanout_callback != NULL) {
+        cbs_copy.callbacks[cbs_copy.index].scanout_callback(vblank_ns, cbs_copy.callbacks[cbs_copy.index].scanout_callback_userdata);
     }
 }
 
