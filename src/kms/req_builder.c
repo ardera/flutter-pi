@@ -344,6 +344,7 @@ static void kms_req_builder_destroy(struct kms_req_builder *builder) {
     }
     if (builder->req != NULL) {
         drmModeAtomicFree(builder->req);
+        builder->req = NULL;
     }
     drm_resources_unref(builder->res);
     free(builder);
@@ -683,6 +684,7 @@ static void on_kms_req_release(void *userdata) {
         b->release_cb(b->release_cb_userdata);
     }
 
+    ASSERT(refcount_is_one(&b->n_refs));
     kms_req_builder_unref(b);
 }
 
