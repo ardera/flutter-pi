@@ -5,8 +5,9 @@
 #include <stdint.h>
 
 struct audio_player;
+struct evloop;
 
-struct audio_player *audio_player_new(char *playerId, char *channel);
+struct audio_player *audio_player_new(struct evloop *platform_loop, char *playerId, char *channel);
 
 // Instance function
 
@@ -38,7 +39,7 @@ void audio_player_set_source_url(struct audio_player *self, char *url);
 
 bool audio_player_is_id(struct audio_player *self, char *id);
 
-const char* audio_player_subscribe_channel_name(const struct audio_player *self);
+const char *audio_player_subscribe_channel_name(const struct audio_player *self);
 
 ///Asks to subscribe to channel events
 ///

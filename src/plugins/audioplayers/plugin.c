@@ -288,7 +288,7 @@ static struct audio_player *audioplayers_linux_plugin_get_player(char *player_id
     ASSUME(entry != NULL);
 
     LOG_DEBUG("Create player(id=%s)\n", player_id);
-    player = audio_player_new(player_id, AUDIOPLAYERS_LOCAL_CHANNEL);
+    player = audio_player_new(flutterpi_get_platform_event_loop(plugin.flutterpi), player_id, AUDIOPLAYERS_LOCAL_CHANNEL);
 
     if (player == NULL) {
         LOG_ERROR("player(id=%s) cannot be created", player_id);

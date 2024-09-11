@@ -144,9 +144,9 @@ int flutterpi_post_platform_task(struct flutterpi *flutterpi, void_callback_t ca
 
 int flutterpi_post_delayed_platform_task(struct flutterpi *flutterpi, void_callback_t callback, void *userdata, uint64_t target_time_usec);
 
-struct evloop *flutterpi_get_raster_event_loop(struct flutterpi *flutterpi);
+struct evloop *flutterpi_get_platform_event_loop(struct flutterpi *flutterpi);
 
-int flutterpi_sd_event_add_io(sd_event_source **source_out, int fd, uint32_t events, sd_event_io_handler_t callback, void *userdata);
+struct evloop *flutterpi_get_raster_event_loop(struct flutterpi *flutterpi);
 
 int flutterpi_send_platform_message(
     struct flutterpi *flutterpi,
