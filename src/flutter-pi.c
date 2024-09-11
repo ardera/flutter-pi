@@ -44,10 +44,10 @@
 #include "filesystem_layout.h"
 #include "frame_scheduler.h"
 #include "keyboard.h"
-#include "locales.h"
 #include "kms/drmdev.h"
 #include "kms/req_builder.h"
 #include "kms/resources.h"
+#include "locales.h"
 #include "pixel_format.h"
 #include "platformchannel.h"
 #include "pluginregistry.h"
@@ -56,10 +56,10 @@
 #include "texture_registry.h"
 #include "tracer.h"
 #include "user_input.h"
+#include "util/event_loop.h"
 #include "util/list.h"
 #include "util/logging.h"
 #include "window.h"
-#include "util/event_loop.h"
 
 #include "config.h"
 
@@ -224,7 +224,7 @@ struct flutterpi {
     pthread_t platform_thread;
 
     struct evsrc *drmdev_evrsc;
-    
+
     /**
 	 * @brief The user input instance.
 	 *
@@ -464,7 +464,6 @@ static bool flutterpi_runs_raster_tasks_on_current_thread(struct flutterpi *flut
     return pthread_equal(pthread_self(), evthread_get_pthread(flutterpi->raster_thread)) != 0;
 }
 
-
 struct frame_req {
     struct flutterpi *flutterpi;
     intptr_t baton;
@@ -552,8 +551,7 @@ UNUSED static void on_frame_request(void *userdata, intptr_t baton) {
     if (flutterpi_runs_platform_tasks_on_current_thread(flutterpi)) {
         TRACER_INSTANT(req->flutterpi->tracer, "FlutterEngineOnVsync");
 
-        engine_result =
-            req->flutterpi->flutter.procs.OnVsync(flutterpi->flutter.engine, req->baton, req->vblank_ns, req->next_vblank_ns);
+        engine_result = req->flutterpi->flutter.procs.OnVsync(flutterpi->flutter.engine, req->baton, req->vblank_ns, req->next_vblank_ns);
         if (engine_result != kSuccess) {
             LOG_ERROR("Couldn't signal frame begin to flutter engine. FlutterEngineOnVsync: %s\n", FLUTTER_RESULT_TO_STRING(engine_result));
             goto fail_free_req;
@@ -901,6 +899,14 @@ struct gbm_device *flutterpi_get_gbm_device(struct flutterpi *flutterpi) {
     return drmdev_get_gbm_device(flutterpi->drmdev);
 }
 
+struct compositor *flutterpi_get_compositor(struct flutterpi *flutterpi) {
+    return compositor_ref(flutterpi->compositor);
+}
+
+struct compositor *flutterpi_peek_compositor(struct flutterpi *flutterpi) {
+    return flutterpi->compositor;
+}
+
 bool flutterpi_has_gl_renderer(struct flutterpi *flutterpi) {
     ASSERT_NOT_NULL(flutterpi);
     return flutterpi->gl_renderer != NULL;
@@ -1245,7 +1251,6 @@ static FlutterEngine create_flutter_engine(
 
 static int flutterpi_run(struct flutterpi *flutterpi) {
     FlutterEngineProcTable *procs;
-    struct view_geometry geometry;
     FlutterEngineResult engine_result;
     int ok;
 
@@ -1301,50 +1306,16 @@ static int flutterpi_run(struct flutterpi *flutterpi) {
         goto fail_shutdown_engine;
     }
 
-    FlutterEngineDisplay display;
-    memset(&display, 0, sizeof(display));
-
-    display.struct_size = sizeof(FlutterEngineDisplay);
-    display.display_id = 0;
-    display.single_display = true;
-    display.refresh_rate = compositor_get_refresh_rate(flutterpi->compositor);
-
-    engine_result = procs->NotifyDisplayUpdate(flutterpi->flutter.engine, kFlutterEngineDisplaysUpdateTypeStartup, &display, 1);
-    if (engine_result != kSuccess) {
-        ok = EINVAL;
-        LOG_ERROR(
-            "Could not send display update to flutter engine. FlutterEngineNotifyDisplayUpdate: %s\n",
-            FLUTTER_RESULT_TO_STRING(engine_result)
-        );
-        goto fail_shutdown_engine;
-    }
-
-    compositor_get_view_geometry(flutterpi->compositor, &geometry);
-
-    // just so we get an error if the window metrics event was expanded without us noticing
-    FlutterWindowMetricsEvent window_metrics_event;
-    memset(&window_metrics_event, 0, sizeof(window_metrics_event));
-
-    window_metrics_event.struct_size = sizeof(FlutterWindowMetricsEvent);
-    window_metrics_event.width = (size_t) geometry.view_size.x;
-    window_metrics_event.height = (size_t) geometry.view_size.y;
-    window_metrics_event.pixel_ratio = (double) geometry.device_pixel_ratio;
-    window_metrics_event.left = 0;
-    window_metrics_event.top = 0;
-    window_metrics_event.physical_view_inset_top = 0;
-    window_metrics_event.physical_view_inset_right = 0;
-    window_metrics_event.physical_view_inset_bottom = 0;
-    window_metrics_event.physical_view_inset_left = 0;
-
-    // update window size
-    engine_result = procs->SendWindowMetricsEvent(flutterpi->flutter.engine, &window_metrics_event);
-    if (engine_result != kSuccess) {
-        LOG_ERROR(
-            "Could not send window metrics to flutter engine. FlutterEngineSendWindowMetricsEvent: %s\n",
-            FLUTTER_RESULT_TO_STRING(engine_result)
-        );
-        goto fail_shutdown_engine;
-    }
+    // This will register all displays to flutter
+    // and trigger window metrics events.
+    compositor_set_fl_display_interface(
+        flutterpi->compositor,
+        &(const struct fl_display_interface){
+            .notify_display_update = procs->NotifyDisplayUpdate,
+            .send_window_metrics_event = procs->SendWindowMetricsEvent,
+            .engine = flutterpi->flutter.engine,
+        }
+    );
 
     evloop_run(flutterpi->platform_loop);
 
@@ -2009,14 +1980,12 @@ static void on_session_disable(struct libseat *seat, void *userdata) {
     fpi->session_active = false;
 }
 
-static int on_libseat_fd_ready(sd_event_source *s, int fd, uint32_t revents, void *userdata) {
+static enum event_handler_return on_libseat_fd_ready(int fd, uint32_t revents, void *userdata) {
     struct flutterpi *fpi;
     int ok;
 
-    ASSERT_NOT_NULL(s);
     ASSERT_NOT_NULL(userdata);
     fpi = userdata;
-    (void) s;
     (void) fd;
     (void) revents;
 
@@ -2093,11 +2062,15 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
 
 #ifdef HAVE_LIBSEAT
     {
-        static const struct libseat_seat_listener libseat_interface = { .enable_seat = on_session_enable, .disable_seat = on_session_disable };
+        static const struct libseat_seat_listener libseat_interface = { .enable_seat = on_session_enable,
+                                                                        .disable_seat = on_session_disable };
 
         fpi->libseat = libseat_open_seat(&libseat_interface, fpi);
         if (fpi->libseat == NULL) {
-            LOG_DEBUG("Couldn't open libseat. Flutter-pi will run without session switching support. libseat_open_seat: %s\n", strerror(errno));
+            LOG_DEBUG(
+                "Couldn't open libseat. Flutter-pi will run without session switching support. libseat_open_seat: %s\n",
+                strerror(errno)
+            );
         }
 
         int fd;
@@ -2174,7 +2147,7 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
             LOG_ERROR("Couldn't query DRM resources.\n");
             goto fail_destroy_drmdev;
         }
-        
+
         gbm_device = drmdev_get_gbm_device(fpi->drmdev);
         if (gbm_device == NULL) {
             LOG_ERROR("Couldn't create GBM device.\n");
@@ -2290,7 +2263,7 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
             frame_scheduler_unref(scheduler);
         }
 
-        fpi->compositor = compositor_new(fpi->tracer, fpi->raster_evloop, window, NULL, fpi->drmdev, drm_resources);
+        fpi->compositor = compositor_new_multiview(fpi->tracer, fpi->raster_evloop, NULL, fpi->drmdev, drm_resources);
 
         window_unref(window);
 
@@ -2302,7 +2275,13 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
 
     /// TODO: Do we really need the window after this?
     if (fpi->drmdev != NULL) {
-        fpi->drmdev_evrsc = evloop_add_io(fpi->platform_loop, drmdev_get_modesetting_fd(fpi->drmdev), EPOLLIN | EPOLLHUP | EPOLLPRI, on_drmdev_modesetting_ready, fpi->drmdev);
+        fpi->drmdev_evrsc = evloop_add_io(
+            fpi->platform_loop,
+            drmdev_get_modesetting_fd(fpi->drmdev),
+            EPOLLIN | EPOLLHUP | EPOLLPRI,
+            on_drmdev_modesetting_ready,
+            fpi->drmdev
+        );
         if (fpi->drmdev_evrsc == NULL) {
             goto fail_unref_compositor;
         }
@@ -2336,7 +2315,13 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
     if (fpi->user_input == NULL) {
         LOG_ERROR("Couldn't initialize user input. flutter-pi will run without user input.\n");
     } else {
-        fpi->user_input_evsrc = evloop_add_io(fpi->platform_loop, user_input_get_fd(fpi->user_input), EPOLLIN | EPOLLRDHUP | EPOLLPRI, on_user_input_fd_ready, fpi->user_input);
+        fpi->user_input_evsrc = evloop_add_io(
+            fpi->platform_loop,
+            user_input_get_fd(fpi->user_input),
+            EPOLLIN | EPOLLRDHUP | EPOLLPRI,
+            on_user_input_fd_ready,
+            fpi->user_input
+        );
         if (fpi->user_input_evsrc == NULL) {
             LOG_ERROR("Couldn't listen for user input. flutter-pi will run without user input.\n");
             user_input_destroy(fpi->user_input);
@@ -2477,7 +2462,7 @@ fail_destroy_raster_evloop:
 fail_destroy_libseat:
     if (fpi->libseat != NULL) {
 #ifdef HAVE_LIBSEAT
-        libseat_close_seat(libseat);
+        libseat_close_seat(fpi->libseat);
 #else
         UNREACHABLE();
 #endif
@@ -2532,7 +2517,7 @@ void flutterpi_destroy(struct flutterpi *fpi) {
     evloop_unref(fpi->raster_evloop);
     if (fpi->libseat != NULL) {
 #ifdef HAVE_LIBSEAT
-        libseat_close_seat(libseat);
+        libseat_close_seat(fpi->libseat);
 #else
         UNREACHABLE();
 #endif

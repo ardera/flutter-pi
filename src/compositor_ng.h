@@ -27,7 +27,6 @@
 
 struct compositor;
 
-
 struct fl_layer_props {
     /**
      * @brief True if the presentation quadrangle (the quadrangle on the target window into which the
@@ -92,6 +91,7 @@ typedef void (*compositor_frame_begin_cb_t)(void *userdata, uint64_t vblank_ns, 
 
 struct fl_display_interface {
     FlutterEngineNotifyDisplayUpdateFnPtr notify_display_update;
+    FlutterEngineSendWindowMetricsEventFnPtr send_window_metrics_event;
     FlutterEngine engine;
 };
 
@@ -100,20 +100,25 @@ struct compositor *compositor_new_multiview(
     struct evloop *raster_loop,
     struct udev *udev,
     struct drmdev *drmdev,
-    struct drm_resources *resources,
-    const struct fl_display_interface *display_interface
+    struct drm_resources *resources
 );
 
-struct compositor *compositor_new_singleview(
-    struct tracer *tracer,
-    struct evloop *raster_loop,
-    struct window *window,
-    const struct fl_display_interface *display_interface
-);
+struct compositor *compositor_new_singleview(struct tracer *tracer, struct evloop *raster_loop, struct window *window);
 
 void compositor_destroy(struct compositor *compositor);
 
 DECLARE_REF_OPS(compositor)
+
+/**
+ * @brief Sets the callback & flutter engine that flutter displays will be registered to.
+ * 
+ * This will immediately call the notify_display_update callback with the current connected displays,
+ * and call the send_window_metrics_event callback for all views.
+ * 
+ * @param compositor The compositor to set the display interface for.
+ * @param display_interface The display interface to set. NULL is not allowed. The struct is copied.
+ */
+void compositor_set_fl_display_interface(struct compositor *compositor, const struct fl_display_interface *display_interface);
 
 void compositor_get_view_geometry(struct compositor *compositor, struct view_geometry *view_geometry_out);
 
@@ -124,26 +129,17 @@ int compositor_get_next_vblank(struct compositor *compositor, uint64_t *next_vbl
 /**
  * @brief Adds a (non-implicit) view to the compositor, returning the view id.
  */
-int64_t compositor_add_view(
-    struct compositor *compositor,
-    struct window *window
-);
+int64_t compositor_add_view(struct compositor *compositor, struct window *window);
 
 /**
  * @brief Removes a view from the compositor.
  */
-void compositor_remove_view(
-    struct compositor *compositor,
-    int64_t view_id
-);
+void compositor_remove_view(struct compositor *compositor, int64_t view_id);
 
 /**
  * @brief Sets the implicit view (view with id 0) to the given window.
  */
-int compositor_put_implicit_view(
-    struct compositor *compositor,
-    struct window *window
-);
+int compositor_put_implicit_view(struct compositor *compositor, struct window *window);
 
 /**
  * @brief Adds a platform view to the compositor, returning the platform view id.
@@ -154,7 +150,6 @@ int compositor_add_platform_view(struct compositor *compositor, struct surface *
  * @brief Removes a platform view from the compositor.
  */
 void compositor_remove_platform_view(struct compositor *compositor, int64_t view_id);
-
 
 const FlutterCompositor *compositor_get_flutter_compositor(struct compositor *compositor);
 
@@ -193,119 +188,82 @@ enum connector_type {
     CONNECTOR_TYPE_OTHER,
 };
 
-struct connector {
-    /**
-     * @brief The ID of the connector.
-     * 
-     * e.g. `HDMI-A-1`, `DP-1`, `LVDS-1`, etc.
-     * 
-     * This string will only live till the end of the iteration, so make sure to copy it if you need it later.
-     */
-    const char *id;
+struct display_setup;
+struct connector;
+struct display;
 
-    /**
-     * @brief The type of the connector.
-     */
-    enum connector_type type;
-
-    /**
-     * @brief The name of the connector type, if @ref type is @ref CONNECTOR_TYPE_OTHER.
-     * 
-     * e.g. `Virtual`, `Composite`, etc.
-     * 
-     * This string will only live till the end of the iteration, so make sure to copy it if you need it later.
-     */
-    const char *other_type_name;
-};
+DECLARE_REF_OPS(display_setup)
 
 /**
- * @brief Callback that will be called on each iteration of
- * @ref compositor_for_each_connector.
- *
- * Should return true if looping should continue. False if iterating should be
- * stopped.
- *
- * @param display The current iteration value.
- * @param userdata Userdata that was passed to @ref compositor_for_each_connector.
+ * @brief Gets the number of connectors present in this display setup.
  */
-typedef bool (*connector_callback_t)(const struct connector *connector, void *userdata);
+size_t display_setup_get_n_connectors(struct display_setup *s);
 
 /**
- * @brief Iterates over every present connector.
- *
- * See @ref connector_callback_t for documentation on the callback.
+ * @brief Gets the connector at the given index.
  */
-void compositor_for_each_connector(
-    struct compositor *compositor,
-    connector_callback_t callback,
-    void *userdata
-);
-
-struct display {
-    /**
-     * @brief The ID of the display, as reported to flutter.
-     */
-    uint64_t fl_display_id;
-
-    /**
-     * @brief The refresh rate of the display.
-     */
-    double refresh_rate;
-
-    /**
-     * @brief The width of the display in the selected mode, in physical pixels.
-     */
-    size_t width;
-
-    /**
-     * @brief The height of the display in the selected mode, in physical pixels.
-     */
-    size_t height;
-
-    /**
-     * @brief The device pixel ratio of the display, in the selected mode.
-     */
-    double device_pixel_ratio;
-
-    /**
-     * @brief The identifier of the connector this display is connected to.
-     * 
-     * This string will only live till the end of the iteration, so make sure to copy it if you need it later.
-     */
-    const char *connector_id;
-};
+const struct connector *display_setup_get_connector(struct display_setup *s, size_t i);
 
 /**
- * @brief Callback that will be called on each iteration of
- * @ref compositor_for_each_display.
- *
- * Should return true if looping should continue. False if iterating should be
- * stopped.
- *
- * @param display The current iteration value.
- * @param userdata Userdata that was passed to @ref compositor_for_each_display.
+ * @brief Gets the name of the connector. Can be useful for identification.
+ * 
+ * e.g. `HDMI-A-1`, `DP-1`, `LVDS-1`, etc.
  */
-typedef bool (*display_callback_t)(const struct display *display, void *userdata);
+const char *connector_get_name(const struct connector *connector);
 
 /**
- * @brief Iterates over every connected display.
- *
- * See @ref display_callback_t for documentation on the callback.
+ * @brief Gets the type of the connector.
  */
-void compositor_for_each_display(
-    struct compositor *compositor,
-    display_callback_t callback,
-    void *userdata
-);
+enum connector_type connector_get_type(const struct connector *connector);
 
+/**
+ * @brief Gets the name of the type of the connector.
+ * 
+ * @attention This can be NULL if the type is unrecognized.
+ */
+const char *connector_get_type_name(const struct connector *connector);
 
-struct display_setup {
-    size_t n_connectors;
-    struct connector *connectors;
+/**
+ * @brief Checks if the connector has a display attached.
+ */
+bool connector_has_display(const struct connector *connector);
 
-    size_t n_displays;
-    struct display *displays;
-};
+/**
+ * @brief Gets the display attached to the connector.
+ * 
+ * @attention This can be NULL if the connector has no display attached.
+ */
+const struct display *connector_get_display(const struct connector *connector);
+
+/**
+ * @brief Gets the ID of the display as reported to flutter.
+ */
+size_t display_get_fl_display_id(const struct display *display);
+
+/**
+ * @brief Gets the refresh rate of the display in the current mode.
+ */
+double display_get_refresh_rate(const struct display *display);
+
+/**
+ * @brief Gets the width of the display in the current mode, in physical pixels.
+ */
+struct vec2i display_get_size(const struct display *display);
+
+/**
+ * @brief Gets the physical size of the display in millimeters.
+ */
+struct vec2i display_get_physical_size(const struct display *display);
+
+/**
+ * @brief Gets the device pixel ratio of the display in the current mode.
+ */
+double display_get_device_pixel_ratio(const struct display *display);
+
+/**
+ * @brief Gets the ID of the connector.
+ */
+const char *display_get_connector_id(const struct display *display);
 
 /**
  * @brief Gets a value notifier for the displays & connectors attached to the compositor.
@@ -313,7 +271,6 @@ struct display_setup {
  * The value is a @ref struct display_setup.
  */
 struct notifier *compositor_get_display_setup_notifier(struct compositor *compositor);
-
 
 struct fl_layer_composition;
 
