@@ -181,6 +181,10 @@ void flutterpi_schedule_exit(struct flutterpi *flutterpi);
 
 struct gbm_device *flutterpi_get_gbm_device(struct flutterpi *flutterpi);
 
+struct compositor *flutterpi_peek_compositor(struct flutterpi *flutterpi);
+
+struct compositor *flutterpi_get_compositor(struct flutterpi *flutterpi);
+
 bool flutterpi_has_gl_renderer(struct flutterpi *flutterpi);
 
 struct gl_renderer *flutterpi_get_gl_renderer(struct flutterpi *flutterpi);
