@@ -2,24 +2,30 @@
     "version": 2,
     "configurePresets": [
         {
-            "name": "default-debug",
-            "displayName": "Default OpenGL host build (Debug)",
+            "name": "default",
+            "displayName": "Default OpenGL host build",
             "description": "Sets Ninja generator, build and install directory",
             "generator": "Ninja",
             "binaryDir": "${sourceDir}/out/build/${presetName}",
             "hidden": true,
             "cacheVariables": {
-                "CMAKE_BUILD_TYPE": "Debug",
                 "CMAKE_INSTALL_PREFIX": "${sourceDir}/out/install/${presetName}",
                 "TRY_ENABLE_OPENGL": false,
                 "ENABLE_OPENGL": true,
-                "TRY_ENABLE_VULKAN": false,
-                "ENABLE_VULKAN": true,
                 "BUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN": true,
-                "TRY_BUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN": false,
                 "BUILD_GSTREAMER_AUDIO_PLAYER_PLUGIN": true,
                 "TRY_BUILD_GSTREAMER_AUDIO_PLAYER_PLUGIN": false,
                 "BUILD_SENTRY_PLUGIN": true,
+                "ENABLE_SESSION_SWITCHING": true,
+                "ENABLE_TESTS": false
+            }
+        },
+        {
+            "name": "default-debug",
+            "displayName": "Default OpenGL host build (Debug)",
+            "inherits": "default",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
                 "ENABLE_TESTS": true,
                 "ENABLE_ASAN": true
             }
@@ -27,33 +33,17 @@
         {
             "name": "default-relwithdebinfo",
             "displayName": "Default OpenGL host build (Release with Debug Info)",
-            "description": "Sets Ninja generator, build and install directory",
-            "generator": "Ninja",
-            "binaryDir": "${sourceDir}/out/build/${presetName}",
+            "inherits": "default",
             "cacheVariables": {
-                "CMAKE_BUILD_TYPE": "RelWithDebInfo",
-                "CMAKE_INSTALL_PREFIX": "${sourceDir}/out/install/${presetName}",
-                "ENABLE_OPENGL": true,
-                "BUILD_GSTREAMER_AUDIO_PLAYER_PLUGIN": true,
-                "BUILD_SENTRY_PLUGIN": true,
-                "ENABLE_TESTS": false,
-                "ENABLE_ASAN": false
+                "CMAKE_BUILD_TYPE": "RelWithDebInfo"
             }
         },
         {
             "name": "default-release",
             "displayName": "Default OpenGL host build (Release)",
-            "description": "Sets Ninja generator, build and install directory",
-            "generator": "Ninja",
-            "binaryDir": "${sourceDir}/out/build/${presetName}",
+            "inherits": "default",
             "cacheVariables": {
-                "CMAKE_BUILD_TYPE": "Release",
-                "CMAKE_INSTALL_PREFIX": "${sourceDir}/out/install/${presetName}",
-                "ENABLE_OPENGL": true,
-                "BUILD_GSTREAMER_AUDIO_PLAYER_PLUGIN": true,
-                "BUILD_SENTRY_PLUGIN": true,
-                "ENABLE_TESTS": false,
-                "ENABLE_ASAN": false
+                "CMAKE_BUILD_TYPE": "Release"
             }
         },
         {
