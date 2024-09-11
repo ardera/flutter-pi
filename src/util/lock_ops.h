@@ -103,6 +103,11 @@ static inline void mutex_init_recursive(mutex_t *restrict mutex) {
     ASSERT_ZERO_MSG(ok, "Error initializing mutex.");
 }
 
+static inline void mutex_fini(mutex_t *restrict mutex) {
+    ASSERTED int ok = pthread_mutex_destroy(mutex);
+    ASSERT_ZERO_MSG(ok, "Error destroying mutex.");
+}
+
 static inline void mutex_lock(mutex_t *mutex) ACQUIRE() {
     ASSERTED int ok = pthread_mutex_lock(mutex);
     ASSERT_ZERO_MSG(ok, "Error locking mutex.");

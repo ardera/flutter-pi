@@ -28,19 +28,20 @@
 #include "flutter-pi.h"
 #include "frame_scheduler.h"
 #include "kms/drmdev.h"
+#include "kms/monitor.h"
 #include "kms/req_builder.h"
 #include "kms/resources.h"
-#include "kms/monitor.h"
 #include "notifier_listener.h"
 #include "pixel_format.h"
 #include "render_surface.h"
 #include "surface.h"
 #include "tracer.h"
 #include "util/collection.h"
+#include "util/dynarray.h"
+#include "util/event_loop.h"
+#include "util/khash_uint32.h"
 #include "util/logging.h"
 #include "util/refcounting.h"
-#include "util/khash.h"
-#include "util/event_loop.h"
 #include "window.h"
 
 #include "config.h"
@@ -59,6 +60,12 @@
     #include "vk_gbm_render_surface.h"
     #include "vk_renderer.h"
 #endif
+
+KHASH_MAP_INIT_UINT32(connector_display_ids, int64_t)
+KHASH_SET_INIT_UINT32(connector_set)
+
+KHASH_MAP_INIT_INT64(view, struct window *)
+KHASH_MAP_INIT_INT64(platform_view, struct surface *)
 
 /**
  * @brief A nicer, ref-counted version of the FlutterLayer's passed by the engine to the present layer callback.
@@ -116,8 +123,190 @@ void fl_layer_composition_destroy(struct fl_layer_composition *composition) {
 
 DEFINE_REF_OPS(fl_layer_composition, n_refs)
 
-KHASH_MAP_INIT_INT64(view, struct window *)
-KHASH_MAP_INIT_INT64(platform_view, struct surface *)
+struct display {
+    size_t fl_display_id;
+
+    // This depends on the current mode of the CRTC.
+    double refresh_rate;
+    struct vec2i size;
+
+    struct vec2i physical_size;
+    double device_pixel_ratio;
+};
+
+struct connector {
+    char *name;
+    enum connector_type type;
+    const char *type_name;
+
+    bool has_display;
+    struct display display;
+};
+
+struct display_setup {
+    refcount_t n_refs;
+
+    size_t n_connectors;
+    struct connector connectors[];
+};
+
+static const enum connector_type connector_types[] = {
+    [DRM_MODE_CONNECTOR_Unknown] = CONNECTOR_TYPE_OTHER,
+    [DRM_MODE_CONNECTOR_VGA] = CONNECTOR_TYPE_VGA,
+    [DRM_MODE_CONNECTOR_DVII] = CONNECTOR_TYPE_DVI,
+    [DRM_MODE_CONNECTOR_DVID] = CONNECTOR_TYPE_DVI,
+    [DRM_MODE_CONNECTOR_DVIA] = CONNECTOR_TYPE_DVI,
+    [DRM_MODE_CONNECTOR_Composite] = CONNECTOR_TYPE_OTHER,
+    [DRM_MODE_CONNECTOR_SVIDEO] = CONNECTOR_TYPE_OTHER,
+    [DRM_MODE_CONNECTOR_LVDS] = CONNECTOR_TYPE_LVDS,
+    [DRM_MODE_CONNECTOR_Component] = CONNECTOR_TYPE_OTHER,
+    [DRM_MODE_CONNECTOR_9PinDIN] = CONNECTOR_TYPE_OTHER,
+    [DRM_MODE_CONNECTOR_DisplayPort] = CONNECTOR_TYPE_DISPLAY_PORT,
+    [DRM_MODE_CONNECTOR_HDMIA] = CONNECTOR_TYPE_HDMI,
+    [DRM_MODE_CONNECTOR_HDMIB] = CONNECTOR_TYPE_HDMI,
+    [DRM_MODE_CONNECTOR_TV] = CONNECTOR_TYPE_TV,
+    [DRM_MODE_CONNECTOR_eDP] = CONNECTOR_TYPE_EDP,
+    [DRM_MODE_CONNECTOR_VIRTUAL] = CONNECTOR_TYPE_OTHER,
+    [DRM_MODE_CONNECTOR_DSI] = CONNECTOR_TYPE_DSI,
+    [DRM_MODE_CONNECTOR_DPI] = CONNECTOR_TYPE_DPI,
+    [DRM_MODE_CONNECTOR_WRITEBACK] = CONNECTOR_TYPE_OTHER,
+#ifdef DRM_MODE_CONNECTOR_SPI
+    [DRM_MODE_CONNECTOR_SPI] = CONNECTOR_TYPE_OTHER,
+#endif
+#ifdef DRM_MODE_CONNECTOR_USB
+    [DRM_MODE_CONNECTOR_USB] = CONNECTOR_TYPE_OTHER,
+#endif
+};
+
+bool connector_init(const struct drm_connector *connector, int64_t fl_display_id, struct connector *out) {
+    const char *type_name = drmModeGetConnectorTypeName(connector->type);
+
+    if (type_name == NULL) {
+        // if we don't know this type, skip it.
+        return false;
+    }
+
+    out->name = NULL;
+    asprintf(&out->name, "%s-%" PRIu32, type_name, connector->id);
+    if (out->name == NULL) {
+        return false;
+    }
+
+    assert(connector->type < ARRAY_SIZE(connector_types));
+    out->type = connector_types[connector->type];
+    out->type_name = type_name;
+
+    if (connector->variable_state.connection_state == DRM_CONNSTATE_CONNECTED) {
+        out->has_display = true;
+        /// TODO: Implement flutter display id, current mode
+        UNIMPLEMENTED();
+
+        out->display.fl_display_id = fl_display_id;
+        out->display.refresh_rate = 60.0;
+        out->display.size = VEC2I(0, 0);
+        out->display.device_pixel_ratio = 1.0;
+
+        out->display.physical_size = VEC2I(connector->variable_state.width_mm, connector->variable_state.height_mm);
+    } else {
+        out->has_display = false;
+    }
+
+    return true;
+}
+
+void connector_fini(struct connector *connector) {
+    free(connector->name);
+}
+
+struct display_setup *display_setup_new(struct drm_resources *resources, khash_t(connector_display_ids) * connectors) {
+    struct display_setup *s;
+
+    s = calloc(1, sizeof *s + sizeof(struct connector) * resources->n_connectors);
+    if (s == NULL) {
+        return NULL;
+    }
+
+    for (s->n_connectors = 0; s->n_connectors < resources->n_connectors;) {
+        size_t i = s->n_connectors;
+
+        khiter_t entry = kh_get(connector_display_ids, connectors, resources->connectors[i].id);
+        if (entry == kh_end(connectors)) {
+            continue;
+        }
+
+        int64_t fl_display_id = kh_value(connectors, entry);
+
+        bool ok = connector_init(resources->connectors + i, fl_display_id, s->connectors + i);
+        if (!ok) {
+            continue;
+        }
+
+        s->n_connectors++;
+    }
+
+    return s;
+}
+
+void display_setup_destroy(struct display_setup *setup) {
+    for (int i = 0; i < setup->n_connectors; i++) {
+        connector_fini(setup->connectors + i);
+    }
+    free(setup);
+}
+
+DEFINE_REF_OPS(display_setup, n_refs)
+
+size_t display_setup_get_n_connectors(struct display_setup *setup) {
+    return setup->n_connectors;
+}
+
+const struct connector *display_setup_get_connector(struct display_setup *setup, size_t index) {
+    return setup->connectors + index;
+}
+
+const char *connector_get_name(const struct connector *connector) {
+    return connector->name;
+}
+
+enum connector_type connector_get_type(const struct connector *connector) {
+    return connector->type;
+}
+
+const char *connector_get_type_name(const struct connector *connector) {
+    return connector->type_name;
+}
+
+bool connector_has_display(const struct connector *connector) {
+    return connector->has_display;
+}
+
+const struct display *connector_get_display(const struct connector *connector) {
+    return &connector->display;
+}
+
+size_t display_get_fl_display_id(const struct display *display) {
+    return display->fl_display_id;
+}
+
+double display_get_refresh_rate(const struct display *display) {
+    return display->refresh_rate;
+}
+
+struct vec2i display_get_size(const struct display *display) {
+    return display->size;
+}
+
+struct vec2i display_get_physical_size(const struct display *display) {
+    return display->physical_size;
+}
+
+double display_get_device_pixel_ratio(const struct display *display) {
+    return display->device_pixel_ratio;
+}
+
+const char *display_get_connector_id(const struct display *display) {
+    return CONTAINER_OF(display, struct connector, display)->name;
+}
 
 /**
  * @brief The flutter compositor. Responsible for taking the FlutterLayers, processing them into a struct fl_layer_composition*, then passing
@@ -133,11 +322,14 @@ struct compositor {
     struct tracer *tracer;
     struct window *main_window;
 
+    int64_t next_display_id;
+    khash_t(connector_display_ids) * connectors;
+
     int64_t next_view_id;
-    khash_t(view) *views;
+    khash_t(view) * views;
 
     int64_t next_platform_view_id;
-    khash_t(platform_view) *platform_views;
+    khash_t(platform_view) * platform_views;
 
     FlutterCompositor flutter_compositor;
 
@@ -150,9 +342,11 @@ struct compositor {
     struct evloop *raster_loop;
     struct evsrc *drm_monitor_evsrc;
 
-    struct fl_display_interface display_interface;
-    struct display_setup *display_setup;
     struct notifier display_setup_notifier;
+
+    bool is_startup;
+    bool has_display_interface;
+    struct fl_display_interface display_interface;
 };
 
 static bool on_flutter_present_layers(const FlutterLayer **layers, size_t layers_count, void *userdata);
@@ -164,13 +358,90 @@ static bool on_flutter_collect_backing_store(const FlutterBackingStore *fl_store
 
 static bool on_flutter_present_view(const FlutterPresentViewInfo *present_info);
 
+static int update_flutter_displays(struct compositor *c) {
+    int ok;
+
+    // Allocate the display list on the stack.
+    FlutterEngineDisplay *displays = NULL;
+    if (c->has_display_interface) {
+        displays = alloca(c->resources->n_connectors * sizeof(FlutterEngineDisplay));
+        if (displays == NULL) {
+            return ENOMEM;
+        }
+    }
+
+    // Populate the display list, and also allocate ids for new displays,
+    // remove entries for disconnected displays.
+    size_t n_displays = 0;
+    drm_resources_for_each_connector(c->resources, connector) {
+        if (connector->variable_state.connection_state == DRM_CONNSTATE_CONNECTED) {
+            int64_t id;
+
+            khiter_t entry = kh_put(connector_display_ids, c->connectors, connector->id, &ok);
+            if (ok == -1) {
+                return ENOMEM;
+            } else if (ok == 0) {
+                // We already know this display.
+                id = kh_value(c->connectors, entry);
+            } else {
+                // We don't know this display yet.
+                // Allocate an id for it.
+                id = c->next_display_id++;
+                kh_value(c->connectors, entry) = id;
+            }
+
+            if (displays != NULL) {
+                memset(displays + n_displays, 0, sizeof(FlutterEngineDisplay));
+
+                displays[n_displays].struct_size = sizeof(FlutterEngineDisplay);
+                displays[n_displays].display_id = id;
+                displays[n_displays].single_display = n_displays == 1;
+
+                /// TODO: Calculate these
+                displays[n_displays].refresh_rate = 0.0;
+                displays[n_displays].width = 0;
+                displays[n_displays].height = 0;
+                displays[n_displays].device_pixel_ratio = 0.0;
+                n_displays++;
+            }
+        } else {
+            // Remove this display.
+            khiter_t entry = kh_get(connector_display_ids, c->connectors, connector->id);
+            if (entry != kh_end(c->connectors)) {
+                kh_del(connector_display_ids, c->connectors, entry);
+            }
+        }
+    }
+
+    /// TODO: Remove display entries for removed connectors.
+    if (displays != NULL) {
+        FlutterEngineResult engine_result = c->display_interface.notify_display_update(
+            c->display_interface.engine,
+            c->is_startup ? kFlutterEngineDisplaysUpdateTypeStartup : kFlutterEngineDisplaysUpdateTypeCount,
+            displays,
+            n_displays
+        );
+        if (engine_result != kSuccess) {
+            LOG_ERROR(
+                "Couldn't register displays to flutter engine. FlutterEngineNotifyDisplayUpdate: %s\n",
+                FLUTTER_RESULT_TO_STRING(engine_result)
+            );
+            return EIO;
+        }
+
+        c->is_startup = false;
+    }
+
+    return 0;
+}
+
 static enum event_handler_return on_drm_monitor_ready(int fd, uint32_t events, void *userdata) {
     struct compositor *compositor;
 
     ASSERT_NOT_NULL(userdata);
     (void) fd;
     (void) events;
-    
+
     compositor = userdata;
 
     // This will in turn probobly call on_drm_uevent.
@@ -189,119 +460,33 @@ static void on_drm_uevent(const struct drm_uevent *event, void *userdata) {
     drm_resources_update(compositor->resources, drmdev_get_modesetting_fd(compositor->drmdev), event);
     drm_resources_apply_rockchip_workaround(compositor->resources);
 
-    /// TODO: Check for added displays
-    UNIMPLEMENTED();
+    update_flutter_displays(compositor);
+
+    struct display_setup *display_setup = display_setup_new(compositor->resources, compositor->connectors);
+    if (display_setup == NULL) {
+        LOG_ERROR("Couldn't create display setup.\n");
+        return;
+    }
+
+    notifier_notify(&compositor->display_setup_notifier, display_setup);
 }
 
 static const struct drm_uevent_listener uevent_listener = {
     .on_uevent = on_drm_uevent,
 };
 
-static void connector_init(const struct drm_connector *connector, struct connector *out) {
-    static const enum connector_type connector_types[] = {
-        [DRM_MODE_CONNECTOR_Unknown] = CONNECTOR_TYPE_OTHER,
-        [DRM_MODE_CONNECTOR_VGA] = CONNECTOR_TYPE_VGA,
-        [DRM_MODE_CONNECTOR_DVII] = CONNECTOR_TYPE_DVI,
-        [DRM_MODE_CONNECTOR_DVID] = CONNECTOR_TYPE_DVI,
-        [DRM_MODE_CONNECTOR_DVIA] = CONNECTOR_TYPE_DVI,
-        [DRM_MODE_CONNECTOR_Composite] = CONNECTOR_TYPE_OTHER,
-        [DRM_MODE_CONNECTOR_SVIDEO] = CONNECTOR_TYPE_OTHER,
-        [DRM_MODE_CONNECTOR_LVDS] = CONNECTOR_TYPE_LVDS,
-        [DRM_MODE_CONNECTOR_Component] = CONNECTOR_TYPE_OTHER,
-        [DRM_MODE_CONNECTOR_9PinDIN] = CONNECTOR_TYPE_OTHER,
-        [DRM_MODE_CONNECTOR_DisplayPort] = CONNECTOR_TYPE_DISPLAY_PORT,
-        [DRM_MODE_CONNECTOR_HDMIA] = CONNECTOR_TYPE_HDMI,
-        [DRM_MODE_CONNECTOR_HDMIB] = CONNECTOR_TYPE_HDMI,
-        [DRM_MODE_CONNECTOR_TV] = CONNECTOR_TYPE_TV,
-        [DRM_MODE_CONNECTOR_eDP] = CONNECTOR_TYPE_EDP,
-        [DRM_MODE_CONNECTOR_VIRTUAL] = CONNECTOR_TYPE_OTHER,
-        [DRM_MODE_CONNECTOR_DSI] = CONNECTOR_TYPE_DSI,
-        [DRM_MODE_CONNECTOR_DPI] = CONNECTOR_TYPE_DPI,
-        [DRM_MODE_CONNECTOR_WRITEBACK] = CONNECTOR_TYPE_OTHER,
-        [DRM_MODE_CONNECTOR_SPI] = CONNECTOR_TYPE_OTHER,
-        [DRM_MODE_CONNECTOR_USB] = CONNECTOR_TYPE_OTHER,
-    };
-
-    enum connector_type type = connector_types[connector->type];
-    const char *type_name = drmModeGetConnectorTypeName(connector->type) ?: "Unknown";
-
-    out->id = asprintf("%s-%"PRIu32, type_name, connector->id);
-    out->type = type;
-    if (type == CONNECTOR_TYPE_OTHER) {
-        out->other_type_name = type_name;
-    } else {
-        out->other_type_name = NULL;
-    }
-}
-
-static void connector_fini(struct connector *connector) {
-    free(connector->id);
-}
-
-static void display_init(struct display *display, struct drm_crtc *crtc, struct drm_encoder *encoder, struct drm_connector *connector) {
-    
-}
-
-static void display_fini(struct display *display) {
-    
-}
-
-struct display_setup *display_setup_new(struct drm_resources *resources) {
-    struct display_setup *setup = malloc(sizeof *setup);
-    if (setup == NULL) {
-        return NULL;
-    }
-
-    setup->n_connectors = resources->n_connectors;
-    setup->connectors = malloc(setup->n_connectors * sizeof *setup->connectors);
-    if (setup->connectors == NULL) {
-        goto fail_free_setup;
-    }
-
-    for (int i = 0; i < setup->n_connectors; i++) {
-        connector_init(resources->connectors + i, setup->connectors + i);
-    }
-
-    setup->n_displays = 0;
-    drm_resources_for_each_connector(resources, connector) {
-        if (connector->variable_state.connection_state == DRM_CONNSTATE_CONNECTED) {
-            setup->n_displays++;
-        }
-    }
-
-    setup->displays = malloc(setup->n_displays * sizeof *setup->displays);
-    if (setup->displays == NULL) {
-        goto fail_fini_connectors;
-    }
-
-    return setup;
-
-fail_fini_connectors:
-    for (int i = 0; i < setup->n_connectors; i++) {
-        connector_fini(setup->connectors + i);
-    }
-    free(setup->connectors);
-
-fail_free_setup:
-    free(setup->connectors);
-    return NULL;
-}
-
 MUST_CHECK struct compositor *compositor_new_multiview(
     struct tracer *tracer,
     struct evloop *raster_loop,
-    struct window *main_window,
     struct udev *udev,
     struct drmdev *drmdev,
-    struct drm_resources *resources,
-    const struct fl_display_interface *display_interface
+    struct drm_resources *resources
 ) {
     struct compositor *c;
-    int bucket_status;
+    int ok;
 
     ASSERT_NOT_NULL(tracer);
     ASSERT_NOT_NULL(raster_loop);
-    ASSERT_NOT_NULL(main_window);
     ASSERT_NOT_NULL(drmdev);
 
     c = calloc(1, sizeof *c);
@@ -312,16 +497,10 @@ MUST_CHECK struct compositor *compositor_new_multiview(
     mutex_init(&c->mutex);
     c->views = kh_init(view);
     c->platform_views = kh_init(platform_view);
-
-    khiter_t entry = kh_put(view, c->views, 0, &bucket_status);
-    if (bucket_status == -1) {
-        goto fail_return_null;
-    }
-
-    kh_value(c->views, entry) = window_ref(main_window);
+    c->connectors = kh_init(connector_display_ids);
 
     c->n_refs = REFCOUNT_INIT_1;
-    c->main_window = window_ref(main_window);
+    c->main_window = NULL;
 
     // just so we get an error if the FlutterCompositor struct was updated
     COMPILE_ASSERT(sizeof(FlutterCompositor) == 28 || sizeof(FlutterCompositor) == 56);
@@ -337,9 +516,10 @@ MUST_CHECK struct compositor *compositor_new_multiview(
 
     c->tracer = tracer_ref(tracer);
     c->cursor_pos = VEC2F(0, 0);
-    
+
     c->next_view_id = 1;
     c->next_platform_view_id = 1;
+    c->next_display_id = 1;
 
     c->raster_loop = evloop_ref(raster_loop);
     c->drmdev = drmdev_ref(drmdev);
@@ -365,36 +545,47 @@ MUST_CHECK struct compositor *compositor_new_multiview(
     c->resources = resources != NULL ? drm_resources_ref(resources) : drmdev_query_resources(drmdev);
     c->drm_monitor_evsrc = evloop_add_io(raster_loop, drm_monitor_get_fd(c->monitor), EPOLLIN, on_drm_monitor_ready, c);
 
-    value_notifier_init(&c->display_setup_notifier, );
+    c->is_startup = false;
+    c->has_display_interface = false;
+
+    ok = update_flutter_displays(c);
+    if (ok != 0) {
+        goto fail_return_null;
+    }
+
+    struct display_setup *display_setup = display_setup_new(c->resources, c->connectors);
+    if (display_setup == NULL) {
+        LOG_ERROR("Couldn't create display setup.\n");
+        goto fail_return_null;
+    }
+
+    value_notifier_init(&c->display_setup_notifier, display_setup, display_setup_unref_void);
     return c;
 
 fail_return_null:
     return NULL;
 }
 
-struct compositor *compositor_new_singleview(
-    struct tracer *tracer,
-    struct evloop *raster_loop,
-    struct window *window,
-    const struct fl_display_interface *display_interface
-) {
-    return compositor_new_multiview(tracer, raster_loop, window, NULL, NULL, NULL, display_interface);
+struct compositor *compositor_new_singleview(struct tracer *tracer, struct evloop *raster_loop, struct window *window) {
+    struct compositor *c = compositor_new_multiview(tracer, raster_loop, NULL, NULL, NULL);
+    if (c == NULL) {
+        return NULL;
+    }
+
+    compositor_add_view(c, window);
+    return c;
 }
 
 void compositor_destroy(struct compositor *compositor) {
     struct window *window;
-    kh_foreach_value(compositor->views, window,
-        window_unref(window);
-    );
+    kh_foreach_value(compositor->views, window, window_unref(window););
 
     kh_destroy(view, compositor->views);
 
     struct surface *surface;
-    kh_foreach_value(compositor->platform_views, surface,
-        surface_unref(surface);
-    )
+    kh_foreach_value(compositor->platform_views, surface, surface_unref(surface);)
 
-    kh_destroy(platform_view, compositor->platform_views);
+        kh_destroy(platform_view, compositor->platform_views);
 
     if (compositor->drm_monitor_evsrc != NULL) {
         evsrc_destroy(compositor->drm_monitor_evsrc);
@@ -452,8 +643,53 @@ static struct window *compositor_get_view_by_id(struct compositor *compositor, i
     compositor_lock(compositor);
     struct window *window = compositor_get_view_by_id_locked(compositor, view_id);
     compositor_unlock(compositor);
-    
+
     return window;
+}
+
+void compositor_set_fl_display_interface(struct compositor *compositor, const struct fl_display_interface *display_interface) {
+    ASSERT_NOT_NULL(compositor);
+    ASSERT_NOT_NULL(display_interface);
+
+    compositor->has_display_interface = true;
+    compositor->display_interface = *display_interface;
+
+    // register flutter displays
+    update_flutter_displays(compositor);
+
+    // send window metrics event
+    int64_t view_id;
+    struct window *window;
+    kh_foreach(compositor->views, view_id, window, {
+        struct view_geometry geo = window_get_view_geometry(window);
+
+        COMPILE_ASSERT(sizeof(FlutterWindowMetricsEvent) == 96);
+
+        FlutterWindowMetricsEvent event;
+        memset(&event, 0, sizeof event);
+
+        event.struct_size = sizeof(FlutterWindowMetricsEvent);
+        event.width = geo.view_size.x;
+        event.height = geo.view_size.y;
+        event.pixel_ratio = geo.device_pixel_ratio;
+        event.left = 0;
+        event.top = 0;
+        event.physical_view_inset_top = 0;
+        event.physical_view_inset_right = 0;
+        event.physical_view_inset_bottom = 0;
+        event.physical_view_inset_left = 0;
+        event.display_id = 0;
+        event.view_id = view_id;
+
+        FlutterEngineResult engine_result =
+            compositor->display_interface.send_window_metrics_event(compositor->display_interface.engine, &event);
+        if (engine_result != kSuccess) {
+            LOG_ERROR(
+                "Could not send window metrics to flutter engine. FlutterEngineSendWindowMetricsEvent: %s\n",
+                FLUTTER_RESULT_TO_STRING(engine_result)
+            );
+        }
+    });
 }
 
 void compositor_get_view_geometry(struct compositor *compositor, struct view_geometry *view_geometry_out) {
@@ -470,7 +706,8 @@ int compositor_get_next_vblank(struct compositor *compositor, uint64_t *next_vbl
     return window_get_next_vblank(compositor->main_window, next_vblank_ns_out);
 }
 
-static int compositor_push_composition(struct compositor *compositor, bool has_view_id, int64_t view_id, struct fl_layer_composition *composition) {
+static int
+compositor_push_composition(struct compositor *compositor, bool has_view_id, int64_t view_id, struct fl_layer_composition *composition) {
     struct window *window;
     int ok;
 
@@ -578,7 +815,13 @@ static void fill_platform_view_layer_props(
     props_out->clip_rects = NULL;
 }
 
-static int compositor_push_fl_layers(struct compositor *compositor, bool has_view_id, int64_t view_id, size_t n_fl_layers, const FlutterLayer **fl_layers) {
+static int compositor_push_fl_layers(
+    struct compositor *compositor,
+    bool has_view_id,
+    int64_t view_id,
+    size_t n_fl_layers,
+    const FlutterLayer **fl_layers
+) {
     struct fl_layer_composition *composition;
     struct view_geometry geometry;
     struct window *window;
@@ -858,124 +1101,7 @@ void compositor_set_cursor(
     compositor_unlock(compositor);
 }
 
-static bool call_display_callback_with_drm_connector(display_callback_t callback, const struct drm_connector *connector, void *userdata) {
-    (void) callback;
-    (void) connector;
-    (void) userdata;
-    
-    /// TODO: Implement
-    UNIMPLEMENTED();
-}
-
-static bool call_connector_callback_with_drm_connector(connector_callback_t callback, const struct drm_connector *connector, void *userdata) {
-    struct connector conn = {
-        .id = NULL,
-        .type = CONNECTOR_TYPE_OTHER,
-        .other_type_name = NULL,
-    };
-
-    switch (connector->type) {
-        case DRM_MODE_CONNECTOR_Unknown:
-            conn.id = alloca_sprintf("Unknown-%" PRIu32, connector->type_id);
-            conn.type = CONNECTOR_TYPE_OTHER;
-            conn.other_type_name = "Unknown";
-            break;
-        case DRM_MODE_CONNECTOR_VGA:
-            conn.id = alloca_sprintf("VGA-%" PRIu32, connector->type_id);
-            conn.type = CONNECTOR_TYPE_VGA;
-            break;
-        case DRM_MODE_CONNECTOR_DVII:
-            conn.id = alloca_sprintf("DVI-I-%" PRIu32, connector->type_id);
-            conn.type = CONNECTOR_TYPE_DVI;
-            break;
-        case DRM_MODE_CONNECTOR_DVID:
-            conn.id = alloca_sprintf("DVI-D-%" PRIu32, connector->type_id);
-            conn.type = CONNECTOR_TYPE_DVI;
-            break;
-        case DRM_MODE_CONNECTOR_DVIA:
-            conn.id = alloca_sprintf("DVI-A-%" PRIu32, connector->type_id);
-            conn.type = CONNECTOR_TYPE_DVI;
-            break;
-        case DRM_MODE_CONNECTOR_Composite:
-            conn.id = alloca_sprintf("Composite-%" PRIu32, connector->type_id);
-            conn.type = CONNECTOR_TYPE_OTHER;
-            conn.other_type_name = "Composite";
-            break;
-        case DRM_MODE_CONNECTOR_SVIDEO:
-            conn.id = alloca_sprintf("SVIDEO-%" PRIu32, connector->type_id);
-            conn.type = CONNECTOR_TYPE_OTHER;
-            conn.other_type_name = "SVIDEO";
-            break;
-        case DRM_MODE_CONNECTOR_LVDS:
-            conn.id = alloca_sprintf("LVDS-%" PRIu32, connector->type_id);
-            conn.type = CONNECTOR_TYPE_LVDS;
-            break;
-        case DRM_MODE_CONNECTOR_Component:
-            conn.id = alloca_sprintf("Component-%" PRIu32, connector->type_id);
-            conn.type = CONNECTOR_TYPE_OTHER;
-            conn.other_type_name = "Component";
-            break;
-        case DRM_MODE_CONNECTOR_9PinDIN:
-            conn.id = alloca_sprintf("DIN-%" PRIu32, connector->type_id);
-            conn.type = CONNECTOR_TYPE_OTHER;
-            conn.other_type_name = "DIN";
-            break;
-        case DRM_MODE_CONNECTOR_DisplayPort:
-            conn.id = alloca_sprintf("DP-%" PRIu32, connector->type_id);
-            conn.type = CONNECTOR_TYPE_DISPLAY_PORT;
-            break;
-        case DRM_MODE_CONNECTOR_HDMIA:
-            conn.id = alloca_sprintf("HDMI-A-%" PRIu32, connector->type_id);
-            conn.type = CONNECTOR_TYPE_HDMI;
-            break;
-        case DRM_MODE_CONNECTOR_HDMIB:
-            conn.id = alloca_sprintf("HDMI-B-%" PRIu32, connector->type_id);
-            conn.type = CONNECTOR_TYPE_HDMI;
-            break;
-        case DRM_MODE_CONNECTOR_TV:
-            conn.id = alloca_sprintf("TV-%" PRIu32, connector->type_id);
-            conn.type = CONNECTOR_TYPE_TV;
-            break;
-        case DRM_MODE_CONNECTOR_eDP:
-            conn.id = alloca_sprintf("eDP-%" PRIu32, connector->type_id);
-            conn.type = CONNECTOR_TYPE_EDP;
-            break;
-        case DRM_MODE_CONNECTOR_VIRTUAL:
-            conn.id = alloca_sprintf("Virtual-%" PRIu32, connector->type_id);
-            conn.type = CONNECTOR_TYPE_OTHER;
-            conn.other_type_name = "Virtual";
-            break;
-        case DRM_MODE_CONNECTOR_DSI:
-            conn.id = alloca_sprintf("DSI-%" PRIu32, connector->type_id);
-            conn.type = CONNECTOR_TYPE_DSI;
-            break;
-        case DRM_MODE_CONNECTOR_DPI:
-            conn.id = alloca_sprintf("DPI-%" PRIu32, connector->type_id);
-            conn.type = CONNECTOR_TYPE_DPI;
-            break;
-        case DRM_MODE_CONNECTOR_WRITEBACK:
-            return true;
-        case DRM_MODE_CONNECTOR_SPI:
-            conn.id = alloca_sprintf("SPI-%" PRIu32, connector->type_id);
-            conn.type = CONNECTOR_TYPE_OTHER;
-            conn.other_type_name = "SPI";
-            break;
-        case DRM_MODE_CONNECTOR_USB:
-            conn.id = alloca_sprintf("USB-%" PRIu32, connector->type_id);
-            conn.type = CONNECTOR_TYPE_OTHER;
-            conn.other_type_name = "USB";
-            break;
-        default:
-            return true;
-    }
-
-    return callback(&conn, userdata);
-}
-
-int64_t compositor_add_view(
-    struct compositor *compositor,
-    struct window *window
-) {
+int64_t compositor_add_view(struct compositor *compositor, struct window *window) {
     ASSERT_NOT_NULL(compositor);
     ASSERT_NOT_NULL(window);
     int64_t view_id;
@@ -992,10 +1118,7 @@ int64_t compositor_add_view(
     return view_id;
 }
 
-void compositor_remove_view(
-    struct compositor *compositor,
-    int64_t view_id
-) {
+void compositor_remove_view(struct compositor *compositor, int64_t view_id) {
     ASSERT_NOT_NULL(compositor);
     ASSERT(view_id != 0);
 
@@ -1010,10 +1133,7 @@ void compositor_remove_view(
     compositor_unlock(compositor);
 }
 
-int compositor_put_implicit_view(
-    struct compositor *compositor,
-    struct window *window
-) {
+int compositor_put_implicit_view(struct compositor *compositor, struct window *window) {
     int bucket_status;
 
     ASSERT_NOT_NULL(compositor);
@@ -1036,45 +1156,6 @@ int compositor_put_implicit_view(
     compositor_unlock(compositor);
 
     return 0;
-}
-
-void compositor_for_each_display(
-    struct compositor *compositor,
-    display_callback_t callback,
-    void *userdata
-) {
-    struct drm_connector *connector;
-
-    (void) compositor;
-    (void) callback;
-    (void) userdata;
-    (void) connector;
-
-    /// TODO: Implement
-    UNIMPLEMENTED();
-
-    /// TODO: drm_resources is not mt-safe, but compositor_for_each_connector might not be called on the raster thread
-    ///   (which uses drm_resources)
-
-    drm_resources_for_each_connector(compositor->resources, connector) {
-        if (!call_display_callback_with_drm_connector(callback, connector, userdata)) {
-            break;
-        }
-    }
-}
- 
-void compositor_for_each_connector(
-    struct compositor *compositor,
-    connector_callback_t callback,
-    void *userdata
-) {
-    /// TODO: drm_resources is not mt-safe, but compositor_for_each_connector might not be called on the raster thread
-    ///   (which uses drm_resources)
-    drm_resources_for_each_connector(compositor->resources, connector) {
-        if (!call_connector_callback_with_drm_connector(callback, connector, userdata)) {
-            break;
-        }
-    }
 }
 
 struct notifier *compositor_get_display_setup_notifier(struct compositor *compositor) {
