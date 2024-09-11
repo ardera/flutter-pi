@@ -599,9 +599,8 @@ int flutterpi_post_delayed_platform_task(struct flutterpi *flutterpi, void_callb
     return evloop_post_delayed_task(flutterpi->platform_loop, callback, userdata, target_time_usec);
 }
 
-/// TODO: Remove
-struct evsrc *flutterpi_add_io_source(struct flutterpi *flutterpi, int fd, uint32_t events, evloop_io_handler_t callback, void *userdata) {
-    return evloop_add_io(flutterpi->platform_loop, fd, events, callback, userdata);
+struct evloop *flutterpi_get_platform_event_loop(struct flutterpi *flutterpi) {
+    return flutterpi->platform_loop;
 }
 
 struct fl_task {
