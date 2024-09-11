@@ -12,6 +12,7 @@
 #include "platformchannel.h"
 #include "plugins/audioplayers.h"
 #include "util/asserts.h"
+#include "util/event_loop.h"
 #include "util/logging.h"
 
 struct audio_player {
@@ -35,6 +36,8 @@ struct audio_player {
     char *event_channel_name;
 
     _Atomic bool event_subscribed;
+
+    struct evsrc *busfd_event_source;
 };
 
 // Private Class functions
@@ -49,15 +52,14 @@ static void audio_player_on_duration_update(struct audio_player *self);
 static void audio_player_on_seek_completed(struct audio_player *self);
 static void audio_player_on_playback_ended(struct audio_player *self);
 
-static int on_bus_fd_ready(sd_event_source *src, int fd, uint32_t revents, void *userdata) {
-    struct audio_player *player = userdata;
+static enum event_handler_return on_bus_fd_ready(int fd, uint32_t revents, void *userdata) {
+    struct audio_player *player;
     GstMessage *msg;
 
-    (void) src;
     (void) fd;
     (void) revents;
-
-    /* DEBUG_TRACE_BEGIN(player, "on_bus_fd_ready"); */
+    ASSERT_NOT_NULL(userdata);
+    player = userdata;
 
     msg = gst_bus_pop(player->bus);
     if (msg != NULL) {
@@ -65,9 +67,7 @@ static int on_bus_fd_ready(sd_event_source *src, int fd, uint32_t revents, void 
         gst_message_unref(msg);
     }
 
-    /* DEBUG_TRACE_END(player, "on_bus_fd_ready"); */
-
-    return 0;
+    return EVENT_HANDLER_CONTINUE;
 }
 
 static void audio_player_source_setup(GstElement *playbin, GstElement *source, GstElement **p_src) {
@@ -79,9 +79,8 @@ static void audio_player_source_setup(GstElement *playbin, GstElement *source, G
     }
 }
 
-struct audio_player *audio_player_new(char *player_id, char *channel) {
+struct audio_player *audio_player_new(struct evloop *platform_loop, char *player_id, char *channel) {
     GPollFD fd;
-    sd_event_source *busfd_event_source;
 
     struct audio_player *self = malloc(sizeof(struct audio_player));
     if (self == NULL) {
@@ -132,7 +131,14 @@ struct audio_player *audio_player_new(char *player_id, char *channel) {
 
     gst_bus_get_pollfd(self->bus, &fd);
 
-    flutterpi_sd_event_add_io(&busfd_event_source, fd.fd, EPOLLIN, on_bus_fd_ready, self);
+    uint32_t events = 0;
+    events |= fd.events & G_IO_IN ? EPOLLIN : 0;
+    events |= fd.events & G_IO_OUT ? EPOLLOUT : 0;
+    events |= fd.events & G_IO_PRI ? EPOLLPRI : 0;
+    events |= fd.events & G_IO_ERR ? EPOLLERR : 0;
+    events |= fd.events & G_IO_HUP ? EPOLLHUP : 0;
+
+    self->busfd_event_source = evloop_add_io(platform_loop, fd.fd, events, on_bus_fd_ready, self);
 
     // Refresh continuously to emit recurring events
     g_timeout_add(1000, (GSourceFunc) audio_player_on_refresh, self);
@@ -602,4 +608,6 @@ void audio_player_release(struct audio_player *self) {
     if (playbinState > GST_STATE_NULL) {
         gst_element_set_state(self->playbin, GST_STATE_NULL);
     }
+
+    evsrc_destroy(self->busfd_event_source);
 }
