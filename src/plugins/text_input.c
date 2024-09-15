@@ -85,6 +85,23 @@ static inline int to_symbol_index(unsigned int byte_index) {
     return cursor < target_cursor ? -1 : symbol_index;
 }
 
+static inline int count_utf8_characters(const char *str) {
+    int len = 0;
+    const char *cursor = str;
+
+    while (*cursor) {
+        uint8_t utf8_len = utf8_symbol_length(*cursor);
+        for (uint8_t i = 0; i < utf8_len; i++) {
+            if (!*cursor) {
+                return len;
+            }
+        }
+        len++;
+    }
+
+    return len;
+}
+
 /**
  * Platform message callbacks
  */
@@ -615,33 +632,26 @@ static bool model_delete_selected(void) {
     return true;
 }
 
-static bool model_add_utf8_char(uint8_t *c) {
-    size_t symbol_length;
-    uint8_t *to_move;
-
+static bool model_add_text(const char *str) {
     if (text_input.selection_base != text_input.selection_extent)
         model_delete_selected();
 
     // find out where in our string we need to insert the utf8 symbol
 
-    symbol_length = utf8_symbol_length(*c);
-    to_move = symbol_at(text_input.selection_base);
+    size_t l = strlen(str);
+    uint8_t *to_move = symbol_at(text_input.selection_base);
 
-    if (!to_move || !symbol_length)
+    if (!to_move || !l)
         return false;
 
     // move the string behind the insertion position to
     // make place for the utf8 charactercursor
 
-    memmove(to_move + symbol_length, to_move, strlen((char *) to_move) + 1 /* null byte */);
-
-    // after the move, to_move points to the memory
-    // where c should be inserted
-    for (int i = 0; i < symbol_length; i++)
-        to_move[i] = c[i];
+    memmove(to_move + l, to_move, strlen((char *) to_move) + 1 /* null byte */);
+    memcpy(to_move, str, l);
 
     // move our selection to behind the inserted char
-    text_input.selection_extent++;
+    text_input.selection_extent += count_utf8_characters(str);
     text_input.selection_base = text_input.selection_extent;
 
     return true;
@@ -740,14 +750,15 @@ static int sync_editing_state(void) {
 }
 
 /**
- * `c` doesn't need to be NULL-terminated, the length of the char will be calculated
- * using the start byte.
+ * @brief Called when text input was received from the keyboard.
+ * 
+ * @param str The NULL-terminated UTF-8 string that was received.
  */
-int textin_on_utf8_char(uint8_t *c) {
+int textin_on_text(const char *str) {
     if (text_input.connection_id == -1)
         return 0;
 
-    if (model_add_utf8_char(c))
+    if (model_add_text(str))
         return sync_editing_state();
 
     return 0;
@@ -771,7 +782,7 @@ int textin_on_xkb_keysym(xkb_keysym_t keysym) {
         case XKB_KEY_KP_Enter:
         case XKB_KEY_ISO_Enter:
             if (text_input.input_type == kInputTypeMultiline)
-                needs_sync = model_add_utf8_char((uint8_t *) "\n");
+                needs_sync = model_add_text("\n");
 
             perform_action = true;
             break;

@@ -132,6 +132,7 @@ add_library(
   src/kms/req_builder.c
   src/kms/resources.c
   src/kms/monitor.c
+  src/kms/kms_window.c
   src/util/event_loop.c
   src/util/lock_ops.c
   src/util/bitscan.c
@@ -151,6 +152,7 @@ add_library(
   src/frame_scheduler.c
   src/window.c
   src/dummy_render_surface.c
+  src/dummy_window.c
   src/plugins/services.c
 )
 
