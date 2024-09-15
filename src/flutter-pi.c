@@ -41,10 +41,12 @@
 #include <xf86drmMode.h>
 
 #include "compositor_ng.h"
+#include "dummy_window.h"
 #include "filesystem_layout.h"
 #include "frame_scheduler.h"
 #include "keyboard.h"
 #include "kms/drmdev.h"
+#include "kms/kms_window.h"
 #include "kms/req_builder.h"
 #include "kms/resources.h"
 #include "locales.h"
@@ -224,6 +226,8 @@ struct flutterpi {
     pthread_t platform_thread;
 
     struct evsrc *drmdev_evrsc;
+
+    struct udev *udev;
 
     /**
 	 * @brief The user input instance.
@@ -579,7 +583,13 @@ UNUSED static FlutterTransformation on_get_transformation(void *userdata) {
     ASSERT_NOT_NULL(userdata);
     flutterpi = userdata;
 
-    compositor_get_view_geometry(flutterpi->compositor, &geometry);
+    struct window *w = compositor_ref_implicit_view(flutterpi->compositor);
+    if (w == NULL) {
+        return MAT3F_AS_FLUTTER_TRANSFORM(MAT3F_IDENTITY());
+    }
+
+    geometry = window_get_view_geometry(w);
+    window_unref(w);
 
     return MAT3F_AS_FLUTTER_TRANSFORM(geometry.view_to_display_transform);
 }
@@ -1316,7 +1326,22 @@ static int flutterpi_run(struct flutterpi *flutterpi) {
         }
     );
 
+    compositor_set_fl_pointer_event_interface(
+        flutterpi->compositor,
+        &(const struct fl_pointer_event_interface){
+            .send_pointer_event = procs->SendPointerEvent,
+            .engine = flutterpi->flutter.engine,
+        }
+    );
+
+    user_input_resume(flutterpi->user_input);
+
     evloop_run(flutterpi->platform_loop);
+
+    compositor_set_fl_pointer_event_interface(flutterpi->compositor, NULL);
+    user_input_suspend(flutterpi->user_input);
+
+    compositor_set_fl_display_interface(flutterpi->compositor, NULL);
 
     // We deinitialize the plugins here so plugins don't attempt to use the
     // flutter engine anymore.
@@ -1369,15 +1394,12 @@ void flutterpi_schedule_exit(struct flutterpi *flutterpi) {
 /**************
  * USER INPUT *
  **************/
-static void on_flutter_pointer_event(void *userdata, const FlutterPointerEvent *events, size_t n_events) {
+UNUSED static void on_flutter_pointer_event(void *userdata, const FlutterPointerEvent *events, size_t n_events) {
     FlutterEngineResult engine_result;
     struct flutterpi *flutterpi;
 
     ASSERT_NOT_NULL(userdata);
     flutterpi = userdata;
-
-    /// TODO: make this atomic
-    flutterpi->flutter.next_frame_request_is_secondary = true;
 
     engine_result = flutterpi->flutter.procs.SendPointerEvent(flutterpi->flutter.engine, events, n_events);
     if (engine_result != kSuccess) {
@@ -1385,192 +1407,6 @@ static void on_flutter_pointer_event(void *userdata, const FlutterPointerEvent *
             "Error sending touchscreen / mouse events to flutter. FlutterEngineSendPointerEvent: %s\n",
             FLUTTER_RESULT_TO_STRING(engine_result)
         );
-        //flutterpi_schedule_exit(flutterpi);
-    }
-}
-
-static void on_utf8_character(void *userdata, uint8_t *character) {
-    struct flutterpi *flutterpi;
-    int ok;
-
-    flutterpi = userdata;
-
-    (void) flutterpi;
-
-#ifdef BUILD_TEXT_INPUT_PLUGIN
-    ok = textin_on_utf8_char(character);
-    if (ok != 0) {
-        LOG_ERROR("Error handling keyboard event. textin_on_utf8_char: %s\n", strerror(ok));
-        //flutterpi_schedule_exit(flutterpi);
-    }
-#endif
-}
-
-static void on_xkb_keysym(void *userdata, xkb_keysym_t keysym) {
-    struct flutterpi *flutterpi;
-    int ok;
-
-    flutterpi = userdata;
-    (void) flutterpi;
-
-#ifdef BUILD_TEXT_INPUT_PLUGIN
-    ok = textin_on_xkb_keysym(keysym);
-    if (ok != 0) {
-        LOG_ERROR("Error handling keyboard event. textin_on_xkb_keysym: %s\n", strerror(ok));
-        //flutterpi_schedule_exit(flutterpi);
-    }
-#endif
-}
-
-static void
-on_gtk_keyevent(void *userdata, uint32_t unicode_scalar_values, uint32_t key_code, uint32_t scan_code, uint32_t modifiers, bool is_down) {
-    struct flutterpi *flutterpi;
-    int ok;
-
-    flutterpi = userdata;
-    (void) flutterpi;
-
-#ifdef BUILD_RAW_KEYBOARD_PLUGIN
-    ok = rawkb_send_gtk_keyevent(unicode_scalar_values, key_code, scan_code, modifiers, is_down);
-    if (ok != 0) {
-        LOG_ERROR("Error handling keyboard event. rawkb_send_gtk_keyevent: %s\n", strerror(ok));
-        //flutterpi_schedule_exit(flutterpi);
-    }
-#endif
-}
-
-static void on_switch_vt(void *userdata, int vt) {
-    struct flutterpi *flutterpi;
-
-    ASSERT_NOT_NULL(userdata);
-    flutterpi = userdata;
-    (void) flutterpi;
-    (void) vt;
-
-    LOG_DEBUG("on_switch_vt(%d)\n", vt);
-
-    if (flutterpi->libseat != NULL) {
-#ifdef HAVE_LIBSEAT
-        int ok;
-
-        ok = libseat_switch_session(flutterpi->libseat, vt);
-        if (ok < 0) {
-            LOG_ERROR("Could not switch session. libseat_switch_session: %s\n", strerror(errno));
-        }
-#else
-        UNREACHABLE();
-#endif
-    }
-}
-
-static void on_set_cursor_enabled(void *userdata, bool enabled) {
-    struct flutterpi *flutterpi;
-
-    flutterpi = userdata;
-    (void) flutterpi;
-
-    compositor_set_cursor(flutterpi->compositor, true, enabled, false, POINTER_KIND_NONE, false, VEC2F(0, 0));
-}
-
-static void on_move_cursor(void *userdata, struct vec2f delta) {
-    struct flutterpi *flutterpi;
-
-    flutterpi = userdata;
-
-    compositor_set_cursor(flutterpi->compositor, true, true, false, POINTER_KIND_NONE, true, delta);
-}
-
-static int on_user_input_open(const char *path, int flags, void *userdata) {
-    struct flutterpi *flutterpi;
-    int ok, fd;
-
-    ASSERT_NOT_NULL(path);
-    ASSERT_NOT_NULL(userdata);
-    flutterpi = userdata;
-    (void) flutterpi;
-
-    if (flutterpi->libseat != NULL) {
-#ifdef HAVE_LIBSEAT
-        struct device_id_and_fd *entry;
-        int device_id;
-
-        ok = libseat_open_device(flutterpi->libseat, path, &fd);
-        if (ok < 0) {
-            ok = errno;
-            LOG_ERROR("Couldn't open evdev device. libseat_open_device: %s\n", strerror(ok));
-            return -ok;
-        }
-
-        device_id = ok;
-
-        entry = malloc(sizeof *entry);
-        if (entry == NULL) {
-            libseat_close_device(flutterpi->libseat, device_id);
-            return -ENOMEM;
-        }
-
-        entry->entry = (struct list_head){ NULL, NULL };
-        entry->fd = fd;
-        entry->device_id = device_id;
-
-        list_add(&entry->entry, &flutterpi->fd_for_device_id);
-        return fd;
-#else
-        UNREACHABLE();
-#endif
-    } else {
-        ok = open(path, flags);
-        if (ok < 0) {
-            ok = errno;
-            LOG_ERROR("Couldn't open evdev device. open: %s\n", strerror(ok));
-            return -ok;
-        }
-
-        fd = ok;
-        return fd;
-    }
-}
-
-static void on_user_input_close(int fd, void *userdata) {
-    struct flutterpi *flutterpi;
-    int ok;
-
-    ASSERT_NOT_NULL(userdata);
-    flutterpi = userdata;
-    (void) flutterpi;
-
-    if (flutterpi->libseat != NULL) {
-#ifdef HAVE_LIBSEAT
-        struct device_id_and_fd *entry = NULL;
-
-        list_for_each_entry_safe(struct device_id_and_fd, entry_iter, &flutterpi->fd_for_device_id, entry) {
-            if (entry_iter->fd == fd) {
-                entry = entry_iter;
-                break;
-            }
-        }
-
-        if (entry == NULL) {
-            LOG_ERROR("Could not find the device id for the evdev device that should be closed.\n");
-            return;
-        }
-
-        ok = libseat_close_device(flutterpi->libseat, entry->device_id);
-        if (ok < 0) {
-            LOG_ERROR("Couldn't close evdev device. libseat_close_device: %s\n", strerror(errno));
-        }
-
-        list_del(&entry->entry);
-        free(entry);
-        return;
-#else
-        UNREACHABLE();
-#endif
-    } else {
-        ok = close(fd);
-        if (ok < 0) {
-            LOG_ERROR("Could not close evdev device. close: %s\n", strerror(errno));
-        }
     }
 }
 
@@ -1997,11 +1833,116 @@ static enum event_handler_return on_libseat_fd_ready(int fd, uint32_t revents, v
 }
 #endif
 
+static void switch_vt(struct flutterpi *flutterpi, int vt) {
+    ASSERT_NOT_NULL(flutterpi);
+    (void) vt;
+
+    LOG_DEBUG("switch_vt(%d)\n", vt);
+
+    if (flutterpi->libseat != NULL) {
+#ifdef HAVE_LIBSEAT
+        int ok;
+
+        ok = libseat_switch_session(flutterpi->libseat, vt);
+        if (ok < 0) {
+            LOG_ERROR("Could not switch session. libseat_switch_session: %s\n", strerror(errno));
+        }
+#else
+        UNREACHABLE();
+#endif
+    }
+}
+
+static void on_input(void *userdata, size_t n_events, const struct user_input_event *events) {
+    for (size_t i = 0; i < n_events; i++) {
+        if (events[i].type != USER_INPUT_KEY) {
+            break;
+        }
+
+        const struct user_input_event *event = events + i;
+
+        xkb_keysym_t keysym = event->key.xkb_keysym;
+        if (keysym && XKB_KEY_XF86Switch_VT_1 <= keysym && keysym <= XKB_KEY_XF86Switch_VT_12) {
+            switch_vt(userdata, keysym - XKB_KEY_XF86Switch_VT_1 + 1);
+        }
+
+#ifdef BUILD_TEXT_INPUT_PLUGIN
+        if (event->key.text[0] != '\0') {
+            textin_on_text(event->key.text);
+        }
+
+        if (keysym) {
+            textin_on_xkb_keysym(keysym);
+        }
+#endif
+
+#ifdef BUILD_RAW_KEYBOARD_PLUGIN
+        uint32_t gtk_modifiers = 0;
+        gtk_modifiers |= event->key.modifiers.shift ? 1 : 0;
+        gtk_modifiers |= event->key.modifiers.capslock ? 1 << 1 : 0;
+        gtk_modifiers |= event->key.modifiers.ctrl ? 1 << 2 : 0;
+        gtk_modifiers |= event->key.modifiers.alt ? 1 << 3 : 0;
+        gtk_modifiers |= event->key.modifiers.numlock ? 1 << 4 : 0;
+        gtk_modifiers |= event->key.modifiers.meta ? 1 << 28 : 0;
+
+        rawkb_send_gtk_keyevent(
+            event->key.plain_codepoint,
+            event->key.xkb_keysym,
+            event->key.xkb_keycode,
+            gtk_modifiers,
+            event->key.is_down
+        );
+#endif
+    }
+}
+
+static void init_input(struct flutterpi *fpi) {
+    fpi->user_input = NULL;
+    fpi->user_input_evsrc = NULL;
+
+    fpi->user_input = user_input_new_suspended(&file_interface, fpi->libseat, fpi->udev, NULL);
+    if (fpi->user_input == NULL) {
+        LOG_ERROR("Couldn't initialize user input. flutter-pi will run without user input.\n");
+        return;
+    }
+
+    user_input_add_listener(fpi->user_input, USER_INPUT_KEY, on_input, fpi);
+
+    fpi->user_input_evsrc = evloop_add_io(
+        fpi->platform_loop,
+        user_input_get_fd(fpi->user_input),
+        EPOLLIN | EPOLLRDHUP | EPOLLPRI,
+        on_user_input_fd_ready,
+        fpi->user_input
+    );
+    if (fpi->user_input_evsrc == NULL) {
+        LOG_ERROR("Couldn't listen for user input. flutter-pi will run without user input.\n");
+        goto fail_destroy_input;
+    }
+
+    return;
+
+fail_destroy_input:
+    user_input_destroy(fpi->user_input);
+    fpi->user_input = NULL;
+}
+
+static void fini_input(struct flutterpi *fpi) {
+    if (fpi->user_input_evsrc != NULL) {
+        evsrc_destroy(fpi->user_input_evsrc);
+        fpi->user_input_evsrc = NULL;
+    }
+
+    if (fpi->user_input != NULL) {
+        user_input_destroy(fpi->user_input);
+        fpi->user_input = NULL;
+    }
+}
+
 struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
     enum flutter_runtime_mode runtime_mode;
     enum renderer_type renderer_type;
     struct flutter_paths *paths;
-    struct view_geometry geometry;
     FlutterEngineAOTData aot_data;
     FlutterEngineResult engine_result;
     struct gbm_device *gbm_device;
@@ -2077,7 +2018,8 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
             fd = libseat_get_fd(fpi->libseat);
             if (fd < 0) {
                 LOG_ERROR(
-                    "Couldn't get an event fd from libseat. Flutter-pi will run without session switching support. libseat_get_fd: %s\n",
+                    "Couldn't get an event fd from libseat. Flutter-pi will run without session switching support. libseat_get_fd: "
+                    "%s\n",
                     strerror(errno)
                 );
                 libseat_close_seat(fpi->libseat);
@@ -2117,7 +2059,11 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
 
     locales_print(fpi->locales);
 
-    struct udev *udev = NULL;
+    fpi->udev = udev_new();
+    if (fpi->udev == NULL) {
+        LOG_ERROR("Couldn't create udev context.\n");
+        goto fail_destroy_locales;
+    }
 
     struct drm_resources *drm_resources = NULL;
     if (cmd_args.dummy_display) {
@@ -2130,13 +2076,7 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
             goto fail_destroy_locales;
         }
     } else {
-        udev = udev_new();
-        if (udev == NULL) {
-            LOG_ERROR("Couldn't create udev context.\n");
-            goto fail_destroy_locales;
-        }
-
-        fpi->drmdev = drmdev_new_from_udev_primary(udev, "seat0", &file_interface, fpi->libseat);
+        fpi->drmdev = drmdev_new_from_udev_primary(fpi->udev, "seat0", &file_interface, fpi->libseat);
         if (fpi->drmdev == NULL) {
             goto fail_destroy_locales;
         }
@@ -2202,6 +2142,8 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
         goto fail_unref_tracer;
     }
 
+    init_input(fpi);
+
     {
         struct window *window;
 
@@ -2262,7 +2204,9 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
             frame_scheduler_unref(scheduler);
         }
 
-        fpi->compositor = compositor_new_multiview(fpi->tracer, fpi->raster_evloop, NULL, fpi->drmdev, drm_resources);
+        fpi->compositor = compositor_new_multiview(fpi->tracer, fpi->raster_evloop, NULL, fpi->drmdev, drm_resources, fpi->user_input);
+
+        compositor_add_view(fpi->compositor, window);
 
         window_unref(window);
 
@@ -2283,48 +2227,6 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
         );
         if (fpi->drmdev_evrsc == NULL) {
             goto fail_unref_compositor;
-        }
-    }
-
-    compositor_get_view_geometry(fpi->compositor, &geometry);
-
-    static const struct user_input_interface user_input_interface = {
-        .on_flutter_pointer_event = on_flutter_pointer_event,
-        .on_utf8_character = on_utf8_character,
-        .on_xkb_keysym = on_xkb_keysym,
-        .on_gtk_keyevent = on_gtk_keyevent,
-        .on_set_cursor_enabled = on_set_cursor_enabled,
-        .on_move_cursor = on_move_cursor,
-        .open = on_user_input_open,
-        .close = on_user_input_close,
-        .on_switch_vt = on_switch_vt,
-        .on_key_event = NULL,
-    };
-
-    list_inithead(&fpi->fd_for_device_id);
-
-    fpi->user_input = user_input_new(
-        &user_input_interface,
-        fpi,
-        &geometry.display_to_view_transform,
-        &geometry.view_to_display_transform,
-        (unsigned int) geometry.display_size.x,
-        (unsigned int) geometry.display_size.y
-    );
-    if (fpi->user_input == NULL) {
-        LOG_ERROR("Couldn't initialize user input. flutter-pi will run without user input.\n");
-    } else {
-        fpi->user_input_evsrc = evloop_add_io(
-            fpi->platform_loop,
-            user_input_get_fd(fpi->user_input),
-            EPOLLIN | EPOLLRDHUP | EPOLLPRI,
-            on_user_input_fd_ready,
-            fpi->user_input
-        );
-        if (fpi->user_input_evsrc == NULL) {
-            LOG_ERROR("Couldn't listen for user input. flutter-pi will run without user input.\n");
-            user_input_destroy(fpi->user_input);
-            fpi->user_input = NULL;
         }
     }
 
@@ -2417,12 +2319,8 @@ fail_unload_engine:
     unload_flutter_engine_lib(fpi->flutter.engine_handle);
 
 fail_destroy_user_input:
-    if (fpi->user_input_evsrc) {
-        evsrc_destroy(fpi->user_input_evsrc);
-    }
-    if (fpi->user_input) {
-        user_input_destroy(fpi->user_input);
-    }
+    fini_input(fpi);
+
     if (fpi->drmdev_evrsc) {
         evsrc_destroy(fpi->drmdev_evrsc);
     }

@@ -95,15 +95,24 @@ struct fl_display_interface {
     FlutterEngine engine;
 };
 
-struct compositor *compositor_new_multiview(
+struct fl_pointer_event_interface {
+    FlutterEngineSendPointerEventFnPtr send_pointer_event;
+    FlutterEngine engine;
+};
+
+struct user_input;
+
+MUST_CHECK struct compositor *compositor_new_multiview(
     struct tracer *tracer,
     struct evloop *raster_loop,
     struct udev *udev,
     struct drmdev *drmdev,
-    struct drm_resources *resources
+    struct drm_resources *resources,
+    struct user_input *input
 );
 
-struct compositor *compositor_new_singleview(struct tracer *tracer, struct evloop *raster_loop, struct window *window);
+struct compositor *
+compositor_new_singleview(struct tracer *tracer, struct evloop *raster_loop, struct window *window, struct user_input *input);
 
 void compositor_destroy(struct compositor *compositor);
 
@@ -119,6 +128,17 @@ DECLARE_REF_OPS(compositor)
  * @param display_interface The display interface to set. NULL is not allowed. The struct is copied.
  */
 void compositor_set_fl_display_interface(struct compositor *compositor, const struct fl_display_interface *display_interface);
+
+/**
+ * @brief Sets the callback & flutter engine that pointer events will be sent to.
+ * 
+ * @param compositor The compositor to set the pointer event interface for.
+ * @param pointer_event_interface The pointer event interface to set. NULL is not allowed. The struct is copied.
+ */
+void compositor_set_fl_pointer_event_interface(
+    struct compositor *compositor,
+    const struct fl_pointer_event_interface *pointer_event_interface
+);
 
 void compositor_get_view_geometry(struct compositor *compositor, struct view_geometry *view_geometry_out);
 
@@ -137,9 +157,18 @@ int64_t compositor_add_view(struct compositor *compositor, struct window *window
 void compositor_remove_view(struct compositor *compositor, int64_t view_id);
 
 /**
- * @brief Sets the implicit view (view with id 0) to the given window.
+ * @brief Gets the implicit view of the compositor.
+ * 
+ * Some flutter APIs still assume a single view, so this is a way to get a view to use for those.
+ * 
+ * @attention Since the view setup of the compositor can change at any time, and views
+ * might be removed and destroyed at any time, this function increases the refcount
+ * of the view before returning. The caller must call @ref window_unref on the view
+ * to avoid a memory leak.
+ * 
+ * @return The implicit view of the compositor.
  */
-int compositor_put_implicit_view(struct compositor *compositor, struct window *window);
+MUST_CHECK struct window *compositor_ref_implicit_view(struct compositor *compositor);
 
 /**
  * @brief Adds a platform view to the compositor, returning the platform view id.

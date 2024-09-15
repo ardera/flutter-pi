@@ -36,10 +36,12 @@
 #include "render_surface.h"
 #include "surface.h"
 #include "tracer.h"
+#include "user_input.h"
 #include "util/collection.h"
 #include "util/dynarray.h"
 #include "util/event_loop.h"
 #include "util/khash_uint32.h"
+#include "util/kvec.h"
 #include "util/logging.h"
 #include "util/refcounting.h"
 #include "window.h"
@@ -198,8 +200,6 @@ bool connector_init(const struct drm_connector *connector, int64_t fl_display_id
 
     if (connector->variable_state.connection_state == DRM_CONNSTATE_CONNECTED) {
         out->has_display = true;
-        /// TODO: Implement flutter display id, current mode
-        UNIMPLEMENTED();
 
         out->display.fl_display_id = fl_display_id;
         out->display.refresh_rate = 60.0;
@@ -226,18 +226,21 @@ struct display_setup *display_setup_new(struct drm_resources *resources, khash_t
         return NULL;
     }
 
-    for (s->n_connectors = 0; s->n_connectors < resources->n_connectors;) {
-        size_t i = s->n_connectors;
+    s->n_connectors = 0;
+    for (size_t i = 0; i < resources->n_connectors; i++) {
+        if (resources->connectors[i].variable_state.connection_state != DRM_CONNSTATE_CONNECTED) {
+            continue;
+        }
 
-        khiter_t entry = kh_get(connector_display_ids, connectors, resources->connectors[i].id);
+        khiter_t entry = kh_get(connector_display_ids, connectors, resources->connectors[s->n_connectors].id);
         if (entry == kh_end(connectors)) {
             continue;
         }
 
         int64_t fl_display_id = kh_value(connectors, entry);
 
-        bool ok = connector_init(resources->connectors + i, fl_display_id, s->connectors + i);
-        if (!ok) {
+        bool bucket_status = connector_init(resources->connectors + i, fl_display_id, s->connectors + s->n_connectors);
+        if (!bucket_status) {
             continue;
         }
 
@@ -320,7 +323,7 @@ struct compositor {
     pthread_mutex_t mutex;
 
     struct tracer *tracer;
-    struct window *main_window;
+    struct window *implicit_view_fallback;
 
     int64_t next_display_id;
     khash_t(connector_display_ids) * connectors;
@@ -332,8 +335,6 @@ struct compositor {
     khash_t(platform_view) * platform_views;
 
     FlutterCompositor flutter_compositor;
-
-    struct vec2f cursor_pos;
 
     struct drmdev *drmdev;
     struct drm_monitor *monitor;
@@ -347,6 +348,18 @@ struct compositor {
     bool is_startup;
     bool has_display_interface;
     struct fl_display_interface display_interface;
+
+    bool has_pointer_event_interface;
+    struct fl_pointer_event_interface pointer_event_interface;
+
+    kvec_t(int64_t) view_layout;
+
+    struct {
+        bool enabled;
+        struct vec2f pos_view;
+        int64_t fl_view_id;
+        struct window *window;
+    } cursor;
 };
 
 static bool on_flutter_present_layers(const FlutterLayer **layers, size_t layers_count, void *userdata);
@@ -359,7 +372,7 @@ static bool on_flutter_collect_backing_store(const FlutterBackingStore *fl_store
 static bool on_flutter_present_view(const FlutterPresentViewInfo *present_info);
 
 static int update_flutter_displays(struct compositor *c) {
-    int ok;
+    int bucket_status;
 
     // Allocate the display list on the stack.
     FlutterEngineDisplay *displays = NULL;
@@ -377,10 +390,10 @@ static int update_flutter_displays(struct compositor *c) {
         if (connector->variable_state.connection_state == DRM_CONNSTATE_CONNECTED) {
             int64_t id;
 
-            khiter_t entry = kh_put(connector_display_ids, c->connectors, connector->id, &ok);
-            if (ok == -1) {
+            khiter_t entry = kh_put(connector_display_ids, c->connectors, connector->id, &bucket_status);
+            if (bucket_status == -1) {
                 return ENOMEM;
-            } else if (ok == 0) {
+            } else if (bucket_status == 0) {
                 // We already know this display.
                 id = kh_value(c->connectors, entry);
             } else {
@@ -417,7 +430,7 @@ static int update_flutter_displays(struct compositor *c) {
     if (displays != NULL) {
         FlutterEngineResult engine_result = c->display_interface.notify_display_update(
             c->display_interface.engine,
-            c->is_startup ? kFlutterEngineDisplaysUpdateTypeStartup : kFlutterEngineDisplaysUpdateTypeCount,
+            kFlutterEngineDisplaysUpdateTypeStartup,
             displays,
             n_displays
         );
@@ -433,6 +446,41 @@ static int update_flutter_displays(struct compositor *c) {
     }
 
     return 0;
+}
+
+static void send_window_metrics_events(struct compositor *compositor) {
+    int64_t view_id;
+    struct window *window;
+    kh_foreach(compositor->views, view_id, window, {
+        struct view_geometry geo = window_get_view_geometry(window);
+
+        COMPILE_ASSERT(sizeof(FlutterWindowMetricsEvent) == 96);
+
+        FlutterWindowMetricsEvent event;
+        memset(&event, 0, sizeof event);
+
+        event.struct_size = sizeof(FlutterWindowMetricsEvent);
+        event.width = geo.view_size.x;
+        event.height = geo.view_size.y;
+        event.pixel_ratio = geo.device_pixel_ratio;
+        event.left = 0;
+        event.top = 0;
+        event.physical_view_inset_top = 0;
+        event.physical_view_inset_right = 0;
+        event.physical_view_inset_bottom = 0;
+        event.physical_view_inset_left = 0;
+        event.display_id = 0;
+        event.view_id = view_id;
+
+        FlutterEngineResult engine_result =
+            compositor->display_interface.send_window_metrics_event(compositor->display_interface.engine, &event);
+        if (engine_result != kSuccess) {
+            LOG_ERROR(
+                "Could not send window metrics to flutter engine. FlutterEngineSendWindowMetricsEvent: %s\n",
+                FLUTTER_RESULT_TO_STRING(engine_result)
+            );
+        }
+    });
 }
 
 static enum event_handler_return on_drm_monitor_ready(int fd, uint32_t events, void *userdata) {
@@ -475,15 +523,18 @@ static const struct drm_uevent_listener uevent_listener = {
     .on_uevent = on_drm_uevent,
 };
 
+static void on_input(void *userdata, size_t n_events, const struct user_input_event *events);
+
 MUST_CHECK struct compositor *compositor_new_multiview(
     struct tracer *tracer,
     struct evloop *raster_loop,
     struct udev *udev,
     struct drmdev *drmdev,
-    struct drm_resources *resources
+    struct drm_resources *resources,
+    struct user_input *input
 ) {
     struct compositor *c;
-    int ok;
+    int bucket_status;
 
     ASSERT_NOT_NULL(tracer);
     ASSERT_NOT_NULL(raster_loop);
@@ -500,7 +551,7 @@ MUST_CHECK struct compositor *compositor_new_multiview(
     c->connectors = kh_init(connector_display_ids);
 
     c->n_refs = REFCOUNT_INIT_1;
-    c->main_window = NULL;
+    c->implicit_view_fallback = NULL;
 
     // just so we get an error if the FlutterCompositor struct was updated
     COMPILE_ASSERT(sizeof(FlutterCompositor) == 28 || sizeof(FlutterCompositor) == 56);
@@ -515,9 +566,14 @@ MUST_CHECK struct compositor *compositor_new_multiview(
     c->flutter_compositor.present_view_callback = on_flutter_present_view;
 
     c->tracer = tracer_ref(tracer);
-    c->cursor_pos = VEC2F(0, 0);
 
-    c->next_view_id = 1;
+    kv_init(c->view_layout);
+    c->cursor.enabled = false;
+    c->cursor.pos_view = VEC2F(0, 0);
+    c->cursor.fl_view_id = -1;
+    c->cursor.window = NULL;
+
+    c->next_view_id = 0;
     c->next_platform_view_id = 1;
     c->next_display_id = 1;
 
@@ -545,11 +601,11 @@ MUST_CHECK struct compositor *compositor_new_multiview(
     c->resources = resources != NULL ? drm_resources_ref(resources) : drmdev_query_resources(drmdev);
     c->drm_monitor_evsrc = evloop_add_io(raster_loop, drm_monitor_get_fd(c->monitor), EPOLLIN, on_drm_monitor_ready, c);
 
-    c->is_startup = false;
+    c->is_startup = true;
     c->has_display_interface = false;
 
-    ok = update_flutter_displays(c);
-    if (ok != 0) {
+    bucket_status = update_flutter_displays(c);
+    if (bucket_status != 0) {
         goto fail_return_null;
     }
 
@@ -560,14 +616,24 @@ MUST_CHECK struct compositor *compositor_new_multiview(
     }
 
     value_notifier_init(&c->display_setup_notifier, display_setup, display_setup_unref_void);
+
+    user_input_add_primary_listener(
+        input,
+        USER_INPUT_DEVICE_ADDED | USER_INPUT_DEVICE_REMOVED | USER_INPUT_SLOT_ADDED | USER_INPUT_SLOT_REMOVED | USER_INPUT_POINTER |
+            USER_INPUT_TOUCH | USER_INPUT_TABLET_TOOL,
+        on_input,
+        c
+    );
+
     return c;
 
 fail_return_null:
     return NULL;
 }
 
-struct compositor *compositor_new_singleview(struct tracer *tracer, struct evloop *raster_loop, struct window *window) {
-    struct compositor *c = compositor_new_multiview(tracer, raster_loop, NULL, NULL, NULL);
+struct compositor *
+compositor_new_singleview(struct tracer *tracer, struct evloop *raster_loop, struct window *window, struct user_input *input) {
+    struct compositor *c = compositor_new_multiview(tracer, raster_loop, NULL, NULL, NULL, input);
     if (c == NULL) {
         return NULL;
     }
@@ -602,7 +668,7 @@ void compositor_destroy(struct compositor *compositor) {
     evloop_unref(compositor->raster_loop);
 
     tracer_unref(compositor->tracer);
-    window_unref(compositor->main_window);
+    window_unref(compositor->implicit_view_fallback);
     pthread_mutex_destroy(&compositor->mutex);
     free(compositor);
 }
@@ -633,7 +699,7 @@ static struct window *compositor_get_view_by_id_locked(struct compositor *compos
 
     khiter_t entry = kh_get(view, compositor->views, view_id);
     if (entry != kh_end(compositor->views)) {
-        window = window_ref(kh_value(compositor->views, entry));
+        window = kh_value(compositor->views, entry);
     }
 
     return window;
@@ -642,14 +708,39 @@ static struct window *compositor_get_view_by_id_locked(struct compositor *compos
 static struct window *compositor_get_view_by_id(struct compositor *compositor, int64_t view_id) {
     compositor_lock(compositor);
     struct window *window = compositor_get_view_by_id_locked(compositor, view_id);
+    if (window) {
+        window = window_ref(window);
+    }
     compositor_unlock(compositor);
 
     return window;
 }
 
+struct window *compositor_ref_implicit_view(struct compositor *compositor) {
+    ASSERT_NOT_NULL(compositor);
+
+    mutex_lock(&compositor->mutex);
+
+    if (compositor->implicit_view_fallback == NULL) {
+        mutex_unlock(&compositor->mutex);
+        return NULL;
+    }
+
+    struct window *w = window_ref(compositor->implicit_view_fallback);
+
+    mutex_unlock(&compositor->mutex);
+
+    return w;
+}
+
 void compositor_set_fl_display_interface(struct compositor *compositor, const struct fl_display_interface *display_interface) {
     ASSERT_NOT_NULL(compositor);
     ASSERT_NOT_NULL(display_interface);
+
+    if (display_interface == NULL) {
+        compositor->has_display_interface = false;
+        return;
+    }
 
     compositor->has_display_interface = true;
     compositor->display_interface = *display_interface;
@@ -658,58 +749,39 @@ void compositor_set_fl_display_interface(struct compositor *compositor, const st
     update_flutter_displays(compositor);
 
     // send window metrics event
-    int64_t view_id;
-    struct window *window;
-    kh_foreach(compositor->views, view_id, window, {
-        struct view_geometry geo = window_get_view_geometry(window);
-
-        COMPILE_ASSERT(sizeof(FlutterWindowMetricsEvent) == 96);
-
-        FlutterWindowMetricsEvent event;
-        memset(&event, 0, sizeof event);
-
-        event.struct_size = sizeof(FlutterWindowMetricsEvent);
-        event.width = geo.view_size.x;
-        event.height = geo.view_size.y;
-        event.pixel_ratio = geo.device_pixel_ratio;
-        event.left = 0;
-        event.top = 0;
-        event.physical_view_inset_top = 0;
-        event.physical_view_inset_right = 0;
-        event.physical_view_inset_bottom = 0;
-        event.physical_view_inset_left = 0;
-        event.display_id = 0;
-        event.view_id = view_id;
-
-        FlutterEngineResult engine_result =
-            compositor->display_interface.send_window_metrics_event(compositor->display_interface.engine, &event);
-        if (engine_result != kSuccess) {
-            LOG_ERROR(
-                "Could not send window metrics to flutter engine. FlutterEngineSendWindowMetricsEvent: %s\n",
-                FLUTTER_RESULT_TO_STRING(engine_result)
-            );
-        }
-    });
+    send_window_metrics_events(compositor);
 }
 
-void compositor_get_view_geometry(struct compositor *compositor, struct view_geometry *view_geometry_out) {
-    *view_geometry_out = window_get_view_geometry(compositor->main_window);
+void compositor_set_fl_pointer_event_interface(
+    struct compositor *compositor,
+    const struct fl_pointer_event_interface *pointer_event_interface
+) {
+    ASSERT_NOT_NULL(compositor);
+    ASSERT_NOT_NULL(pointer_event_interface);
+
+    if (pointer_event_interface == NULL) {
+        compositor->has_pointer_event_interface = false;
+        return;
+    } else {
+        compositor->has_pointer_event_interface = true;
+        compositor->pointer_event_interface = *pointer_event_interface;
+    }
 }
 
 ATTR_PURE double compositor_get_refresh_rate(struct compositor *compositor) {
-    return window_get_refresh_rate(compositor->main_window);
+    return window_get_refresh_rate(compositor->implicit_view_fallback);
 }
 
 int compositor_get_next_vblank(struct compositor *compositor, uint64_t *next_vblank_ns_out) {
     ASSERT_NOT_NULL(compositor);
     ASSERT_NOT_NULL(next_vblank_ns_out);
-    return window_get_next_vblank(compositor->main_window, next_vblank_ns_out);
+    return window_get_next_vblank(compositor->implicit_view_fallback, next_vblank_ns_out);
 }
 
 static int
 compositor_push_composition(struct compositor *compositor, bool has_view_id, int64_t view_id, struct fl_layer_composition *composition) {
     struct window *window;
-    int ok;
+    int bucket_status;
 
     if (has_view_id) {
         window = compositor_get_view_by_id(compositor, view_id);
@@ -718,16 +790,16 @@ compositor_push_composition(struct compositor *compositor, bool has_view_id, int
             return EINVAL;
         }
     } else {
-        window = window_ref(compositor->main_window);
+        window = window_ref(compositor->implicit_view_fallback);
     }
 
     TRACER_BEGIN(compositor->tracer, "window_push_composition");
-    ok = window_push_composition(window, composition);
+    bucket_status = window_push_composition(window, composition);
     TRACER_END(compositor->tracer, "window_push_composition");
 
     window_unref(window);
 
-    return ok;
+    return bucket_status;
 }
 
 static void fill_platform_view_layer_props(
@@ -825,9 +897,9 @@ static int compositor_push_fl_layers(
     struct fl_layer_composition *composition;
     struct view_geometry geometry;
     struct window *window;
-    int ok;
+    int bucket_status;
 
-    window = has_view_id ? compositor_get_view_by_id(compositor, view_id) : window_ref(compositor->main_window);
+    window = has_view_id ? compositor_get_view_by_id(compositor, view_id) : window_ref(compositor->implicit_view_fallback);
     if (window == NULL) {
         LOG_ERROR("Couldn't find window with id %" PRId64 " to push flutter layers to.\n", view_id);
         return EINVAL;
@@ -889,17 +961,17 @@ static int compositor_push_fl_layers(
     }
 
     TRACER_BEGIN(compositor->tracer, "compositor_push_composition");
-    ok = compositor_push_composition(compositor, has_view_id, view_id, composition);
+    bucket_status = compositor_push_composition(compositor, has_view_id, view_id, composition);
     TRACER_END(compositor->tracer, "compositor_push_composition");
 
     fl_layer_composition_unref(composition);
-    return ok;
+    return bucket_status;
 }
 
 /// TODO: Remove
 UNUSED static bool on_flutter_present_layers(const FlutterLayer **layers, size_t layers_count, void *userdata) {
     struct compositor *compositor;
-    int ok;
+    int bucket_status;
 
     ASSERT_NOT_NULL(layers);
     assert(layers_count > 0);
@@ -907,10 +979,10 @@ UNUSED static bool on_flutter_present_layers(const FlutterLayer **layers, size_t
     compositor = userdata;
 
     TRACER_BEGIN(compositor->tracer, "compositor_push_fl_layers");
-    ok = compositor_push_fl_layers(compositor, false, -1, layers_count, layers);
+    bucket_status = compositor_push_fl_layers(compositor, false, -1, layers_count, layers);
     TRACER_END(compositor->tracer, "compositor_push_fl_layers");
 
-    if (ok != 0) {
+    if (bucket_status != 0) {
         return false;
     }
 
@@ -919,16 +991,16 @@ UNUSED static bool on_flutter_present_layers(const FlutterLayer **layers, size_t
 
 static bool on_flutter_present_view(const FlutterPresentViewInfo *present_info) {
     struct compositor *compositor;
-    int ok;
+    int bucket_status;
 
     ASSERT_NOT_NULL(present_info);
     compositor = present_info->user_data;
 
     TRACER_BEGIN(compositor->tracer, "compositor_push_fl_layers");
-    ok = compositor_push_fl_layers(compositor, true, present_info->view_id, present_info->layers_count, present_info->layers);
+    bucket_status = compositor_push_fl_layers(compositor, true, present_info->view_id, present_info->layers_count, present_info->layers);
     TRACER_END(compositor->tracer, "compositor_push_fl_layers");
 
-    if (ok != 0) {
+    if (bucket_status != 0) {
         return false;
     }
 
@@ -976,11 +1048,11 @@ void compositor_remove_platform_view(struct compositor *compositor, int64_t id) 
 
 #ifdef HAVE_EGL_GLES2
 bool compositor_has_egl_surface(struct compositor *compositor) {
-    return window_has_egl_surface(compositor->main_window);
+    return window_has_egl_surface(compositor->implicit_view_fallback);
 }
 
 EGLSurface compositor_get_egl_surface(struct compositor *compositor) {
-    return window_get_egl_surface(compositor->main_window);
+    return window_get_egl_surface(compositor->implicit_view_fallback);
 }
 #endif
 
@@ -989,7 +1061,7 @@ on_flutter_create_backing_store(const FlutterBackingStoreConfig *config, Flutter
     struct render_surface *s;
     struct compositor *compositor;
     struct window *window;
-    int ok;
+    int bucket_status;
 
     ASSERT_NOT_NULL(config);
     ASSERT_NOT_NULL(backing_store_out);
@@ -1019,8 +1091,8 @@ on_flutter_create_backing_store(const FlutterBackingStoreConfig *config, Flutter
     // render_surface_fill asserts that the user_data is null so it can make sure
     // any concrete render_surface_fill implementation doesn't try to set the user_data.
     // so we set the user_data after the fill
-    ok = render_surface_fill(s, backing_store_out);
-    if (ok != 0) {
+    bucket_status = render_surface_fill(s, backing_store_out);
+    if (bucket_status != 0) {
         LOG_ERROR("Couldn't fill flutter backing store with concrete OpenGL framebuffer/texture or Vulkan image.\n");
         goto fail_unref_window;
     }
@@ -1073,7 +1145,7 @@ void compositor_set_cursor(
         // move cursor
         compositor->cursor_pos = vec2f_add(compositor->cursor_pos, delta);
 
-        struct view_geometry viewgeo = window_get_view_geometry(compositor->main_window);
+        struct view_geometry viewgeo = window_get_view_geometry(compositor->implicit_view_fallback);
 
         if (compositor->cursor_pos.x < 0.0) {
             compositor->cursor_pos.x = 0.0;
@@ -1089,7 +1161,7 @@ void compositor_set_cursor(
     }
 
     window_set_cursor(
-        compositor->main_window,
+        compositor->implicit_view_fallback,
         has_enabled,
         enabled,
         has_kind,
@@ -1105,13 +1177,25 @@ int64_t compositor_add_view(struct compositor *compositor, struct window *window
     ASSERT_NOT_NULL(compositor);
     ASSERT_NOT_NULL(window);
     int64_t view_id;
+    int bucket_status;
 
     compositor_lock(compositor);
 
     view_id = compositor->next_view_id++;
 
-    khiter_t entry = kh_put(view, compositor->views, view_id, NULL);
+    khiter_t entry = kh_put(view, compositor->views, view_id, &bucket_status);
+    if (bucket_status == -1) {
+        compositor_unlock(compositor);
+        return -1;
+    }
+
     kh_val(compositor->views, entry) = window_ref(window);
+
+    if (compositor->implicit_view_fallback == NULL) {
+        compositor->implicit_view_fallback = window_ref(window);
+    }
+
+    kv_push(compositor->view_layout, view_id);
 
     compositor_unlock(compositor);
 
@@ -1126,39 +1210,599 @@ void compositor_remove_view(struct compositor *compositor, int64_t view_id) {
 
     khiter_t entry = kh_get(view, compositor->views, view_id);
     if (entry != kh_end(compositor->views)) {
+        struct window *window = kh_val(compositor->views, entry);
+
+        // If the view we're removing is the view we use as an implicit view fallback,
+        // unref it.
+        if (compositor->implicit_view_fallback == window) {
+            window_unrefp(&compositor->implicit_view_fallback);
+        }
+
         window_unref(kh_val(compositor->views, entry));
+
         kh_del(view, compositor->views, entry);
     }
 
-    compositor_unlock(compositor);
-}
-
-int compositor_put_implicit_view(struct compositor *compositor, struct window *window) {
-    int bucket_status;
-
-    ASSERT_NOT_NULL(compositor);
-    ASSERT_NOT_NULL(window);
-
-    compositor_lock(compositor);
-
-    khiter_t entry = kh_put(view, compositor->views, 0, &bucket_status);
-    if (bucket_status == -1) {
-        compositor_unlock(compositor);
-        return ENOMEM;
-    }
-
-    if (bucket_status == 0) {
-        window_swap_ptrs(&kh_val(compositor->views, entry), window);
-    } else {
-        kh_val(compositor->views, entry) = window_ref(window);
+    // remove the view from the view layout
+    for (size_t i = 0; i < kv_size(compositor->view_layout); i++) {
+        if (kv_A(compositor->view_layout, i) == view_id) {
+            for (size_t j = i; j < kv_size(compositor->view_layout) - 1; j++) {
+                kv_A(compositor->view_layout, j) = kv_A(compositor->view_layout, j + 1);
+            }
+            kv_drop(compositor->view_layout, 1);
+            break;
+        }
     }
 
     compositor_unlock(compositor);
-
-    return 0;
 }
 
 struct notifier *compositor_get_display_setup_notifier(struct compositor *compositor) {
     ASSERT_NOT_NULL(compositor);
     return &compositor->display_setup_notifier;
+}
+
+static int64_t determine_window_for_input_device(struct compositor *compositor, struct user_input_device *device) {
+    input_device_match_score_t best_score;
+    int64_t best_window;
+
+    int64_t view_id;
+    struct window *window;
+    kh_foreach(compositor->views, view_id, window, {
+        input_device_match_score_t score = window_match_input_device(window, device);
+        if (score > best_score) {
+            best_score = score;
+            best_window = view_id;
+        }
+    });
+
+    if (best_score >= 0) {
+        return best_window;
+    }
+
+    return -1;
+}
+
+static int64_t get_view_id_for_input_device(struct compositor *compositor, struct user_input_device *device) {
+    (void) compositor;
+
+    int64_t *view_id = user_input_device_get_primary_listener_userdata(device);
+    return view_id == NULL ? -1 : *view_id;
+}
+
+UNUSED static struct window *get_window_for_input_device(struct compositor *compositor, struct user_input_device *device) {
+    (void) compositor;
+
+    int64_t *view_id = user_input_device_get_primary_listener_userdata(device);
+
+    if (view_id == NULL) {
+        return NULL;
+    }
+
+    return compositor_get_view_by_id(compositor, *view_id);
+}
+
+struct fl_event_buffer {
+    struct fl_pointer_event_interface pointer_event_interface;
+
+    size_t n_events;
+    FlutterPointerEvent events[64];
+};
+
+static void flush_fl_events(struct fl_event_buffer *buffer) {
+    if (buffer->n_events > 0) {
+        buffer->pointer_event_interface.send_pointer_event(buffer->pointer_event_interface.engine, buffer->events, buffer->n_events);
+        buffer->n_events = 0;
+    }
+}
+
+static void emit_fl_event(struct fl_event_buffer *buffer, const FlutterPointerEvent event) {
+    if (buffer->n_events >= ARRAY_SIZE(buffer->events)) {
+        flush_fl_events(buffer);
+    }
+
+    buffer->events[buffer->n_events++] = event;
+}
+
+static FlutterPointerEvent make_fl_pointer_add_event(
+    uint64_t timestamp,
+    struct vec2f pos_view,
+    int64_t fl_device_id,
+    FlutterPointerDeviceKind device_kind,
+    int64_t view_id
+) {
+    FlutterPointerEvent event;
+    memset(&event, 0, sizeof event);
+
+    event.struct_size = sizeof(FlutterPointerEvent);
+    event.phase = kAdd;
+    event.timestamp = timestamp;
+    event.x = pos_view.x;
+    event.y = pos_view.y;
+    event.device = fl_device_id;
+    event.signal_kind = kFlutterPointerSignalKindNone;
+    event.scroll_delta_x = 0;
+    event.scroll_delta_y = 0;
+    event.device_kind = kFlutterPointerDeviceKindMouse;
+    event.buttons = 0;
+    event.pan_x = 0.0;
+    event.pan_y = 0.0;
+    event.scale = 1.0;
+    event.rotation = 0.0;
+    event.view_id = view_id;
+
+    return event;
+}
+
+static FlutterPointerEvent make_fl_pointer_remove_event(
+    uint64_t timestamp,
+    struct vec2f pos_view,
+    int64_t fl_device_id,
+    FlutterPointerDeviceKind device_kind,
+    int64_t view_id
+) {
+    FlutterPointerEvent event;
+    memset(&event, 0, sizeof event);
+
+    event.struct_size = sizeof(FlutterPointerEvent);
+    event.phase = kRemove;
+    event.timestamp = timestamp;
+    event.x = pos_view.x;
+    event.y = pos_view.y;
+    event.device = fl_device_id;
+    event.signal_kind = kFlutterPointerSignalKindNone;
+    event.scroll_delta_x = 0;
+    event.scroll_delta_y = 0;
+    event.device_kind = kFlutterPointerDeviceKindMouse;
+    event.buttons = 0;
+    event.pan_x = 0.0;
+    event.pan_y = 0.0;
+    event.scale = 1.0;
+    event.rotation = 0.0;
+    event.view_id = view_id;
+
+    return event;
+}
+
+static FlutterPointerEvent make_fl_mouse_event(
+    FlutterPointerPhase phase,
+    uint64_t timestamp,
+    struct vec2f pos_view,
+    int64_t fl_device_id,
+    int64_t buttons,
+    int64_t view_id
+) {
+    FlutterPointerEvent event;
+    memset(&event, 0, sizeof event);
+
+    event.struct_size = sizeof(FlutterPointerEvent);
+    event.phase = kRemove;
+    event.timestamp = timestamp;
+    event.x = pos_view.x;
+    event.y = pos_view.y;
+    event.device = fl_device_id;
+    event.signal_kind = kFlutterPointerSignalKindNone;
+    event.scroll_delta_x = 0;
+    event.scroll_delta_y = 0;
+    event.device_kind = kFlutterPointerDeviceKindMouse;
+    event.buttons = buttons;
+    event.pan_x = 0.0;
+    event.pan_y = 0.0;
+    event.scale = 1.0;
+    event.rotation = 0.0;
+    event.view_id = view_id;
+
+    return event;
+}
+
+static FlutterPointerEvent make_fl_mouse_scroll_event(
+    FlutterPointerPhase phase,
+    uint64_t timestamp,
+    struct vec2f pos_view,
+    int64_t fl_device_id,
+    struct vec2f scroll_delta,
+    int64_t buttons,
+    int64_t view_id
+) {
+    FlutterPointerEvent event;
+    memset(&event, 0, sizeof event);
+
+    event.struct_size = sizeof(FlutterPointerEvent);
+    event.phase = kRemove;
+    event.timestamp = timestamp;
+    event.x = pos_view.x;
+    event.y = pos_view.y;
+    event.device = fl_device_id;
+    event.signal_kind = kFlutterPointerSignalKindScroll;
+    event.scroll_delta_x = scroll_delta.x;
+    event.scroll_delta_y = scroll_delta.y;
+    event.device_kind = kFlutterPointerDeviceKindMouse;
+    event.buttons = buttons;
+    event.pan_x = 0.0;
+    event.pan_y = 0.0;
+    event.scale = 1.0;
+    event.rotation = 0.0;
+    event.view_id = view_id;
+
+    return event;
+}
+
+static void on_device_added(struct compositor *compositor, struct user_input_device *device) {
+    int64_t view_id = determine_window_for_input_device(compositor, device);
+    if (view_id == -1) {
+        return;
+    }
+
+    int64_t *id = malloc(sizeof *id);
+    if (id == NULL) {
+        return;
+    }
+
+    *id = view_id;
+
+    user_input_device_set_primary_listener_userdata(device, id);
+}
+
+static void on_device_removed(struct compositor *compositor, struct user_input_device *device) {
+    (void) compositor;
+
+    int64_t *id = user_input_device_get_primary_listener_userdata(device);
+    if (id != NULL) {
+        free(id);
+    }
+
+    user_input_device_set_primary_listener_userdata(device, NULL);
+}
+
+static void on_slot_added(struct compositor *compositor, struct fl_event_buffer *buffer, struct user_input_event *event) {
+    int64_t view_id = get_view_id_for_input_device(compositor, event->device);
+    if (view_id == -1) {
+        return;
+    }
+
+    FlutterPointerEvent fl_event;
+    memset(&fl_event, 0, sizeof fl_event);
+
+    fl_event.struct_size = sizeof(FlutterPointerEvent);
+    fl_event.timestamp = event->timestamp;
+    fl_event.phase = kAdd;
+    /// TODO: Implement
+    UNIMPLEMENTED();
+    fl_event.view_id = view_id;
+
+    emit_fl_event(buffer, fl_event);
+}
+
+static void on_slot_removed(struct compositor *compositor, struct fl_event_buffer *buffer, struct user_input_event *event) {
+    int64_t view_id = get_view_id_for_input_device(compositor, event->device);
+    if (view_id == -1) {
+        return;
+    }
+
+    FlutterPointerEvent fl_event;
+    memset(&fl_event, 0, sizeof fl_event);
+
+    fl_event.struct_size = sizeof(FlutterPointerEvent);
+    fl_event.timestamp = event->timestamp;
+    fl_event.phase = kRemove;
+    /// TODO: Implement
+    UNIMPLEMENTED();
+    fl_event.view_id = view_id;
+
+    emit_fl_event(buffer, fl_event);
+}
+
+static void on_absolute_pointer_event(struct compositor *compositor, struct fl_event_buffer *buffer, struct user_input_event *event) {
+    ASSERT(event->pointer.is_absolute);
+
+    int64_t view_id = get_view_id_for_input_device(compositor, event->device);
+    if (view_id == -1) {
+        return;
+    }
+
+    struct window *window = compositor_get_view_by_id(compositor, view_id);
+    if (window == NULL) {
+        return;
+    }
+
+    struct vec2f pos_view = window_transform_ndc_to_view(window, event->pointer.position_ndc);
+
+    mutex_lock(&compositor->mutex);
+
+    if (compositor->cursor.enabled && compositor->cursor.fl_view_id != view_id) {
+        window_set_cursor(
+            // clang-format off
+                compositor->cursor.window,
+                true, false,
+                false, 0,
+                false, VEC2I(0, 0)
+            // clang-format on
+        );
+        window_unrefp(&compositor->cursor.window);
+
+        // remove the mouse device from the old view
+        // and add it to the new view.
+        emit_fl_event(
+            buffer,
+            make_fl_pointer_remove_event(
+                event->timestamp,
+                compositor->cursor.pos_view,
+                event->global_slot_id,
+                kFlutterPointerDeviceKindMouse,
+                compositor->cursor.fl_view_id
+            )
+        );
+
+        emit_fl_event(
+            buffer,
+            make_fl_pointer_add_event(event->timestamp, pos_view, event->global_slot_id, kFlutterPointerDeviceKindMouse, view_id)
+        );
+    }
+
+    compositor->cursor.enabled = true;
+    compositor->cursor.fl_view_id = view_id;
+    // compositor_get_view_by_id increments the refcount of the window so we don't need to do it here.
+    compositor->cursor.window = window;
+    compositor->cursor.pos_view = pos_view;
+
+    mutex_unlock(&compositor->mutex);
+}
+
+static void move_cursor_to_view(
+    struct compositor *compositor,
+    struct fl_event_buffer *buffer,
+    uint64_t timestamp,
+    uint64_t device_id,
+    int64_t new_view,
+    struct window *new_window,
+    struct vec2f new_pos
+) {
+    if (compositor->cursor.enabled) {
+        if (compositor->cursor.fl_view_id != new_view) {
+            window_set_cursor(
+                // clang-format off
+                compositor->cursor.window,
+                true, false,
+                false, 0,
+                false, VEC2I(0, 0)
+                // clang-format on
+            );
+            window_unrefp(&compositor->cursor.window);
+
+            // remove the mouse device from the old view
+            // and add it to the new view.
+            emit_fl_event(
+                buffer,
+                make_fl_pointer_remove_event(
+                    timestamp,
+                    compositor->cursor.pos_view,
+                    device_id,
+                    kFlutterPointerDeviceKindMouse,
+                    compositor->cursor.fl_view_id
+                )
+            );
+
+            emit_fl_event(buffer, make_fl_pointer_add_event(timestamp, new_pos, device_id, kFlutterPointerDeviceKindMouse, new_view));
+
+            window_set_cursor(
+                // clang-format off
+                compositor->cursor.window,
+                true, true,
+                false, 0,
+                false, vec2f_round_to_integer(new_pos)
+                // clang-format on
+            );
+        }
+
+        compositor->cursor.fl_view_id = new_view;
+        compositor->cursor.window = window_ref(new_window);
+        compositor->cursor.pos_view = new_pos;
+    } else {
+        compositor->cursor.enabled = true;
+        compositor->cursor.fl_view_id = new_view;
+        compositor->cursor.window = window_ref(new_window);
+        compositor->cursor.pos_view = new_pos;
+    }
+}
+
+static void maybe_enable_cursor_locked(struct compositor *compositor) {
+    if (!compositor->cursor.enabled) {
+        int64_t first_view = kv_A(compositor->view_layout, 0);
+        struct window *w = compositor_get_view_by_id_locked(compositor, first_view);
+
+        if (w != NULL) {
+            compositor->cursor.enabled = true;
+            compositor->cursor.fl_view_id = first_view;
+            compositor->cursor.window = window_ref(w);
+            compositor->cursor.pos_view = VEC2F(0, 0);
+
+            window_unref(w);
+        }
+    }
+}
+
+static void
+on_relative_pointer_event_locked(struct compositor *compositor, struct fl_event_buffer *buffer, struct user_input_event *event) {
+    ASSERT(!event->pointer.is_absolute);
+
+    // If the cursor is not enabled, we need to enable it.
+    maybe_enable_cursor_locked(compositor);
+
+    // If the cursor is still not enabled, we can't do anything.
+    if (!compositor->cursor.enabled) {
+        return;
+    }
+
+    int64_t current_view_id = compositor->cursor.fl_view_id;
+    struct window *current_window = compositor->cursor.window;
+
+    // move the cursor
+    struct vec2f current_view_size = window_get_view_geometry(current_window).view_size;
+    struct vec2f pos_current_view = vec2f_add(compositor->cursor.pos_view, event->pointer.delta);
+
+    int64_t new_view_id = -1;
+    if (pos_current_view.x < 0) {
+        // look if there's a view to the left of this one.
+        for (size_t i = 0; i < kv_size(compositor->view_layout); i++) {
+            if (kv_A(compositor->view_layout, i) == current_view_id) {
+                if (i > 0) {
+                    new_view_id = kv_A(compositor->view_layout, i - 1);
+                }
+                break;
+            }
+        }
+    } else if (pos_current_view.x > current_view_size.x) {
+        // look if there's a view to the left of this one.
+        for (size_t i = 0; i < kv_size(compositor->view_layout); i++) {
+            if (kv_A(compositor->view_layout, i) == current_view_id) {
+                if (i > 0) {
+                    new_view_id = kv_A(compositor->view_layout, i - 1);
+                }
+                break;
+            }
+        }
+    }
+
+    struct window *new_window = NULL;
+    if (new_view_id != -1) {
+        // move the cursor to the right side of the view located left from the current one.
+        new_window = compositor_get_view_by_id_locked(compositor, new_view_id);
+    }
+
+    // If we have a window next to this one,
+    // try to move the cursor onto that window.
+    if (new_window != NULL) {
+        struct view_geometry new_geo = window_get_view_geometry(new_window);
+
+        // Translate the cursor position on the current view to the
+        // cursor position on the new view.
+        if (pos_current_view.x < 0) {
+            pos_current_view.x = new_geo.view_size.x + pos_current_view.x;
+        } else if (pos_current_view.x > current_view_size.x) {
+            pos_current_view.x = pos_current_view.x - current_view_size.x;
+        }
+
+        if (0 <= pos_current_view.x && pos_current_view.x <= new_geo.view_size.x && 0 <= pos_current_view.y &&
+            pos_current_view.y <= new_geo.view_size.y) {
+            // If the cursor is within the bounds of the new view,
+            // move it there.
+            move_cursor_to_view(compositor, buffer, event->timestamp, event->global_slot_id, new_view_id, new_window, pos_current_view);
+        } else {
+            // If the cursor is not within bounds,
+            // just emit a move event.
+            window_unrefp(&new_window);
+        }
+    }
+
+    // If we're not moving the cursor to a new window,
+    // just emit a move event.
+    if (new_window == NULL) {
+        pos_current_view.x = CLAMP(pos_current_view.x, 0, current_view_size.x);
+        pos_current_view.y = CLAMP(pos_current_view.y, 0, current_view_size.y);
+
+        emit_fl_event(
+            buffer,
+            make_fl_mouse_event(
+                event->pointer.buttons & kFlutterPointerButtonMousePrimary ? kMove : kHover,
+                event->timestamp,
+                pos_current_view,
+                event->global_slot_id,
+                event->pointer.buttons,
+                current_view_id
+            )
+        );
+
+        compositor->cursor.pos_view = pos_current_view;
+    }
+
+    window_unrefp(&current_window);
+}
+
+static void on_pointer_scroll_event(struct compositor *compositor, struct fl_event_buffer *buffer, struct user_input_event *event) {
+}
+
+static void on_pointer_button_event(struct compositor *compositor, struct fl_event_buffer *buffer, struct user_input_event *event) {
+}
+
+static void on_pointer_event(struct compositor *compositor, struct fl_event_buffer *buffer, struct user_input_event *event) {
+    if (event->pointer.is_absolute) {
+        on_absolute_pointer_event(compositor, buffer, event);
+    } else if (event->pointer.delta.x != 0 || event->pointer.delta.y != 0) {
+        on_relative_pointer_event_locked(compositor, buffer, event);
+    } else if (event->pointer.scroll_delta.x != 0 || event->pointer.scroll_delta.y != 0) {
+        on_pointer_scroll_event(compositor, buffer, event);
+    } else if (event->pointer.changed_buttons != 0) {
+        on_pointer_button_event(compositor, buffer, event);
+    }
+}
+
+static void on_touch_event(struct compositor *compositor, struct fl_event_buffer *buffer, struct user_input_event *event) {
+    int64_t view_id = get_view_id_for_input_device(compositor, event->device);
+    if (view_id == -1) {
+        return;
+    }
+
+    FlutterPointerEvent fl_event;
+    memset(&fl_event, 0, sizeof fl_event);
+
+    fl_event.struct_size = sizeof(FlutterPointerEvent);
+    fl_event.timestamp = event->timestamp;
+    if (event->touch.down_changed) {
+        if (event->touch.down) {
+            fl_event.phase = kDown;
+        } else {
+            fl_event.phase = kUp;
+        }
+    } else {
+        ASSERT(event->touch.down);
+        fl_event.phase = kMove;
+    }
+
+    emit_fl_event(buffer, fl_event);
+}
+
+static void on_tablet_tool_event(struct compositor *compositor, struct fl_event_buffer *buffer, struct user_input_event *event) {
+    int64_t view_id = get_view_id_for_input_device(compositor, event->device);
+    if (view_id == -1) {
+        return;
+    }
+
+    FlutterPointerEvent fl_event;
+    memset(&fl_event, 0, sizeof fl_event);
+
+    fl_event.struct_size = sizeof(FlutterPointerEvent);
+    fl_event.timestamp = event->timestamp;
+    fl_event.phase = kMove;
+    fl_event.x = event->tablet.position_ndc.x;
+    fl_event.y = event->tablet.position_ndc.y;
+    fl_event.device = event->device;
+    fl_event.view_id = view_id;
+
+    emit_fl_event(buffer, fl_event);
+}
+
+static void on_input(void *userdata, size_t n_events, const struct user_input_event *events) {
+    struct fl_event_buffer buffer;
+    struct compositor *compositor;
+    size_t i;
+
+    ASSERT_NOT_NULL(userdata);
+    compositor = userdata;
+
+    for (i = 0; i < n_events; i++) {
+        const struct user_input_event *event = events + i;
+
+        switch (event->type) {
+            case USER_INPUT_DEVICE_ADDED: on_device_added(compositor, event->device); break;
+            case USER_INPUT_DEVICE_REMOVED: on_device_removed(compositor, event->device); break;
+            case USER_INPUT_SLOT_ADDED: on_slot_added(compositor, &buffer, event); break;
+            case USER_INPUT_SLOT_REMOVED: on_slot_removed(compositor, &buffer, event); break;
+            case USER_INPUT_TOUCH: on_touch_event(compositor, &buffer, event); break;
+            case USER_INPUT_TABLET_TOOL: on_tablet_tool_event(compositor, &buffer, event); break;
+            case USER_INPUT_POINTER: on_pointer_event(compositor, &buffer, event); break;
+            default: LOG_DEBUG("Unhandled enum user_input_event: %d\n", event->type); break;
+        }
+    }
+
+    flush_fl_events(&buffer);
 }

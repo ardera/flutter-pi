@@ -21,16 +21,9 @@
 
 #include "pixel_format.h"
 #include "util/collection.h"
+#include "util/file_interface.h"
 #include "util/geometry.h"
 #include "util/refcounting.h"
-
-/**
- * @brief Interface that will be used to open and close files.
- */
-struct file_interface {
-    int (*open)(const char *path, int flags, void **fd_metadata_out, void *userdata);
-    void (*close)(int fd, void *fd_metadata, void *userdata);
-};
 
 struct drmdev;
 
@@ -43,7 +36,8 @@ struct drmdev *drmdev_new_from_interface_fd(int fd, void *fd_metadata, const str
 
 struct drmdev *drmdev_new_from_path(const char *path, const struct file_interface *interface, void *userdata);
 
-struct drmdev *drmdev_new_from_udev_primary(struct udev *udev, const char *seat, const struct file_interface *interface, void *interface_userdata);
+struct drmdev *
+drmdev_new_from_udev_primary(struct udev *udev, const char *seat, const struct file_interface *interface, void *interface_userdata);
 
 DECLARE_REF_OPS(drmdev)
 

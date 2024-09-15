@@ -47,9 +47,18 @@ struct text_input_configuration {
 
 enum floating_cursor_drag_state { kFloatingCursorDragStateStart, kFloatingCursorDragStateUpdate, kFloatingCursorDragStateEnd };
 
-// parses the input string as linux terminal input and calls the TextInput model functions
-// accordingly.
-int textin_on_utf8_char(uint8_t *c);
+/**
+ * @brief Should be called when text input was received from the keyboard.
+ * 
+ * @param str The NULL-terminated UTF-8 string that was received.
+ */
+int textin_on_text(const char *text);
+
+/**
+ * @brief Should be called when a key was pressed on the keyboard.
+ * 
+ * @param keysym The keysym that was pressed.
+ */
 int textin_on_xkb_keysym(xkb_keysym_t keysym);
 
 #endif

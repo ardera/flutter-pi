@@ -37,71 +37,6 @@ enum renderer_type { kOpenGL_RendererType, kVulkan_RendererType };
 DECLARE_REF_OPS(window)
 
 /**
- * @brief Creates a new KMS window.
- *
- * @param tracer
- * @param scheduler
- * @param render_surface_interface
- * @param has_rotation
- * @param rotation
- * @param has_orientation
- * @param orientation
- * @param has_explicit_dimensions
- * @param width_mm
- * @param height_mm
- * @param has_forced_pixel_format
- * @param forced_pixel_format
- * @param drmdev
- * @param resources
- * @param desired_videomode
- * @return struct window* The new KMS window.
- */
-struct window *kms_window_new(
-    // clang-format off
-    struct tracer *tracer,
-    struct frame_scheduler *scheduler,
-    enum renderer_type renderer_type,
-    struct gl_renderer *gl_renderer,
-    struct vk_renderer *vk_renderer,
-    bool has_rotation, drm_plane_transform_t rotation,
-    bool has_orientation, enum device_orientation orientation,
-    bool has_explicit_dimensions, int width_mm, int height_mm,
-    bool has_forced_pixel_format, enum pixfmt forced_pixel_format,
-    struct drmdev *drmdev,
-    struct drm_resources *resources,
-    const char *desired_videomode
-    // clang-format on
-);
-
-/**
- * Creates a new dummy window.
- *
- * @param tracer The tracer object.
- * @param scheduler The frame scheduler object.
- * @param renderer_type The type of renderer.
- * @param gl_renderer The GL renderer object.
- * @param vk_renderer The Vulkan renderer object.
- * @param size The size of the window.
- * @param has_explicit_dimensions Indicates if the window has explicit dimensions.
- * @param width_mm The width of the window in millimeters.
- * @param height_mm The height of the window in millimeters.
- * @param refresh_rate The refresh rate of the window.
- * @return A pointer to the newly created window.
- */
-MUST_CHECK struct window *dummy_window_new(
-    struct tracer *tracer,
-    struct frame_scheduler *scheduler,
-    enum renderer_type renderer_type,
-    struct gl_renderer *gl_renderer,
-    struct vk_renderer *vk_renderer,
-    struct vec2i size,
-    bool has_explicit_dimensions,
-    int width_mm,
-    int height_mm,
-    double refresh_rate
-);
-
-/**
  * @brief Push a new flutter composition to the window, outputting a new frame.
  *
  * @param window The window instance.
@@ -151,6 +86,17 @@ struct render_surface *window_get_render_surface(struct window *window, struct v
 
 bool window_is_cursor_enabled(struct window *window);
 
+/**
+ * @brief Set the cursor (enabled, kind, position) for this window.
+ * 
+ * @param window The window to set the cursor for.
+ * @param has_enabled True if @param enabled contains a valid value, and the cursor should either be enabled to disabled.
+ * @param enabled Whether the cursor should be enabled or disabled.
+ * @param has_kind True if the cursor kind should be changed.
+ * @param kind The kind of cursor to set.
+ * @param has_pos True if the cursor position should be changed.
+ * @param pos The position of the cursor.
+ */
 int window_set_cursor(
     // clang-format off
     struct window *window,
@@ -159,5 +105,43 @@ int window_set_cursor(
     bool has_pos, struct vec2i pos
     // clang-format on
 );
+
+struct user_input_event;
+
+/**
+ * @brief Transform a normalized device coordinate (0..1) to a view coordinate.
+ * 
+ * In most cases, this just means the NDC is multiplied by the view size.
+ * However, for a rotated display, this might be more complex.
+ * 
+ * @param window The window to transform for.
+ * @param ndc The normalized device coordinate.
+ */
+struct vec2f window_transform_ndc_to_view(struct window *window, struct vec2f ndc);
+
+/**
+ * @brief A score, describing how good an input device matches to an output window.
+ * 
+ * A negative value means it doesn't match at all, and the window should under no circumstances receive
+ * input events from this device.
+ */
+typedef int input_device_match_score_t;
+
+struct user_input_device;
+
+/**
+ * @brief Returns how likely it is that this input device is meant for this window.
+ * 
+ * Input devices that send absolute positions (e.g. touch-screen, tablet, but not a mouse) always
+ * need to be matched to a specific output. This input device <-> output association is unfortunately
+ * not always clear, so we need to guess.
+ * 
+ * When a new input device is connected, the compositor will call this function to see if any window
+ * is a good match for this device. The window with the highest score will receive the input events.
+ * 
+ * @param window The window to check.
+ * @param device The input device to check.
+ */
+input_device_match_score_t window_match_input_device(struct window *window, struct user_input_device *device);
 
 #endif  // _FLUTTERPI_SRC_WINDOW_H
