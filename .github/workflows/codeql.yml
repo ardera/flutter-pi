@@ -22,26 +22,12 @@ on:
 jobs:
   analyze:
     name: Analyze
-    # Runner size impacts CodeQL analysis time. To learn more, please see:
-    #   - https://gh.io/recommended-hardware-resources-for-running-codeql
-    #   - https://gh.io/supported-runners-and-hardware-resources
-    #   - https://gh.io/using-larger-runners
-    # Consider using larger runners for possible analysis time improvements.
-    runs-on: ${{ (matrix.language == 'swift' && 'macos-latest') || 'ubuntu-20.04' }}
-    timeout-minutes: ${{ (matrix.language == 'swift' && 120) || 360 }}
+    runs-on: ubuntu-latest
+    
     permissions:
       actions: read
       contents: read
       security-events: write
-
-    strategy:
-      fail-fast: false
-      matrix:
-        language: [ 'cpp' ]
-        # CodeQL supports [ 'cpp', 'csharp', 'go', 'java', 'javascript', 'python', 'ruby', 'swift' ]
-        # Use only 'java' to analyze code written in Java, Kotlin or both
-        # Use only 'javascript' to analyze code written in JavaScript, TypeScript or both
-        # Learn more about CodeQL language support at https://aka.ms/codeql-docs/language-support
 
     steps:
     - name: Checkout repository
@@ -54,33 +40,16 @@ jobs:
       uses: github/codeql-action/init@v2
       with:
         languages: ${{ matrix.language }}
-        # If you wish to specify custom queries, you can do so here or in a config file.
-        # By default, queries listed here will override any specified in a config file.
-        # Prefix the list here with "+" to use these queries and those in the config file.
-
-        # For more details on CodeQL's query packs, refer to: https://docs.github.com/en/code-security/code-scanning/automatically-scanning-your-code-for-vulnerabilities-and-errors/configuring-code-scanning#using-queries-in-ql-packs
-        # queries: security-extended,security-and-quality
         queries: security-and-quality
 
-
-    # Autobuild attempts to build any compiled languages (C/C++, C#, Go, Java, or Swift).
-    # If this step fails, then you should remove it and run the build manually (see below)
-    #- name: Autobuild
-    #  uses: github/codeql-action/autobuild@v2
-
-    # ℹ️ Command-line programs to run using the OS shell.
-    # 📚 See https://docs.github.com/en/actions/using-workflows/workflow-syntax-for-github-actions#jobsjob_idstepsrun
-
-    #   If the Autobuild fails above, remove it and uncomment the following three lines.
-    #   modify them (or add more) to build your code if your project, please refer to the EXAMPLE below for guidance.
-
-    - run: |
+    - name: Install Deps, Configure and Build
+      run: |
         ./.github/workflows/codeql-buildscript.sh
 
     - name: Perform CodeQL Analysis
       uses: github/codeql-action/analyze@v2
       with:
-        category: "/language:${{matrix.language}}"
+        category: "/language:cpp"
         upload: false
       id: step1
 
@@ -110,7 +79,7 @@ jobs:
       uses: github/codeql-action/upload-sarif@v2
       with:
         sarif_file: ${{ steps.step1.outputs.sarif-output }}
-        category: "/language:${{matrix.language}}"
+        category: "/language:cpp"
 
     - name: Upload CodeQL results as an artifact
       if: success() || failure()
@@ -124,3 +93,38 @@ jobs:
       run: |
         ./.github/workflows/fail_on_error.py \
           ${{ steps.step1.outputs.sarif-output }}/cpp.sarif
+
+  scan-build:
+    name: Clang Static Analysis
+    runs-on: ubuntu-latest
+
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+      with:
+        submodules: recursive
+
+    - name: Install Deps, Configure and Build
+      env:
+        WRAPPER: "scan-build --use-cc=cc --use-c++=c++ -sarif -o build/sarif"
+      run: |
+        ./.github/workflows/codeql-buildscript.sh
+
+    - name: Bundle sarif
+      run: |
+        npx -y @microsoft/sarif-multitool merge build/sarif/*/*.sarif -o build/sarif/
+
+    - name: Upload results to code scanning
+      uses: github/codeql-action/upload-sarif@v2
+      with:
+        category: "scan-build"
+        sarif_file: build/sarif/merged.sarif
+
+    - name: Fail if an error is found
+      run: |
+        ./.github/workflows/fail_on_error.py build/sarif/merged.sarif
