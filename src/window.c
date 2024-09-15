@@ -26,9 +26,11 @@
 #include "render_surface.h"
 #include "surface.h"
 #include "tracer.h"
+#include "user_input.h"
 #include "util/collection.h"
 #include "util/logging.h"
 #include "util/refcounting.h"
+#include "window_private.h"
 
 #include "config.h"
 
@@ -41,211 +43,6 @@
     #include "vk_gbm_render_surface.h"
     #include "vk_renderer.h"
 #endif
-
-struct window {
-    pthread_mutex_t lock;
-    refcount_t n_refs;
-
-    /**
-     * @brief Event tracing interface.
-     *
-     * Used to report timing information to the dart observatory.
-     *
-     */
-    struct tracer *tracer;
-
-    /**
-     * @brief Manages the frame scheduling for this window.
-     *
-     */
-    struct frame_scheduler *frame_scheduler;
-
-    /**
-     * @brief Refresh rate of the selected video mode / display.
-     *
-     */
-    double refresh_rate;
-
-    /**
-     * @brief Flutter device pixel ratio (in the horizontal axis). Number of physical pixels per logical pixel.
-     *
-     * There are always 38 logical pixels per cm, or 96 per inch. This is roughly equivalent to DPI / 100.
-     * A device pixel ratio of 1.0 is roughly a dpi of 96, which is the most common dpi for full-hd desktop displays.
-     * To calculate this, the physical dimensions of the display are required. If there are no physical dimensions,
-     * this will default to 1.0.
-     */
-    float pixel_ratio;
-
-    /**
-     * @brief Whether we have physical screen dimensions and @ref width_mm and @ref height_mm contain usable values.
-     *
-     */
-    bool has_dimensions;
-
-    /**
-     * @brief Width, height of the display in millimeters.
-     *
-     */
-    int width_mm, height_mm;
-
-    /**
-     * @brief The size of the view, as reported to flutter, in pixels.
-     *
-     * If no rotation and scaling is applied, this probably equals the display size.
-     * For example, if flutter-pi should render at 1/2 the resolution of a full-hd display, this would be
-     * 960x540 and the display size 1920x1080.
-     */
-    struct vec2f view_size;
-
-    /**
-     * @brief The actual size of the view on the display, pixels.
-     *
-     */
-    struct vec2f display_size;
-
-    /**
-     * @brief The rotation we should apply to the flutter layers to present them on screen.
-     */
-    drm_plane_transform_t rotation;
-
-    /**
-     * @brief The current device orientation and the original (startup) device orientation.
-     *
-     * @ref original_orientation is kLandscapeLeft for displays that are more wide than high, and kPortraitUp for displays that are
-     * more high than wide. Though this can also be anything else theoretically, if the user specifies weird combinations of rotation
-     * and orientation via cmdline arguments.
-     *
-     * @ref orientation should always equal to rotating @ref original_orientation clock-wise by the angle in the @ref rotation field.
-     */
-    enum device_orientation orientation, original_orientation;
-
-    /**
-     * @brief Matrix for transforming display coordinates to view coordinates.
-     *
-     * For example for transforming pointer events (which are in the display coordinate space) to flutter coordinates.
-     * Useful if for example flutter has specified a custom device orientation (for example kPortraitDown), in that case we of course
-     * also need to transform the touch coords.
-     *
-     */
-    struct mat3f display_to_view_transform;
-
-    /**
-     * @brief Matrix for transforming view coordinates to display coordinates.
-     *
-     * Can be used as a root surface transform, for fitting the flutter view into the desired display frame.
-     *
-     * Useful if for example flutter has specified a custom device orientation (for example kPortraitDown),
-     * because we need to rotate the flutter view in that case.
-     */
-    struct mat3f view_to_display_transform;
-
-    /**
-     * @brief True if we should use a specific pixel format.
-     *
-     */
-    bool has_forced_pixel_format;
-
-    /**
-     * @brief The forced pixel format if @ref has_forced_pixel_format is true.
-     *
-     */
-    enum pixfmt forced_pixel_format;
-
-    /**
-     * @brief The current flutter layer composition that should be output on screen.
-     *
-     */
-    struct fl_layer_composition *composition;
-
-    /**
-     * @brief KMS-specific fields if this is a KMS window.
-     *
-     */
-    struct {
-        struct drmdev *drmdev;
-        struct drm_resources *resources;
-        struct drm_connector *connector;
-        struct drm_encoder *encoder;
-        struct drm_crtc *crtc;
-        drmModeModeInfo *mode;
-
-        bool should_apply_mode;
-
-        const struct pointer_icon *pointer_icon;
-        struct cursor_buffer *cursor;
-        
-        bool cursor_works;
-    } kms;
-
-    /**
-     * @brief The type of rendering that should be used. (gl, vk)
-     *
-     */
-    enum renderer_type renderer_type;
-
-    /**
-     * @brief The OpenGL renderer if OpenGL rendering should be used.
-     *
-     */
-    struct gl_renderer *gl_renderer;
-
-    /**
-     * @brief The Vulkan renderer if Vulkan rendering should be used.
-     *
-     */
-    struct vk_renderer *vk_renderer;
-
-    /**
-     * @brief Our main render surface, if we have one yet.
-     *
-     * Otherwise a new one should be created using the render surface interface.
-     *
-     */
-    struct render_surface *render_surface;
-
-#ifdef HAVE_EGL_GLES2
-    /**
-     * @brief The EGLSurface of this window, if any.
-     *
-     * Should be EGL_NO_SURFACE if this window is not associated with any EGL surface.
-     * This is really just a workaround because flutter doesn't support arbitrary EGL surfaces as render targets right now.
-     * (Just one global EGLSurface)
-     *
-     */
-    EGLSurface egl_surface;
-#endif
-
-    /**
-     * @brief Whether this window currently shows a mouse cursor.
-     *
-     */
-    bool cursor_enabled;
-
-    /**
-     * @brief The position of the mouse cursor.
-     *
-     */
-    struct vec2i cursor_pos;
-
-    int (*push_composition)(struct window *window, struct fl_layer_composition *composition);
-    struct render_surface *(*get_render_surface)(struct window *window, struct vec2i size);
-
-#ifdef HAVE_EGL_GLES2
-    bool (*has_egl_surface)(struct window *window);
-    EGLSurface (*get_egl_surface)(struct window *window);
-#endif
-
-    int (*set_cursor_locked)(
-        struct window *window,
-        bool has_enabled,
-        bool enabled,
-        bool has_kind,
-        enum pointer_kind kind,
-        bool has_pos,
-        struct vec2i pos
-    );
-    void (*deinit)(struct window *window);
-};
 
 void window_destroy(struct window *window);
 
@@ -288,9 +85,7 @@ static void fill_view_matrices(
     }
 }
 
-static void window_deinit(struct window *window);
-
-static int window_init(
+int window_init(
     // clang-format off
     struct window *window,
     struct tracer *tracer,
@@ -300,7 +95,10 @@ static int window_init(
     int width, int height,
     bool has_dimensions, int width_mm, int height_mm,
     double refresh_rate,
-    bool has_forced_pixel_format, enum pixfmt forced_pixel_format
+    bool has_forced_pixel_format, enum pixfmt forced_pixel_format,
+    enum renderer_type renderer_type,
+    struct gl_renderer *gl_renderer,
+    struct vk_renderer *vk_renderer
     // clang-format on
 ) {
     enum device_orientation original_orientation;
@@ -312,6 +110,22 @@ static int window_init(
     assert(!has_rotation || PLANE_TRANSFORM_IS_ONLY_ROTATION(rotation));
     assert(!has_orientation || ORIENTATION_IS_VALID(orientation));
     assert(!has_dimensions || (width_mm > 0 && height_mm > 0));
+
+#if !defined(HAVE_VULKAN)
+    ASSUME(renderer_type != kVulkan_RendererType);
+#endif
+
+#if !defined(HAVE_EGL_GLES2)
+    ASSUME(renderer_type != kOpenGL_RendererType);
+#endif
+
+    // if opengl --> gl_renderer != NULL && vk_renderer == NULL
+    assert(renderer_type != kOpenGL_RendererType || (gl_renderer != NULL && vk_renderer == NULL));
+
+    // if vulkan --> vk_renderer != NULL && gl_renderer == NULL
+    assert(renderer_type != kVulkan_RendererType || (vk_renderer != NULL && gl_renderer == NULL));
+
+    memset(window, 0, sizeof *window);
 
     if (has_dimensions == false) {
         LOG_DEBUG(
@@ -410,19 +224,28 @@ static int window_init(
     window->vk_renderer = NULL;
     window->render_surface = NULL;
     window->cursor_enabled = false;
-    window->cursor_pos = VEC2I(0, 0);
-    window->push_composition = NULL;
-    window->get_render_surface = NULL;
+    window->cursor_pos = VEC2F(0, 0);
+    if (gl_renderer != NULL) {
 #ifdef HAVE_EGL_GLES2
-    window->has_egl_surface = NULL;
-    window->get_egl_surface = NULL;
+        window->gl_renderer = gl_renderer_ref(gl_renderer);
+#else
+        UNREACHABLE();
 #endif
-    window->set_cursor_locked = NULL;
-    window->deinit = window_deinit;
+    }
+    if (vk_renderer != NULL) {
+#ifdef HAVE_VULKAN
+        window->vk_renderer = vk_renderer_ref(vk_renderer);
+#else
+        UNREACHABLE();
+#endif
+    } else {
+        window->vk_renderer = NULL;
+    }
+    window->ops.deinit = window_deinit;
     return 0;
 }
 
-static void window_deinit(struct window *window) {
+void window_deinit(struct window *window) {
     // It's possible we're destroying the window before any frame was presented.
     if (window->composition != NULL) {
         fl_layer_composition_unref(window->composition);
@@ -435,17 +258,17 @@ static void window_deinit(struct window *window) {
 
 void window_destroy(struct window *window) {
     ASSERT_NOT_NULL(window);
-    ASSERT_NOT_NULL(window->deinit);
+    ASSERT_NOT_NULL(window->ops.deinit);
 
-    window->deinit(window);
+    window->ops.deinit(window);
     free(window);
 }
 
 int window_push_composition(struct window *window, struct fl_layer_composition *composition) {
     ASSERT_NOT_NULL(window);
     ASSERT_NOT_NULL(composition);
-    ASSERT_NOT_NULL(window->push_composition);
-    return window->push_composition(window, composition);
+    ASSERT_NOT_NULL(window->ops.push_composition);
+    return window->ops.push_composition(window, composition);
 }
 
 struct view_geometry window_get_view_geometry(struct window *window) {
@@ -484,13 +307,15 @@ int window_get_next_vblank(struct window *window, uint64_t *next_vblank_ns_out) 
 
 #ifdef HAVE_EGL_GLES2
 bool window_has_egl_surface(struct window *window) {
-    return window->has_egl_surface(window);
+    ASSERT_NOT_NULL(window);
+    ASSERT_NOT_NULL(window->ops.has_egl_surface);
+    return window->ops.has_egl_surface(window);
 }
 
 EGLSurface window_get_egl_surface(struct window *window) {
     ASSERT_NOT_NULL(window);
-    ASSERT_NOT_NULL(window->get_egl_surface);
-    return window->get_egl_surface(window);
+    ASSERT_NOT_NULL(window->ops.get_egl_surface);
+    return window->ops.get_egl_surface(window);
 }
 #endif
 
@@ -498,8 +323,8 @@ EGLSurface window_get_egl_surface(struct window *window) {
 ///       rename this to window_create_render_surface.
 struct render_surface *window_get_render_surface(struct window *window, struct vec2i size) {
     ASSERT_NOT_NULL(window);
-    ASSERT_NOT_NULL(window->get_render_surface);
-    return window->get_render_surface(window, size);
+    ASSERT_NOT_NULL(window->ops.get_render_surface);
+    return window->ops.get_render_surface(window, size);
 }
 
 bool window_is_cursor_enabled(struct window *window) {
@@ -525,1310 +350,172 @@ int window_set_cursor(
     int ok;
 
     ASSERT_NOT_NULL(window);
+    ASSERT_NOT_NULL(window->ops.set_cursor_locked);
 
     window_lock(window);
 
-    ok = window->set_cursor_locked(window, has_enabled, enabled, has_kind, kind, has_pos, pos);
+    ok = window->ops.set_cursor_locked(window, has_enabled, enabled, has_kind, kind, has_pos, pos);
 
     window_unlock(window);
 
     return ok;
 }
 
-struct cursor_buffer {
-    refcount_t n_refs;
-
-    const struct pointer_icon *icon;
-    enum pixfmt format;
-    int width, height;
-    drm_plane_transform_t rotation;
-
-    struct drmdev *drmdev;
-    int drm_fb_id;
-    struct gbm_bo *bo;
-
-    struct vec2i hotspot;
-};
-
-static struct vec2i get_rotated_hotspot(const struct pointer_icon *icon, drm_plane_transform_t rotation) {
-    struct vec2i size;
-    struct vec2i hotspot;
-
-    assert(PLANE_TRANSFORM_IS_ONLY_ROTATION(rotation));
-    size = pointer_icon_get_size(icon);
-    hotspot = pointer_icon_get_hotspot(icon);
-
-    if (rotation.rotate_0) {
-        return hotspot;
-    } else if (rotation.rotate_90) {
-        return VEC2I(size.y - hotspot.y - 1, hotspot.x);
-    } else if (rotation.rotate_180) {
-        return VEC2I(size.x - hotspot.x - 1, size.y - hotspot.y - 1);
-    } else {
-        ASSUME(rotation.rotate_270);
-        return VEC2I(hotspot.y, size.x - hotspot.x - 1);
-    }
-}
-
-static struct cursor_buffer *cursor_buffer_new(struct drmdev *drmdev, const struct pointer_icon *icon, drm_plane_transform_t rotation) {
-    struct cursor_buffer *b;
-    struct gbm_bo *bo;
-    uint32_t fb_id;
-    struct vec2i size, rotated_size;
-    int ok;
-
-    ASSERT_NOT_NULL(drmdev);
-    assert(PLANE_TRANSFORM_IS_ONLY_ROTATION(rotation));
-
-    size = pointer_icon_get_size(icon);
-    rotated_size = size;
-
-    b = malloc(sizeof *b);
-    if (b == NULL) {
-        return NULL;
-    }
-
-    if (rotation.rotate_90 || rotation.rotate_270) {
-        rotated_size = vec2i_swap_xy(size);
-    }
-
-    bo = gbm_bo_create(
-        drmdev_get_gbm_device(drmdev),
-        rotated_size.x,
-        rotated_size.y,
-        get_pixfmt_info(PIXFMT_ARGB8888)->gbm_format,
-        GBM_BO_USE_LINEAR | GBM_BO_USE_SCANOUT | GBM_BO_USE_WRITE | GBM_BO_USE_CURSOR
-    );
-    if (bo == NULL) {
-        LOG_ERROR("Could not create GBM buffer for uploading mouse cursor icon. gbm_bo_create: %s\n", strerror(errno));
-        goto fail_free_b;
-    }
-
-    if (gbm_bo_get_stride(bo) != rotated_size.x * 4) {
-        LOG_ERROR("GBM BO has unsupported framebuffer stride %u, expected was: %d\n", gbm_bo_get_stride(bo), size.x * 4);
-        goto fail_destroy_bo;
-    }
-
-    uint32_t *pixel_data = pointer_icon_dup_pixels(icon);
-    if (pixel_data == NULL) {
-        goto fail_destroy_bo;
-    }
-
-    if (rotation.rotate_0) {
-        ok = gbm_bo_write(bo, pixel_data, gbm_bo_get_stride(bo) * size.y);
-        if (ok != 0) {
-            LOG_ERROR("Couldn't write cursor icon to GBM BO. gbm_bo_write: %s\n", strerror(errno));
-            goto fail_free_duped_pixel_data;
-        }
-    } else {
-        ASSUME(rotation.rotate_90 || rotation.rotate_180 || rotation.rotate_270);
-
-        uint32_t *rotated = malloc(size.x * size.y * 4);
-        if (rotated == NULL) {
-            goto fail_free_duped_pixel_data;
-        }
-
-        for (int y = 0; y < size.y; y++) {
-            for (int x = 0; x < size.x; x++) {
-                int buffer_x, buffer_y;
-                if (rotation.rotate_90) {
-                    buffer_x = size.y - y - 1;
-                    buffer_y = x;
-                } else if (rotation.rotate_180) {
-                    buffer_x = size.y - y - 1;
-                    buffer_y = size.x - x - 1;
-                } else {
-                    ASSUME(rotation.rotate_270);
-                    buffer_x = y;
-                    buffer_y = size.x - x - 1;
-                }
-
-                int buffer_offset = rotated_size.x * buffer_y + buffer_x;
-                int cursor_offset = size.x * y + x;
-
-                rotated[buffer_offset] = pixel_data[cursor_offset];
-            }
-        }
-
-        ok = gbm_bo_write(bo, rotated, gbm_bo_get_stride(bo) * rotated_size.y);
-
-        free(rotated);
-
-        if (ok != 0) {
-            LOG_ERROR("Couldn't write rotated cursor icon to GBM BO. gbm_bo_write: %s\n", strerror(errno));
-            goto fail_free_duped_pixel_data;
-        }
-    }
-
-    free(pixel_data);
-
-    fb_id = drmdev_add_fb(
-        drmdev,
-        rotated_size.x,
-        rotated_size.y,
-        PIXFMT_ARGB8888,
-        gbm_bo_get_handle(bo).u32,
-        gbm_bo_get_stride(bo),
-        gbm_bo_get_offset(bo, 0),
-        gbm_bo_get_modifier(bo) != DRM_FORMAT_MOD_INVALID,
-        gbm_bo_get_modifier(bo)
-    );
-    if (fb_id == 0) {
-        goto fail_destroy_bo;
-    }
-
-    b->n_refs = REFCOUNT_INIT_1;
-    b->icon = icon;
-    b->format = PIXFMT_ARGB8888;
-    b->width = rotated_size.x;
-    b->height = rotated_size.y;
-    b->rotation = rotation;
-    b->drmdev = drmdev_ref(drmdev);
-    b->drm_fb_id = fb_id;
-    b->bo = bo;
-    b->hotspot = get_rotated_hotspot(icon, rotation);
-    return b;
-
-fail_free_duped_pixel_data:
-    free(pixel_data);
-
-fail_destroy_bo:
-    gbm_bo_destroy(bo);
-
-fail_free_b:
-    free(b);
-    return NULL;
-}
-
-static void cursor_buffer_destroy(struct cursor_buffer *buffer) {
-    drmdev_rm_fb(buffer->drmdev, buffer->drm_fb_id);
-    gbm_bo_destroy(buffer->bo);
-    drmdev_unref(buffer->drmdev);
-    free(buffer);
-}
-
-DEFINE_STATIC_REF_OPS(cursor_buffer, n_refs)
-
-static int select_mode(
-    struct drm_resources *resources,
-    struct drm_connector **connector_out,
-    struct drm_encoder **encoder_out,
-    struct drm_crtc **crtc_out,
-    drmModeModeInfo **mode_out,
-    const char *desired_videomode
-) {
-    struct drm_connector *connector;
-    struct drm_encoder *encoder;
-    struct drm_crtc *crtc;
-    drmModeModeInfo *mode;
-    int ok;
-
-    // find any connected connector
-    drm_resources_for_each_connector(resources, connector_it) {
-        if (connector_it->variable_state.connection_state == DRM_CONNSTATE_CONNECTED) {
-            connector = connector_it;
-            break;
-        }
-    }
-
-    if (connector == NULL) {
-        LOG_ERROR("Could not find a connected connector!\n");
-        return EINVAL;
-    }
-
-    mode = NULL;
-    if (desired_videomode != NULL) {
-        drm_connector_for_each_mode(connector, mode_iter) {
-            char *modeline = NULL, *modeline_nohz = NULL;
-
-            ok = asprintf(&modeline, "%" PRIu16 "x%" PRIu16 "@%" PRIu32, mode_iter->hdisplay, mode_iter->vdisplay, mode_iter->vrefresh);
-            if (ok < 0) {
-                return ENOMEM;
-            }
-
-            ok = asprintf(&modeline_nohz, "%" PRIu16 "x%" PRIu16, mode_iter->hdisplay, mode_iter->vdisplay);
-            if (ok < 0) {
-                return ENOMEM;
-            }
-
-            if (streq(modeline, desired_videomode)) {
-                // Probably a bit superfluos, but the refresh rate can still vary in the decimal places.
-                if (mode == NULL || (mode_get_vrefresh(mode_iter) > mode_get_vrefresh(mode))) {
-                    mode = mode_iter;
-                }
-            } else if (streq(modeline_nohz, desired_videomode)) {
-                if (mode == NULL || (mode_get_vrefresh(mode_iter) > mode_get_vrefresh(mode))) {
-                    mode = mode_iter;
-                }
-            }
-
-            free(modeline);
-            free(modeline_nohz);
-        }
-
-        if (mode == NULL) {
-            LOG_ERROR("Didn't find a videomode matching \"%s\"! Falling back to display preferred mode.\n", desired_videomode);
-        }
-    }
-
-    // Find the preferred mode (GPU drivers _should_ always supply a preferred mode, but of course, they don't)
-    // Alternatively, find the mode with the highest width*height. If there are multiple modes with the same w*h,
-    // prefer higher refresh rates. After that, prefer progressive scanout modes.
-    if (mode == NULL) {
-        drm_connector_for_each_mode(connector, mode_iter) {
-            if (mode_iter->type & DRM_MODE_TYPE_PREFERRED) {
-                mode = mode_iter;
-                break;
-            } else if (mode == NULL) {
-                mode = mode_iter;
-            } else {
-                int area = mode_iter->hdisplay * mode_iter->vdisplay;
-                int old_area = mode->hdisplay * mode->vdisplay;
-
-                if ((area > old_area) || ((area == old_area) && (mode_iter->vrefresh > mode->vrefresh)) ||
-                    ((area == old_area) && (mode_iter->vrefresh == mode->vrefresh) && ((mode->flags & DRM_MODE_FLAG_INTERLACE) == 0))) {
-                    mode = mode_iter;
-                }
-            }
-        }
-
-        if (mode == NULL) {
-            LOG_ERROR("Could not find a preferred output mode!\n");
-            return EINVAL;
-        }
-    }
-
-    ASSERT_NOT_NULL(mode);
-
-    // Find the encoder that's linked to the connector right now
-    drm_resources_for_each_encoder(resources, encoder_it) {
-        if (encoder_it->id == connector->committed_state.encoder_id) {
-            encoder = encoder_it;
-            break;
-        }
-    }
-
-    // Otherwise use use any encoder that the connector supports linking to
-    if (encoder == NULL) {
-        for (int i = 0; i < connector->n_encoders; i++, encoder = NULL) {
-            drm_resources_for_each_encoder(resources, encoder_it) {
-                if (encoder_it->id == connector->encoders[i]) {
-                    break;
-                }
-            }
-
-            if (encoder->possible_crtcs) {
-                // only use this encoder if there's a crtc we can use with it
-                break;
-            }
-        }
-    }
-
-    if (encoder == NULL) {
-        LOG_ERROR("Could not find a suitable DRM encoder.\n");
-        return EINVAL;
-    }
-
-    // Find the CRTC that's currently linked to this encoder
-    drm_resources_for_each_crtc(resources, crtc_it) {
-        if (crtc_it->id == encoder->variable_state.crtc_id) {
-            crtc = crtc_it;
-            break;
-        }
-    }
-
-    // Otherwise use any CRTC that this encoder supports linking to
-    if (crtc == NULL) {
-        drm_resources_for_each_crtc(resources, crtc_it) {
-            if (encoder->possible_crtcs & crtc_it->bitmask) {
-                // find a CRTC that is possible to use with this encoder
-                crtc = crtc_it;
-                break;
-            }
-        }
-    }
-
-    if (crtc == NULL) {
-        LOG_ERROR("Could not find a suitable DRM CRTC.\n");
-        return EINVAL;
-    }
-
-    *connector_out = connector;
-    *encoder_out = encoder;
-    *crtc_out = crtc;
-    *mode_out = mode;
-    return 0;
-}
-
-static int kms_window_push_composition(struct window *window, struct fl_layer_composition *composition);
-static struct render_surface *kms_window_get_render_surface(struct window *window, struct vec2i size);
-
-#ifdef HAVE_EGL_GLES2
-static bool kms_window_has_egl_surface(struct window *window);
-static EGLSurface kms_window_get_egl_surface(struct window *window);
-#endif
-
-static void kms_window_deinit(struct window *window);
-static int kms_window_set_cursor_locked(
-    // clang-format off
-    struct window *window,
-    bool has_enabled, bool enabled,
-    bool has_kind, enum pointer_kind kind,
-    bool has_pos, struct vec2i pos
-    // clang-format on
-);
-
-MUST_CHECK struct window *kms_window_new(
-    // clang-format off
-    struct tracer *tracer,
-    struct frame_scheduler *scheduler,
-    enum renderer_type renderer_type,
-    struct gl_renderer *gl_renderer,
-    struct vk_renderer *vk_renderer,
-    bool has_rotation, drm_plane_transform_t rotation,
-    bool has_orientation, enum device_orientation orientation,
-    bool has_explicit_dimensions, int width_mm, int height_mm,
-    bool has_forced_pixel_format, enum pixfmt forced_pixel_format,
-    struct drmdev *drmdev,
-    struct drm_resources *resources,
-    const char *desired_videomode
-    // clang-format on
-) {
-    struct window *window;
-    struct drm_connector *selected_connector;
-    struct drm_encoder *selected_encoder;
-    struct drm_crtc *selected_crtc;
-    drmModeModeInfo *selected_mode;
-    bool has_dimensions;
-    int ok;
-
-    ASSERT_NOT_NULL(drmdev);
-    ASSERT_NOT_NULL(resources);
-
-#if !defined(HAVE_VULKAN)
-    ASSUME(renderer_type != kVulkan_RendererType);
-#endif
-
-#if !defined(HAVE_EGL_GLES2)
-    ASSUME(renderer_type != kOpenGL_RendererType);
-#endif
-
-    // if opengl --> gl_renderer != NULL && vk_renderer == NULL
-    assert(renderer_type != kOpenGL_RendererType || (gl_renderer != NULL && vk_renderer == NULL));
-
-    // if vulkan --> vk_renderer != NULL && gl_renderer == NULL
-    assert(renderer_type != kVulkan_RendererType || (vk_renderer != NULL && gl_renderer == NULL));
-
-    window = malloc(sizeof *window);
-    if (window == NULL) {
-        return NULL;
-    }
-
-    ok = select_mode(resources, &selected_connector, &selected_encoder, &selected_crtc, &selected_mode, desired_videomode);
-    if (ok != 0) {
-        goto fail_free_window;
-    }
-
-    if (has_explicit_dimensions) {
-        has_dimensions = true;
-    } else if (selected_connector->variable_state.width_mm % 10 || selected_connector->variable_state.height_mm % 10) {
-        // as a heuristic, assume the physical dimensions are valid if they're not both multiples of 10.
-        // dimensions like 160x90mm, 150x100mm are often bogus.
-        has_dimensions = true;
-        width_mm = selected_connector->variable_state.width_mm;
-        height_mm = selected_connector->variable_state.height_mm;
-    } else if (selected_connector->type == DRM_MODE_CONNECTOR_DSI && selected_connector->variable_state.width_mm == 0 &&
-               selected_connector->variable_state.height_mm == 0) {
-        // assume this is the official Raspberry Pi DSI display.
-        has_dimensions = true;
-        width_mm = 155;
-        height_mm = 86;
-    } else {
-        has_dimensions = false;
-    }
-
-    ok = window_init(
-        // clang-format off
-        window,
-        tracer,
-        scheduler,
-        has_rotation, rotation,
-        has_orientation, orientation,
-        selected_mode->hdisplay, selected_mode->vdisplay,
-        has_dimensions, width_mm, height_mm,
-        mode_get_vrefresh(selected_mode),
-        has_forced_pixel_format, forced_pixel_format
-        // clang-format on
-    );
-    if (ok != 0) {
-        free(window);
-        return NULL;
-    }
-
-    LOG_DEBUG_UNPREFIXED(
-        "display mode:\n"
-        "  resolution: %" PRIu16 " x %" PRIu16
-        "\n"
-        "  refresh rate: %fHz\n"
-        "  physical size: %dmm x %dmm\n"
-        "  flutter device pixel ratio: %f\n"
-        "  pixel format: %s\n",
-        selected_mode->hdisplay,
-        selected_mode->vdisplay,
-        mode_get_vrefresh(selected_mode),
-        width_mm,
-        height_mm,
-        (double) (window->pixel_ratio),
-        has_forced_pixel_format ? get_pixfmt_info(forced_pixel_format)->name : "(any)"
-    );
-
-    window->kms.drmdev = drmdev_ref(drmdev);
-    window->kms.resources = drm_resources_ref(resources);
-    window->kms.connector = selected_connector;
-    window->kms.encoder = selected_encoder;
-    window->kms.crtc = selected_crtc;
-    window->kms.mode = selected_mode;
-    window->kms.should_apply_mode = true;
-    window->kms.cursor = NULL;
-    window->kms.pointer_icon = NULL;
-    window->kms.cursor_works = true;
-    window->renderer_type = renderer_type;
-    if (gl_renderer != NULL) {
-#ifdef HAVE_EGL_GLES2
-        window->gl_renderer = gl_renderer_ref(gl_renderer);
-#else
-        UNREACHABLE();
-#endif
-    }
-    if (vk_renderer != NULL) {
-#ifdef HAVE_VULKAN
-        window->vk_renderer = vk_renderer_ref(vk_renderer);
-#else
-        UNREACHABLE();
-#endif
-    } else {
-        window->vk_renderer = NULL;
-    }
-    window->push_composition = kms_window_push_composition;
-    window->get_render_surface = kms_window_get_render_surface;
-#ifdef HAVE_EGL_GLES2
-    window->has_egl_surface = kms_window_has_egl_surface;
-    window->get_egl_surface = kms_window_get_egl_surface;
-#endif
-    window->deinit = kms_window_deinit;
-    window->set_cursor_locked = kms_window_set_cursor_locked;
-    return window;
-
-fail_free_window:
-    free(window);
-    return NULL;
-}
-
-void kms_window_deinit(struct window *window) {
-    /// TODO: Do we really need to do this?
-    /*
-    struct kms_req_builder *builder;
-    struct kms_req *req;
-    int ok;
-
-    builder = drmdev_create_request_builder(window->kms.drmdev, window->kms.crtc->id);
-    ASSERT_NOT_NULL(builder);
-
-    ok = kms_req_builder_unset_mode(builder);
-    ASSERT_EQUALS(ok, 0);
-
-    req = kms_req_builder_build(builder);
-    ASSERT_NOT_NULL(req);
-
-    kms_req_builder_unref(builder);
-
-    ok = kms_req_commit_blocking(req, NULL);
-    ASSERT_EQUALS(ok, 0);
-    (void) ok;
-
-    kms_req_unref(req);
-    */
-
-    if (window->kms.cursor != NULL) {
-        cursor_buffer_unref(window->kms.cursor);
-    }
-    if (window->render_surface != NULL) {
-        surface_unref(CAST_SURFACE(window->render_surface));
-    }
-    if (window->gl_renderer != NULL) {
-#ifdef HAVE_EGL_GLES2
-        gl_renderer_unref(window->gl_renderer);
-#else
-        UNREACHABLE();
-#endif
-    }
-    if (window->vk_renderer != NULL) {
-#ifdef HAVE_VULKAN
-        vk_renderer_unref(window->vk_renderer);
-#else
-        UNREACHABLE();
-#endif
-    }
-    drmdev_unref(window->kms.drmdev);
-    window_deinit(window);
-}
-
-struct frame {
-    struct tracer *tracer;
-    struct kms_req *req;
-    bool unset_should_apply_mode_on_commit;
-};
-
-UNUSED static void on_scanout(uint64_t vblank_ns, void *userdata) {
-    ASSERT_NOT_NULL(userdata);
-    struct frame *frame = userdata;
-
-    // This potentially presents a new frame.
-    frame_scheduler_on_scanout(frame->scheduler, true, vblank_ns);
-
-    frame_scheduler_unref(frame->scheduler);
-    tracer_unref(frame->tracer);
-    kms_req_unref(frame->req);
-    drmdev_unref(frame->drmdev);
-    free(frame);
-}
-
-static void on_present_frame(void *userdata) {
-    struct frame *frame;
-    int ok;
-
-    ASSERT_NOT_NULL(userdata);
-
-    frame = userdata;
-
-    int ok;
-
-    {
-        // Keep our own reference on tracer, because the frame might be destroyed
-        // after kms_req_commit_nonblocking returns.
-        struct tracer *tracer = tracer_ref(frame->tracer);
-
-        // The pageflip events might be handled on a different thread, so on_scanout
-        // might already be executed and the frame instance already freed once
-        // kms_req_commit_nonblocking returns.
-        TRACER_BEGIN(tracer, "kms_req_commit_nonblocking");
-        ok = kms_req_commit_nonblocking(frame->req, frame->drmdev, on_scanout, frame, NULL);
-        TRACER_END(tracer, "kms_req_commit_nonblocking");
-
-        tracer_unref(tracer);
-    }
-
-    if (ok != 0) {
-        LOG_ERROR("Could not commit frame request.\n");
-        frame_scheduler_unref(frame->scheduler);
-        tracer_unref(frame->tracer);
-        kms_req_unref(frame->req);
-        drmdev_unref(frame->drmdev);
-        free(frame);
-    }
-}
-
-static void on_cancel_frame(void *userdata) {
-    ASSERT_NOT_NULL(userdata);
-
-    struct frame *frame = userdata;
-
-    frame_scheduler_unref(frame->scheduler);
-    tracer_unref(frame->tracer);
-    kms_req_unref(frame->req);
-    drmdev_unref(frame->drmdev);
-    free(frame);
-}
-
-static int kms_window_push_composition_locked(struct window *window, struct fl_layer_composition *composition) {
-    struct kms_req_builder *builder;
-    struct kms_req *req;
-    struct frame *frame;
-    int ok;
-
+struct vec2f window_transform_ndc_to_view(struct window *window, struct vec2f ndc) {
     ASSERT_NOT_NULL(window);
-    ASSERT_NOT_NULL(composition);
 
-    // If flutter won't request frames (because the vsync callback is broken),
-    // we'll wait here for the previous frame to be presented / rendered.
-    // Otherwise the surface_swap_buffers at the bottom might allocate an
-    // additional buffer and we'll potentially use more buffers than we're
-    // trying to use.
-    // if (!window->use_frame_requests) {
-    //     TRACER_BEGIN(window->tracer, "window_request_frame_and_wait_for_begin");
-    //     ok = window_request_frame_and_wait_for_begin(window);
-    //     TRACER_END(window->tracer, "window_request_frame_and_wait_for_begin");
-    //     if (ok != 0) {
-    //         LOG_ERROR("Could not wait for frame begin.\n");
-    //         return ok;
-    //     }
-    // }
-
-    /// TODO: If we don't have new revisions, we don't need to scanout anything.
-    fl_layer_composition_swap_ptrs(&window->composition, composition);
-
-    builder = kms_req_builder_new_atomic(window->kms.drmdev, window->kms.resources, window->kms.crtc->id);
-    if (builder == NULL) {
-        ok = ENOMEM;
-        goto fail_unref_builder;
-    }
-
-    // We only set the mode once, at the first atomic request.
-    if (window->kms.should_apply_mode) {
-        ok = kms_req_builder_set_connector(builder, window->kms.connector->id);
-        if (ok != 0) {
-            LOG_ERROR("Couldn't select connector.\n");
-            goto fail_unref_builder;
-        }
-
-        ok = kms_req_builder_set_mode(builder, window->kms.mode);
-        if (ok != 0) {
-            LOG_ERROR("Couldn't apply output mode.\n");
-            goto fail_unref_builder;
-        }
-    }
-
-    for (size_t i = 0; i < fl_layer_composition_get_n_layers(composition); i++) {
-        struct fl_layer *layer = fl_layer_composition_peek_layer(composition, i);
-
-        ok = surface_present_kms(layer->surface, &layer->props, builder);
-        if (ok != 0) {
-            LOG_ERROR("Couldn't present flutter layer on screen. surface_present_kms: %s\n", strerror(ok));
-            goto fail_unref_builder;
-        }
-    }
-
-    // add cursor infos
-    if (window->kms.cursor != NULL) {
-        ok = kms_req_builder_push_fb_layer(
-            builder,
-            &(const struct kms_fb_layer){
-                .drm_fb_id = window->kms.cursor->drm_fb_id,
-                .format = window->kms.cursor->format,
-                .has_modifier = true,
-                .modifier = DRM_FORMAT_MOD_LINEAR,
-                .src_x = 0,
-                .src_y = 0,
-                .src_w = ((uint16_t) window->kms.cursor->width) << 16,
-                .src_h = ((uint16_t) window->kms.cursor->height) << 16,
-                .dst_x = window->cursor_pos.x - window->kms.cursor->hotspot.x,
-                .dst_y = window->cursor_pos.y - window->kms.cursor->hotspot.y,
-                .dst_w = window->kms.cursor->width,
-                .dst_h = window->kms.cursor->height,
-                .has_rotation = false,
-                .rotation = PLANE_TRANSFORM_NONE,
-                .has_in_fence_fd = false,
-                .in_fence_fd = 0,
-                .prefer_cursor = true,
-            },
-            cursor_buffer_unref_void,
-            NULL,
-            window->kms.cursor
-        );
-        if (ok != 0) {
-            LOG_ERROR("Couldn't present cursor. Hardware cursor will be disabled.\n");
-
-            window->kms.cursor_works = false;
-            window->cursor_enabled = false;
-            cursor_buffer_unrefp(&window->kms.cursor);
-        } else {
-            cursor_buffer_ref(window->kms.cursor);
-        }
-    }
-
-    req = kms_req_builder_build(builder);
-    if (req == NULL) {
-        ok = EIO;
-        goto fail_unref_builder;
-    }
-
-    kms_req_builder_unref(builder);
-    builder = NULL;
-
-    frame = malloc(sizeof *frame);
-    if (frame == NULL) {
-        ok = ENOMEM;
-        goto fail_unref_req;
-    }
-
-    frame->req = req;
-    frame->tracer = tracer_ref(window->tracer);
-    frame->drmdev = drmdev_ref(window->kms.drmdev);
-    frame->scheduler = frame_scheduler_ref(window->frame_scheduler);
-    frame->unset_should_apply_mode_on_commit = window->kms.should_apply_mode;
-
-    frame_scheduler_present_frame(window->frame_scheduler, on_present_frame, frame, on_cancel_frame);
-
-    // if (window->present_mode == kDoubleBufferedVsync_PresentMode) {
-    //     TRACER_BEGIN(window->tracer, "kms_req_builder_commit");
-    //     ok = kms_req_commit(req, /* blocking: */ false);
-    //     TRACER_END(window->tracer, "kms_req_builder_commit");
-    //
-    //     if (ok != 0) {
-    //         LOG_ERROR("Could not commit frame request.\n");
-    //         goto fail_unref_window2;
-    //     }
-    //
-    //     if (window->set_set_mode) {
-    //         window->set_mode = false;
-    //         window->set_set_mode = false;
-    //     }
-    // } else {
-    //     ASSERT_EQUALS(window->present_mode, kTripleBufferedVsync_PresentMode);
-    //
-    //     if (window->present_immediately) {
-    //         TRACER_BEGIN(window->tracer, "kms_req_builder_commit");
-    //         ok = kms_req_commit(req, /* blocking: */ false);
-    //         TRACER_END(window->tracer, "kms_req_builder_commit");
-    //
-    //         if (ok != 0) {
-    //             LOG_ERROR("Could not commit frame request.\n");
-    //             goto fail_unref_window2;
-    //         }
-    //
-    //         if (window->set_set_mode) {
-    //             window->set_mode = false;
-    //             window->set_set_mode = false;
-    //         }
-    //
-    //         window->present_immediately = false;
-    //     } else {
-    //         if (window->next_frame != NULL) {
-    //             /// FIXME: Call the release callbacks when the kms_req is destroyed, not when it's unrefed.
-    //             /// Not sure this here will lead to the release callbacks being called multiple times.
-    //             kms_req_call_release_callbacks(window->next_frame);
-    //             kms_req_unref(window->next_frame);
-    //         }
-    //
-    //         window->next_frame = kms_req_ref(req);
-    //         window->set_set_mode = window->set_mode;
-    //     }
-    // }
-
-    // KMS Req is committed now and drmdev keeps a ref
-    // on it internally, so we don't need to keep this one.
-    // kms_req_unref(req);
-
-    // window_on_rendering_complete(window);
-
-    return 0;
-
-fail_unref_req:
-    kms_req_unref(req);
-    return ok;
-
-fail_unref_builder:
-    kms_req_builder_unref(builder);
-    return ok;
-}
-
-static int kms_window_push_composition(struct window *window, struct fl_layer_composition *composition) {
-    int ok;
+    struct vec2f view_pos;
 
     window_lock(window);
-
-    ok = kms_window_push_composition_locked(window, composition);
-
+    view_pos = transform_point(window->ndc_to_view_transform, ndc);
     window_unlock(window);
 
-    return ok;
+    return view_pos;
 }
 
-static bool count_modifiers_for_pixel_format(
-    UNUSED struct drm_plane *plane,
-    UNUSED int index,
-    enum pixfmt pixel_format,
-    UNUSED uint64_t modifier,
-    void *userdata
-) {
-    struct {
-        enum pixfmt format;
-        uint64_t *modifiers;
-        size_t n_modifiers;
-        int index;
-    } *context = userdata;
-
-    if (pixel_format == context->format) {
-        context->n_modifiers++;
-    }
-
-    return true;
-}
-
-static bool extract_modifiers_for_pixel_format(
-    UNUSED struct drm_plane *plane,
-    UNUSED int index,
-    enum pixfmt pixel_format,
-    uint64_t modifier,
-    void *userdata
-) {
-    struct {
-        enum pixfmt format;
-        uint64_t *modifiers;
-        size_t n_modifiers;
-        int index;
-    } *context = userdata;
-
-    if (pixel_format == context->format) {
-        context->modifiers[context->index++] = modifier;
-    }
-
-    return true;
-}
-
-static struct render_surface *kms_window_get_render_surface_internal(struct window *window, bool has_size, UNUSED struct vec2i size) {
-    struct render_surface *render_surface;
-
-    ASSERT_NOT_NULL(window);
-
-    if (window->render_surface != NULL) {
-        return window->render_surface;
-    }
-
-    if (!has_size) {
-        // Flutter wants a render surface, but hasn't told us the backing store dimensions yet.
-        // Just make a good guess about the dimensions.
-        LOG_DEBUG("Flutter requested render surface before supplying surface dimensions.\n");
-        size = VEC2I(window->kms.mode->hdisplay, window->kms.mode->vdisplay);
-    }
-
-    enum pixfmt pixel_format;
-    if (window->has_forced_pixel_format) {
-        pixel_format = window->forced_pixel_format;
-    } else {
-        // Actually, more devices support ARGB8888 might sometimes not be supported by devices,
-        // for example for primary planes. But we can just cast ARGB8888 to XRGB8888 if we need to,
-        // and ARGB8888 is still a good default choice because casting XRGB to ARGB might not work,
-        // and sometimes we need alpha for overlay planes.
-        // Also vulkan doesn't work with XRGB yet so we definitely need to use ARGB to vulkan too.
-        pixel_format = PIXFMT_ARGB8888;
-    }
-
-    // Possibly populate this with the supported modifiers for this pixel format.
-    // If no plane lists modifiers for this pixel format, this will be left at NULL,
-    // and egl_gbm_render_surface_new... will create the GBM surface using usage flags
-    // (GBM_USE_SCANOUT | GBM_USE_RENDER) instead.
-    uint64_t *allowed_modifiers = NULL;
-    size_t n_allowed_modifiers = 0;
-
-    // For now just set the supported modifiers for the first plane that supports this pixel format
-    // as the allowed modifiers.
-    /// TODO: Find a way to rank pixel formats, maybe by number of planes that support them for scanout.
-    drm_resources_for_each_plane(window->kms.resources, plane_it) {
-        if (!(plane_it->possible_crtcs & window->kms.crtc->bitmask)) {
-            // Only query planes that are possible to connect to the CRTC we're using.
-            continue;
-        }
-
-        if (plane_it->type != DRM_PRIMARY_PLANE && plane_it->type != DRM_OVERLAY_PLANE) {
-            // We explicitly only look for primary and overlay planes.
-            continue;
-        }
-
-        if (!plane_it->supports_modifiers) {
-            // The plane does not have an IN_FORMATS property and does not support
-            // explicit modifiers.
-            //
-            // Calling drm_plane_for_each_modified_format below will segfault.
-            continue;
-        }
-
-        struct {
-            enum pixfmt format;
-            uint64_t *modifiers;
-            size_t n_modifiers;
-            int index;
-        } context = {
-            .format = pixel_format,
-            .modifiers = NULL,
-            .n_modifiers = 0,
-            .index = 0,
-        };
-
-        // First, count the allowed modifiers for this pixel format.
-        drm_plane_for_each_modified_format(plane_it, count_modifiers_for_pixel_format, &context);
-
-        n_allowed_modifiers = context.n_modifiers;
-        allowed_modifiers = calloc(n_allowed_modifiers, sizeof(*context.modifiers));
-        context.modifiers = allowed_modifiers;
-
-        // Next, fill context.modifiers with the allowed modifiers.
-        drm_plane_for_each_modified_format(plane_it, extract_modifiers_for_pixel_format, &context);
-        break;
-    }
-
-    if (window->renderer_type == kOpenGL_RendererType) {
-        // opengl
-#ifdef HAVE_EGL_GLES2
-    // EGL_NO_CONFIG_KHR is defined by EGL_KHR_no_config_context.
-    #ifndef EGL_KHR_no_config_context
-        #error "EGL header definitions for extension EGL_KHR_no_config_context are required."
-    #endif
-
-        struct egl_gbm_render_surface *egl_surface = egl_gbm_render_surface_new_with_egl_config(
-            window->tracer,
-            size,
-            gl_renderer_get_gbm_device(window->gl_renderer),
-            window->gl_renderer,
-            pixel_format,
-            EGL_NO_CONFIG_KHR,
-            allowed_modifiers,
-            n_allowed_modifiers
-        );
-        if (egl_surface == NULL) {
-            LOG_ERROR("Couldn't create EGL GBM rendering surface.\n");
-            render_surface = NULL;
-        } else {
-            render_surface = CAST_RENDER_SURFACE(egl_surface);
-        }
-
-#else
-        UNREACHABLE();
-#endif
-    } else {
-        ASSUME(window->renderer_type == kVulkan_RendererType);
-
-        // vulkan
-#ifdef HAVE_VULKAN
-        struct vk_gbm_render_surface *vk_surface =
-            vk_gbm_render_surface_new(window->tracer, size, drmdev_get_gbm_device(window->kms.drmdev), window->vk_renderer, pixel_format);
-        if (vk_surface == NULL) {
-            LOG_ERROR("Couldn't create Vulkan GBM rendering surface.\n");
-            render_surface = NULL;
-        } else {
-            render_surface = CAST_RENDER_SURFACE(vk_surface);
-        }
-#else
-        UNREACHABLE();
-#endif
-    }
-
-    if (allowed_modifiers != NULL) {
-        free(allowed_modifiers);
-    }
-
-    window->render_surface = render_surface;
-    return render_surface;
-}
-
-static struct render_surface *kms_window_get_render_surface(struct window *window, struct vec2i size) {
-    ASSERT_NOT_NULL(window);
-    return kms_window_get_render_surface_internal(window, true, size);
-}
-
-#ifdef HAVE_EGL_GLES2
-static bool kms_window_has_egl_surface(struct window *window) {
-    if (window->renderer_type == kOpenGL_RendererType) {
-        return window->render_surface != NULL;
-    } else {
-        return false;
-    }
-}
-
-static EGLSurface kms_window_get_egl_surface(struct window *window) {
-    if (window->renderer_type == kOpenGL_RendererType) {
-        struct render_surface *render_surface = kms_window_get_render_surface_internal(window, false, VEC2I(0, 0));
-        return egl_gbm_render_surface_get_egl_surface(CAST_EGL_GBM_RENDER_SURFACE(render_surface));
-    } else {
-        return EGL_NO_SURFACE;
-    }
-}
-#endif
-
-static int kms_window_set_cursor_locked(
-    // clang-format off
+void window_on_input(
     struct window *window,
-    bool has_enabled, bool enabled,
-    bool has_kind, enum pointer_kind kind,
-    bool has_pos, struct vec2i pos
-    // clang-format on
+    size_t n_events,
+    const struct user_input_event *events,
+    const struct fl_pointer_event_interface *pointer_event_interface,
+    int64_t view_id
 ) {
-    const struct pointer_icon *icon;
-    struct cursor_buffer *cursor;
-
-    if (has_kind) {
-        if (window->kms.pointer_icon == NULL || pointer_icon_get_kind(window->kms.pointer_icon) != kind) {
-            window->kms.pointer_icon = pointer_icon_for_details(kind, window->pixel_ratio);
-            ASSERT_NOT_NULL(window->kms.pointer_icon);
-        }
-    }
-
-    enabled = has_enabled ? enabled : window->cursor_enabled;
-    icon = has_kind ? pointer_icon_for_details(kind, window->pixel_ratio) : window->kms.pointer_icon;
-    pos = has_pos ? pos : window->cursor_pos;
-    cursor = window->kms.cursor;
-
-    if (enabled && !window->kms.cursor_works) {
-        // hardware cursor is disabled, so we can't enable it.
-        return EIO;
-    }
-
-    if (enabled && icon == NULL) {
-        // default to the arrow icon.
-        icon = pointer_icon_for_details(POINTER_KIND_BASIC, window->pixel_ratio);
-        ASSERT_NOT_NULL(icon);
-    }
-
-    if (window->kms.pointer_icon != icon) {
-        window->kms.pointer_icon = icon;
-    }
-
-    if (enabled) {
-        if (cursor == NULL || icon != cursor->icon) {
-            cursor = cursor_buffer_new(window->kms.drmdev, window->kms.pointer_icon, window->rotation);
-            if (cursor == NULL) {
-                return EIO;
-            }
-
-            cursor_buffer_swap_ptrs(&window->kms.cursor, cursor);
-
-            // cursor is created with refcount 1. cursor_buffer_swap_ptrs
-            // increases refcount by one. deref here so we don't leak a
-            // reference.
-            cursor_buffer_unrefp(&cursor);
-
-            // apply the new cursor icon & position by scanning out a new frame.
-            window->cursor_pos = pos;
-            if (window->composition != NULL) {
-                kms_window_push_composition_locked(window, window->composition);
-            }
-        } else if (has_pos) {
-            // apply the new cursor position using drmModeMoveCursor
-            window->cursor_pos = pos;
-            drmdev_move_cursor(window->kms.drmdev, window->kms.crtc->id, vec2i_sub(pos, window->kms.cursor->hotspot));
-        }
-    } else {
-        if (window->kms.cursor != NULL) {
-            cursor_buffer_unrefp(&window->kms.cursor);
-        }
-    }
-
-    window->cursor_enabled = enabled;
-    return 0;
-}
-
-static int dummy_window_push_composition(struct window *window, struct fl_layer_composition *composition);
-static struct render_surface *dummy_window_get_render_surface_internal(struct window *window, bool has_size, UNUSED struct vec2i size);
-static struct render_surface *dummy_window_get_render_surface(struct window *window, struct vec2i size);
-
-#ifdef HAVE_EGL_GLES2
-static bool dummy_window_has_egl_surface(struct window *window);
-static EGLSurface dummy_window_get_egl_surface(struct window *window);
-#endif
-
-static void dummy_window_deinit(struct window *window);
-static int dummy_window_set_cursor_locked(
-    // clang-format off
-    struct window *window,
-    bool has_enabled, bool enabled,
-    bool has_kind, enum pointer_kind kind,
-    bool has_pos, struct vec2i pos
-    // clang-format on
-);
-
-MUST_CHECK struct window *dummy_window_new(
-    // clang-format off
-    struct tracer *tracer,
-    struct frame_scheduler *scheduler,
-    enum renderer_type renderer_type,
-    struct gl_renderer *gl_renderer,
-    struct vk_renderer *vk_renderer,
-    struct vec2i size,
-    bool has_explicit_dimensions, int width_mm, int height_mm,
-    double refresh_rate
-    // clang-format on
-) {
-    struct window *window;
-
-    window = malloc(sizeof *window);
-    if (window == NULL) {
-        return NULL;
-    }
-
-    window_init(
-        // clang-format off
-        window,
-        tracer,
-        scheduler,
-        false, PLANE_TRANSFORM_NONE,
-        false, kLandscapeLeft,
-        size.x, size.y,
-        has_explicit_dimensions, width_mm, height_mm,
-        refresh_rate,
-        false, PIXFMT_RGB565
-        // clang-format on
-    );
-
-    window->renderer_type = renderer_type;
-    if (gl_renderer != NULL) {
-#ifdef HAVE_EGL_GLES2
-        window->gl_renderer = gl_renderer_ref(gl_renderer);
-#else
-        UNREACHABLE();
-#endif
-    }
-    if (vk_renderer != NULL) {
-#ifdef HAVE_VULKAN
-        window->vk_renderer = vk_renderer_ref(vk_renderer);
-#else
-        UNREACHABLE();
-#endif
-    } else {
-        window->vk_renderer = NULL;
-    }
-    window->push_composition = dummy_window_push_composition;
-    window->get_render_surface = dummy_window_get_render_surface;
-#ifdef HAVE_EGL_GLES2
-    window->has_egl_surface = dummy_window_has_egl_surface;
-    window->get_egl_surface = dummy_window_get_egl_surface;
-#endif
-    window->deinit = dummy_window_deinit;
-    window->set_cursor_locked = dummy_window_set_cursor_locked;
-    return window;
-}
-
-static int dummy_window_push_composition(struct window *window, struct fl_layer_composition *composition) {
-    window_lock(window);
-
-    /// TODO: Maybe allow to export the layer composition as an image, for testing purposes.
-    (void) composition;
-
-    window_unlock(window);
-
-    return 0;
-}
-
-static struct render_surface *dummy_window_get_render_surface_internal(struct window *window, bool has_size, UNUSED struct vec2i size) {
-    struct render_surface *render_surface;
-
-    ASSERT_NOT_NULL(window);
-
-    if (!has_size) {
-        size = vec2f_round_to_integer(window->view_size);
-    }
-
-    if (window->render_surface != NULL) {
-        return window->render_surface;
-    }
-
-    if (window->renderer_type == kOpenGL_RendererType) {
-        // opengl
-#ifdef HAVE_EGL_GLES2
-    // EGL_NO_CONFIG_KHR is defined by EGL_KHR_no_config_context.
-    #ifndef EGL_KHR_no_config_context
-        #error "EGL header definitions for extension EGL_KHR_no_config_context are required."
-    #endif
-
-        struct egl_gbm_render_surface *egl_surface = egl_gbm_render_surface_new_with_egl_config(
-            window->tracer,
-            size,
-            gl_renderer_get_gbm_device(window->gl_renderer),
-            window->gl_renderer,
-            window->has_forced_pixel_format ? window->forced_pixel_format : PIXFMT_ARGB8888,
-            EGL_NO_CONFIG_KHR,
-            NULL,
-            0
-        );
-        if (egl_surface == NULL) {
-            LOG_ERROR("Couldn't create EGL GBM rendering surface.\n");
-            render_surface = NULL;
-        } else {
-            render_surface = CAST_RENDER_SURFACE(egl_surface);
-        }
-
-#else
-        UNREACHABLE();
-#endif
-    } else {
-        ASSUME(window->renderer_type == kVulkan_RendererType);
-
-        // vulkan
-#ifdef HAVE_VULKAN
-        UNIMPLEMENTED();
-#else
-        UNREACHABLE();
-#endif
-    }
-
-    window->render_surface = render_surface;
-    return render_surface;
-}
-
-static struct render_surface *dummy_window_get_render_surface(struct window *window, struct vec2i size) {
-    ASSERT_NOT_NULL(window);
-    return dummy_window_get_render_surface_internal(window, true, size);
-}
-
-#ifdef HAVE_EGL_GLES2
-static bool dummy_window_has_egl_surface(struct window *window) {
-    ASSERT_NOT_NULL(window);
-
-    if (window->renderer_type == kOpenGL_RendererType) {
-        return window->render_surface != NULL;
-    } else {
-        return false;
-    }
-}
-
-static EGLSurface dummy_window_get_egl_surface(struct window *window) {
-    ASSERT_NOT_NULL(window);
-
-    if (window->renderer_type == kOpenGL_RendererType) {
-        struct render_surface *render_surface = dummy_window_get_render_surface_internal(window, false, VEC2I(0, 0));
-        if (render_surface == NULL) {
-            return EGL_NO_SURFACE;
-        }
-
-        return egl_gbm_render_surface_get_egl_surface(CAST_EGL_GBM_RENDER_SURFACE(render_surface));
-    } else {
-        return EGL_NO_SURFACE;
-    }
-}
-#endif
-
-static void dummy_window_deinit(struct window *window) {
-    ASSERT_NOT_NULL(window);
-
-    if (window->render_surface != NULL) {
-        surface_unref(CAST_SURFACE(window->render_surface));
-    }
-
-    if (window->gl_renderer != NULL) {
-#ifdef HAVE_EGL_GLES2
-        gl_renderer_unref(window->gl_renderer);
-#else
-        UNREACHABLE();
-#endif
-    }
-
-    if (window->vk_renderer != NULL) {
-#ifdef HAVE_VULKAN
-        vk_renderer_unref(window->vk_renderer);
-#else
-        UNREACHABLE();
-#endif
-    }
-
-    window_deinit(window);
-}
-
-static int dummy_window_set_cursor_locked(
-    // clang-format off
-    struct window *window,
-    bool has_enabled, bool enabled,
-    bool has_kind, enum pointer_kind kind,
-    bool has_pos, struct vec2i pos
-    // clang-format on
-) {
-    ASSERT_NOT_NULL(window);
-
     (void) window;
-    (void) has_enabled;
-    (void) enabled;
-    (void) has_kind;
-    (void) kind;
-    (void) has_pos;
-    (void) pos;
+    (void) n_events;
+    (void) events;
 
-    return 0;
+    size_t n_fl_events = 0;
+    FlutterPointerEvent fl_events[64];
+
+    for (size_t i = 0; i < n_events; i++) {
+        const struct user_input_event *event = events + i;
+
+        if (n_fl_events >= ARRAY_SIZE(fl_events)) {
+            if (pointer_event_interface != NULL) {
+                pointer_event_interface->send_pointer_event(pointer_event_interface->engine, fl_events, n_fl_events);
+            }
+            n_fl_events = 0;
+        }
+
+        FlutterPointerEvent *fl_event = fl_events + n_fl_events;
+
+        memset(fl_event, 0, sizeof *fl_event);
+        fl_event->struct_size = sizeof *fl_event;
+        fl_event->phase = kCancel;
+        fl_event->timestamp = event->timestamp;
+        fl_event->x = 0.0;
+        fl_event->y = 0.0;
+        fl_event->device = event->global_slot_id;
+        fl_event->signal_kind = kFlutterPointerSignalKindNone;
+        fl_event->scroll_delta_x = 0.0;
+        fl_event->scroll_delta_y = 0.0;
+        fl_event->device_kind = kFlutterPointerDeviceKindTouch;
+        fl_event->buttons = 0;
+        fl_event->pan_x = 0.0;
+        fl_event->pan_y = 0.0;
+        fl_event->scale = 0.0;
+        fl_event->rotation = 0.0;
+        fl_event->view_id = view_id;
+        switch (event->type) {
+            case USER_INPUT_DEVICE_ADDED:
+            case USER_INPUT_DEVICE_REMOVED: goto skip;
+            case USER_INPUT_SLOT_ADDED:
+            case USER_INPUT_SLOT_REMOVED: {
+                fl_event->phase = event->type == USER_INPUT_SLOT_ADDED ? kAdd : kRemove;
+                fl_event->device = event->global_slot_id;
+                if (event->slot_type == USER_INPUT_SLOT_POINTER) {
+                    fl_event->device_kind = kFlutterPointerDeviceKindMouse;
+                } else if (event->slot_type == USER_INPUT_SLOT_TOUCH) {
+                    fl_event->device_kind = kFlutterPointerDeviceKindTouch;
+                } else if (event->slot_type == USER_INPUT_SLOT_TABLET_TOOL) {
+                    fl_event->device_kind = kFlutterPointerDeviceKindStylus;
+                }
+                break;
+            }
+            case USER_INPUT_POINTER: {
+                mutex_lock(&window->lock);
+
+                if (event->pointer.is_absolute) {
+                    window->cursor_pos.x = CLAMP(event->pointer.position_ndc.x * window->view_size.x, 0.0, window->view_size.x);
+                    window->cursor_pos.y = CLAMP(event->pointer.position_ndc.y * window->view_size.y, 0.0, window->view_size.y);
+                } else {
+                    window->cursor_pos.x = CLAMP(window->cursor_pos.x + event->pointer.delta.x, 0.0, window->view_size.x);
+                    window->cursor_pos.y = CLAMP(window->cursor_pos.y + event->pointer.delta.y, 0.0, window->view_size.y);
+                }
+
+                fl_event->x = window->cursor_pos.x;
+                fl_event->y = window->cursor_pos.y;
+
+                mutex_unlock(&window->lock);
+
+                if (event->pointer.changed_buttons & kFlutterPointerButtonMousePrimary) {
+                    if (event->pointer.buttons & kFlutterPointerButtonMousePrimary) {
+                        fl_event->phase = kDown;
+                    } else {
+                        fl_event->phase = kUp;
+                    }
+                } else {
+                    if (event->pointer.buttons & kFlutterPointerButtonMousePrimary) {
+                        fl_event->phase = kMove;
+                    } else {
+                        fl_event->phase = kHover;
+                    }
+                }
+
+                if (event->pointer.scroll_delta.x != 0.0 || event->pointer.scroll_delta.y != 0.0) {
+                    fl_event->signal_kind = kFlutterPointerSignalKindScroll;
+                    fl_event->scroll_delta_x = event->pointer.scroll_delta.x;
+                    fl_event->scroll_delta_y = event->pointer.scroll_delta.y;
+                }
+
+                fl_event->device_kind = kFlutterPointerDeviceKindMouse;
+                fl_event->buttons = event->pointer.buttons;
+                break;
+            }
+            case USER_INPUT_TOUCH: {
+                if (event->touch.down_changed) {
+                    fl_event->phase = event->touch.down ? kDown : kUp;
+                } else {
+                    fl_event->phase = kMove;
+                }
+
+                fl_event->device_kind = kFlutterPointerDeviceKindTouch;
+                fl_event->x = event->touch.position_ndc.x * window->view_size.x;
+                fl_event->y = event->touch.position_ndc.y * window->view_size.y;
+                break;
+            }
+            case USER_INPUT_TABLET_TOOL: {
+                if (event->tablet.tip_changed) {
+                    fl_event->phase = event->tablet.tip ? kDown : kUp;
+                } else {
+                    fl_event->phase = event->tablet.tip ? kMove : kHover;
+                }
+                fl_event->device_kind = kFlutterPointerDeviceKindStylus;
+                fl_event->x = event->tablet.position_ndc.x * window->view_size.x;
+                fl_event->y = event->tablet.position_ndc.y * window->view_size.y;
+                break;
+            }
+            default: break;
+        }
+
+        n_fl_events++;
+
+skip:
+        continue;
+    }
+
+    if (pointer_event_interface != NULL && n_fl_events > 0) {
+        pointer_event_interface->send_pointer_event(pointer_event_interface->engine, fl_events, n_fl_events);
+    }
+}
+
+input_device_match_score_t window_match_input_device(struct window *window, struct user_input_device *device) {
+    ASSERT_NOT_NULL(window);
+    ASSERT_NOT_NULL(device);
+
+    if (window->ops.match_input_device == NULL) {
+        return -1;
+    } else {
+        return window->ops.match_input_device(window, device);
+    }
 }

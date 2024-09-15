@@ -176,6 +176,19 @@ struct mat3f {
         (_t).pers2,                    \
     })
 
+#define MAT3F_IDENTITY() \
+    ((struct mat3f){     \
+        .scaleX = 1,     \
+        .skewX = 0,      \
+        .transX = 0,     \
+        .skewY = 0,      \
+        .scaleY = 1,     \
+        .transY = 0,     \
+        .pers0 = 0,      \
+        .pers1 = 0,      \
+        .pers2 = 1,      \
+    })
+
 #define MAT3F_TRANSLATION(translate_x, translate_y) \
     ((struct mat3f){                                \
         .scaleX = 1,                                \
