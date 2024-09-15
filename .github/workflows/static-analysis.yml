@@ -1,0 +1,58 @@
+name: "Static Analysis"
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  schedule:
+    - cron: '0 0 * * *'
+  pull_request:
+    branches: '*'
+
+jobs:
+  codechecker:
+    name: CodeChecker
+
+    # Use latest Ubuntu 24.04 for latest GCC.
+    # CodeChecker requires gcc >= 13.0.0.
+    # ubuntu-latest is ubuntu 22.04 (atm)
+    runs-on: ubuntu-24.04
+
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Install Deps, Configure and Build
+      run: |
+        ./.github/workflows/codeql-buildscript.sh
+
+    - name: Run CodeChecker
+      uses: ardera/CodeChecker-Action@master
+      id: codechecker
+      with:
+        ctu: true
+        logfile: ${{ github.workspace }}/build/compile_commands.json
+        config: ${{ github.workspace }}/.codechecker.json
+
+    - uses: actions/upload-artifact@v4
+      id: upload
+      with:
+        name: "CodeChecker Bug Reports"
+        path: ${{ steps.codechecker.outputs.result-html-dir }}
+
+    - name: Fail on Warnings
+      if: ${{ steps.codechecker.outputs.warnings == 'true' }}
+      run: |
+        cat <<EOF >>$GITHUB_STEP_SUMMARY
+        ## ⚠️ CodeChecker found warnings
+        Please see the 'CodeChecker Bug Reports' artifact for more details:
+        - ${{ steps.upload.outputs.artifact-url }}
+        EOF
+
+        exit 1

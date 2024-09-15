@@ -1,6 +1,7 @@
 /.vscode
 /build
 /out
+/.codechecker
 
 # CMake docs says it should not be checked in.
 CMakeUserPresets.json

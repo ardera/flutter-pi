@@ -746,7 +746,7 @@ struct kms_req_builder;
 
 struct kms_req_builder *drmdev_create_request_builder(struct drmdev *drmdev, uint32_t crtc_id);
 
-DECLARE_REF_OPS(kms_req_builder);
+DECLARE_REF_OPS(kms_req_builder)
 
 /**
  * @brief Gets the @ref drmdev associated with this KMS request builder.
@@ -895,7 +895,7 @@ int kms_req_builder_push_zpos_placeholder_layer(struct kms_req_builder *builder,
  */
 struct kms_req;
 
-DECLARE_REF_OPS(kms_req);
+DECLARE_REF_OPS(kms_req)
 
 /**
  * @brief Build the KMS request builder into an actual, immutable KMS request

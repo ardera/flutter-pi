@@ -20,6 +20,7 @@
 #include <semaphore.h>
 
 #include <flutter_embedder.h>
+#include <mesa3d/dynarray.h>
 #include <systemd/sd-event.h>
 
 #include "cursor.h"
@@ -33,7 +34,6 @@
 #include "surface.h"
 #include "tracer.h"
 #include "util/collection.h"
-#include "util/dynarray.h"
 #include "util/logging.h"
 #include "util/refcounting.h"
 #include "window.h"
@@ -231,7 +231,7 @@ static void fill_platform_view_layer_props(
     size_t n_mutations,
     const struct mat3f *display_to_view_transform,
     const struct mat3f *view_to_display_transform,
-    double device_pixel_ratio
+    float device_pixel_ratio
 ) {
     (void) view_to_display_transform;
 
@@ -262,8 +262,8 @@ static void fill_platform_view_layer_props(
 	 * ```
 	 */
 
-    rect.size.x /= device_pixel_ratio;
-    rect.size.y /= device_pixel_ratio;
+    rect.size.x /= (double) device_pixel_ratio;
+    rect.size.y /= (double) device_pixel_ratio;
 
     // okay, now we have the params.finalBoundingRect().x() in aa_back_transformed.x and
     // params.finalBoundingRect().y() in aa_back_transformed.y.
@@ -348,8 +348,9 @@ static int compositor_push_fl_layers(struct compositor *compositor, size_t n_fl_
             /// TODO: Implement
             layer->surface = compositor_get_view_by_id_locked(compositor, fl_layer->platform_view->identifier);
             if (layer->surface == NULL) {
-                layer->surface =
-                    CAST_SURFACE(dummy_render_surface_new(compositor->tracer, VEC2I(fl_layer->size.width, fl_layer->size.height)));
+                layer->surface = CAST_SURFACE(
+                    dummy_render_surface_new(compositor->tracer, VEC2I((int) fl_layer->size.width, (int) fl_layer->size.height))
+                );
             }
 #else
             // in release mode, we just assume the id is valid.
@@ -384,10 +385,6 @@ static int compositor_push_fl_layers(struct compositor *compositor, size_t n_fl_
 
     fl_layer_composition_unref(composition);
 
-    return 0;
-
-    //fail_free_composition:
-    //fl_layer_composition_unref(composition);
     return ok;
 }
 
@@ -556,14 +553,14 @@ void compositor_set_cursor(
 
         struct view_geometry viewgeo = window_get_view_geometry(compositor->main_window);
 
-        if (compositor->cursor_pos.x < 0.0f) {
-            compositor->cursor_pos.x = 0.0f;
+        if (compositor->cursor_pos.x < 0.0) {
+            compositor->cursor_pos.x = 0.0;
         } else if (compositor->cursor_pos.x > viewgeo.view_size.x) {
             compositor->cursor_pos.x = viewgeo.view_size.x;
         }
 
-        if (compositor->cursor_pos.y < 0.0f) {
-            compositor->cursor_pos.y = 0.0f;
+        if (compositor->cursor_pos.y < 0.0) {
+            compositor->cursor_pos.y = 0.0;
         } else if (compositor->cursor_pos.y > viewgeo.view_size.y) {
             compositor->cursor_pos.y = viewgeo.view_size.y;
         }
