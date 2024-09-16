@@ -186,13 +186,10 @@ static int select_mode(
     drmModeModeInfo **mode_out,
     const char *desired_videomode
 ) {
-    struct drm_connector *connector;
-    struct drm_encoder *encoder;
-    struct drm_crtc *crtc;
-    drmModeModeInfo *mode;
     int ok;
 
     // find any connected connector
+    struct drm_connector *connector = NULL;
     drm_resources_for_each_connector(resources, connector_it) {
         if (connector_it->variable_state.connection_state == DRM_CONNSTATE_CONNECTED) {
             connector = connector_it;
@@ -205,7 +202,7 @@ static int select_mode(
         return EINVAL;
     }
 
-    mode = NULL;
+    drmModeModeInfo *mode = NULL;
     if (desired_videomode != NULL) {
         drm_connector_for_each_mode(connector, mode_iter) {
             char *modeline = NULL, *modeline_nohz = NULL;
@@ -270,6 +267,7 @@ static int select_mode(
     ASSERT_NOT_NULL(mode);
 
     // Find the encoder that's linked to the connector right now
+    struct drm_encoder *encoder = NULL;
     drm_resources_for_each_encoder(resources, encoder_it) {
         if (encoder_it->id == connector->committed_state.encoder_id) {
             encoder = encoder_it;
@@ -282,11 +280,12 @@ static int select_mode(
         for (int i = 0; i < connector->n_encoders; i++, encoder = NULL) {
             drm_resources_for_each_encoder(resources, encoder_it) {
                 if (encoder_it->id == connector->encoders[i]) {
+                    encoder = encoder_it;
                     break;
                 }
             }
 
-            if (encoder->possible_crtcs) {
+            if (encoder && encoder->possible_crtcs) {
                 // only use this encoder if there's a crtc we can use with it
                 break;
             }
@@ -299,6 +298,7 @@ static int select_mode(
     }
 
     // Find the CRTC that's currently linked to this encoder
+    struct drm_crtc *crtc = NULL;
     drm_resources_for_each_crtc(resources, crtc_it) {
         if (crtc_it->id == encoder->variable_state.crtc_id) {
             crtc = crtc_it;
@@ -437,7 +437,7 @@ MUST_CHECK struct window *kms_window_new(
         mode_get_vrefresh(selected_mode),
         width_mm,
         height_mm,
-        window->base.pixel_ratio,
+        (double) window->base.pixel_ratio,
         has_forced_pixel_format ? get_pixfmt_info(forced_pixel_format)->name : "(any)"
     );
 
@@ -600,12 +600,14 @@ static int kms_window_push_composition_locked(struct kms_window *w, struct fl_la
         ok = kms_req_builder_set_connector(builder, w->connector->id);
         if (ok != 0) {
             LOG_ERROR("Couldn't select connector.\n");
+            ok = EIO;
             goto fail_unref_builder;
         }
 
         ok = kms_req_builder_set_mode(builder, w->mode);
         if (ok != 0) {
             LOG_ERROR("Couldn't apply output mode.\n");
+            ok = EIO;
             goto fail_unref_builder;
         }
     }
@@ -633,8 +635,8 @@ static int kms_window_push_composition_locked(struct kms_window *w, struct fl_la
                 .src_y = 0,
                 .src_w = ((uint16_t) w->cursor->width) << 16,
                 .src_h = ((uint16_t) w->cursor->height) << 16,
-                .dst_x = w->base.cursor_pos.x - w->cursor->hotspot.x,
-                .dst_y = w->base.cursor_pos.y - w->cursor->hotspot.y,
+                .dst_x = (int32_t) (w->base.cursor_pos.x) - w->cursor->hotspot.x,
+                .dst_y = (int32_t) (w->base.cursor_pos.y) - w->cursor->hotspot.y,
                 .dst_w = w->cursor->width,
                 .dst_h = w->cursor->height,
                 .has_rotation = false,
@@ -660,6 +662,7 @@ static int kms_window_push_composition_locked(struct kms_window *w, struct fl_la
 
     req = kms_req_builder_build(builder);
     if (req == NULL) {
+        ok = ENOMEM;
         goto fail_unref_builder;
     }
 
@@ -668,6 +671,7 @@ static int kms_window_push_composition_locked(struct kms_window *w, struct fl_la
 
     frame = malloc(sizeof *frame);
     if (frame == NULL) {
+        ok = ENOMEM;
         goto fail_unref_req;
     }
 
@@ -908,8 +912,13 @@ static struct render_surface *kms_window_get_render_surface_internal(struct kms_
 
         // vulkan
 #ifdef HAVE_VULKAN
-        struct vk_gbm_render_surface *vk_surface =
-            vk_gbm_render_surface_new(window->tracer, size, drmdev_get_gbm_device(window->kms.drmdev), window->vk_renderer, pixel_format);
+        struct vk_gbm_render_surface *vk_surface = vk_gbm_render_surface_new(
+            window->base.tracer,
+            size,
+            drmdev_get_gbm_device(window->drmdev),
+            window->base.vk_renderer,
+            pixel_format
+        );
         if (vk_surface == NULL) {
             LOG_ERROR("Couldn't create Vulkan GBM rendering surface.\n");
             render_surface = NULL;

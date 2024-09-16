@@ -28,7 +28,6 @@ typedef void (*kmsreq_scanout_cb_t)(uint64_t vblank_ns, void *userdata);
 
 typedef void (*kmsreq_syncfile_cb_t)(void *userdata, int syncfile_fd);
 
-
 struct drmdev;
 struct kms_req_builder;
 
@@ -36,7 +35,7 @@ struct kms_req_builder *kms_req_builder_new_atomic(struct drmdev *drmdev, struct
 
 struct kms_req_builder *kms_req_builder_new_legacy(struct drmdev *drmdev, struct drm_resources *resources, uint32_t crtc_id);
 
-DECLARE_REF_OPS(kms_req_builder);
+DECLARE_REF_OPS(kms_req_builder)
 
 struct drmdev *kms_req_builder_get_drmdev(struct kms_req_builder *builder);
 
@@ -185,7 +184,7 @@ int kms_req_builder_push_zpos_placeholder_layer(struct kms_req_builder *builder,
  */
 struct kms_req;
 
-DECLARE_REF_OPS(kms_req);
+DECLARE_REF_OPS(kms_req)
 
 /**
  * @brief Build the KMS request builder into an actual, immutable KMS request
@@ -201,6 +200,12 @@ struct kms_req *kms_req_builder_build(struct kms_req_builder *builder);
 
 int kms_req_commit_blocking(struct kms_req *req, struct drmdev *drmdev, uint64_t *vblank_ns_out);
 
-int kms_req_commit_nonblocking(struct kms_req *req, struct drmdev *drmdev, kmsreq_scanout_cb_t scanout_cb, void *userdata, void_callback_t release_cb);
+int kms_req_commit_nonblocking(
+    struct kms_req *req,
+    struct drmdev *drmdev,
+    kmsreq_scanout_cb_t scanout_cb,
+    void *userdata,
+    void_callback_t release_cb
+);
 
-#endif // _FLUTTERPI_SRC_MODESETTING_REQ_BUILDER_H_
+#endif  // _FLUTTERPI_SRC_MODESETTING_REQ_BUILDER_H_

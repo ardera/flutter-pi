@@ -803,4 +803,4 @@ void sentry_plugin_deinit(struct flutterpi *flutterpi, void *userdata) {
     free(plugin);
 }
 
-FLUTTERPI_PLUGIN("sentry", sentry_plugin, sentry_plugin_init, sentry_plugin_deinit);
+FLUTTERPI_PLUGIN("sentry", sentry_plugin, sentry_plugin_init, sentry_plugin_deinit)

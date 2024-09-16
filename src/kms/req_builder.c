@@ -11,15 +11,15 @@
 #include <sys/mman.h>
 #include <unistd.h>
 
+#include <libudev.h>
 #include <sys/epoll.h>
 #include <sys/ioctl.h>
 #include <xf86drm.h>
 #include <xf86drmMode.h>
-#include <libudev.h>
 
 #include "drmdev.h"
-#include "resources.h"
 #include "pixel_format.h"
+#include "resources.h"
 #include "util/bitset.h"
 #include "util/list.h"
 #include "util/lock_ops.h"
@@ -58,15 +58,15 @@ struct kms_req_builder {
     struct drm_connector *connector;
     struct drm_crtc *crtc;
     uint32_t available_planes;
-    
+
     bool use_atomic;
     drmModeAtomicReq *req;
-    
+
     int64_t next_zpos;
     bool unset_mode;
     bool has_mode;
     drmModeModeInfo mode;
-    
+
     int n_layers;
     struct kms_req_layer layers[32];
 
@@ -648,15 +648,15 @@ UNUSED struct kms_req *kms_req_ref(struct kms_req *req) {
 }
 
 UNUSED void kms_req_unref(struct kms_req *req) {
-    return kms_req_builder_unref((struct kms_req_builder *) req);
+    kms_req_builder_unref((struct kms_req_builder *) req);
 }
 
 UNUSED void kms_req_unrefp(struct kms_req **req) {
-    return kms_req_builder_unrefp((struct kms_req_builder **) req);
+    kms_req_builder_unrefp((struct kms_req_builder **) req);
 }
 
 UNUSED void kms_req_swap_ptrs(struct kms_req **oldp, struct kms_req *new) {
-    return kms_req_builder_swap_ptrs((struct kms_req_builder **) oldp, (struct kms_req_builder *) new);
+    kms_req_builder_swap_ptrs((struct kms_req_builder **) oldp, (struct kms_req_builder *) new);
 }
 
 UNUSED static bool drm_plane_is_active(struct drm_plane *plane) {
@@ -687,7 +687,6 @@ static void on_kms_req_release(void *userdata) {
     ASSERT(refcount_is_one(&b->n_refs));
     kms_req_builder_unref(b);
 }
-
 
 static int kms_req_commit_common(
     struct kms_req *req,
@@ -782,9 +781,25 @@ static int kms_req_commit_common(
         builder->release_cb_userdata = release_cb_userdata;
 
         if (blocking) {
-            ok = drmdev_commit_atomic_sync(drmdev, builder->req, update_mode, builder->crtc->id, on_kms_req_release, kms_req_ref(req), vblank_ns_out);
+            ok = drmdev_commit_atomic_sync(
+                drmdev,
+                builder->req,
+                update_mode,
+                builder->crtc->id,
+                on_kms_req_release,
+                kms_req_ref(req),
+                vblank_ns_out
+            );
         } else {
-            ok = drmdev_commit_atomic_async(drmdev, builder->req, update_mode, builder->crtc->id, on_kms_req_scanout, on_kms_req_release, kms_req_ref(req));
+            ok = drmdev_commit_atomic_async(
+                drmdev,
+                builder->req,
+                update_mode,
+                builder->crtc->id,
+                on_kms_req_scanout,
+                on_kms_req_release,
+                kms_req_ref(req)
+            );
         }
 
         if (ok != 0) {
@@ -927,9 +942,9 @@ static int kms_req_commit_common(
 fail_unref_builder:
     kms_req_builder_unref(builder);
 
-// fail_maybe_destroy_mode_blob:
-//     if (mode_blob != NULL)
-//         drm_blob_destroy(mode_blob);
+    // fail_maybe_destroy_mode_blob:
+    //     if (mode_blob != NULL)
+    //         drm_blob_destroy(mode_blob);
 
     return ok;
 }
@@ -954,6 +969,12 @@ int kms_req_commit_blocking(struct kms_req *req, struct drmdev *drmdev, uint64_t
     return 0;
 }
 
-int kms_req_commit_nonblocking(struct kms_req *req, struct drmdev *drmdev, kmsreq_scanout_cb_t scanout_cb, void *userdata, void_callback_t release_cb) {
+int kms_req_commit_nonblocking(
+    struct kms_req *req,
+    struct drmdev *drmdev,
+    kmsreq_scanout_cb_t scanout_cb,
+    void *userdata,
+    void_callback_t release_cb
+) {
     return kms_req_commit_common(req, drmdev, false, scanout_cb, userdata, NULL, release_cb, userdata);
 }

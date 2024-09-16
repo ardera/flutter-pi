@@ -1,11 +1,12 @@
-#include <stdlib.h>
+#include "monitor.h"
+
 #include <stdbool.h>
 #include <stdint.h>
+#include <stdlib.h>
 
 #include <libudev.h>
 
 #include "resources.h"
-#include "monitor.h"
 
 struct drm_monitor {
     struct udev *udev;
@@ -16,12 +17,8 @@ struct drm_monitor {
     void *listener_userdata;
 };
 
-struct drm_monitor *drm_monitor_new(
-    const char *sysnum_filter,
-    struct udev *udev,
-    const struct drm_uevent_listener *listener,
-    void *listener_userdata
-) {
+struct drm_monitor *
+drm_monitor_new(const char *sysnum_filter, struct udev *udev, const struct drm_uevent_listener *listener, void *listener_userdata) {
     struct drm_monitor *m;
 
     ASSERT_NOT_NULL(udev);
@@ -35,6 +32,7 @@ struct drm_monitor *drm_monitor_new(
     struct udev_monitor *monitor = udev_monitor_new_from_netlink(udev, "udev");
     if (monitor == NULL) {
         LOG_ERROR("Could not create udev monitor.\n");
+        free(m);
         return NULL;
     }
 
@@ -100,23 +98,23 @@ void drm_monitor_dispatch(struct drm_monitor *m) {
     // has no CONNECTOR and PROPERTY properties, the event could still be that a single drm connector property changed.
 
     str = udev_device_get_property_value(event_device, "CONNECTOR");
+    connector_id = 0;
     have_connector = str != NULL && safe_string_to_uint32(str, &connector_id);
 
+    property_id = 0;
     str = udev_device_get_property_value(event_device, "PROPERTY");
     have_property = str != NULL && safe_string_to_uint32(str, &property_id);
 
-    struct drm_uevent uevent = {
-        .action = action,
-        .sysnum = sysnum,
-        .hotplug = hotplug,
-        .have_connector = have_connector,
-        .connector_id = connector_id,
-        .have_property = have_property,
-        .property_id = property_id
-    };
+    struct drm_uevent uevent = { .action = action,
+                                 .sysnum = sysnum,
+                                 .hotplug = hotplug,
+                                 .have_connector = have_connector,
+                                 .connector_id = connector_id,
+                                 .have_property = have_property,
+                                 .property_id = property_id };
 
     m->listener.on_uevent(&uevent, m->listener_userdata);
-    
+
     // The sysnum and action string is owned by the udev device, and we use it without dup-ing, so we
     // need to free the udev_device after on_drm_subsystem_change.
     udev_device_unref(event_device);

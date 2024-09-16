@@ -11,14 +11,14 @@
 #include <sys/mman.h>
 #include <unistd.h>
 
+#include <libudev.h>
 #include <sys/epoll.h>
 #include <sys/ioctl.h>
 #include <xf86drm.h>
 #include <xf86drmMode.h>
-#include <libudev.h>
 
-#include "pixel_format.h"
 #include "monitor.h"
+#include "pixel_format.h"
 #include "util/bitset.h"
 #include "util/list.h"
 #include "util/lock_ops.h"
@@ -42,8 +42,8 @@ struct drm_mode_fb2 {
 };
 
 #ifdef HAVE_FUNC_ATTRIBUTE_WEAK
-    extern struct _drmModeFB2 *drmModeGetFB2(int fd, uint32_t bufferId) __attribute__((weak));
-    extern void drmModeFreeFB2(struct _drmModeFB2 *ptr) __attribute__((weak));
+extern struct _drmModeFB2 *drmModeGetFB2(int fd, uint32_t bufferId) __attribute__((weak));
+extern void drmModeFreeFB2(struct _drmModeFB2 *ptr) __attribute__((weak));
     #define HAVE_WEAK_DRM_MODE_GET_FB2
 #endif
 
@@ -56,7 +56,7 @@ static bool drm_fb_get_format(int drm_fd, uint32_t fb_id, enum pixfmt *format_ou
     // weak above.
     // If we don't have weak, we can't check for it here.
     if (drmModeGetFB2 && drmModeFreeFB2) {
-        fb = (struct drm_mode_fb2*) drmModeGetFB2(drm_fd, fb_id);
+        fb = (struct drm_mode_fb2 *) drmModeGetFB2(drm_fd, fb_id);
         if (fb == NULL) {
             return false;
         }
@@ -91,7 +91,6 @@ static size_t sizeof_drm_format_modifier_blob(struct drm_format_modifier_blob *b
         blob->modifiers_offset + sizeof(struct drm_format_modifier) * blob->count_modifiers
     );
 }
-
 
 static int drm_connector_init(int drm_fd, uint32_t connector_id, struct drm_connector *out) {
     memset(out, 0, sizeof(*out));
@@ -148,17 +147,17 @@ static int drm_connector_init(int drm_fd, uint32_t connector_id, struct drm_conn
                 return ENOMEM;
             }
 
-            #define CHECK_ASSIGN_PROPERTY_ID(_name_str, _name)                     \
-                if (strncmp(prop_info->name, _name_str, DRM_PROP_NAME_LEN) == 0) { \
-                    out->ids._name = prop_info->prop_id;                                \
-                } else
+#define CHECK_ASSIGN_PROPERTY_ID(_name_str, _name)                     \
+    if (strncmp(prop_info->name, _name_str, DRM_PROP_NAME_LEN) == 0) { \
+        out->ids._name = prop_info->prop_id;                           \
+    } else
 
             DRM_CONNECTOR_PROPERTIES(CHECK_ASSIGN_PROPERTY_ID) {
                 // this is the trailing else case
                 LOG_DEBUG("Unknown DRM connector property: %s\n", prop_info->name);
             }
 
-            #undef CHECK_ASSIGN_PROPERTY_ID
+#undef CHECK_ASSIGN_PROPERTY_ID
 
             if (id == out->ids.crtc_id) {
                 out->committed_state.crtc_id = props->prop_values[i];
@@ -195,19 +194,16 @@ static int drm_connector_update(struct drm_connector *connector, int drm_fd, boo
 
     (void) have_property_id;
     (void) property_id;
-    
+
     // for now, just reinit the whole connector.
     drm_connector_fini(connector);
     return drm_connector_init(drm_fd, connector_id, connector);
 }
 
-
-
-
 static int drm_encoder_init(int drm_fd, uint32_t encoder_id, struct drm_encoder *out) {
     drmModeEncoder *encoder = drmModeGetEncoder(drm_fd, encoder_id);
     if (encoder == NULL) {
-        return errno ?: ENOMEM;
+        return errno ? errno : ENOMEM;
     }
 
     out->id = encoder->encoder_id;
@@ -234,20 +230,21 @@ static void drm_encoder_fini(struct drm_encoder *encoder) {
     (void) encoder;
 }
 
-
 static int drm_crtc_init(int drm_fd, int crtc_index, uint32_t crtc_id, struct drm_crtc *out) {
     memset(out, 0, sizeof(*out));
 
     drm_crtc_prop_ids_init(&out->ids);
-    
+
     {
         drmModeCrtc *crtc = drmModeGetCrtc(drm_fd, crtc_id);
         if (crtc == NULL) {
-            return errno ?: ENOMEM;
+            return errno ? errno : ENOMEM;
         }
 
+        ASSERT(0 <= crtc_index && crtc_index < 32);
+
         out->id = crtc->crtc_id;
-        out->index = crtc_index;
+        out->index = (uint8_t) crtc_index;
         out->bitmask = 1u << crtc_index;
         out->committed_state.has_mode = crtc->mode_valid;
         out->committed_state.mode = crtc->mode;
@@ -259,28 +256,27 @@ static int drm_crtc_init(int drm_fd, int crtc_index, uint32_t crtc_id, struct dr
     {
         drmModeObjectProperties *props = drmModeObjectGetProperties(drm_fd, crtc_id, DRM_MODE_OBJECT_CRTC);
         if (props == NULL) {
-            return errno ?: ENOMEM;
+            return errno ? errno : ENOMEM;
         }
 
         for (int i = 0; i < props->count_props; i++) {
             drmModePropertyRes *prop_info = drmModeGetProperty(drm_fd, props->props[i]);
             if (prop_info == NULL) {
                 drmModeFreeObjectProperties(props);
-                return errno ?: ENOMEM;
+                return errno ? errno : ENOMEM;
             }
 
-    #define CHECK_ASSIGN_PROPERTY_ID(_name_str, _name)                               \
-        if (strncmp(prop_info->name, _name_str, ARRAY_SIZE(prop_info->name)) == 0) { \
-            out->ids._name = prop_info->prop_id;                                          \
-        } else
+#define CHECK_ASSIGN_PROPERTY_ID(_name_str, _name)                               \
+    if (strncmp(prop_info->name, _name_str, ARRAY_SIZE(prop_info->name)) == 0) { \
+        out->ids._name = prop_info->prop_id;                                     \
+    } else
 
             DRM_CRTC_PROPERTIES(CHECK_ASSIGN_PROPERTY_ID) {
                 // this is the trailing else case
                 LOG_DEBUG("Unknown DRM crtc property: %s\n", prop_info->name);
             }
 
-    #undef CHECK_ASSIGN_PROPERTY_ID
-
+#undef CHECK_ASSIGN_PROPERTY_ID
 
             drmModeFreeProperty(prop_info);
         }
@@ -324,7 +320,6 @@ bool drm_resources_any_crtc_plane_supports_format(struct drm_resources *r, uint3
 
     return false;
 }
-
 
 static void drm_plane_init_rotation(drmModePropertyRes *info, uint64_t value, struct drm_plane *out) {
     assert(out->has_rotation == false);
@@ -373,7 +368,7 @@ static void drm_plane_init_zpos(drmModePropertyRes *info, uint64_t value, struct
     if (info->flags & DRM_MODE_PROP_IMMUTABLE) {
         out->has_hardcoded_zpos = true;
         assert(value <= INT64_MAX);
-        
+
         out->hardcoded_zpos = value;
         if (out->min_zpos != out->max_zpos) {
             LOG_DEBUG(
@@ -387,12 +382,12 @@ static void drm_plane_init_zpos(drmModePropertyRes *info, uint64_t value, struct
 
 static int drm_plane_init_in_formats(int drm_fd, drmModePropertyRes *info, uint64_t value, struct drm_plane *out) {
     drmModePropertyBlobRes *blob;
-    
+
     (void) info;
 
     blob = drmModeGetPropertyBlob(drm_fd, value);
     if (blob == NULL) {
-        return errno ?: ENOMEM;
+        return errno ? errno : ENOMEM;
     }
 
     out->supports_modifiers = true;
@@ -431,11 +426,7 @@ static void drm_plane_init_blend_mode(drmModePropertyRes *info, uint64_t value, 
             ASSERT_EQUALS(info->enums[i].value, DRM_BLEND_MODE_COVERAGE);
             out->supported_blend_modes[DRM_BLEND_MODE_COVERAGE] = true;
         } else {
-            LOG_DEBUG(
-                "Unknown KMS pixel blend mode: %s (value: %" PRIu64 ")\n",
-                info->enums[i].name,
-                (uint64_t) info->enums[i].value
-            );
+            LOG_DEBUG("Unknown KMS pixel blend mode: %s (value: %" PRIu64 ")\n", info->enums[i].name, (uint64_t) info->enums[i].value);
         }
     }
 
@@ -455,7 +446,7 @@ static int drm_plane_init(int drm_fd, uint32_t plane_id, struct drm_plane *out) 
     {
         drmModePlane *plane = drmModeGetPlane(drm_fd, plane_id);
         if (plane == NULL) {
-            return errno ?: ENOMEM;
+            return errno ? errno : ENOMEM;
         }
 
         out->id = plane->plane_id;
@@ -477,23 +468,23 @@ static int drm_plane_init(int drm_fd, uint32_t plane_id, struct drm_plane *out) 
 
     drmModeObjectProperties *props = drmModeObjectGetProperties(drm_fd, plane_id, DRM_MODE_OBJECT_PLANE);
     if (props == NULL) {
-        return errno ?: ENOMEM;
+        return errno ? errno : ENOMEM;
     }
 
     has_type = false;
     for (int j = 0; j < props->count_props; j++) {
         uint32_t id = props->props[j];
         uint64_t value = props->prop_values[j];
-        
+
         drmModePropertyRes *info = drmModeGetProperty(drm_fd, id);
         if (info == NULL) {
-            ok = errno ?: ENOMEM;
+            ok = errno ? errno : ENOMEM;
             goto fail_maybe_free_supported_modified_formats_blob;
         }
 
 #define CHECK_ASSIGN_PROPERTY_ID(_name_str, _name)                     \
     if (strncmp(info->name, _name_str, ARRAY_SIZE(info->name)) == 0) { \
-        out->ids._name = info->prop_id;                                     \
+        out->ids._name = info->prop_id;                                \
     } else
 
         DRM_PLANE_PROPERTIES(CHECK_ASSIGN_PROPERTY_ID) {
@@ -501,7 +492,6 @@ static int drm_plane_init(int drm_fd, uint32_t plane_id, struct drm_plane *out) 
         }
 
 #undef CHECK_ASSIGN_PROPERTY_ID
-
 
         if (id == out->ids.type) {
             assert(has_type == false);
@@ -540,7 +530,6 @@ static int drm_plane_init(int drm_fd, uint32_t plane_id, struct drm_plane *out) 
             drm_plane_init_blend_mode(info, value, out);
         }
 
-
         drmModeFreeProperty(info);
     }
 
@@ -565,7 +554,8 @@ static int drm_plane_copy(struct drm_plane *dst, const struct drm_plane *src) {
 
     if (src->supported_modified_formats_blob != NULL) {
         /// TODO: Implement
-        dst->supported_modified_formats_blob = memdup(src->supported_modified_formats_blob, sizeof_drm_format_modifier_blob(src->supported_modified_formats_blob));
+        dst->supported_modified_formats_blob =
+            memdup(src->supported_modified_formats_blob, sizeof_drm_format_modifier_blob(src->supported_modified_formats_blob));
         if (dst->supported_modified_formats_blob == NULL) {
             return ENOMEM;
         }
@@ -668,7 +658,6 @@ bool drm_plane_supports_unmodified_format(struct drm_plane *plane, enum pixfmt f
     return plane->supported_formats[format];
 }
 
-
 struct drm_resources *drm_resources_new(int drm_fd) {
     struct drm_resources *r;
     int ok;
@@ -679,14 +668,14 @@ struct drm_resources *drm_resources_new(int drm_fd) {
     }
 
     r->n_refs = REFCOUNT_INIT_1;
-    
+
     r->have_filter = false;
 
     drmModeRes *res = drmModeGetResources(drm_fd);
     if (res == NULL) {
-        ok = errno ?: EINVAL;
+        ok = errno ? errno : EINVAL;
         LOG_ERROR("Could not get DRM device resources. drmModeGetResources: %s\n", strerror(ok));
-        return NULL;
+        goto fail_free_r;
     }
 
     r->min_width = res->min_width;
@@ -696,7 +685,6 @@ struct drm_resources *drm_resources_new(int drm_fd) {
 
     r->connectors = calloc(res->count_connectors, sizeof *(r->connectors));
     if (r->connectors == NULL) {
-        ok = ENOMEM;
         goto fail_free_res;
     }
 
@@ -712,7 +700,6 @@ struct drm_resources *drm_resources_new(int drm_fd) {
 
     r->encoders = calloc(res->count_encoders, sizeof *(r->encoders));
     if (r->encoders == NULL) {
-        ok = ENOMEM;
         goto fail_free_connectors;
     }
 
@@ -728,7 +715,6 @@ struct drm_resources *drm_resources_new(int drm_fd) {
 
     r->crtcs = calloc(res->count_crtcs, sizeof *(r->crtcs));
     if (r->crtcs == NULL) {
-        ok = ENOMEM;
         goto fail_free_encoders;
     }
 
@@ -747,14 +733,13 @@ struct drm_resources *drm_resources_new(int drm_fd) {
 
     drmModePlaneRes *plane_res = drmModeGetPlaneResources(drm_fd);
     if (plane_res == NULL) {
-        ok = errno ?: EINVAL;
+        ok = errno ? errno : EINVAL;
         LOG_ERROR("Could not get DRM device planes resources. drmModeGetPlaneResources: %s\n", strerror(ok));
         goto fail_free_crtcs;
     }
 
     r->planes = calloc(plane_res->count_planes, sizeof *(r->planes));
     if (r->planes == NULL) {
-        ok = ENOMEM;
         goto fail_free_plane_res;
     }
 
@@ -801,10 +786,19 @@ fail_free_res:
         drmModeFreeResources(res);
     }
 
+fail_free_r:
+    free(r);
     return NULL;
 }
 
-struct drm_resources *drm_resources_new_filtered(int drm_fd, uint32_t connector_id, uint32_t encoder_id, uint32_t crtc_id, size_t n_planes, const uint32_t *plane_ids) {
+struct drm_resources *drm_resources_new_filtered(
+    int drm_fd,
+    uint32_t connector_id,
+    uint32_t encoder_id,
+    uint32_t crtc_id,
+    size_t n_planes,
+    const uint32_t *plane_ids
+) {
     struct drm_resources *r;
     int ok;
 
@@ -824,7 +818,7 @@ struct drm_resources *drm_resources_new_filtered(int drm_fd, uint32_t connector_
     {
         drmModeRes *res = drmModeGetResources(drm_fd);
         if (res == NULL) {
-            ok = errno ?: EINVAL;
+            ok = errno ? errno : EINVAL;
             LOG_ERROR("Could not get DRM device resources. drmModeGetResources: %s\n", strerror(ok));
             goto fail_free_r;
         }
@@ -839,7 +833,6 @@ struct drm_resources *drm_resources_new_filtered(int drm_fd, uint32_t connector_
 
     r->connectors = calloc(1, sizeof *(r->connectors));
     if (r->connectors == NULL) {
-        ok = ENOMEM;
         goto fail_free_r;
     }
 
@@ -857,7 +850,6 @@ struct drm_resources *drm_resources_new_filtered(int drm_fd, uint32_t connector_
 
     r->encoders = calloc(1, sizeof *(r->encoders));
     if (r->encoders == NULL) {
-        ok = ENOMEM;
         goto fail_free_connectors;
     }
 
@@ -875,7 +867,6 @@ struct drm_resources *drm_resources_new_filtered(int drm_fd, uint32_t connector_
 
     r->crtcs = calloc(1, sizeof *(r->crtcs));
     if (r->crtcs == NULL) {
-        ok = ENOMEM;
         goto fail_free_encoders;
     }
 
@@ -896,7 +887,6 @@ struct drm_resources *drm_resources_new_filtered(int drm_fd, uint32_t connector_
 
     r->planes = calloc(r->filter.n_planes, sizeof *(r->planes));
     if (r->planes == NULL) {
-        ok = ENOMEM;
         goto fail_free_crtcs;
     }
 
@@ -922,7 +912,6 @@ struct drm_resources *drm_resources_new_filtered(int drm_fd, uint32_t connector_
 
     return 0;
 
-
 fail_free_crtcs:
     for (int i = 0; i < r->n_crtcs; i++) {
         drm_crtc_fini(r->crtcs + i);
@@ -936,11 +925,11 @@ fail_free_encoders:
     for (int i = 0; i < r->n_encoders; i++) {
         drm_encoder_fini(r->encoders + i);
     }
-    
+
     if (r->encoders != NULL) {
         free(r->encoders);
     }
-    
+
 fail_free_connectors:
     for (int i = 0; i < r->n_connectors; i++) {
         drm_connector_fini(r->connectors + i);
@@ -955,7 +944,14 @@ fail_free_r:
     return NULL;
 }
 
-struct drm_resources *drm_resources_dup_filtered(struct drm_resources *res, uint32_t connector_id, uint32_t encoder_id, uint32_t crtc_id, size_t n_planes, const uint32_t *plane_ids) {
+struct drm_resources *drm_resources_dup_filtered(
+    struct drm_resources *res,
+    uint32_t connector_id,
+    uint32_t encoder_id,
+    uint32_t crtc_id,
+    size_t n_planes,
+    const uint32_t *plane_ids
+) {
     struct drm_resources *r;
     int ok;
 
@@ -983,7 +979,6 @@ struct drm_resources *drm_resources_dup_filtered(struct drm_resources *res, uint
     {
         r->connectors = calloc(1, sizeof(struct drm_connector));
         if (r->connectors == NULL) {
-            ok = ENOMEM;
             goto fail_free_r;
         }
 
@@ -1004,7 +999,6 @@ struct drm_resources *drm_resources_dup_filtered(struct drm_resources *res, uint
     {
         r->encoders = calloc(1, sizeof(struct drm_encoder));
         if (r->encoders == NULL) {
-            ok = ENOMEM;
             goto fail_free_connectors;
         }
 
@@ -1025,7 +1019,6 @@ struct drm_resources *drm_resources_dup_filtered(struct drm_resources *res, uint
     {
         r->crtcs = calloc(1, sizeof(struct drm_crtc));
         if (r->crtcs == NULL) {
-            ok = ENOMEM;
             goto fail_free_encoders;
         }
 
@@ -1045,7 +1038,6 @@ struct drm_resources *drm_resources_dup_filtered(struct drm_resources *res, uint
 
     r->planes = calloc(r->filter.n_planes, sizeof *(r->planes));
     if (r->planes == NULL) {
-        ok = ENOMEM;
         goto fail_free_crtcs;
     }
 
@@ -1078,8 +1070,7 @@ struct drm_resources *drm_resources_dup_filtered(struct drm_resources *res, uint
         r->planes = NULL;
     }
 
-    return 0;
-
+    return r;
 
 fail_free_crtcs:
     for (int i = 0; i < r->n_crtcs; i++) {
@@ -1094,11 +1085,11 @@ fail_free_encoders:
     for (int i = 0; i < r->n_encoders; i++) {
         drm_encoder_fini(r->encoders + i);
     }
-    
+
     if (r->encoders != NULL) {
         free(r->encoders);
     }
-    
+
 fail_free_connectors:
     for (int i = 0; i < r->n_connectors; i++) {
         drm_connector_fini(r->connectors + i);
@@ -1138,7 +1129,7 @@ void drm_resources_destroy(struct drm_resources *r) {
     for (int i = 0; i < r->n_connectors; i++) {
         drm_connector_fini(r->connectors + i);
     }
-    
+
     if (r->connectors != NULL) {
         free(r->connectors);
     }
@@ -1148,10 +1139,9 @@ void drm_resources_destroy(struct drm_resources *r) {
 
 DEFINE_REF_OPS(drm_resources, n_refs)
 
-
 int drm_resources_update(struct drm_resources *r, int drm_fd, const struct drm_uevent *event) {
     int ok;
-    
+
     enum {
         CHANGE,
         ADD,
@@ -1202,7 +1192,8 @@ int drm_resources_update(struct drm_resources *r, int drm_fd, const struct drm_u
                 UNIMPLEMENTED();
             }
             break;
-    } 
+        default: UNREACHABLE();
+    }
 
     return 0;
 }
@@ -1232,7 +1223,6 @@ void drm_resources_apply_rockchip_workaround(struct drm_resources *r) {
         }
     }
 }
-
 
 bool drm_resources_has_connector(struct drm_resources *r, uint32_t connector_id) {
     ASSERT_NOT_NULL(r);
@@ -1272,7 +1262,7 @@ struct drm_encoder *drm_resources_get_encoder(struct drm_resources *r, uint32_t 
 
 bool drm_resources_has_crtc(struct drm_resources *r, uint32_t crtc_id) {
     ASSERT_NOT_NULL(r);
-    
+
     return drm_resources_get_crtc(r, crtc_id) != NULL;
 }
 
@@ -1362,7 +1352,6 @@ unsigned int drm_resources_get_plane_index(struct drm_resources *r, uint32_t pla
     return UINT_MAX;
 }
 
-
 struct drm_connector *drm_resources_connector_first(struct drm_resources *r) {
     ASSERT_NOT_NULL(r);
 
@@ -1381,7 +1370,6 @@ struct drm_connector *drm_resources_connector_next(struct drm_resources *r, stru
 
     return current + 1;
 }
-
 
 drmModeModeInfo *drm_connector_mode_first(struct drm_connector *c) {
     ASSERT_NOT_NULL(c);
@@ -1402,7 +1390,6 @@ drmModeModeInfo *drm_connector_mode_next(struct drm_connector *c, drmModeModeInf
     return current + 1;
 }
 
-
 struct drm_encoder *drm_resources_encoder_first(struct drm_resources *r) {
     ASSERT_NOT_NULL(r);
 
@@ -1421,7 +1408,6 @@ struct drm_encoder *drm_resources_encoder_next(struct drm_resources *r, struct d
 
     return current + 1;
 }
-
 
 struct drm_crtc *drm_resources_crtc_first(struct drm_resources *r) {
     ASSERT_NOT_NULL(r);
@@ -1442,7 +1428,6 @@ struct drm_crtc *drm_resources_crtc_next(struct drm_resources *r, struct drm_crt
     return current + 1;
 }
 
-
 struct drm_plane *drm_resources_plane_first(struct drm_resources *r) {
     ASSERT_NOT_NULL(r);
 
@@ -1461,7 +1446,6 @@ struct drm_plane *drm_resources_plane_next(struct drm_resources *r, struct drm_p
 
     return current + 1;
 }
-
 
 struct drm_blob {
     int drm_fd;
@@ -1505,7 +1489,6 @@ struct drm_blob *drm_blob_new_mode(int drm_fd, const drmModeModeInfo *mode, bool
     blob->mode = *mode;
     return blob;
 
-
 fail_maybe_close_fd:
     if (blob->close_fd) {
         close(blob->drm_fd);
@@ -1531,7 +1514,7 @@ void drm_blob_destroy(struct drm_blob *blob) {
     if (blob->close_fd) {
         close(blob->drm_fd);
     }
-    
+
     free(blob);
 }
 
@@ -1539,5 +1522,3 @@ int drm_blob_get_id(struct drm_blob *blob) {
     ASSERT_NOT_NULL(blob);
     return blob->blob_id;
 }
-
-

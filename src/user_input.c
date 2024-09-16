@@ -10,6 +10,8 @@
 #include <sys/types.h>
 #include <unistd.h>
 
+#include <klib/khash.h>
+#include <klib/kvec.h>
 #include <libinput.h>
 #include <linux/input-event-codes.h>
 #include <memory.h>
@@ -19,8 +21,6 @@
 #include "flutter-pi.h"
 #include "keyboard.h"
 #include "util/collection.h"
-#include "util/khash.h"
-#include "util/kvec.h"
 #include "util/logging.h"
 
 #define LIBINPUT_VER(major, minor, patch) ((((major) & 0xFF) << 16) | (((minor) & 0xFF) << 8) | ((patch) & 0xFF))
@@ -489,7 +489,7 @@ struct user_input *user_input_new_suspended(const struct file_interface *interfa
 
     libinput_suspend(input->libinput);
 
-    ok = libinput_udev_assign_seat(input->libinput, seat ?: "seat0");
+    ok = libinput_udev_assign_seat(input->libinput, seat ? seat : "seat0");
     if (ok < 0) {
         LOG_ERROR("Could not assign udev seat to libinput instance. libinput_udev_assign_seat: %s\n", strerror(-ok));
         goto fail_unref_libinput;
@@ -1537,11 +1537,11 @@ add_listener(struct user_input *input, bool is_primary, enum user_input_event_ty
 }
 
 void user_input_add_primary_listener(struct user_input *input, enum user_input_event_type filter, user_input_event_cb_t cb, void *userdata) {
-    return add_listener(input, true, filter, cb, userdata);
+    add_listener(input, true, filter, cb, userdata);
 }
 
 void user_input_add_listener(struct user_input *input, enum user_input_event_type filter, user_input_event_cb_t cb, void *userdata) {
-    return add_listener(input, false, filter, cb, userdata);
+    add_listener(input, false, filter, cb, userdata);
 }
 
 void user_input_device_set_primary_listener_userdata(struct user_input_device *device, void *userdata) {

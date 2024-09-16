@@ -18,6 +18,8 @@
 
 #include <vulkan.h>
 
+#include "kms/drmdev.h"
+#include "kms/req_builder.h"
 #include "render_surface.h"
 #include "render_surface_private.h"
 #include "surface.h"

@@ -167,6 +167,36 @@
         static_assert(cond, #cond); \
     } while (0)
 
+#define DO_PRAGMA(X) _Pragma(#X)
+
+#if defined(__clang__)
+    #define PRAGMA_DIAGNOSTIC_PUSH _Pragma("clang diagnostic push")
+    #define PRAGMA_DIAGNOSTIC_POP _Pragma("clang diagnostic pop")
+    #define PRAGMA_DIAGNOSTIC_ERROR(X) DO_PRAGMA(clang diagnostic error X)
+    #define PRAGMA_DIAGNOSTIC_WARNING(X) DO_PRAGMA(clang diagnostic warning X)
+    #define PRAGMA_DIAGNOSTIC_IGNORED(X) DO_PRAGMA(clang diagnostic ignored X)
+    #define PRAGMA_GCC_DIAGNOSTIC_IGNORED(X)
+    #define PRAGMA_CLANG_DIAGNOSTIC_IGNORED(X) DO_PRAGMA(clang diagnostic ignored X)
+#elif defined(__GNUC__)
+    #define PRAGMA_DIAGNOSTIC_PUSH _Pragma("GCC diagnostic push")
+    #define PRAGMA_DIAGNOSTIC_POP _Pragma("GCC diagnostic pop")
+    #define PRAGMA_DIAGNOSTIC_ERROR(X) DO_PRAGMA(GCC diagnostic error X)
+    #define PRAGMA_DIAGNOSTIC_WARNING(X) DO_PRAGMA(GCC diagnostic warning X)
+    #define PRAGMA_DIAGNOSTIC_IGNORED(X) DO_PRAGMA(GCC diagnostic ignored X)
+    #define PRAGMA_GCC_DIAGNOSTIC_IGNORED(X) DO_PRAGMA(GCC diagnostic ignored X)
+    #define PRAGMA_CLANG_DIAGNOSTIC_IGNORED(X)
+#else
+    #define PRAGMA_DIAGNOSTIC_PUSH
+    #define PRAGMA_DIAGNOSTIC_POP
+    #define PRAGMA_DIAGNOSTIC_ERROR(X)
+    #define PRAGMA_DIAGNOSTIC_WARNING(X)
+    #define PRAGMA_DIAGNOSTIC_IGNORED(X)
+    #define PRAGMA_GCC_DIAGNOSTIC_IGNORED(X)
+    #define PRAGMA_CLANG_DIAGNOSTIC_IGNORED(X)
+#endif
+
+PRAGMA_DIAGNOSTIC_PUSH
+PRAGMA_DIAGNOSTIC_IGNORED("-Wpedantic")
 /**
  * CONTAINER_OF - cast a member of a structure out to the containing structure
  * @ptr:        the pointer to the member.
@@ -188,6 +218,8 @@
             ((type *) (__mptr - offsetof(type, member)));                               \
         })
 #endif
+
+PRAGMA_DIAGNOSTIC_POP
 
 /**
  * Unreachable macro. Useful for suppressing "control reaches end of non-void
@@ -521,34 +553,6 @@ static inline uint64_t u_uintN_max(unsigned bit_size) {
     #else
         #include <stdalign.h>
     #endif
-#endif
-
-#define DO_PRAGMA(X) _Pragma(#X)
-
-#if defined(__clang__)
-    #define PRAGMA_DIAGNOSTIC_PUSH _Pragma("clang diagnostic push")
-    #define PRAGMA_DIAGNOSTIC_POP _Pragma("clang diagnostic pop")
-    #define PRAGMA_DIAGNOSTIC_ERROR(X) DO_PRAGMA(clang diagnostic error X)
-    #define PRAGMA_DIAGNOSTIC_WARNING(X) DO_PRAGMA(clang diagnostic warning X)
-    #define PRAGMA_DIAGNOSTIC_IGNORED(X) DO_PRAGMA(clang diagnostic ignored X)
-    #define PRAGMA_GCC_DIAGNOSTIC_IGNORED(X)
-    #define PRAGMA_CLANG_DIAGNOSTIC_IGNORED(X) DO_PRAGMA(clang diagnostic ignored X)
-#elif defined(__GNUC__)
-    #define PRAGMA_DIAGNOSTIC_PUSH _Pragma("GCC diagnostic push")
-    #define PRAGMA_DIAGNOSTIC_POP _Pragma("GCC diagnostic pop")
-    #define PRAGMA_DIAGNOSTIC_ERROR(X) DO_PRAGMA(GCC diagnostic error X)
-    #define PRAGMA_DIAGNOSTIC_WARNING(X) DO_PRAGMA(GCC diagnostic warning X)
-    #define PRAGMA_DIAGNOSTIC_IGNORED(X) DO_PRAGMA(GCC diagnostic ignored X)
-    #define PRAGMA_GCC_DIAGNOSTIC_IGNORED(X) DO_PRAGMA(GCC diagnostic ignored X)
-    #define PRAGMA_CLANG_DIAGNOSTIC_IGNORED(X)
-#else
-    #define PRAGMA_DIAGNOSTIC_PUSH
-    #define PRAGMA_DIAGNOSTIC_POP
-    #define PRAGMA_DIAGNOSTIC_ERROR(X)
-    #define PRAGMA_DIAGNOSTIC_WARNING(X)
-    #define PRAGMA_DIAGNOSTIC_IGNORED(X)
-    #define PRAGMA_GCC_DIAGNOSTIC_IGNORED(X)
-    #define PRAGMA_CLANG_DIAGNOSTIC_IGNORED(X)
 #endif
 
 #define PASTE2(a, b) a##b
