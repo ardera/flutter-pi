@@ -456,21 +456,23 @@ static int egl_gbm_render_surface_present_kms(struct surface *s, const struct fl
         // if this EGL surface is non-opaque and has an opaque equivalent
         if (!get_pixfmt_info(egl_surface->pixel_format)->is_opaque &&
             pixfmt_opaque(egl_surface->pixel_format) != egl_surface->pixel_format &&
-            drm_resources_any_crtc_plane_supports_format(kms_req_builder_peek_resources(builder), crtc->id, pixfmt_opaque(egl_surface->pixel_format))) {
-
-            opaque_fb_id = drmdev_add_fb_from_gbm_bo(
-                drmdev,
+            drm_resources_any_crtc_plane_supports_format(
+                kms_req_builder_peek_resources(builder),
+                crtc->id,
+                pixfmt_opaque(egl_surface->pixel_format)
+            )) {
+            meta->opaque_fb_id = drmdev_add_fb_from_gbm_bo(
+                meta->drmdev,
                 bo,
                 /* cast_opaque */ true
             );
-            if (opaque_fb_id == 0) {
+            if (meta->opaque_fb_id == 0) {
                 ok = EIO;
                 LOG_ERROR("Couldn't add GBM buffer as opaque DRM framebuffer.\n");
                 goto fail_rm_nonopaque_fb;
             }
 
             meta->has_opaque_fb_id = true;
-            meta->opaque_fb_id = opaque_fb_id;
         } else {
             meta->has_opaque_fb_id = false;
             meta->opaque_fb_id = 0;
@@ -761,7 +763,10 @@ static int egl_gbm_render_surface_queue_present(struct render_surface *s, const 
 
 locked:
 #ifdef DEBUG
-    ASSERT_MSG(atomic_fetch_add(&egl_surface->n_locked_fbs, 1) + 1 <= 3, "Sanity check failed: Too many locked framebuffers for triple buffering.");
+    ASSERT_MSG(
+        atomic_fetch_add(&egl_surface->n_locked_fbs, 1) + 1 <= 3,
+        "Sanity check failed: Too many locked framebuffers for triple buffering."
+    );
 #endif
     egl_surface->locked_fbs[i].bo = bo;
     egl_surface->locked_fbs[i].surface = CAST_THIS(surface_ref(CAST_SURFACE(s)));

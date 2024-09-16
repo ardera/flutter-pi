@@ -94,7 +94,7 @@ int window_init(
     bool has_orientation, enum device_orientation orientation,
     int width, int height,
     bool has_dimensions, int width_mm, int height_mm,
-    double refresh_rate,
+    float refresh_rate,
     bool has_forced_pixel_format, enum pixfmt forced_pixel_format,
     enum renderer_type renderer_type,
     struct gl_renderer *gl_renderer,
@@ -287,7 +287,7 @@ struct view_geometry window_get_view_geometry(struct window *window) {
     return geometry;
 }
 
-double window_get_refresh_rate(struct window *window) {
+float window_get_refresh_rate(struct window *window) {
     ASSERT_NOT_NULL(window);
 
     return window->refresh_rate;
@@ -495,6 +495,7 @@ void window_on_input(
                 fl_event->y = event->tablet.position_ndc.y * window->view_size.y;
                 break;
             }
+            case USER_INPUT_KEY: UNREACHABLE();
             default: break;
         }
 

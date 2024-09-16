@@ -142,7 +142,7 @@ void compositor_set_fl_pointer_event_interface(
 
 void compositor_get_view_geometry(struct compositor *compositor, struct view_geometry *view_geometry_out);
 
-ATTR_PURE double compositor_get_refresh_rate(struct compositor *compositor);
+ATTR_PURE float compositor_get_refresh_rate(struct compositor *compositor);
 
 int compositor_get_next_vblank(struct compositor *compositor, uint64_t *next_vblank_ns_out);
 
@@ -194,15 +194,7 @@ int compositor_get_event_fd(struct compositor *compositor);
 
 int compositor_on_event_fd_ready(struct compositor *compositor);
 
-void compositor_set_cursor(
-    struct compositor *compositor,
-    bool has_enabled,
-    bool enabled,
-    bool has_kind,
-    enum pointer_kind kind,
-    bool has_delta,
-    struct vec2f delta
-);
+void compositor_set_cursor(struct compositor *compositor, bool has_enabled, bool enabled, bool has_kind, enum pointer_kind kind);
 
 enum connector_type {
     CONNECTOR_TYPE_VGA,

@@ -20,6 +20,8 @@
 #include <semaphore.h>
 
 #include <flutter_embedder.h>
+#include <klib/khash.h>
+#include <klib/kvec.h>
 #include <mesa3d/dynarray.h>
 #include <systemd/sd-event.h>
 
@@ -38,10 +40,8 @@
 #include "tracer.h"
 #include "user_input.h"
 #include "util/collection.h"
-#include "util/dynarray.h"
 #include "util/event_loop.h"
 #include "util/khash_uint32.h"
-#include "util/kvec.h"
 #include "util/logging.h"
 #include "util/refcounting.h"
 #include "window.h"
@@ -308,7 +308,12 @@ double display_get_device_pixel_ratio(const struct display *display) {
 }
 
 const char *display_get_connector_id(const struct display *display) {
+    PRAGMA_DIAGNOSTIC_PUSH
+    PRAGMA_DIAGNOSTIC_IGNORED("-Wpedantic")
+
     return CONTAINER_OF(display, struct connector, display)->name;
+
+    PRAGMA_DIAGNOSTIC_POP
 }
 
 /**
@@ -460,9 +465,9 @@ static void send_window_metrics_events(struct compositor *compositor) {
         memset(&event, 0, sizeof event);
 
         event.struct_size = sizeof(FlutterWindowMetricsEvent);
-        event.width = geo.view_size.x;
-        event.height = geo.view_size.y;
-        event.pixel_ratio = geo.device_pixel_ratio;
+        event.width = (size_t) geo.view_size.x;
+        event.height = (size_t) geo.view_size.y;
+        event.pixel_ratio = (double) geo.device_pixel_ratio;
         event.left = 0;
         event.top = 0;
         event.physical_view_inset_top = 0;
@@ -768,7 +773,7 @@ void compositor_set_fl_pointer_event_interface(
     }
 }
 
-ATTR_PURE double compositor_get_refresh_rate(struct compositor *compositor) {
+ATTR_PURE float compositor_get_refresh_rate(struct compositor *compositor) {
     return window_get_refresh_rate(compositor->implicit_view_fallback);
 }
 
@@ -941,8 +946,9 @@ static int compositor_push_fl_layers(
                 /// TODO: Just leave the layer away in this case.
                 LOG_ERROR("Invalid platform view id %" PRId64 " in flutter layer.\n", fl_layer->platform_view->identifier);
 
-                layer->surface =
-                    CAST_SURFACE(dummy_render_surface_new(compositor->tracer, VEC2I(fl_layer->size.width, fl_layer->size.height)));
+                layer->surface = CAST_SURFACE(
+                    dummy_render_surface_new(compositor->tracer, VEC2I((int) fl_layer->size.width, (int) fl_layer->size.height))
+                );
             }
 
             // The coordinates flutter gives us are a bit buggy, so calculating the right geometry is really a problem on its own
@@ -1126,49 +1132,16 @@ const FlutterCompositor *compositor_get_flutter_compositor(struct compositor *co
     return &compositor->flutter_compositor;
 }
 
-void compositor_set_cursor(
-    struct compositor *compositor,
-    bool has_enabled,
-    bool enabled,
-    bool has_kind,
-    enum pointer_kind kind,
-    bool has_delta,
-    struct vec2f delta
-) {
-    if (!has_enabled && !has_kind && !has_delta) {
+void compositor_set_cursor(struct compositor *compositor, bool has_enabled, bool enabled, bool has_kind, enum pointer_kind kind) {
+    if (!has_enabled && !has_kind) {
         return;
     }
 
     compositor_lock(compositor);
 
-    if (has_delta) {
-        // move cursor
-        compositor->cursor_pos = vec2f_add(compositor->cursor_pos, delta);
-
-        struct view_geometry viewgeo = window_get_view_geometry(compositor->implicit_view_fallback);
-
-        if (compositor->cursor_pos.x < 0.0) {
-            compositor->cursor_pos.x = 0.0;
-        } else if (compositor->cursor_pos.x > viewgeo.view_size.x) {
-            compositor->cursor_pos.x = viewgeo.view_size.x;
-        }
-
-        if (compositor->cursor_pos.y < 0.0) {
-            compositor->cursor_pos.y = 0.0;
-        } else if (compositor->cursor_pos.y > viewgeo.view_size.y) {
-            compositor->cursor_pos.y = viewgeo.view_size.y;
-        }
+    if (compositor->cursor.window) {
+        window_set_cursor(compositor->cursor.window, has_enabled, enabled, has_kind, kind, false, VEC2I(0, 0));
     }
-
-    window_set_cursor(
-        compositor->implicit_view_fallback,
-        has_enabled,
-        enabled,
-        has_kind,
-        kind,
-        has_delta,
-        VEC2I((int) round(compositor->cursor_pos.x), (int) round(compositor->cursor_pos.y))
-    );
 
     compositor_unlock(compositor);
 }
@@ -1243,18 +1216,20 @@ struct notifier *compositor_get_display_setup_notifier(struct compositor *compos
 }
 
 static int64_t determine_window_for_input_device(struct compositor *compositor, struct user_input_device *device) {
-    input_device_match_score_t best_score;
-    int64_t best_window;
+    input_device_match_score_t best_score = -1;
+    int64_t best_window = -1;
 
-    int64_t view_id;
-    struct window *window;
-    kh_foreach(compositor->views, view_id, window, {
-        input_device_match_score_t score = window_match_input_device(window, device);
-        if (score > best_score) {
-            best_score = score;
-            best_window = view_id;
-        }
-    });
+    {
+        int64_t view_id;
+        struct window *window;
+        kh_foreach(compositor->views, view_id, window, {
+            input_device_match_score_t score = window_match_input_device(window, device);
+            if (score > best_score) {
+                best_score = score;
+                best_window = view_id;
+            }
+        });
+    }
 
     if (best_score >= 0) {
         return best_window;
@@ -1323,7 +1298,7 @@ static FlutterPointerEvent make_fl_pointer_add_event(
     event.signal_kind = kFlutterPointerSignalKindNone;
     event.scroll_delta_x = 0;
     event.scroll_delta_y = 0;
-    event.device_kind = kFlutterPointerDeviceKindMouse;
+    event.device_kind = device_kind;
     event.buttons = 0;
     event.pan_x = 0.0;
     event.pan_y = 0.0;
@@ -1353,7 +1328,7 @@ static FlutterPointerEvent make_fl_pointer_remove_event(
     event.signal_kind = kFlutterPointerSignalKindNone;
     event.scroll_delta_x = 0;
     event.scroll_delta_y = 0;
-    event.device_kind = kFlutterPointerDeviceKindMouse;
+    event.device_kind = device_kind;
     event.buttons = 0;
     event.pan_x = 0.0;
     event.pan_y = 0.0;
@@ -1376,7 +1351,7 @@ static FlutterPointerEvent make_fl_mouse_event(
     memset(&event, 0, sizeof event);
 
     event.struct_size = sizeof(FlutterPointerEvent);
-    event.phase = kRemove;
+    event.phase = phase;
     event.timestamp = timestamp;
     event.x = pos_view.x;
     event.y = pos_view.y;
@@ -1395,7 +1370,7 @@ static FlutterPointerEvent make_fl_mouse_event(
     return event;
 }
 
-static FlutterPointerEvent make_fl_mouse_scroll_event(
+UNUSED static FlutterPointerEvent make_fl_mouse_scroll_event(
     FlutterPointerPhase phase,
     uint64_t timestamp,
     struct vec2f pos_view,
@@ -1408,7 +1383,7 @@ static FlutterPointerEvent make_fl_mouse_scroll_event(
     memset(&event, 0, sizeof event);
 
     event.struct_size = sizeof(FlutterPointerEvent);
-    event.phase = kRemove;
+    event.phase = phase;
     event.timestamp = timestamp;
     event.x = pos_view.x;
     event.y = pos_view.y;
@@ -1454,7 +1429,7 @@ static void on_device_removed(struct compositor *compositor, struct user_input_d
     user_input_device_set_primary_listener_userdata(device, NULL);
 }
 
-static void on_slot_added(struct compositor *compositor, struct fl_event_buffer *buffer, struct user_input_event *event) {
+static void on_slot_added(struct compositor *compositor, struct fl_event_buffer *buffer, const struct user_input_event *event) {
     int64_t view_id = get_view_id_for_input_device(compositor, event->device);
     if (view_id == -1) {
         return;
@@ -1473,7 +1448,7 @@ static void on_slot_added(struct compositor *compositor, struct fl_event_buffer 
     emit_fl_event(buffer, fl_event);
 }
 
-static void on_slot_removed(struct compositor *compositor, struct fl_event_buffer *buffer, struct user_input_event *event) {
+static void on_slot_removed(struct compositor *compositor, struct fl_event_buffer *buffer, const struct user_input_event *event) {
     int64_t view_id = get_view_id_for_input_device(compositor, event->device);
     if (view_id == -1) {
         return;
@@ -1492,7 +1467,7 @@ static void on_slot_removed(struct compositor *compositor, struct fl_event_buffe
     emit_fl_event(buffer, fl_event);
 }
 
-static void on_absolute_pointer_event(struct compositor *compositor, struct fl_event_buffer *buffer, struct user_input_event *event) {
+static void on_absolute_pointer_event(struct compositor *compositor, struct fl_event_buffer *buffer, const struct user_input_event *event) {
     ASSERT(event->pointer.is_absolute);
 
     int64_t view_id = get_view_id_for_input_device(compositor, event->device);
@@ -1622,7 +1597,7 @@ static void maybe_enable_cursor_locked(struct compositor *compositor) {
 }
 
 static void
-on_relative_pointer_event_locked(struct compositor *compositor, struct fl_event_buffer *buffer, struct user_input_event *event) {
+on_relative_pointer_event_locked(struct compositor *compositor, struct fl_event_buffer *buffer, const struct user_input_event *event) {
     ASSERT(!event->pointer.is_absolute);
 
     // If the cursor is not enabled, we need to enable it.
@@ -1718,13 +1693,23 @@ on_relative_pointer_event_locked(struct compositor *compositor, struct fl_event_
     window_unrefp(&current_window);
 }
 
-static void on_pointer_scroll_event(struct compositor *compositor, struct fl_event_buffer *buffer, struct user_input_event *event) {
+static void on_pointer_scroll_event(struct compositor *compositor, struct fl_event_buffer *buffer, const struct user_input_event *event) {
+    (void) compositor;
+    (void) buffer;
+    (void) event;
+    /// TODO: Implement
+    UNIMPLEMENTED();
 }
 
-static void on_pointer_button_event(struct compositor *compositor, struct fl_event_buffer *buffer, struct user_input_event *event) {
+static void on_pointer_button_event(struct compositor *compositor, struct fl_event_buffer *buffer, const struct user_input_event *event) {
+    (void) compositor;
+    (void) buffer;
+    (void) event;
+    /// TODO: Implement
+    UNIMPLEMENTED();
 }
 
-static void on_pointer_event(struct compositor *compositor, struct fl_event_buffer *buffer, struct user_input_event *event) {
+static void on_pointer_event(struct compositor *compositor, struct fl_event_buffer *buffer, const struct user_input_event *event) {
     if (event->pointer.is_absolute) {
         on_absolute_pointer_event(compositor, buffer, event);
     } else if (event->pointer.delta.x != 0 || event->pointer.delta.y != 0) {
@@ -1736,7 +1721,7 @@ static void on_pointer_event(struct compositor *compositor, struct fl_event_buff
     }
 }
 
-static void on_touch_event(struct compositor *compositor, struct fl_event_buffer *buffer, struct user_input_event *event) {
+static void on_touch_event(struct compositor *compositor, struct fl_event_buffer *buffer, const struct user_input_event *event) {
     int64_t view_id = get_view_id_for_input_device(compositor, event->device);
     if (view_id == -1) {
         return;
@@ -1761,7 +1746,7 @@ static void on_touch_event(struct compositor *compositor, struct fl_event_buffer
     emit_fl_event(buffer, fl_event);
 }
 
-static void on_tablet_tool_event(struct compositor *compositor, struct fl_event_buffer *buffer, struct user_input_event *event) {
+static void on_tablet_tool_event(struct compositor *compositor, struct fl_event_buffer *buffer, const struct user_input_event *event) {
     int64_t view_id = get_view_id_for_input_device(compositor, event->device);
     if (view_id == -1) {
         return;
@@ -1775,19 +1760,27 @@ static void on_tablet_tool_event(struct compositor *compositor, struct fl_event_
     fl_event.phase = kMove;
     fl_event.x = event->tablet.position_ndc.x;
     fl_event.y = event->tablet.position_ndc.y;
-    fl_event.device = event->device;
+    fl_event.device = kFlutterPointerDeviceKindStylus;
     fl_event.view_id = view_id;
 
     emit_fl_event(buffer, fl_event);
 }
 
 static void on_input(void *userdata, size_t n_events, const struct user_input_event *events) {
-    struct fl_event_buffer buffer;
     struct compositor *compositor;
     size_t i;
 
     ASSERT_NOT_NULL(userdata);
     compositor = userdata;
+
+    if (!compositor->has_pointer_event_interface) {
+        return;
+    }
+
+    struct fl_event_buffer buffer = {
+        .n_events = 0,
+        .pointer_event_interface = compositor->pointer_event_interface,
+    };
 
     for (i = 0; i < n_events; i++) {
         const struct user_input_event *event = events + i;
@@ -1800,6 +1793,7 @@ static void on_input(void *userdata, size_t n_events, const struct user_input_ev
             case USER_INPUT_TOUCH: on_touch_event(compositor, &buffer, event); break;
             case USER_INPUT_TABLET_TOOL: on_tablet_tool_event(compositor, &buffer, event); break;
             case USER_INPUT_POINTER: on_pointer_event(compositor, &buffer, event); break;
+            case USER_INPUT_KEY: UNREACHABLE(); break;
             default: LOG_DEBUG("Unhandled enum user_input_event: %d\n", event->type); break;
         }
     }

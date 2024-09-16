@@ -59,7 +59,7 @@ struct view_geometry window_get_view_geometry(struct window *window);
  * @param window The window instance.
  * @return double The refresh rate.
  */
-ATTR_PURE double window_get_refresh_rate(struct window *window);
+ATTR_PURE float window_get_refresh_rate(struct window *window);
 
 /**
  * @brief Returns the timestamp of the next vblank signal in @param next_vblank_ns_out.
