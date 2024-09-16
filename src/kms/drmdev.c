@@ -11,21 +11,21 @@
 #include <sys/mman.h>
 #include <unistd.h>
 
+#include <libudev.h>
 #include <sys/epoll.h>
 #include <sys/ioctl.h>
 #include <xf86drm.h>
 #include <xf86drmMode.h>
-#include <libudev.h>
 
 #include "pixel_format.h"
 #include "resources.h"
 #include "util/bitset.h"
+#include "util/khash.h"
 #include "util/list.h"
 #include "util/lock_ops.h"
 #include "util/logging.h"
 #include "util/macros.h"
 #include "util/refcounting.h"
-#include "util/khash.h"
 
 struct pageflip_callbacks {
     uint32_t crtc_id;
@@ -85,7 +85,7 @@ struct drmdev {
     void *interface_userdata;
 
     struct list_head fbs;
-    khash_t(pageflip_callbacks) *pageflip_callbacks;
+    khash_t(pageflip_callbacks) * pageflip_callbacks;
 
     struct udev *udev;
     struct udev_device *kms_udev;
@@ -210,10 +210,10 @@ static int set_drm_client_caps(int fd, bool *supports_atomic_modesetting) {
     return 0;
 }
 
-
-static struct udev_device *find_udev_kms_device(struct udev *udev, const char *seat, const struct file_interface *interface, void *interface_userdata) {
+static struct udev_device *
+find_udev_kms_device(struct udev *udev, const char *seat, const struct file_interface *interface, void *interface_userdata) {
     struct udev_enumerate *enumerator;
-    
+
     enumerator = udev_enumerate_new(udev);
     udev_enumerate_add_match_subsystem(enumerator, "drm");
     udev_enumerate_add_match_sysname(enumerator, "card[0-9]*");
@@ -229,14 +229,18 @@ static struct udev_device *find_udev_kms_device(struct udev *udev, const char *s
             LOG_ERROR("Could not create udev device from syspath. udev_device_new_from_syspath: %s\n", strerror(errno));
             continue;
         }
-        
+
         // Find out if the drm card is connected to our seat.
         // This could also be part of the enumerator filter, e.g.:
         //
         //     udev_enumerate_add_match_property(enumerator, "ID_SEAT", seat),
         //
         // if we didn't have to handle a NULL value for ID_SEAT.
-        const char *device_seat = udev_device_get_property_value(udev_device, "ID_SEAT") ?: "seat0";
+        const char *device_seat = udev_device_get_property_value(udev_device, "ID_SEAT");
+        if (device_seat == NULL) {
+            device_seat = "seat0";
+        }
+
         if (!streq(device_seat, seat)) {
             udev_device_unref(udev_device);
             continue;
@@ -269,11 +273,7 @@ static struct udev_device *find_udev_kms_device(struct udev *udev, const char *s
     return NULL;
 }
 
-static void drmdev_on_page_flip(
-    struct drmdev *drmdev,
-    uint32_t crtc_id,
-    uint64_t vblank_ns
-) {
+static void drmdev_on_page_flip(struct drmdev *drmdev, uint32_t crtc_id, uint64_t vblank_ns) {
     ASSERT_NOT_NULL(drmdev);
     struct pageflip_callbacks cbs_copy;
 
@@ -308,13 +308,7 @@ static void drmdev_on_page_flip(
     }
 }
 
-static void on_page_flip(
-    int fd,
-    unsigned int sequence,
-    unsigned int tv_sec, unsigned int tv_usec,
-    unsigned int crtc_id,
-    void *userdata
-) {
+static void on_page_flip(int fd, unsigned int sequence, unsigned int tv_sec, unsigned int tv_usec, unsigned int crtc_id, void *userdata) {
     struct drmdev *drmdev;
 
     ASSERT_NOT_NULL(userdata);
@@ -352,7 +346,8 @@ void drmdev_dispatch_modesetting(struct drmdev *drmdev) {
 /**
  * @brief Create a new drmdev from the primary drm device for the given udev & seat. 
  */
-struct drmdev *drmdev_new_from_udev_primary(struct udev *udev, const char *seat, const struct file_interface *interface, void *interface_userdata) {
+struct drmdev *
+drmdev_new_from_udev_primary(struct udev *udev, const char *seat, const struct file_interface *interface, void *interface_userdata) {
     struct drmdev *d;
     uint64_t cap;
     int ok;
@@ -404,7 +399,6 @@ struct drmdev *drmdev_new_from_udev_primary(struct udev *udev, const char *seat,
     d->pageflip_callbacks = kh_init(pageflip_callbacks);
 
     return d;
-
 
 fail_close_fd:
     interface->close(d->fd, d->fd_metadata, interface_userdata);
@@ -621,7 +615,7 @@ uint32_t drmdev_add_fb_multiplanar(
     }
 
     fb->id = fb_id;
-    
+
     pthread_mutex_lock(&drmdev->mutex);
 
     list_add(&fb->entry, &drmdev->fbs);
@@ -891,7 +885,7 @@ static int commit_atomic_common(
             return ok;
         }
     }
-    
+
     /// TODO: Use a more accurate timestamp, e.g. call drmCrtcGetSequence,
     ///  or queue a pageflip event even for synchronous (blocking) commits
     ///  and handle here.
@@ -916,7 +910,17 @@ int drmdev_commit_atomic_sync(
     void *userdata,
     uint64_t *vblank_ns_out
 ) {
-    return commit_atomic_common(drmdev, req, true, allow_modeset, crtc_id, vblank_ns_out ? set_vblank_timestamp : NULL, vblank_ns_out, on_release, userdata);
+    return commit_atomic_common(
+        drmdev,
+        req,
+        true,
+        allow_modeset,
+        crtc_id,
+        vblank_ns_out ? set_vblank_timestamp : NULL,
+        vblank_ns_out,
+        on_release,
+        userdata
+    );
 }
 
 int drmdev_commit_atomic_async(

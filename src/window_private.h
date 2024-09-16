@@ -86,7 +86,7 @@ struct window {
      * @brief Refresh rate of the selected video mode / display.
      *
      */
-    double refresh_rate;
+    float refresh_rate;
 
     /**
      * @brief Flutter device pixel ratio (in the horizontal axis). Number of physical pixels per logical pixel.
@@ -96,7 +96,7 @@ struct window {
      * To calculate this, the physical dimensions of the display are required. If there are no physical dimensions,
      * this will default to 1.0.
      */
-    double pixel_ratio;
+    float pixel_ratio;
 
     /**
      * @brief Whether we have physical screen dimensions and @ref width_mm and @ref height_mm contain usable values.
@@ -247,7 +247,7 @@ int window_init(
     bool has_orientation, enum device_orientation orientation,
     int width, int height,
     bool has_dimensions, int width_mm, int height_mm,
-    double refresh_rate,
+    float refresh_rate,
     bool has_forced_pixel_format, enum pixfmt forced_pixel_format,
     enum renderer_type renderer_type,
     struct gl_renderer *gl_renderer,

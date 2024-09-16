@@ -550,7 +550,7 @@ UNUSED static void on_frame_request(void *userdata, intptr_t baton) {
     req->flutterpi = flutterpi;
     req->baton = baton;
     req->vblank_ns = get_monotonic_time();
-    req->next_vblank_ns = req->vblank_ns + (uint64_t) (1000000000.0 / compositor_get_refresh_rate(flutterpi->compositor));
+    req->next_vblank_ns = req->vblank_ns + (uint64_t) (1000000000.0f / compositor_get_refresh_rate(flutterpi->compositor));
 
     if (flutterpi_runs_platform_tasks_on_current_thread(flutterpi)) {
         TRACER_INSTANT(req->flutterpi->tracer, "FlutterEngineOnVsync");
@@ -927,7 +927,7 @@ struct gl_renderer *flutterpi_get_gl_renderer(struct flutterpi *flutterpi) {
 }
 
 void flutterpi_set_pointer_kind(struct flutterpi *flutterpi, enum pointer_kind kind) {
-    compositor_set_cursor(flutterpi->compositor, false, false, true, kind, false, VEC2F(0, 0));
+    compositor_set_cursor(flutterpi->compositor, false, false, true, kind);
 }
 
 void flutterpi_trace_event_instant(struct flutterpi *flutterpi, const char *name) {
@@ -1948,7 +1948,7 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
     struct gbm_device *gbm_device;
     struct flutterpi *fpi;
     struct flutterpi_cmdline_args cmd_args;
-    char *bundle_path, **engine_argv, *desired_videomode;
+    char **engine_argv, *desired_videomode;
     int ok, engine_argc;
 
     fpi = calloc(1, sizeof *fpi);
@@ -2013,7 +2013,7 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
             );
         }
 
-        int fd;
+        int fd = -1;
         if (fpi->libseat != NULL) {
             fd = libseat_get_fd(fpi->libseat);
             if (fd < 0) {
@@ -2102,11 +2102,11 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
 
     if (renderer_type == kVulkan_RendererType) {
 #ifdef HAVE_VULKAN
-        gl_renderer = NULL;
-        vk_renderer = vk_renderer_new();
-        if (vk_renderer == NULL) {
+        fpi->gl_renderer = NULL;
+        fpi->vk_renderer = vk_renderer_new();
+        if (fpi->vk_renderer == NULL) {
             LOG_ERROR("Couldn't create vulkan renderer.\n");
-            goto fail_unref_scheduler;
+            goto fail_unref_tracer;
         }
 #else
         UNREACHABLE();
@@ -2117,7 +2117,6 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
         fpi->gl_renderer = gl_renderer_new_from_gbm_device(fpi->tracer, gbm_device, cmd_args.has_pixel_format, cmd_args.pixel_format);
         if (fpi->gl_renderer == NULL) {
             LOG_ERROR("Couldn't create EGL/OpenGL renderer.\n");
-            ok = EIO;
             goto fail_unref_tracer;
         }
 

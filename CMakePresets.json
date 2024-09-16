@@ -17,6 +17,8 @@
                 "BUILD_GSTREAMER_AUDIO_PLAYER_PLUGIN": true,
                 "TRY_BUILD_GSTREAMER_AUDIO_PLAYER_PLUGIN": false,
                 "BUILD_SENTRY_PLUGIN": true,
+                "ENABLE_VULKAN": true,
+                "TRY_ENABLE_VULKAN": false,
                 "ENABLE_SESSION_SWITCHING": true,
                 "ENABLE_TESTS": false
             }

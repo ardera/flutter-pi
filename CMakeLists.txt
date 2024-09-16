@@ -172,6 +172,7 @@ target_include_directories(flutterpi_module PUBLIC
   ${CMAKE_SOURCE_DIR}/src
   ${CMAKE_BINARY_DIR}
   ${CMAKE_SOURCE_DIR}/third_party/mesa3d/include
+  ${CMAKE_SOURCE_DIR}/third_party/klib/include
   ${CMAKE_SOURCE_DIR}/third_party/flutter_embedder_header/include
 )
 

@@ -72,6 +72,7 @@
 /// @param[in]  n  Number of elements to drop.
 #define kv_drop(v, n) ((v).size -= (n))
 
+// NOLINTNEXTLINE(bugprone-suspicious-realloc-usage,bugprone-sizeof-expression)
 #define kv_resize(v, s) ((v).capacity = (s), (v).items = realloc((v).items, sizeof((v).items[0]) * (v).capacity))
 
 #define kv_resize_full(v) kv_resize(v, (v).capacity ? (v).capacity << 1 : 8)
