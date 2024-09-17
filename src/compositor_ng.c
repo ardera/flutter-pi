@@ -152,6 +152,42 @@ struct display_setup {
     struct connector connectors[];
 };
 
+/**
+ * @brief Gets the name for a DRM connector type.
+ * 
+ * Follows the kernel naming.
+ */
+static const char *get_connector_type_name(uint32_t connector_type) {
+    switch (connector_type) {
+        case DRM_MODE_CONNECTOR_Unknown: return "Unknown";
+        case DRM_MODE_CONNECTOR_VGA: return "VGA";
+        case DRM_MODE_CONNECTOR_DVII: return "DVI-I";
+        case DRM_MODE_CONNECTOR_DVID: return "DVI-D";
+        case DRM_MODE_CONNECTOR_DVIA: return "DVI-A";
+        case DRM_MODE_CONNECTOR_Composite: return "Composite";
+        case DRM_MODE_CONNECTOR_SVIDEO: return "SVIDEO";
+        case DRM_MODE_CONNECTOR_LVDS: return "LVDS";
+        case DRM_MODE_CONNECTOR_Component: return "Component";
+        case DRM_MODE_CONNECTOR_9PinDIN: return "DIN";
+        case DRM_MODE_CONNECTOR_DisplayPort: return "DP";
+        case DRM_MODE_CONNECTOR_HDMIA: return "HDMI-A";
+        case DRM_MODE_CONNECTOR_HDMIB: return "HDMI-B";
+        case DRM_MODE_CONNECTOR_TV: return "TV";
+        case DRM_MODE_CONNECTOR_eDP: return "eDP";
+        case DRM_MODE_CONNECTOR_VIRTUAL: return "Virtual";
+        case DRM_MODE_CONNECTOR_DSI: return "DSI";
+        case DRM_MODE_CONNECTOR_DPI: return "DPI";
+        case DRM_MODE_CONNECTOR_WRITEBACK: return "Writeback";
+#ifdef DRM_MODE_CONNECTOR_SPI
+        case DRM_MODE_CONNECTOR_SPI: return "SPI";
+#endif
+#ifdef DRM_MODE_CONNECTOR_USB
+        case DRM_MODE_CONNECTOR_USB: return "USB";
+#endif
+        default: return NULL;
+    }
+}
+
 static const enum connector_type connector_types[] = {
     [DRM_MODE_CONNECTOR_Unknown] = CONNECTOR_TYPE_OTHER,
     [DRM_MODE_CONNECTOR_VGA] = CONNECTOR_TYPE_VGA,
@@ -181,8 +217,9 @@ static const enum connector_type connector_types[] = {
 };
 
 bool connector_init(const struct drm_connector *connector, int64_t fl_display_id, struct connector *out) {
-    const char *type_name = drmModeGetConnectorTypeName(connector->type);
-
+    // We unfortunately can't use drmModeGetConnectorTypeName yet
+    // because it's too new.
+    const char *type_name = get_connector_type_name(connector->type);
     if (type_name == NULL) {
         // if we don't know this type, skip it.
         return false;
