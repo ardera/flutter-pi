@@ -545,7 +545,11 @@ static void on_present_frame(void *userdata) {
     if (ok != 0) {
         LOG_ERROR("Could not commit frame request.\n");
         frame_scheduler_unref(frame->scheduler);
-        tracer_unref(frame->tracer);
+
+        // Analyzer thinks the tracer might already be destroyed by the tracer_unref
+        // above. We know that's not possible.
+        ANALYZER_SUPPRESS(tracer_unref(frame->tracer));
+
         kms_req_unref(frame->req);
         free(frame);
     }
