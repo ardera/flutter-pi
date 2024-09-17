@@ -95,7 +95,7 @@ jobs:
       matrix:
         container:
           - 'debian:bullseye'
-          - 'debian:buster'
+          - 'debian:bookworm'
         graphics-backends:
           - vulkan-only
           - opengl-only
