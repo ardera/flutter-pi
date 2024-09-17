@@ -5,16 +5,15 @@
 #include <sys/types.h>
 #include <unistd.h>
 
+#include <flutter_embedder.h>
 #include <sys/eventfd.h>
 #include <sys/time.h>
 #include <systemd/sd-event.h>
 
-#include <flutter_embedder.h>
-
-#include "util/lock_ops.h"
 #include "util/collection.h"
-#include "util/refcounting.h"
+#include "util/lock_ops.h"
 #include "util/logging.h"
+#include "util/refcounting.h"
 
 struct evloop {
     refcount_t n_refs;
@@ -43,7 +42,7 @@ static int on_wakeup_event_loop(sd_event_source *s, int fd, uint32_t revents, vo
     return 0;
 }
 
-struct evloop *evloop_new() {
+struct evloop *evloop_new(void) {
     struct evloop *loop;
     sd_event *sdloop;
     int ok, wakeup_fd;
@@ -344,7 +343,6 @@ static int evloop_post_delayed_task_locked(struct evloop *loop, void_callback_t 
 
     return 0;
 
-
 fail_free_task:
     free(task);
     return ok;
@@ -478,7 +476,7 @@ static void *evthread_entry(void *userdata) {
 
         evthread->loop = evloop;
         evthread->thread = pthread_self();
-        
+
         args->evthread = evthread;
         args->initialization_success = true;
         sem_post(&args->initialization_done);

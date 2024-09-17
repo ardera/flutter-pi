@@ -274,7 +274,7 @@ struct kms_req_builder *kms_req_builder_new_atomic(struct drmdev *drmdev, struct
 
     builder->crtc = drm_resources_get_crtc(resources, crtc_id);
     if (builder->crtc == NULL) {
-        LOG_ERROR("Invalid CRTC: %" PRId32 "\n", crtc_id);
+        LOG_ERROR("Invalid CRTC: %" PRIu32 "\n", crtc_id);
         goto fail_unref_drmdev;
     }
 
@@ -319,7 +319,7 @@ struct kms_req_builder *kms_req_builder_new_legacy(struct drmdev *drmdev, struct
 
     builder->crtc = drm_resources_get_crtc(resources, crtc_id);
     if (builder->crtc == NULL) {
-        LOG_ERROR("Invalid CRTC: %" PRId32 "\n", crtc_id);
+        LOG_ERROR("Invalid CRTC: %" PRIu32 "\n", crtc_id);
         goto fail_unref_drmdev;
     }
 
@@ -699,12 +699,7 @@ static int kms_req_commit_common(
     void *release_cb_userdata
 ) {
     struct kms_req_builder *builder;
-    struct drm_blob *mode_blob;
-    bool update_mode;
     int ok;
-
-    update_mode = false;
-    mode_blob = NULL;
 
     ASSERT_NOT_NULL(req);
     builder = (struct kms_req_builder *) req;
@@ -733,6 +728,8 @@ static int kms_req_commit_common(
         }
     }
 
+    bool update_mode = false;
+    struct drm_blob *mode_blob = NULL;
     if (upload_mode) {
         update_mode = true;
         mode_blob = drm_blob_new_mode(drmdev_get_modesetting_fd(drmdev), &builder->mode, true);
@@ -943,9 +940,8 @@ static int kms_req_commit_common(
 fail_unref_builder:
     kms_req_builder_unref(builder);
 
-    // fail_maybe_destroy_mode_blob:
-    //     if (mode_blob != NULL)
-    //         drm_blob_destroy(mode_blob);
+    if (mode_blob != NULL)
+        drm_blob_destroy(mode_blob);
 
     return ok;
 }

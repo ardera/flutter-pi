@@ -16,8 +16,8 @@
 
 #include <flutter_embedder.h>
 
-#include "util/refcounting.h"
 #include "util/collection.h"
+#include "util/refcounting.h"
 
 /**
  * @brief An event loop.
@@ -37,7 +37,7 @@ struct evloop;
  * 
  * @returns A new event loop or NULL on error.
  */
-struct evloop *evloop_new();
+struct evloop *evloop_new(void);
 
 DECLARE_REF_OPS(evloop)
 
@@ -75,7 +75,6 @@ int evloop_post_task(struct evloop *loop, void_callback_t callback, void *userda
  * @param target_time_usec The time in microseconds (of CLOCK_MONOTONIC) when the task should be executed.
  */
 int evloop_post_delayed_task(struct evloop *loop, void_callback_t callback, void *userdata, uint64_t target_time_usec);
-
 
 /**
  * @brief An event source that was added to the event loop,
@@ -140,7 +139,6 @@ typedef enum event_handler_return (*evloop_io_handler_t)(int fd, uint32_t revent
  * @param userdata The userdata to pass to the callback.
  */
 struct evsrc *evloop_add_io(struct evloop *loop, int fd, uint32_t events, evloop_io_handler_t callback, void *userdata);
-
 
 struct evthread;
 

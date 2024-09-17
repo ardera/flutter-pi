@@ -66,9 +66,9 @@
 
 #define NO_THREAD_SAFETY_ANALYSIS THREAD_ANNOTATION_ATTRIBUTE__(no_thread_safety_analysis)
 
-const pthread_mutexattr_t *get_default_mutex_attrs();
+const pthread_mutexattr_t *get_default_mutex_attrs(void);
 
-const pthread_mutexattr_t *get_default_recursive_mutex_attrs();
+const pthread_mutexattr_t *get_default_recursive_mutex_attrs(void);
 
 typedef pthread_mutex_t mutex_t CAPABILITY("mutex");
 

@@ -1794,7 +1794,7 @@ static void on_input(void *userdata, size_t n_events, const struct user_input_ev
             case USER_INPUT_TABLET_TOOL: on_tablet_tool_event(compositor, &buffer, event); break;
             case USER_INPUT_POINTER: on_pointer_event(compositor, &buffer, event); break;
             case USER_INPUT_KEY: UNREACHABLE(); break;
-            default: LOG_DEBUG("Unhandled enum user_input_event: %d\n", event->type); break;
+            default: LOG_DEBUG("Unhandled enum user_input_event: %u\n", event->type); break;
         }
     }
 
