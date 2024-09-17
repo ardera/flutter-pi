@@ -397,25 +397,25 @@ enum plugin_init_result services_init(struct flutterpi *flutterpi, void **userda
 
     plugin->flutterpi = flutterpi;
 
-    ok = plugin_registry_set_receiver_v2_locked(registry, FLUTTER_NAVIGATION_CHANNEL, on_receive_navigation, plugin);
+    ok = plugin_registry_set_receiver_v2(registry, FLUTTER_NAVIGATION_CHANNEL, on_receive_navigation, plugin);
     if (ok != 0) {
         LOG_ERROR("Could not set \"" FLUTTER_NAVIGATION_CHANNEL "\" receiver. plugin_registry_set_receiver_v2_locked: %s\n", strerror(ok));
         goto fail_free_plugin;
     }
 
-    ok = plugin_registry_set_receiver_v2_locked(registry, FLUTTER_ISOLATE_CHANNEL, on_receive_isolate, plugin);
+    ok = plugin_registry_set_receiver_v2(registry, FLUTTER_ISOLATE_CHANNEL, on_receive_isolate, plugin);
     if (ok != 0) {
         LOG_ERROR("Could not set \"" FLUTTER_ISOLATE_CHANNEL "\" receiver. plugin_registry_set_receiver_v2_locked: %s\n", strerror(ok));
         goto fail_remove_navigation_receiver;
     }
 
-    ok = plugin_registry_set_receiver_v2_locked(registry, FLUTTER_PLATFORM_CHANNEL, on_receive_platform, plugin);
+    ok = plugin_registry_set_receiver_v2(registry, FLUTTER_PLATFORM_CHANNEL, on_receive_platform, plugin);
     if (ok != 0) {
         LOG_ERROR("Could not set \"" FLUTTER_PLATFORM_CHANNEL "\" receiver. plugin_registry_set_receiver_v2_locked: %s\n", strerror(ok));
         goto fail_remove_isolate_receiver;
     }
 
-    ok = plugin_registry_set_receiver_v2_locked(registry, FLUTTER_ACCESSIBILITY_CHANNEL, on_receive_accessibility, plugin);
+    ok = plugin_registry_set_receiver_v2(registry, FLUTTER_ACCESSIBILITY_CHANNEL, on_receive_accessibility, plugin);
     if (ok != 0) {
         LOG_ERROR(
             "Could not set \"" FLUTTER_ACCESSIBILITY_CHANNEL "\" receiver. plugin_registry_set_receiver_v2_locked: %s\n",
@@ -424,7 +424,7 @@ enum plugin_init_result services_init(struct flutterpi *flutterpi, void **userda
         goto fail_remove_platform_receiver;
     }
 
-    ok = plugin_registry_set_receiver_v2_locked(registry, FLUTTER_PLATFORM_VIEWS_CHANNEL, on_receive_platform_views, plugin);
+    ok = plugin_registry_set_receiver_v2(registry, FLUTTER_PLATFORM_VIEWS_CHANNEL, on_receive_platform_views, plugin);
     if (ok != 0) {
         LOG_ERROR(
             "Could not set \"" FLUTTER_PLATFORM_VIEWS_CHANNEL "\" receiver. plugin_registry_set_receiver_v2_locked: %s\n",
@@ -433,7 +433,7 @@ enum plugin_init_result services_init(struct flutterpi *flutterpi, void **userda
         goto fail_remove_accessibility_receiver;
     }
 
-    ok = plugin_registry_set_receiver_v2_locked(registry, FLUTTER_MOUSECURSOR_CHANNEL, on_receive_mouse_cursor, plugin);
+    ok = plugin_registry_set_receiver_v2(registry, FLUTTER_MOUSECURSOR_CHANNEL, on_receive_mouse_cursor, plugin);
     if (ok != 0) {
         LOG_ERROR("Could not set \"" FLUTTER_MOUSECURSOR_CHANNEL "\" receiver. plugin_registry_set_receiver_v2_locked: %s\n", strerror(ok));
         goto fail_remove_platform_views_receiver;
@@ -444,19 +444,19 @@ enum plugin_init_result services_init(struct flutterpi *flutterpi, void **userda
     return 0;
 
 fail_remove_platform_views_receiver:
-    plugin_registry_remove_receiver_v2_locked(registry, FLUTTER_PLATFORM_VIEWS_CHANNEL);
+    plugin_registry_remove_receiver_v2(registry, FLUTTER_PLATFORM_VIEWS_CHANNEL);
 
 fail_remove_accessibility_receiver:
-    plugin_registry_remove_receiver_v2_locked(registry, FLUTTER_ACCESSIBILITY_CHANNEL);
+    plugin_registry_remove_receiver_v2(registry, FLUTTER_ACCESSIBILITY_CHANNEL);
 
 fail_remove_platform_receiver:
-    plugin_registry_remove_receiver_v2_locked(registry, FLUTTER_PLATFORM_CHANNEL);
+    plugin_registry_remove_receiver_v2(registry, FLUTTER_PLATFORM_CHANNEL);
 
 fail_remove_isolate_receiver:
-    plugin_registry_remove_receiver_v2_locked(registry, FLUTTER_ISOLATE_CHANNEL);
+    plugin_registry_remove_receiver_v2(registry, FLUTTER_ISOLATE_CHANNEL);
 
 fail_remove_navigation_receiver:
-    plugin_registry_remove_receiver_v2_locked(registry, FLUTTER_NAVIGATION_CHANNEL);
+    plugin_registry_remove_receiver_v2(registry, FLUTTER_NAVIGATION_CHANNEL);
 
 fail_free_plugin:
     free(plugin);
@@ -475,12 +475,12 @@ void services_deinit(struct flutterpi *flutterpi, void *userdata) {
     registry = flutterpi_get_plugin_registry(flutterpi);
     plugin = userdata;
 
-    plugin_registry_remove_receiver_v2_locked(registry, FLUTTER_NAVIGATION_CHANNEL);
-    plugin_registry_remove_receiver_v2_locked(registry, FLUTTER_ISOLATE_CHANNEL);
-    plugin_registry_remove_receiver_v2_locked(registry, FLUTTER_PLATFORM_CHANNEL);
-    plugin_registry_remove_receiver_v2_locked(registry, FLUTTER_ACCESSIBILITY_CHANNEL);
-    plugin_registry_remove_receiver_v2_locked(registry, FLUTTER_PLATFORM_VIEWS_CHANNEL);
-    plugin_registry_remove_receiver_v2_locked(registry, FLUTTER_MOUSECURSOR_CHANNEL);
+    plugin_registry_remove_receiver_v2(registry, FLUTTER_NAVIGATION_CHANNEL);
+    plugin_registry_remove_receiver_v2(registry, FLUTTER_ISOLATE_CHANNEL);
+    plugin_registry_remove_receiver_v2(registry, FLUTTER_PLATFORM_CHANNEL);
+    plugin_registry_remove_receiver_v2(registry, FLUTTER_ACCESSIBILITY_CHANNEL);
+    plugin_registry_remove_receiver_v2(registry, FLUTTER_PLATFORM_VIEWS_CHANNEL);
+    plugin_registry_remove_receiver_v2(registry, FLUTTER_MOUSECURSOR_CHANNEL);
     free(plugin);
 }
 

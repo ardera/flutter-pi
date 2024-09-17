@@ -434,7 +434,7 @@ MUST_CHECK struct window *kms_window_new(
         "  pixel format: %s\n",
         selected_mode->hdisplay,
         selected_mode->vdisplay,
-        mode_get_vrefresh(selected_mode),
+        (double) mode_get_vrefresh(selected_mode),
         width_mm,
         height_mm,
         (double) window->base.pixel_ratio,

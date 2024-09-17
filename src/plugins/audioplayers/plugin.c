@@ -240,12 +240,12 @@ enum plugin_init_result audioplayers_plugin_init(struct flutterpi *flutterpi, vo
     plugin.initialized = false;
     list_inithead(&plugin.players);
 
-    ok = plugin_registry_set_receiver_locked(AUDIOPLAYERS_GLOBAL_CHANNEL, kStandardMethodCall, on_global_method_call);
+    ok = plugin_registry_set_receiver(AUDIOPLAYERS_GLOBAL_CHANNEL, kStandardMethodCall, on_global_method_call);
     if (ok != 0) {
         return PLUGIN_INIT_RESULT_ERROR;
     }
 
-    ok = plugin_registry_set_receiver_locked(AUDIOPLAYERS_LOCAL_CHANNEL, kStandardMethodCall, on_local_method_call);
+    ok = plugin_registry_set_receiver(AUDIOPLAYERS_LOCAL_CHANNEL, kStandardMethodCall, on_local_method_call);
     if (ok != 0) {
         goto fail_remove_global_receiver;
     }
@@ -253,7 +253,7 @@ enum plugin_init_result audioplayers_plugin_init(struct flutterpi *flutterpi, vo
     return PLUGIN_INIT_RESULT_INITIALIZED;
 
 fail_remove_global_receiver:
-    plugin_registry_remove_receiver_locked(AUDIOPLAYERS_GLOBAL_CHANNEL);
+    plugin_registry_remove_receiver(AUDIOPLAYERS_GLOBAL_CHANNEL);
 
     return PLUGIN_INIT_RESULT_ERROR;
 }
@@ -262,8 +262,8 @@ void audioplayers_plugin_deinit(struct flutterpi *flutterpi, void *userdata) {
     (void) flutterpi;
     (void) userdata;
 
-    plugin_registry_remove_receiver_locked(AUDIOPLAYERS_GLOBAL_CHANNEL);
-    plugin_registry_remove_receiver_locked(AUDIOPLAYERS_LOCAL_CHANNEL);
+    plugin_registry_remove_receiver(AUDIOPLAYERS_GLOBAL_CHANNEL);
+    plugin_registry_remove_receiver(AUDIOPLAYERS_LOCAL_CHANNEL);
 
     list_for_each_entry_safe(struct audio_player_entry, entry, &plugin.players, entry) {
         audio_player_destroy(entry->player);

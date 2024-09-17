@@ -39,7 +39,7 @@ struct input_device_data {
     struct libinput_device *device;
 
     struct keyboard_state *keyboard_state;
-    int64_t buttons;
+    uint8_t buttons;
     uint64_t timestamp;
 
     int64_t device_id;
@@ -174,7 +174,7 @@ make_slot_removed_event(struct libinput_device *device, uint64_t timestamp, int6
 }
 
 static inline struct user_input_event
-make_pointer_motion_event(struct libinput_device *device, uint64_t timestamp, int64_t slot_id, int64_t buttons, struct vec2f delta) {
+make_pointer_motion_event(struct libinput_device *device, uint64_t timestamp, int64_t slot_id, uint8_t buttons, struct vec2f delta) {
     struct user_input_event event;
     memset(&event, 0, sizeof(event));
 
@@ -193,7 +193,7 @@ make_pointer_motion_event(struct libinput_device *device, uint64_t timestamp, in
 }
 
 static inline struct user_input_event
-make_pointer_motion_absolute_event(struct libinput_device *device, uint64_t timestamp, int64_t slot_id, int64_t buttons, struct vec2f pos) {
+make_pointer_motion_absolute_event(struct libinput_device *device, uint64_t timestamp, int64_t slot_id, uint8_t buttons, struct vec2f pos) {
     struct user_input_event event;
     memset(&event, 0, sizeof(event));
 
@@ -211,7 +211,7 @@ make_pointer_motion_absolute_event(struct libinput_device *device, uint64_t time
 }
 
 static inline struct user_input_event
-make_pointer_button_event(struct libinput_device *device, uint64_t timestamp, int64_t slot_id, int64_t buttons, int64_t changed_buttons) {
+make_pointer_button_event(struct libinput_device *device, uint64_t timestamp, int64_t slot_id, uint8_t buttons, uint8_t changed_buttons) {
     struct user_input_event event;
     memset(&event, 0, sizeof(event));
 
@@ -229,7 +229,7 @@ make_pointer_button_event(struct libinput_device *device, uint64_t timestamp, in
 }
 
 static inline struct user_input_event
-make_pointer_axis_event(struct libinput_device *device, uint64_t timestamp, int64_t slot_id, int64_t buttons, struct vec2f scroll_delta) {
+make_pointer_axis_event(struct libinput_device *device, uint64_t timestamp, int64_t slot_id, uint8_t buttons, struct vec2f scroll_delta) {
     struct user_input_event event;
     memset(&event, 0, sizeof(event));
 
@@ -949,8 +949,8 @@ static int on_mouse_button_event(struct user_input *input, struct libinput_event
     struct libinput_device *device;
     uint64_t timestamp;
     uint16_t evdev_code;
-    int64_t flutter_button;
-    int64_t new_flutter_button_state;
+    uint8_t flutter_button;
+    uint8_t new_flutter_button_state;
 
     assert(input != NULL);
     assert(event != NULL);

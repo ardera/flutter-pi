@@ -9,25 +9,24 @@
 #include <string.h>
 
 #include <fcntl.h>
+#include <pthread.h>
 #include <sys/mman.h>
 #include <unistd.h>
-#include <pthread.h>
 
+#include <libudev.h>
 #include <sys/epoll.h>
 #include <sys/ioctl.h>
 #include <xf86drm.h>
 #include <xf86drmMode.h>
-#include <libudev.h>
 
-#include "pixel_format.h"
 #include "monitor.h"
+#include "pixel_format.h"
 #include "util/bitset.h"
 #include "util/list.h"
 #include "util/lock_ops.h"
 #include "util/logging.h"
 #include "util/macros.h"
 #include "util/refcounting.h"
-
 
 #define DRM_ID_NONE ((uint32_t) 0xFFFFFFFF)
 
@@ -401,10 +400,10 @@ enum drm_encoder_type {
 
 struct drm_encoder {
     uint32_t id;
-	enum drm_encoder_type type;
-	
-	uint32_t possible_crtcs;
-	uint32_t possible_clones;
+    enum drm_encoder_type type;
+
+    uint32_t possible_crtcs;
+    uint32_t possible_clones;
 
     struct {
         uint32_t crtc_id;
@@ -646,7 +645,7 @@ struct drm_resources {
     } filter;
 
     uint32_t min_width, max_width;
-	uint32_t min_height, max_height;
+    uint32_t min_height, max_height;
 
     size_t n_connectors;
     struct drm_connector *connectors;
@@ -676,15 +675,28 @@ bool drm_plane_supports_unmodified_format(struct drm_plane *plane, enum pixfmt f
 
 bool drm_resources_any_crtc_plane_supports_format(struct drm_resources *res, uint32_t crtc_id, enum pixfmt pixel_format);
 
-
 /**
  * @brief Create a new drm_resources object
  */
 struct drm_resources *drm_resources_new(int drm_fd);
 
-struct drm_resources *drm_resources_new_filtered(int drm_fd, uint32_t connector_id, uint32_t encoder_id, uint32_t crtc_id, size_t n_planes, const uint32_t *plane_ids);
+struct drm_resources *drm_resources_new_filtered(
+    int drm_fd,
+    uint32_t connector_id,
+    uint32_t encoder_id,
+    uint32_t crtc_id,
+    size_t n_planes,
+    const uint32_t *plane_ids
+);
 
-struct drm_resources *drm_resources_dup_filtered(struct drm_resources *res, uint32_t connector_id, uint32_t encoder_id, uint32_t crtc_id, size_t n_planes, const uint32_t *plane_ids);
+struct drm_resources *drm_resources_dup_filtered(
+    struct drm_resources *res,
+    uint32_t connector_id,
+    uint32_t encoder_id,
+    uint32_t crtc_id,
+    size_t n_planes,
+    const uint32_t *plane_ids
+);
 
 void drm_resources_destroy(struct drm_resources *r);
 
@@ -713,7 +725,6 @@ int drm_resources_update(struct drm_resources *r, int drm_fd, const struct drm_u
  */
 void drm_resources_apply_rockchip_workaround(struct drm_resources *r);
 
-
 bool drm_resources_has_connector(struct drm_resources *r, uint32_t connector_id);
 
 struct drm_connector *drm_resources_get_connector(struct drm_resources *r, uint32_t connector_id);
@@ -736,13 +747,11 @@ struct drm_plane *drm_resources_get_plane(struct drm_resources *r, uint32_t plan
 
 unsigned int drm_resources_get_plane_index(struct drm_resources *r, uint32_t plane_id);
 
-
 struct drm_connector *drm_resources_connector_first(struct drm_resources *r);
 
 struct drm_connector *drm_resources_connector_end(struct drm_resources *r);
 
 struct drm_connector *drm_resources_connector_next(struct drm_resources *r, struct drm_connector *current);
-
 
 drmModeModeInfo *drm_connector_mode_first(struct drm_connector *c);
 
@@ -750,13 +759,11 @@ drmModeModeInfo *drm_connector_mode_end(struct drm_connector *c);
 
 drmModeModeInfo *drm_connector_mode_next(struct drm_connector *c, drmModeModeInfo *current);
 
-
 struct drm_encoder *drm_resources_encoder_first(struct drm_resources *r);
 
 struct drm_encoder *drm_resources_encoder_end(struct drm_resources *r);
 
 struct drm_encoder *drm_resources_encoder_next(struct drm_resources *r, struct drm_encoder *current);
-
 
 struct drm_crtc *drm_resources_crtc_first(struct drm_resources *r);
 
@@ -764,29 +771,31 @@ struct drm_crtc *drm_resources_crtc_end(struct drm_resources *r);
 
 struct drm_crtc *drm_resources_crtc_next(struct drm_resources *r, struct drm_crtc *current);
 
-
 struct drm_plane *drm_resources_plane_first(struct drm_resources *r);
 
 struct drm_plane *drm_resources_plane_end(struct drm_resources *r);
 
 struct drm_plane *drm_resources_plane_next(struct drm_resources *r, struct drm_plane *current);
 
+#define drm_resources_for_each_connector(res, connector)                                                                           \
+    for (struct drm_connector * (connector) = drm_resources_connector_first(res); (connector) != drm_resources_connector_end(res); \
+         (connector) = drm_resources_connector_next((res), (connector)))
 
-#define drm_resources_for_each_connector(res, connector) \
-    for (struct drm_connector *(connector) = drm_resources_connector_first(res); (connector) != drm_resources_connector_end(res); (connector) = drm_resources_connector_next((res), (connector)))
+#define drm_connector_for_each_mode(connector, mode)                                                                  \
+    for (drmModeModeInfo * (mode) = drm_connector_mode_first(connector); (mode) != drm_connector_mode_end(connector); \
+         (mode) = drm_connector_mode_next((connector), (mode)))
 
-#define drm_connector_for_each_mode(connector, mode) \
-    for (drmModeModeInfo *(mode) = drm_connector_mode_first(connector); (mode) != drm_connector_mode_end(connector); (mode) = drm_connector_mode_next((connector), (mode)))
+#define drm_resources_for_each_encoder(res, encoder)                                                                     \
+    for (struct drm_encoder * (encoder) = drm_resources_encoder_first(res); (encoder) != drm_resources_encoder_end(res); \
+         (encoder) = drm_resources_encoder_next((res), (encoder)))
 
-#define drm_resources_for_each_encoder(res, encoder) \
-    for (struct drm_encoder *(encoder) = drm_resources_encoder_first(res); (encoder) != drm_resources_encoder_end(res); (encoder) = drm_resources_encoder_next((res), (encoder)))
+#define drm_resources_for_each_crtc(res, crtc)                                                            \
+    for (struct drm_crtc * (crtc) = drm_resources_crtc_first(res); (crtc) != drm_resources_crtc_end(res); \
+         (crtc) = drm_resources_crtc_next((res), (crtc)))
 
-#define drm_resources_for_each_crtc(res, crtc) \
-    for (struct drm_crtc *(crtc) = drm_resources_crtc_first(res); (crtc) != drm_resources_crtc_end(res); (crtc) = drm_resources_crtc_next((res), (crtc)))
-
-#define drm_resources_for_each_plane(res, plane) \
-    for (struct drm_plane *(plane) = drm_resources_plane_first(res); (plane) != drm_resources_plane_end(res); (plane) = drm_resources_plane_next((res), (plane)))
-
+#define drm_resources_for_each_plane(res, plane)                                                               \
+    for (struct drm_plane * (plane) = drm_resources_plane_first(res); (plane) != drm_resources_plane_end(res); \
+         (plane) = drm_resources_plane_next((res), (plane)))
 
 struct drm_blob *drm_blob_new_mode(int drm_fd, const drmModeModeInfo *mode, bool dup_fd);
 
@@ -797,8 +806,8 @@ int drm_blob_get_id(struct drm_blob *blob);
 /**
  * @brief Get the precise refresh rate of a video mode.
  */
-static inline double mode_get_vrefresh(const drmModeModeInfo *mode) {
-    return mode->clock * 1000.0 / (mode->htotal * mode->vtotal);
+static inline float mode_get_vrefresh(const drmModeModeInfo *mode) {
+    return mode->clock * 1000.0f / (mode->htotal * mode->vtotal);
 }
 
 #endif
