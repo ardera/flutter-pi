@@ -496,7 +496,7 @@ static void send_window_metrics_events(struct compositor *compositor) {
     kh_foreach(compositor->views, view_id, window, {
         struct view_geometry geo = window_get_view_geometry(window);
 
-        COMPILE_ASSERT(sizeof(FlutterWindowMetricsEvent) == 96);
+        COMPILE_ASSERT(sizeof(FlutterWindowMetricsEvent) == 80 || sizeof(FlutterWindowMetricsEvent) == 96);
 
         FlutterWindowMetricsEvent event;
         memset(&event, 0, sizeof event);
