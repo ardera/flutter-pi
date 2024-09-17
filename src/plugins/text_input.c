@@ -648,6 +648,9 @@ static bool model_add_text(const char *str) {
     // make place for the utf8 charactercursor
 
     memmove(to_move + l, to_move, strlen((char *) to_move) + 1 /* null byte */);
+
+    // We know this is not null-terminated.
+    // NOLINTNEXTLINE(bugprone-not-null-terminated-result)
     memcpy(to_move, str, l);
 
     // move our selection to behind the inserted char
@@ -827,7 +830,7 @@ enum plugin_init_result textin_init(struct flutterpi *flutterpi, void **userdata
         return PLUGIN_INIT_RESULT_ERROR;
     }
 
-    ok = plugin_registry_set_receiver_locked(TEXT_INPUT_CHANNEL, kJSONMethodCall, on_receive);
+    ok = plugin_registry_set_receiver(TEXT_INPUT_CHANNEL, kJSONMethodCall, on_receive);
     if (ok != 0) {
         free(textin);
         return PLUGIN_INIT_RESULT_ERROR;
@@ -854,7 +857,7 @@ enum plugin_init_result textin_init(struct flutterpi *flutterpi, void **userdata
 }
 
 void textin_deinit(struct flutterpi *flutterpi, void *userdata) {
-    plugin_registry_remove_receiver_v2_locked(flutterpi_get_plugin_registry(flutterpi), TEXT_INPUT_CHANNEL);
+    plugin_registry_remove_receiver_v2(flutterpi_get_plugin_registry(flutterpi), TEXT_INPUT_CHANNEL);
     free(userdata);
 }
 
