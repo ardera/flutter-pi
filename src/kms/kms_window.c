@@ -1,3 +1,5 @@
+#define _GNU_SOURCE /* for asprintf */
+
 #include "kms_window.h"
 
 #include "util/refcounting.h"
