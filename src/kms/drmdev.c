@@ -110,13 +110,16 @@ static bool is_kms_device(const char *path, const struct file_interface *interfa
         return false;
     }
 
-    if (!drmIsKMS(fd)) {
+    // Ideally we'd use drmIsKMS() here, but it's not available everywhere.
+
+    struct drm_mode_card_res res = { 0 };
+    if (drmIoctl(fd, DRM_IOCTL_MODE_GETRESOURCES, &res) != 0) {
         interface->close(fd, fd_metadata, userdata);
         return false;
     }
 
     interface->close(fd, fd_metadata, userdata);
-    return true;
+    return res.count_crtcs > 0 && res.count_connectors > 0 && res.count_encoders > 0;
 }
 
 static void assert_rotations_work(void) {
