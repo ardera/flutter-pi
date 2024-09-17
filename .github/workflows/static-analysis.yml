@@ -54,7 +54,7 @@ jobs:
         Please see the 'CodeChecker Bug Reports' artifact for more details:
         - ${{ steps.upload.outputs.artifact-url }}
 
-        `CodeChecker parse`:
+        **\`CodeChecker parse\`:**
         EOF
         
         echo '```' >>$GITHUB_STEP_SUMMARY
