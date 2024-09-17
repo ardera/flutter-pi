@@ -119,7 +119,7 @@ static bool is_kms_device(const char *path, const struct file_interface *interfa
     return true;
 }
 
-static void assert_rotations_work() {
+static void assert_rotations_work(void) {
     assert(PLANE_TRANSFORM_ROTATE_0.rotate_0 == true);
     assert(PLANE_TRANSFORM_ROTATE_0.rotate_90 == false);
     assert(PLANE_TRANSFORM_ROTATE_0.rotate_180 == false);

@@ -628,7 +628,7 @@ static void on_execute_fl_task(void *userdata) {
 
     result = task->fl_run_task(task->fl_engine, &task->fl_task);
     if (result != kSuccess) {
-        LOG_ERROR("Error running platform task. FlutterEngineRunTask: %d\n", result);
+        LOG_ERROR("Error running platform task. FlutterEngineRunTask: %u\n", result);
     }
 
     free(task);
@@ -2097,7 +2097,7 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
     fpi->tracer = tracer_new_with_stubs();
     if (fpi->tracer == NULL) {
         LOG_ERROR("Couldn't create event tracer.\n");
-        goto fail_destroy_drmdev;
+        goto fail_destroy_drm_resources;
     }
 
     if (renderer_type == kVulkan_RendererType) {
@@ -2345,6 +2345,9 @@ fail_unref_renderer:
 
 fail_unref_tracer:
     tracer_unref(fpi->tracer);
+
+fail_destroy_drm_resources:
+    drm_resources_unref(drm_resources);
 
 fail_destroy_drmdev:
     drmdev_unref(fpi->drmdev);

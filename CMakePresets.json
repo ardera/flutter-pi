@@ -34,6 +34,24 @@
             }
         },
         {
+            "name": "default-debug-clang",
+            "displayName": "Default OpenGL host build (Debug, Clang)",
+            "inherits": "default-debug",
+            "cacheVariables": {
+                "CMAKE_C_COMPILER": "clang",
+                "CMAKE_CXX_COMPILER": "clang++"
+            }
+        },
+        {
+            "name": "default-debug-gcc",
+            "displayName": "Default OpenGL host build (Debug, gcc)",
+            "inherits": "default-debug",
+            "cacheVariables": {
+                "CMAKE_C_COMPILER": "gcc",
+                "CMAKE_CXX_COMPILER": "g++"
+            }
+        },
+        {
             "name": "default-relwithdebinfo",
             "displayName": "Default OpenGL host build (Release with Debug Info)",
             "inherits": "default",
