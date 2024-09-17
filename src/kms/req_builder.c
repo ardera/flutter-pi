@@ -839,6 +839,7 @@ static int kms_req_commit_common(
         /// TODO: Handle setting other properties as well
 
         /// TODO: Implement
+        (void) needs_set_crtc;
         UNIMPLEMENTED();
 
         // if (needs_set_crtc) {

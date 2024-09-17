@@ -773,12 +773,7 @@ enum plugin_init_result sentry_plugin_init(struct flutterpi *flutterpi, void **u
         return PLUGIN_INIT_RESULT_ERROR;
     }
 
-    ok = plugin_registry_set_receiver_v2_locked(
-        flutterpi_get_plugin_registry(flutterpi),
-        SENTRY_PLUGIN_METHOD_CHANNEL,
-        on_method_call,
-        plugin
-    );
+    ok = plugin_registry_set_receiver_v2(flutterpi_get_plugin_registry(flutterpi), SENTRY_PLUGIN_METHOD_CHANNEL, on_method_call, plugin);
     if (ok != 0) {
         free(plugin);
         return PLUGIN_INIT_RESULT_ERROR;
@@ -799,7 +794,7 @@ void sentry_plugin_deinit(struct flutterpi *flutterpi, void *userdata) {
         sentry_close();
     }
 
-    plugin_registry_remove_receiver_v2_locked(flutterpi_get_plugin_registry(flutterpi), SENTRY_PLUGIN_METHOD_CHANNEL);
+    plugin_registry_remove_receiver_v2(flutterpi_get_plugin_registry(flutterpi), SENTRY_PLUGIN_METHOD_CHANNEL);
     free(plugin);
 }
 

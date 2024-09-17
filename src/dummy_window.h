@@ -18,7 +18,7 @@ MUST_CHECK struct window *dummy_window_new(
     struct vk_renderer *vk_renderer,
     struct vec2i size,
     bool has_explicit_dimensions, int width_mm, int height_mm,
-    double refresh_rate
+    float refresh_rate
     // clang-format on
 );
 
