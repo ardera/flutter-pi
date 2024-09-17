@@ -810,4 +810,4 @@ static inline float mode_get_vrefresh(const drmModeModeInfo *mode) {
     return mode->clock * 1000.0f / (mode->htotal * mode->vtotal);
 }
 
-#endif
+#endif  // _FLUTTERPI_MODESETTING_RESOURCES_H

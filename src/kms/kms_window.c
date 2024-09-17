@@ -870,12 +870,17 @@ static struct render_surface *kms_window_get_render_surface_internal(struct kms_
         // First, count the allowed modifiers for this pixel format.
         drm_plane_for_each_modified_format(plane_it, count_modifiers_for_pixel_format, &context);
 
-        n_allowed_modifiers = context.n_modifiers;
-        allowed_modifiers = calloc(n_allowed_modifiers, sizeof(*context.modifiers));
-        context.modifiers = allowed_modifiers;
+        if (context.n_modifiers > 0) {
+            n_allowed_modifiers = context.n_modifiers;
+            allowed_modifiers = calloc(n_allowed_modifiers, sizeof(*context.modifiers));
+            context.modifiers = allowed_modifiers;
 
-        // Next, fill context.modifiers with the allowed modifiers.
-        drm_plane_for_each_modified_format(plane_it, extract_modifiers_for_pixel_format, &context);
+            // Next, fill context.modifiers with the allowed modifiers.
+            drm_plane_for_each_modified_format(plane_it, extract_modifiers_for_pixel_format, &context);
+        } else {
+            n_allowed_modifiers = 0;
+            allowed_modifiers = NULL;
+        }
         break;
     }
 
