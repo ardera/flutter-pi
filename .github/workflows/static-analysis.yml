@@ -53,6 +53,12 @@ jobs:
         ## ⚠️ CodeChecker found warnings
         Please see the 'CodeChecker Bug Reports' artifact for more details:
         - ${{ steps.upload.outputs.artifact-url }}
+
+        `CodeChecker parse`:
         EOF
+        
+        echo '```' >>$GITHUB_STEP_SUMMARY
+        cat ${{ steps.codechecker.outputs.result-log }} >>$GITHUB_STEP_SUMMARY
+        echo '```' >>$GITHUB_STEP_SUMMARY
 
         exit 1
