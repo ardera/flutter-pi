@@ -815,6 +815,7 @@ static int on_send_platform_message(void *userdata) {
         message.channel = msg->target_channel;
         message.message_size = msg->message_size;
         message.response_handle = msg->response_handle;
+        message.message = msg->message;
 
         result = flutterpi->flutter.procs.SendPlatformMessage(flutterpi->flutter.engine, &message);
     }
