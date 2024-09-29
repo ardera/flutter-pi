@@ -22,6 +22,7 @@
 #include "plugins/gstreamer_video_player.h"
 #include "texture_registry.h"
 #include "util/collection.h"
+#include "util/event_loop.h"
 #include "util/logging.h"
 
 #ifdef DEBUG
@@ -157,7 +158,7 @@ struct gstplayer {
 
     GstElement *pipeline, *sink;
     GstBus *bus;
-    sd_event_source *busfd_events;
+    struct evsrc *busfd_events;
 
     bool is_live;
 };
@@ -174,15 +175,15 @@ UNUSED static inline void unlock(struct gstplayer *player) {
 }
 
 UNUSED static inline void trace_instant(struct gstplayer *player, const char *name) {
-    return flutterpi_trace_event_instant(player->flutterpi, name);
+    flutterpi_trace_event_instant(player->flutterpi, name);
 }
 
 UNUSED static inline void trace_begin(struct gstplayer *player, const char *name) {
-    return flutterpi_trace_event_begin(player->flutterpi, name);
+    flutterpi_trace_event_begin(player->flutterpi, name);
 }
 
 UNUSED static inline void trace_end(struct gstplayer *player, const char *name) {
-    return flutterpi_trace_event_end(player->flutterpi, name);
+    flutterpi_trace_event_end(player->flutterpi, name);
 }
 
 static int maybe_send_info(struct gstplayer *player) {
@@ -472,6 +473,9 @@ static void on_bus_message(struct gstplayer *player, GstMessage *msg) {
     gchar *debug_info;
 
     DEBUG_TRACE_BEGIN(player, "on_bus_message");
+
+    PRAGMA_DIAGNOSTIC_PUSH
+    PRAGMA_DIAGNOSTIC_IGNORED("-Wswitch-enum")
     switch (GST_MESSAGE_TYPE(msg)) {
         case GST_MESSAGE_ERROR:
             gst_message_parse_error(msg, &error, &debug_info);
@@ -604,15 +608,16 @@ static void on_bus_message(struct gstplayer *player, GstMessage *msg) {
 
         default: LOG_DEBUG("gstreamer message: %s, src: %s\n", GST_MESSAGE_TYPE_NAME(msg), GST_MESSAGE_SRC_NAME(msg)); break;
     }
+    PRAGMA_DIAGNOSTIC_POP
+
     DEBUG_TRACE_END(player, "on_bus_message");
     return;
 }
 
-static int on_bus_fd_ready(sd_event_source *s, int fd, uint32_t revents, void *userdata) {
+static enum event_handler_return on_bus_fd_ready(int fd, uint32_t revents, void *userdata) {
     struct gstplayer *player;
     GstMessage *msg;
 
-    (void) s;
     (void) fd;
     (void) revents;
 
@@ -628,7 +633,7 @@ static int on_bus_fd_ready(sd_event_source *s, int fd, uint32_t revents, void *u
 
     DEBUG_TRACE_END(player, "on_bus_fd_ready");
 
-    return 0;
+    return EVENT_HANDLER_CONTINUE;
 }
 
 static GstPadProbeReturn on_query_appsink(GstPad *pad, GstPadProbeInfo *info, void *userdata) {
@@ -844,7 +849,6 @@ void on_source_setup(GstElement *bin, GstElement *source, gpointer userdata) {
 
 static int init(struct gstplayer *player, bool force_sw_decoders) {
     GstStateChangeReturn state_change_return;
-    sd_event_source *busfd_event_source;
     GstElement *pipeline, *sink, *src;
     GstBus *bus;
     GstPad *pad;
@@ -956,7 +960,15 @@ static int init(struct gstplayer *player, bool force_sw_decoders) {
 
     gst_bus_get_pollfd(bus, &fd);
 
-    flutterpi_sd_event_add_io(&busfd_event_source, fd.fd, EPOLLIN, on_bus_fd_ready, player);
+    uint32_t events = 0;
+    events |= fd.events & G_IO_IN ? EPOLLIN : 0;
+    events |= fd.events & G_IO_OUT ? EPOLLOUT : 0;
+    events |= fd.events & G_IO_PRI ? EPOLLPRI : 0;
+    events |= fd.events & G_IO_ERR ? EPOLLERR : 0;
+    events |= fd.events & G_IO_HUP ? EPOLLHUP : 0;
+
+    struct evsrc *busfd_event_source =
+        evloop_add_io(flutterpi_get_platform_event_loop(player->flutterpi), fd.fd, events, on_bus_fd_ready, player);
 
     LOG_DEBUG("Setting state to paused...\n");
     state_change_return = gst_element_set_state(GST_ELEMENT(pipeline), GST_STATE_PAUSED);
@@ -989,7 +1001,7 @@ fail_unref_pipeline:
 
 static void maybe_deinit(struct gstplayer *player) {
     if (player->busfd_events != NULL) {
-        sd_event_source_unrefp(&player->busfd_events);
+        evsrc_destroy(player->busfd_events);
     }
     if (player->sink != NULL) {
         gst_object_unref(GST_OBJECT(player->sink));
@@ -1114,6 +1126,7 @@ fail_destroy_mutex:
 
 fail_free_gst_headers:
     gst_structure_free(gst_headers);
+    free(pipeline_descr_owned);
     free(uri_owned);
 
 fail_destroy_frame_interface:
@@ -1165,7 +1178,7 @@ struct gstplayer *gstplayer_new_from_pipeline(struct flutterpi *flutterpi, const
 }
 
 void gstplayer_destroy(struct gstplayer *player) {
-    LOG_DEBUG("gstplayer_destroy(%p)\n", player);
+    LOG_DEBUG("gstplayer_destroy(%p)\n", (void *) player);
     notifier_deinit(&player->video_info_notifier);
     notifier_deinit(&player->buffering_state_notifier);
     notifier_deinit(&player->error_notifier);

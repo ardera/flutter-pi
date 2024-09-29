@@ -55,7 +55,7 @@ option(ENABLE_MTRACE "True if flutter-pi should call GNU mtrace() on startup." O
 option(ENABLE_TESTS "True if tests should be built. Requires Unity to be checked out at third_party/Unity." OFF)
 option(ENABLE_SESSION_SWITCHING "True if flutter-pi should be built with session switching support. Requires libseat-dev to be installed." ON)
 option(TRY_ENABLE_SESSION_SWITCHING "Don't throw an error if libseat isn't found, instead just build without session switching support in that case." ON)
-option(LTO "Check for IPO/LTO support and enable, if supported. May require gold/lld when building with clang. (Either using `-fuse-ld` in CMAKE_C_FLAGS or by setting as the default system linker.) Only applies to Release or RelWithDebInfo build types." ON)
+option(LTO "Enable LTO. Does not work with all toolchains. May require gold/lld when building with clang. (Either using `-fuse-ld` in CMAKE_C_FLAGS or by setting as the default system linker.) Only applies to Release or RelWithDebInfo build types." OFF)
 option(LINT_EGL_HEADERS "Set an define that'll make the egl.h only export the extension definitions, prototypes that are explicitly marked as required." OFF)
 option(DEBUG_DRM_PLANE_ALLOCATIONS "Add logging in modesetting.c for debugging the process of choosing a fitting DRM plane for a framebuffer layer." OFF)
 option(USE_LEGACY_KMS "Force the use of legacy KMS." OFF)
@@ -80,7 +80,7 @@ endif()
 if (BUILD_SENTRY_PLUGIN)
   set(flutterpi_languages C CXX ASM)
 else()
-  set(flutterpi_languages C ASM)
+  set(flutterpi_languages C)
 endif()
 
 project(flutter-pi LANGUAGES ${flutterpi_languages} VERSION "1.0.0")
@@ -89,12 +89,13 @@ message(STATUS "Generator .............. ${CMAKE_GENERATOR}")
 message(STATUS "Build Type ............. ${CMAKE_BUILD_TYPE}")
 
 include(CheckCCompilerFlag)
+include(CheckCXXCompilerFlag)
 
 # Those libraries we definitely need.
 include(FindPkgConfig)
 pkg_check_modules(DRM REQUIRED IMPORTED_TARGET libdrm)
 pkg_check_modules(GBM REQUIRED IMPORTED_TARGET gbm)
-pkg_check_modules(LIBSYSTEMD REQUIRED IMPORTED_TARGET libsystemd)
+pkg_check_modules(LIBSYSTEMD REQUIRED IMPORTED_TARGET libsystemd>=243)
 pkg_check_modules(LIBINPUT REQUIRED IMPORTED_TARGET libinput)
 pkg_check_modules(LIBXKBCOMMON REQUIRED IMPORTED_TARGET xkbcommon)
 pkg_check_modules(LIBUDEV REQUIRED IMPORTED_TARGET libudev)
@@ -127,8 +128,13 @@ add_library(
   src/platformchannel.c
   src/pluginregistry.c
   src/texture_registry.c
-  src/modesetting.c
-  src/util/collection.c
+  src/kms/drmdev.c
+  src/kms/req_builder.c
+  src/kms/resources.c
+  src/kms/monitor.c
+  src/kms/kms_window.c
+  src/util/event_loop.c
+  src/util/lock_ops.c
   src/util/bitscan.c
   src/util/vector.c
   src/cursor.c
@@ -146,6 +152,7 @@ add_library(
   src/frame_scheduler.c
   src/window.c
   src/dummy_render_surface.c
+  src/dummy_window.c
   src/plugins/services.c
 )
 
@@ -162,13 +169,15 @@ target_link_libraries(flutterpi_module PUBLIC
 )
 
 target_include_directories(flutterpi_module PUBLIC
-  ${CMAKE_SOURCE_DIR}/third_party/flutter_embedder_header/include
   ${CMAKE_SOURCE_DIR}/src
   ${CMAKE_BINARY_DIR}
+  ${CMAKE_SOURCE_DIR}/third_party/mesa3d/include
+  ${CMAKE_SOURCE_DIR}/third_party/klib/include
+  ${CMAKE_SOURCE_DIR}/third_party/flutter_embedder_header/include
 )
 
 target_compile_options(flutterpi_module PUBLIC
-  $<$<CONFIG:Debug>:-O0 -Wall -Wextra -Wno-sign-compare -Werror -ggdb -U_FORTIFY_SOURCE -DDEBUG>
+  $<$<CONFIG:Debug>:-O0 -Wall -Wextra -Wno-sign-compare -Wswitch-enum -Wformat -Wdouble-promotion -Wno-overlength-strings -Wno-gnu-zero-variadic-macro-arguments -pedantic -Werror -ggdb -U_FORTIFY_SOURCE -DDEBUG>
   $<$<CONFIG:RelWithDebInfo>:-O3 -Wall -Wextra -Wno-sign-compare -ggdb -DNDEBUG>
   $<$<CONFIG:Release>:-O3 -Wall -Wextra -Wno-sign-compare -DNDEBUG>
 )
@@ -237,6 +246,7 @@ if (ENABLE_VULKAN)
     target_sources(flutterpi_module PRIVATE
       src/vk_gbm_render_surface.c
       src/vk_renderer.c
+      src/vulkan.c
     )
     target_link_libraries(flutterpi_module PUBLIC
       PkgConfig::VULKAN
@@ -423,6 +433,7 @@ if (ENABLE_TSAN)
   target_link_options(flutterpi_module PUBLIC -fsanitize=thread)
   target_compile_options(flutterpi_module PUBLIC -fsanitize=thread)
 endif()
+
 if (ENABLE_ASAN)
   # when we use asan, we need to force linking against the C++ stdlib.
   # If we don't link against it, and load a dynamic library that's linked against the C++ stdlib (like the flutter engine),
@@ -433,8 +444,9 @@ if (ENABLE_ASAN)
   target_link_options(flutterpi_module PUBLIC -fsanitize=address -fno-omit-frame-pointer -Wl,--no-as-needed)
   target_compile_options(flutterpi_module PUBLIC -fsanitize=address)
 
-  check_c_compiler_flag(-static-libasan HAVE_STATIC_LIBASAN)
-  if (HAVE_STATIC_LIBASAN)
+  check_c_compiler_flag(-static-libasan HAVE_C_STATIC_LIBASAN)
+  check_cxx_compiler_flag(-static-libasan HAVE_CXX_STATIC_LIBASAN)
+  if (HAVE_C_STATIC_LIBASAN AND HAVE_CXX_STATIC_LIBASAN)
     target_link_options(flutterpi_module PUBLIC -static-libasan)
   endif()
 endif()
@@ -462,84 +474,19 @@ install(TARGETS flutter-pi RUNTIME DESTINATION bin)
 
 # Enable lto if supported.
 cmake_policy(SET CMP0069 NEW)
-include(CheckIPOSupported)
 # include(CheckLinkerFlag)
 
 set(USE_LTO OFF)
 # set(NEEDS_GOLD OFF)
 # set(NEEDS_LLD OFF)
 if(LTO AND (CMAKE_BUILD_TYPE STREQUAL Release OR CMAKE_BUILD_TYPE STREQUAL RelWithDebInfo))
-  # So people can specify `-fuse-ld=lld` in the CMAKE_C_FLAGS.
-  # Otherwise check_ipo_supported will not use CMAKE_C_FLAGS.
-  if (POLICY CMP0138)
-    cmake_policy(SET CMP0138 NEW)
-  endif()
-
-  check_ipo_supported(RESULT IPO_SUPPORTED OUTPUT IPO_SUPPORT_OUTPUT)
-  if (NOT IPO_SUPPORTED)
-    message(WARNING "IPO/LTO was requested in the configure options, but is not supported by the toolchain. Check CMakeFiles/CMakeError.log for details.")
-  endif()
-
-  # Try to enable IPO with gold and lld.
-  # Needs CMP0138.
-  # (untested because CMP0138 required CMake 3.24, that's why it's commented out)
-  # if (NOT IPO_SUPPORTED)
-  #   check_linker_flag(C "-fuse-ld=gold" SUPPORTS_GOLD)
-  #   if (SUPPORTS_GOLD)
-  #     set(OLD_CMAKE_C_FLAGS "${CMAKE_C_FLAGS}")
-  #
-  #     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fuse-ld=gold")
-  #     try_compile()
-  #     check_ipo_supported(RESULT IPO_SUPPORTED_WITH_GOLD OUTPUT IPO_SUPPORT_OUTPUT)
-  #     if (IPO_SUPPORTED_WITH_GOLD)
-  #       set(IPO_SUPPORTED ON)
-  #       set(NEEDS_GOLD ON)
-  #     endif()
-  #
-  #     set(CMAKE_C_FLAGS "${OLD_CMAKE_C_FLAGS}")
-  #   endif()
-  #
-  #   check_linker_flag(C "-fuse-ld=lld" SUPPORTS_LLD)
-  #   if (SUPPORTS_LLD)
-  #     set(OLD_CMAKE_C_FLAGS "${CMAKE_C_FLAGS}")
-  #
-  #     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fuse-ld=lld")
-  #     check_ipo_supported(RESULT IPO_SUPPORTED_WITH_LLD OUTPUT IPO_SUPPORT_OUTPUT)
-  #     if (IPO_SUPPORTED_WITH_LLD)
-  #       set(IPO_SUPPORTED ON)
-  #       set(NEEDS_LLD ON)
-  #     endif()
-  #
-  #     set(CMAKE_C_FLAGS "${OLD_CMAKE_C_FLAGS}")
-  #   endif()
-  # endif()
-
-  # clang doesn't support LTO when using GNU ld.
-  if(IPO_SUPPORTED AND ("${CMAKE_C_COMPILER_ID}" STREQUAL "Clang"))
-    execute_process(COMMAND ${CMAKE_C_COMPILER} -Wl,--version OUTPUT_VARIABLE LINKER_VERSION_OUTPUT ERROR_QUIET)
-    if("${LINKER_VERSION_OUTPUT}" MATCHES "GNU ld")
-      message(WARNING "IPO/LTO was requested, but is not supported when using clang with GNU ld as the linker. Try setting gold or lld as the system linker.")
-      set(IPO_SUPPORTED OFF)
-    endif()
-  endif()
-
-  if (IPO_SUPPORTED)
-    set(USE_LTO ON)
-  endif()
+  set(USE_LTO ON)
 endif()
 
 message(STATUS "IPO/LTO ................ ${USE_LTO}")
 if (USE_LTO)
   set_property(TARGET flutterpi_module PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
   set_property(TARGET flutter-pi PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
-  # if (NEEDS_GOLD)
-  #   Technically specifying only for one would suffice.
-  #   target_link_options(flutterpi_module PUBLIC "-fuse-ld=gold")
-  #   target_link_options(flutter-pi PUBLIC "-fuse-ld=gold")
-  # elseif (NEEDS_LLD)
-  #   target_link_options(flutterpi_module PUBLIC "-fuse-ld=lld")
-  #   target_link_options(flutter-pi PUBLIC "-fuse-ld=lld")
-  # endif()
 endif()
 
 if(ENABLE_TESTS)

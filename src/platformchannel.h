@@ -89,6 +89,7 @@ struct std_value {
                 const uint8_t *uint8array;
                 int32_t *int32array;
                 int64_t *int64array;
+                float *float32array;
                 double *float64array;
                 struct std_value *list;
                 struct {
@@ -1538,9 +1539,7 @@ int platch_send_error_event_json(char *channel, char *error_code, char *error_ms
 
 /// frees a ChannelObject that was decoded using PlatformChannel_decode.
 /// not freeing ChannelObjects may result in a memory leak.
-int platch_free_obj(struct platch_obj *object);
-
-int platch_free_json_value(struct json_value *value, bool shallow);
+void platch_free_obj(struct platch_obj *object);
 
 /// returns true if values a and b are equal.
 /// for JS arrays, the order of the values is relevant

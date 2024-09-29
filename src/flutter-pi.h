@@ -96,11 +96,6 @@ struct flutterpi;
 /// TODO: Remove this
 extern struct flutterpi *flutterpi;
 
-struct platform_task {
-    int (*callback)(void *userdata);
-    void *userdata;
-};
-
 struct platform_message {
     bool is_response;
     union {
@@ -145,11 +140,13 @@ struct flutterpi_cmdline_args {
 
 int flutterpi_fill_view_properties(bool has_orientation, enum device_orientation orientation, bool has_rotation, int rotation);
 
-int flutterpi_post_platform_task(int (*callback)(void *userdata), void *userdata);
+int flutterpi_post_platform_task(struct flutterpi *flutterpi, void_callback_t callback, void *userdata);
 
-int flutterpi_post_platform_task_with_time(int (*callback)(void *userdata), void *userdata, uint64_t target_time_usec);
+int flutterpi_post_delayed_platform_task(struct flutterpi *flutterpi, void_callback_t callback, void *userdata, uint64_t target_time_usec);
 
-int flutterpi_sd_event_add_io(sd_event_source **source_out, int fd, uint32_t events, sd_event_io_handler_t callback, void *userdata);
+struct evloop *flutterpi_get_platform_event_loop(struct flutterpi *flutterpi);
+
+struct evloop *flutterpi_get_raster_event_loop(struct flutterpi *flutterpi);
 
 int flutterpi_send_platform_message(
     struct flutterpi *flutterpi,
@@ -183,6 +180,10 @@ const char *flutterpi_get_asset_bundle_path(struct flutterpi *flutterpi);
 void flutterpi_schedule_exit(struct flutterpi *flutterpi);
 
 struct gbm_device *flutterpi_get_gbm_device(struct flutterpi *flutterpi);
+
+struct compositor *flutterpi_peek_compositor(struct flutterpi *flutterpi);
+
+struct compositor *flutterpi_get_compositor(struct flutterpi *flutterpi);
 
 bool flutterpi_has_gl_renderer(struct flutterpi *flutterpi);
 

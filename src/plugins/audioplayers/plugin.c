@@ -240,12 +240,12 @@ enum plugin_init_result audioplayers_plugin_init(struct flutterpi *flutterpi, vo
     plugin.initialized = false;
     list_inithead(&plugin.players);
 
-    ok = plugin_registry_set_receiver_locked(AUDIOPLAYERS_GLOBAL_CHANNEL, kStandardMethodCall, on_global_method_call);
+    ok = plugin_registry_set_receiver(AUDIOPLAYERS_GLOBAL_CHANNEL, kStandardMethodCall, on_global_method_call);
     if (ok != 0) {
         return PLUGIN_INIT_RESULT_ERROR;
     }
 
-    ok = plugin_registry_set_receiver_locked(AUDIOPLAYERS_LOCAL_CHANNEL, kStandardMethodCall, on_local_method_call);
+    ok = plugin_registry_set_receiver(AUDIOPLAYERS_LOCAL_CHANNEL, kStandardMethodCall, on_local_method_call);
     if (ok != 0) {
         goto fail_remove_global_receiver;
     }
@@ -253,7 +253,7 @@ enum plugin_init_result audioplayers_plugin_init(struct flutterpi *flutterpi, vo
     return PLUGIN_INIT_RESULT_INITIALIZED;
 
 fail_remove_global_receiver:
-    plugin_registry_remove_receiver_locked(AUDIOPLAYERS_GLOBAL_CHANNEL);
+    plugin_registry_remove_receiver(AUDIOPLAYERS_GLOBAL_CHANNEL);
 
     return PLUGIN_INIT_RESULT_ERROR;
 }
@@ -262,8 +262,8 @@ void audioplayers_plugin_deinit(struct flutterpi *flutterpi, void *userdata) {
     (void) flutterpi;
     (void) userdata;
 
-    plugin_registry_remove_receiver_locked(AUDIOPLAYERS_GLOBAL_CHANNEL);
-    plugin_registry_remove_receiver_locked(AUDIOPLAYERS_LOCAL_CHANNEL);
+    plugin_registry_remove_receiver(AUDIOPLAYERS_GLOBAL_CHANNEL);
+    plugin_registry_remove_receiver(AUDIOPLAYERS_LOCAL_CHANNEL);
 
     list_for_each_entry_safe(struct audio_player_entry, entry, &plugin.players, entry) {
         audio_player_destroy(entry->player);
@@ -288,7 +288,7 @@ static struct audio_player *audioplayers_linux_plugin_get_player(char *player_id
     ASSUME(entry != NULL);
 
     LOG_DEBUG("Create player(id=%s)\n", player_id);
-    player = audio_player_new(player_id, AUDIOPLAYERS_LOCAL_CHANNEL);
+    player = audio_player_new(flutterpi_get_platform_event_loop(plugin.flutterpi), player_id, AUDIOPLAYERS_LOCAL_CHANNEL);
 
     if (player == NULL) {
         LOG_ERROR("player(id=%s) cannot be created", player_id);
@@ -296,13 +296,9 @@ static struct audio_player *audioplayers_linux_plugin_get_player(char *player_id
         return NULL;
     }
 
-    const char* event_channel = audio_player_subscribe_channel_name(player);
+    const char *event_channel = audio_player_subscribe_channel_name(player);
     // set a receiver on the videoEvents event channel
-    int ok = plugin_registry_set_receiver(
-        event_channel,
-        kStandardMethodCall,
-        on_receive_event_ch
-    );
+    int ok = plugin_registry_set_receiver(event_channel, kStandardMethodCall, on_receive_event_ch);
     if (ok != 0) {
         LOG_ERROR("Cannot set player receiver for event channel: %s\n", event_channel);
         audio_player_destroy(player);

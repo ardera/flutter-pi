@@ -7,13 +7,100 @@
             "description": "Sets Ninja generator, build and install directory",
             "generator": "Ninja",
             "binaryDir": "${sourceDir}/out/build/${presetName}",
+            "hidden": true,
+            "cacheVariables": {
+                "CMAKE_INSTALL_PREFIX": "${sourceDir}/out/install/${presetName}",
+                "TRY_ENABLE_OPENGL": false,
+                "ENABLE_OPENGL": true,
+                "BUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN": true,
+                "TRY_BUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN": false,
+                "BUILD_GSTREAMER_AUDIO_PLAYER_PLUGIN": true,
+                "TRY_BUILD_GSTREAMER_AUDIO_PLAYER_PLUGIN": false,
+                "BUILD_SENTRY_PLUGIN": true,
+                "ENABLE_VULKAN": true,
+                "TRY_ENABLE_VULKAN": false,
+                "ENABLE_SESSION_SWITCHING": true,
+                "ENABLE_TESTS": false
+            }
+        },
+        {
+            "name": "default-debug",
+            "displayName": "Default OpenGL host build (Debug)",
+            "inherits": "default",
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Debug",
-                "CMAKE_INSTALL_PREFIX": "${sourceDir}/out/install/${presetName}",
-                "ENABLE_OPENGL": true,
-                "BUILD_GSTREAMER_AUDIO_PLAYER_PLUGIN": true,
-                "BUILD_SENTRY_PLUGIN": true,
-                "ENABLE_TESTS": true
+                "ENABLE_TESTS": true,
+                "ENABLE_ASAN": true
+            }
+        },
+        {
+            "name": "default-debug-clang",
+            "displayName": "Default OpenGL host build (Debug, Clang)",
+            "inherits": "default-debug",
+            "cacheVariables": {
+                "CMAKE_C_COMPILER": "clang",
+                "CMAKE_CXX_COMPILER": "clang++"
+            }
+        },
+        {
+            "name": "default-debug-gcc",
+            "displayName": "Default OpenGL host build (Debug, gcc)",
+            "inherits": "default-debug",
+            "cacheVariables": {
+                "CMAKE_C_COMPILER": "gcc",
+                "CMAKE_CXX_COMPILER": "g++"
+            }
+        },
+        {
+            "name": "default-relwithdebinfo",
+            "displayName": "Default OpenGL host build (Release with Debug Info)",
+            "inherits": "default",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "RelWithDebInfo"
+            }
+        },
+        {
+            "name": "default-release",
+            "displayName": "Default OpenGL host build (Release)",
+            "inherits": "default",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release"
+            }
+        },
+        {
+            "name": "default-clang",
+            "displayName": "Default OpenGL host build (clang)",
+            "description": "Sets Ninja generator, build and install directory",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/out/build/${presetName}",
+            "inherits": "default",
+            "cacheVariables": {
+                "CMAKE_C_COMPILER": "clang",
+                "CMAKE_CXX_COMPILER": "clang++"
+            }
+        },
+        {
+            "name": "default-clang-20",
+            "displayName": "Default OpenGL host build (clang-20)",
+            "description": "Sets Ninja generator, build and install directory",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/out/build/${presetName}",
+            "inherits": "default",
+            "cacheVariables": {
+                "CMAKE_C_COMPILER": "clang-20",
+                "CMAKE_CXX_COMPILER": "clang++-20"
+            }
+        },
+        {
+            "name": "default-gcc",
+            "displayName": "Default OpenGL host build (gcc)",
+            "description": "Sets Ninja generator, build and install directory",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/out/build/${presetName}",
+            "inherits": "default",
+            "cacheVariables": {
+                "CMAKE_C_COMPILER": "gcc",
+                "CMAKE_CXX_COMPILER": "g++"
             }
         },
         {

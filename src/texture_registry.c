@@ -202,6 +202,7 @@ struct texture *texture_new(struct texture_registry *reg) {
     if (ok != 0) {
         pthread_mutex_destroy(&texture->lock);
         free(texture);
+        return NULL;
     }
 
     return texture;
@@ -301,7 +302,7 @@ texture_gl_external_texture_frame_callback(struct texture *texture, size_t width
     if (texture->next_frame != NULL) {
         /// TODO: If acquiring the texture frame fails, flutter will destroy the texture frame two times.
         /// So we'll probably have a segfault if that happens.
-        frame = counted_texture_frame_ref(texture->next_frame);
+        frame = texture->next_frame;
     } else {
         frame = NULL;
     }
@@ -315,13 +316,16 @@ texture_gl_external_texture_frame_callback(struct texture *texture, size_t width
         ok = frame->unresolved_frame.resolve(width, height, frame->unresolved_frame.userdata, &frame->frame);
         if (ok != 0) {
             LOG_ERROR("Couldn't resolve texture frame.\n");
-            counted_texture_frame_unrefp(&frame);
             counted_texture_frame_unrefp(&texture->next_frame);
+            texture_unlock(texture);
+            return false;
         }
 
         frame->unresolved_frame.destroy(frame->unresolved_frame.userdata);
         frame->is_resolved = true;
     }
+
+    frame = counted_texture_frame_ref(frame);
 
     texture_unlock(texture);
 

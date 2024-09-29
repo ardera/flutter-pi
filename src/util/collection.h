@@ -16,10 +16,12 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <limits.h>
 
 #include <pthread.h>
 
 #include "macros.h"
+#include "asserts.h"
 
 static inline void *memdup(const void *restrict src, const size_t n) {
     void *__restrict__ dest;
@@ -108,7 +110,7 @@ static inline void *uint32_to_ptr(const uint32_t v) {
 #define MAX_ALIGNMENT (__alignof__(max_align_t))
 #define IS_MAX_ALIGNED(num) ((num) % MAX_ALIGNMENT == 0)
 
-#define DOUBLE_TO_FP1616(v) ((uint32_t) ((v) *65536))
+#define DOUBLE_TO_FP1616(v) ((uint32_t) ((v) * 65536))
 #define DOUBLE_TO_FP1616_ROUNDED(v) (((uint32_t) (v)) << 16)
 
 typedef void (*void_callback_t)(void *userdata);
@@ -117,6 +119,41 @@ ATTR_PURE static inline bool streq(const char *a, const char *b) {
     return strcmp(a, b) == 0;
 }
 
-const pthread_mutexattr_t *get_default_mutex_attrs();
+#define alloca_sprintf(fmt, ...) ({ \
+    int necessary = snprintf(NULL, 0, fmt, ##__VA_ARGS__); \
+    char *buf = alloca(necessary + 1); \
+    snprintf(buf, necessary + 1, fmt, ##__VA_ARGS__); \
+    buf; \
+})
+
+static inline bool safe_string_to_int(const char *str, int *out) {
+    char *endptr;
+
+    ASSERT_NOT_NULL(str);
+    ASSERT_NOT_NULL(out);
+
+    long l = strtol(str, &endptr, 10);
+    if (endptr == str || *endptr != '\0' || l < INT_MIN || l > INT_MAX) {
+        return false;
+    }
+
+    *out = (int) l;
+    return true;
+}
+
+static inline bool safe_string_to_uint32(const char *str, uint32_t *out) {
+    char *endptr;
+
+    ASSERT_NOT_NULL(str);
+    ASSERT_NOT_NULL(out);
+
+    long l = strtol(str, &endptr, 10);
+    if (endptr == str || *endptr != '\0' || l < 0 || l > UINT32_MAX) {
+        return false;
+    }
+
+    *out = (uint32_t) l;
+    return true;
+}
 
 #endif  // _FLUTTERPI_SRC_UTIL_COLLECTION_H

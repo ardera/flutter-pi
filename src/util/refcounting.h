@@ -61,54 +61,36 @@ static inline int refcount_get_for_debug(refcount_t *refcount) {
     UNUSED void obj_name##_swap_ptrs(struct obj_name **objp, struct obj_name *obj); \
     UNUSED void obj_name##_unref_void(void *obj);
 
-#define DEFINE_REF_OPS(obj_name, refcount_member_name)                               \
-    UNUSED struct obj_name *obj_name##_ref(struct obj_name *obj) {                   \
-        refcount_inc(&obj->refcount_member_name);                                    \
-        return obj;                                                                  \
-    }                                                                                \
-    UNUSED void obj_name##_unref(struct obj_name *obj) {                             \
-        if (refcount_dec(&obj->refcount_member_name) == false) {                     \
-            obj_name##_destroy(obj);                                                 \
-        }                                                                            \
-    }                                                                                \
-    UNUSED void obj_name##_unrefp(struct obj_name **obj) {                           \
-        obj_name##_unref(*obj);                                                      \
-        *obj = NULL;                                                                 \
-    }                                                                                \
-    UNUSED void obj_name##_swap_ptrs(struct obj_name **objp, struct obj_name *obj) { \
-        if (obj != NULL) {                                                           \
-            obj_name##_ref(obj);                                                     \
-        }                                                                            \
-        if (*objp != NULL) {                                                         \
-            obj_name##_unrefp(objp);                                                 \
-        }                                                                            \
-        *objp = obj;                                                                 \
-    }                                                                                \
-    UNUSED void obj_name##_unref_void(void *obj) { obj_name##_unref((struct obj_name *) obj); }
+#define DEFINE_REF_OPS_WITH_QUALIFIERS(qualifiers, obj_name, refcount_member_name)       \
+    qualifiers struct obj_name *obj_name##_ref(struct obj_name *obj) {                   \
+        refcount_inc(&obj->refcount_member_name);                                        \
+        return obj;                                                                      \
+    }                                                                                    \
+    qualifiers void obj_name##_unref(struct obj_name *obj) {                             \
+        if (refcount_dec(&obj->refcount_member_name) == false) {                         \
+            obj_name##_destroy(obj);                                                     \
+        }                                                                                \
+    }                                                                                    \
+    qualifiers void obj_name##_unrefp(struct obj_name **obj) {                           \
+        obj_name##_unref(*obj);                                                          \
+        *obj = NULL;                                                                     \
+    }                                                                                    \
+    qualifiers void obj_name##_swap_ptrs(struct obj_name **objp, struct obj_name *obj) { \
+        if (obj != NULL) {                                                               \
+            obj_name##_ref(obj);                                                         \
+        }                                                                                \
+        if (*objp != NULL) {                                                             \
+            obj_name##_unrefp(objp);                                                     \
+        }                                                                                \
+        *objp = obj;                                                                     \
+    }                                                                                    \
+    qualifiers void obj_name##_unref_void(void *obj) {                                   \
+        obj_name##_unref((struct obj_name *) obj);                                       \
+    }
 
-#define DEFINE_STATIC_REF_OPS(obj_name, refcount_member_name)                               \
-    UNUSED static struct obj_name *obj_name##_ref(struct obj_name *obj) {                   \
-        refcount_inc(&obj->refcount_member_name);                                           \
-        return obj;                                                                         \
-    }                                                                                       \
-    UNUSED static void obj_name##_unref(struct obj_name *obj) {                             \
-        if (refcount_dec(&obj->refcount_member_name) == false) {                            \
-            obj_name##_destroy(obj);                                                        \
-        }                                                                                   \
-    }                                                                                       \
-    UNUSED static void obj_name##_unrefp(struct obj_name **obj) {                           \
-        obj_name##_unref(*obj);                                                             \
-        *obj = NULL;                                                                        \
-    }                                                                                       \
-    UNUSED static void obj_name##_swap_ptrs(struct obj_name **objp, struct obj_name *obj) { \
-        if (obj != NULL) {                                                                  \
-            obj_name##_ref(obj);                                                            \
-        }                                                                                   \
-        if (*objp != NULL) {                                                                \
-            obj_name##_unrefp(objp);                                                        \
-        }                                                                                   \
-        *objp = obj;                                                                        \
-    }                                                                                       \
-    UNUSED static void obj_name##_unref_void(void *obj) { obj_name##_unref((struct obj_name *) obj); }
+#define DEFINE_REF_OPS(obj_name, refcount_member_name) DEFINE_REF_OPS_WITH_QUALIFIERS(UNUSED, obj_name, refcount_member_name)
+#define DEFINE_STATIC_REF_OPS(obj_name, refcount_member_name) DEFINE_REF_OPS_WITH_QUALIFIERS(UNUSED static, obj_name, refcount_member_name)
+#define DEFINE_STATIC_INLINE_REF_OPS(obj_name, refcount_member_name) \
+    DEFINE_REF_OPS_WITH_QUALIFIERS(UNUSED static inline, obj_name, refcount_member_name)
 
 #endif  // _FLUTTERPI_SRC_UTIL_REFCOUNTING_H

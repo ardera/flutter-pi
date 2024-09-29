@@ -122,6 +122,9 @@
 #if __has_attribute(noreturn)
     #define HAVE_FUNC_ATTRIBUTE_NORETURN
 #endif
+#if __has_attribute(suppress)
+    #define HAVE_STMT_ATTRIBUTE_SUPPRESS
+#endif
 
 /**
  * __builtin_expect macros
@@ -164,6 +167,36 @@
         static_assert(cond, #cond); \
     } while (0)
 
+#define DO_PRAGMA(X) _Pragma(#X)
+
+#if defined(__clang__)
+    #define PRAGMA_DIAGNOSTIC_PUSH _Pragma("clang diagnostic push")
+    #define PRAGMA_DIAGNOSTIC_POP _Pragma("clang diagnostic pop")
+    #define PRAGMA_DIAGNOSTIC_ERROR(X) DO_PRAGMA(clang diagnostic error X)
+    #define PRAGMA_DIAGNOSTIC_WARNING(X) DO_PRAGMA(clang diagnostic warning X)
+    #define PRAGMA_DIAGNOSTIC_IGNORED(X) DO_PRAGMA(clang diagnostic ignored X)
+    #define PRAGMA_GCC_DIAGNOSTIC_IGNORED(X)
+    #define PRAGMA_CLANG_DIAGNOSTIC_IGNORED(X) DO_PRAGMA(clang diagnostic ignored X)
+#elif defined(__GNUC__)
+    #define PRAGMA_DIAGNOSTIC_PUSH _Pragma("GCC diagnostic push")
+    #define PRAGMA_DIAGNOSTIC_POP _Pragma("GCC diagnostic pop")
+    #define PRAGMA_DIAGNOSTIC_ERROR(X) DO_PRAGMA(GCC diagnostic error X)
+    #define PRAGMA_DIAGNOSTIC_WARNING(X) DO_PRAGMA(GCC diagnostic warning X)
+    #define PRAGMA_DIAGNOSTIC_IGNORED(X) DO_PRAGMA(GCC diagnostic ignored X)
+    #define PRAGMA_GCC_DIAGNOSTIC_IGNORED(X) DO_PRAGMA(GCC diagnostic ignored X)
+    #define PRAGMA_CLANG_DIAGNOSTIC_IGNORED(X)
+#else
+    #define PRAGMA_DIAGNOSTIC_PUSH
+    #define PRAGMA_DIAGNOSTIC_POP
+    #define PRAGMA_DIAGNOSTIC_ERROR(X)
+    #define PRAGMA_DIAGNOSTIC_WARNING(X)
+    #define PRAGMA_DIAGNOSTIC_IGNORED(X)
+    #define PRAGMA_GCC_DIAGNOSTIC_IGNORED(X)
+    #define PRAGMA_CLANG_DIAGNOSTIC_IGNORED(X)
+#endif
+
+PRAGMA_DIAGNOSTIC_PUSH
+PRAGMA_DIAGNOSTIC_IGNORED("-Wpedantic")
 /**
  * CONTAINER_OF - cast a member of a structure out to the containing structure
  * @ptr:        the pointer to the member.
@@ -185,6 +218,8 @@
             ((type *) (__mptr - offsetof(type, member)));                               \
         })
 #endif
+
+PRAGMA_DIAGNOSTIC_POP
 
 /**
  * Unreachable macro. Useful for suppressing "control reaches end of non-void
@@ -405,6 +440,12 @@
     #define ATTR_NOINLINE
 #endif
 
+#ifdef HAVE_STMT_ATTRIBUTE_SUPPRESS
+    #define ANALYZER_SUPPRESS(stmt) __attribute__((suppress)) stmt
+#else
+    #define ANALYZER_SUPPRESS(stmt) stmt
+#endif
+
 /**
  * Check that STRUCT::FIELD can hold MAXVAL.  We use a lot of bitfields
  * in Mesa/gallium.  We have to be sure they're of sufficient size to
@@ -421,7 +462,7 @@
     } while (0)
 
 /** Compute ceiling of integer quotient of A divided by B. */
-#define DIV_ROUND_UP(A, B) (((A) + (B) -1) / (B))
+#define DIV_ROUND_UP(A, B) (((A) + (B) - 1) / (B))
 
 /**
  * Clamp X to [MIN,MAX].  Turn NaN into MIN, arbitrarily.
@@ -450,10 +491,10 @@
 #define MAX4(A, B, C, D) ((A) > (B) ? MAX3(A, C, D) : MAX3(B, C, D))
 
 /** Align a value to a power of two */
-#define ALIGN_POT(x, pot_align) (((x) + (pot_align) -1) & ~((pot_align) -1))
+#define ALIGN_POT(x, pot_align) (((x) + (pot_align) - 1) & ~((pot_align) - 1))
 
 /** Checks is a value is a power of two. Does not handle zero. */
-#define IS_POT(v) (((v) & ((v) -1)) == 0)
+#define IS_POT(v) (((v) & ((v) - 1)) == 0)
 
 /** Set a single bit */
 #define BITFIELD_BIT(b) (1u << (b))
@@ -514,56 +555,6 @@ static inline uint64_t u_uintN_max(unsigned bit_size) {
     #endif
 #endif
 
-/* Macros for static type-safety checking.
- *
- * https://clang.llvm.org/docs/ThreadSafetyAnalysis.html
- */
-
-#if __has_attribute(capability)
-typedef int __attribute__((capability("mutex"))) lock_cap_t;
-
-    #define GUARDED_BY(l) __attribute__((guarded_by(l)))
-    #define ACQUIRE_CAP(l) __attribute((acquire_capability(l), no_thread_safety_analysis))
-    #define RELEASE_CAP(l) __attribute((release_capability(l), no_thread_safety_analysis))
-    #define ASSERT_CAP(l) __attribute((assert_capability(l), no_thread_safety_analysis))
-    #define REQUIRES_CAP(l) __attribute((requires_capability(l)))
-    #define DISABLE_THREAD_SAFETY_ANALYSIS __attribute((no_thread_safety_analysis))
-
-#else
-
-typedef int lock_cap_t;
-
-    #define GUARDED_BY(l)
-    #define ACQUIRE_CAP(l)
-    #define RELEASE_CAP(l)
-    #define ASSERT_CAP(l)
-    #define REQUIRES_CAP(l)
-    #define DISABLE_THREAD_SAFETY_ANALYSIS
-
-#endif
-
-#define DO_PRAGMA(X) _Pragma(#X)
-
-#if defined(__clang__)
-    #define PRAGMA_DIAGNOSTIC_PUSH _Pragma("clang diagnostic push")
-    #define PRAGMA_DIAGNOSTIC_POP _Pragma("clang diagnostic pop")
-    #define PRAGMA_DIAGNOSTIC_ERROR(X) DO_PRAGMA(clang diagnostic error #X)
-    #define PRAGMA_DIAGNOSTIC_WARNING(X) DO_PRAGMA(clang diagnostic warning #X)
-    #define PRAGMA_DIAGNOSTIC_IGNORED(X) DO_PRAGMA(clang diagnostic ignored #X)
-#elif defined(__GNUC__)
-    #define PRAGMA_DIAGNOSTIC_PUSH _Pragma("GCC diagnostic push")
-    #define PRAGMA_DIAGNOSTIC_POP _Pragma("GCC diagnostic pop")
-    #define PRAGMA_DIAGNOSTIC_ERROR(X) DO_PRAGMA(GCC diagnostic error #X)
-    #define PRAGMA_DIAGNOSTIC_WARNING(X) DO_PRAGMA(GCC diagnostic warning #X)
-    #define PRAGMA_DIAGNOSTIC_IGNORED(X) DO_PRAGMA(GCC diagnostic ignored #X)
-#else
-    #define PRAGMA_DIAGNOSTIC_PUSH
-    #define PRAGMA_DIAGNOSTIC_POP
-    #define PRAGMA_DIAGNOSTIC_ERROR(X)
-    #define PRAGMA_DIAGNOSTIC_WARNING(X)
-    #define PRAGMA_DIAGNOSTIC_IGNORED(X)
-#endif
-
 #define PASTE2(a, b) a##b
 #define PASTE3(a, b, c) a##b##c
 #define PASTE4(a, b, c, d) a##b##c##d
@@ -588,7 +579,7 @@ typedef int lock_cap_t;
 
 #define UNIMPLEMENTED()                                                            \
     do {                                                                           \
-        fprintf(stderr, "%s%s:%u: Unimplemented\n", __FILE__, __func__, __LINE__); \
+        fprintf(stderr, "%s%s:%d: Unimplemented\n", __FILE__, __func__, __LINE__); \
         TRAP();                                                                    \
     } while (0)
 

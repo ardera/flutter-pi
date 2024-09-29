@@ -40,6 +40,9 @@
 #include <stdint.h>
 #include <stdlib.h>
 
+#include "kms/resources.h"
+#include "kms/drmdev.h"
+#include "kms/req_builder.h"
 #include "compositor_ng.h"
 #include "surface.h"
 #include "surface_private.h"
@@ -68,7 +71,7 @@ void refcounted_dmabuf_destroy(struct refcounted_dmabuf *dmabuf) {
     free(dmabuf);
 }
 
-DEFINE_STATIC_REF_OPS(refcounted_dmabuf, n_refs);
+DEFINE_STATIC_REF_OPS(refcounted_dmabuf, n_refs)
 
 struct dmabuf_surface {
     struct surface surface;
@@ -298,10 +301,10 @@ static int dmabuf_surface_present_kms(struct surface *_s, const struct fl_layer_
             .src_w = DOUBLE_TO_FP1616_ROUNDED(s->next_buf->buf.width),
             .src_h = DOUBLE_TO_FP1616_ROUNDED(s->next_buf->buf.height),
 
-            .dst_x = props->aa_rect.offset.x,
-            .dst_y = props->aa_rect.offset.y,
-            .dst_w = props->aa_rect.size.x,
-            .dst_h = props->aa_rect.size.y,
+            .dst_x = (int) round(props->aa_rect.offset.x),
+            .dst_y = (int) round(props->aa_rect.offset.y),
+            .dst_w = (int) round(props->aa_rect.size.x),
+            .dst_h = (int) round(props->aa_rect.size.y),
 
             .has_rotation = false,
             .rotation = PLANE_TRANSFORM_ROTATE_0,

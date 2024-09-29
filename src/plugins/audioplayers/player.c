@@ -1,7 +1,7 @@
 #define _GNU_SOURCE
 
-#include <stdio.h>
 #include <stdbool.h>
+#include <stdio.h>
 
 #include <gst/gst.h>
 #include <gst/gstelementfactory.h>
@@ -12,6 +12,7 @@
 #include "platformchannel.h"
 #include "plugins/audioplayers.h"
 #include "util/asserts.h"
+#include "util/event_loop.h"
 #include "util/logging.h"
 
 struct audio_player {
@@ -35,6 +36,8 @@ struct audio_player {
     char *event_channel_name;
 
     _Atomic bool event_subscribed;
+
+    struct evsrc *busfd_event_source;
 };
 
 // Private Class functions
@@ -49,15 +52,14 @@ static void audio_player_on_duration_update(struct audio_player *self);
 static void audio_player_on_seek_completed(struct audio_player *self);
 static void audio_player_on_playback_ended(struct audio_player *self);
 
-static int on_bus_fd_ready(sd_event_source *src, int fd, uint32_t revents, void *userdata) {
-    struct audio_player *player = userdata;
+static enum event_handler_return on_bus_fd_ready(int fd, uint32_t revents, void *userdata) {
+    struct audio_player *player;
     GstMessage *msg;
 
-    (void) src;
     (void) fd;
     (void) revents;
-
-    /* DEBUG_TRACE_BEGIN(player, "on_bus_fd_ready"); */
+    ASSERT_NOT_NULL(userdata);
+    player = userdata;
 
     msg = gst_bus_pop(player->bus);
     if (msg != NULL) {
@@ -65,23 +67,20 @@ static int on_bus_fd_ready(sd_event_source *src, int fd, uint32_t revents, void 
         gst_message_unref(msg);
     }
 
-    /* DEBUG_TRACE_END(player, "on_bus_fd_ready"); */
-
-    return 0;
+    return EVENT_HANDLER_CONTINUE;
 }
 
 static void audio_player_source_setup(GstElement *playbin, GstElement *source, GstElement **p_src) {
-    (void)(playbin);
-    (void)(p_src);
+    (void) (playbin);
+    (void) (p_src);
 
     if (g_object_class_find_property(G_OBJECT_GET_CLASS(source), "ssl-strict") != 0) {
         g_object_set(G_OBJECT(source), "ssl-strict", FALSE, NULL);
     }
 }
 
-struct audio_player *audio_player_new(char *player_id, char *channel) {
+struct audio_player *audio_player_new(struct evloop *platform_loop, char *player_id, char *channel) {
     GPollFD fd;
-    sd_event_source *busfd_event_source;
 
     struct audio_player *self = malloc(sizeof(struct audio_player));
     if (self == NULL) {
@@ -132,7 +131,14 @@ struct audio_player *audio_player_new(char *player_id, char *channel) {
 
     gst_bus_get_pollfd(self->bus, &fd);
 
-    flutterpi_sd_event_add_io(&busfd_event_source, fd.fd, EPOLLIN, on_bus_fd_ready, self);
+    uint32_t events = 0;
+    events |= fd.events & G_IO_IN ? EPOLLIN : 0;
+    events |= fd.events & G_IO_OUT ? EPOLLOUT : 0;
+    events |= fd.events & G_IO_PRI ? EPOLLPRI : 0;
+    events |= fd.events & G_IO_ERR ? EPOLLERR : 0;
+    events |= fd.events & G_IO_HUP ? EPOLLHUP : 0;
+
+    self->busfd_event_source = evloop_add_io(platform_loop, fd.fd, events, on_bus_fd_ready, self);
 
     // Refresh continuously to emit recurring events
     g_timeout_add(1000, (GSourceFunc) audio_player_on_refresh, self);
@@ -183,6 +189,9 @@ deinit_self:
 
 gboolean audio_player_on_bus_message(GstBus *bus, GstMessage *message, struct audio_player *data) {
     (void) bus;
+
+    PRAGMA_DIAGNOSTIC_PUSH
+    PRAGMA_DIAGNOSTIC_IGNORED("-Wswitch-enum")
     switch (GST_MESSAGE_TYPE(message)) {
         case GST_MESSAGE_ERROR: {
             GError *err;
@@ -201,12 +210,8 @@ gboolean audio_player_on_bus_message(GstBus *bus, GstMessage *message, struct au
             audio_player_on_media_state_change(data, message->src, &old_state, &new_state);
             break;
         }
-        case GST_MESSAGE_EOS:
-            audio_player_on_playback_ended(data);
-            break;
-        case GST_MESSAGE_DURATION_CHANGED:
-            audio_player_on_duration_update(data);
-            break;
+        case GST_MESSAGE_EOS: audio_player_on_playback_ended(data); break;
+        case GST_MESSAGE_DURATION_CHANGED: audio_player_on_duration_update(data); break;
         case GST_MESSAGE_ASYNC_DONE:
             if (!data->is_seek_completed) {
                 audio_player_on_seek_completed(data);
@@ -218,6 +223,7 @@ gboolean audio_player_on_bus_message(GstBus *bus, GstMessage *message, struct au
             // https://gstreamer.freedesktop.org/documentation/gstreamer/gstmessage.html?gi-language=c#enumerations
             break;
     }
+    PRAGMA_DIAGNOSTIC_POP
 
     // Continue watching for messages
     return TRUE;
@@ -275,7 +281,7 @@ void audio_player_on_media_error(struct audio_player *self, GError *error, gchar
         return;
     }
 
-    char error_code[16] = {0};
+    char error_code[16] = { 0 };
     snprintf(error_code, sizeof(error_code), "%d", error->code);
     // clang-format off
     platch_send_error_event_std(
@@ -290,7 +296,7 @@ void audio_player_on_media_error(struct audio_player *self, GError *error, gchar
 void audio_player_on_media_state_change(struct audio_player *self, GstObject *src, GstState *old_state, GstState *new_state) {
     (void) old_state;
     if (src == GST_OBJECT(self->playbin)) {
-        LOG_DEBUG("%s: on_media_state_change(old_state=%d, new_state=%d)\n", self->player_id, *old_state, *new_state);
+        LOG_DEBUG("%s: on_media_state_change(old_state=%u, new_state=%u)\n", self->player_id, *old_state, *new_state);
         if (*new_state == GST_STATE_READY) {
             // Need to set to pause state, in order to make player functional
             GstStateChangeReturn ret = gst_element_set_state(self->playbin, GST_STATE_PAUSED);
@@ -486,7 +492,8 @@ void audio_player_destroy(struct audio_player *self) {
 
     if (self->event_channel_name != NULL) {
         free(self->event_channel_name);
-        self->event_channel_name = NULL;;
+        self->event_channel_name = NULL;
+        ;
     }
 
     free(self);
@@ -524,10 +531,10 @@ void audio_player_set_balance(struct audio_player *self, double balance) {
         return;
     }
 
-    if (balance > 1.0l) {
-        balance = 1.0l;
-    } else if (balance < -1.0l) {
-        balance = -1.0l;
+    if (balance > 1.0) {
+        balance = 1.0;
+    } else if (balance < -1.0) {
+        balance = -1.0;
     }
     g_object_set(G_OBJECT(self->panorama), "panorama", balance, NULL);
 }
@@ -574,7 +581,7 @@ bool audio_player_is_id(struct audio_player *self, char *player_id) {
     return streq(self->player_id, player_id);
 }
 
-const char* audio_player_subscribe_channel_name(const struct audio_player *self) {
+const char *audio_player_subscribe_channel_name(const struct audio_player *self) {
     return self->event_channel_name;
 }
 
@@ -601,4 +608,6 @@ void audio_player_release(struct audio_player *self) {
     if (playbinState > GST_STATE_NULL) {
         gst_element_set_state(self->playbin, GST_STATE_NULL);
     }
+
+    evsrc_destroy(self->busfd_event_source);
 }

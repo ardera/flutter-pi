@@ -301,7 +301,15 @@ static sentry_value_t raw_std_value_as_sentry_value(const struct raw_std_value *
         case kStdInt32: return sentry_value_new_int32(raw_std_value_as_int32(arg));
         case kStdInt64: return sentry_value_new_int32((int32_t) raw_std_value_as_int64(arg));
         case kStdFloat64: return sentry_value_new_double(raw_std_value_as_float64(arg));
+
+        case kStdUInt8Array:
+        case kStdInt32Array:
+        case kStdInt64Array:
+        case kStdFloat64Array: return sentry_value_new_null();
+
+        case kStdLargeInt:
         case kStdString: return sentry_value_new_string_n(raw_std_string_get_nonzero_terminated(arg), raw_std_string_get_length(arg));
+
         case kStdMap: {
             sentry_value_t map = sentry_value_new_object();
             for_each_entry_in_raw_std_map(key, value, arg) {
@@ -328,6 +336,7 @@ static sentry_value_t raw_std_value_as_sentry_value(const struct raw_std_value *
 
             return list;
         }
+        case kStdFloat32Array: return sentry_value_new_null();
         default: return sentry_value_new_null();
     }
 }
@@ -755,7 +764,7 @@ static void on_method_call(void *userdata, const FlutterPlatformMessage *message
     }
 }
 
-enum plugin_init_result sentry_plugin_deinit(struct flutterpi *flutterpi, void **userdata_out) {
+enum plugin_init_result sentry_plugin_init(struct flutterpi *flutterpi, void **userdata_out) {
     struct sentry_plugin *plugin;
     int ok;
 
@@ -764,12 +773,7 @@ enum plugin_init_result sentry_plugin_deinit(struct flutterpi *flutterpi, void *
         return PLUGIN_INIT_RESULT_ERROR;
     }
 
-    ok = plugin_registry_set_receiver_v2_locked(
-        flutterpi_get_plugin_registry(flutterpi),
-        SENTRY_PLUGIN_METHOD_CHANNEL,
-        on_method_call,
-        plugin
-    );
+    ok = plugin_registry_set_receiver_v2(flutterpi_get_plugin_registry(flutterpi), SENTRY_PLUGIN_METHOD_CHANNEL, on_method_call, plugin);
     if (ok != 0) {
         free(plugin);
         return PLUGIN_INIT_RESULT_ERROR;
@@ -780,7 +784,7 @@ enum plugin_init_result sentry_plugin_deinit(struct flutterpi *flutterpi, void *
     return PLUGIN_INIT_RESULT_INITIALIZED;
 }
 
-void sentry_plugin_init(struct flutterpi *flutterpi, void *userdata) {
+void sentry_plugin_deinit(struct flutterpi *flutterpi, void *userdata) {
     struct sentry_plugin *plugin;
 
     ASSERT_NOT_NULL(userdata);
@@ -790,8 +794,8 @@ void sentry_plugin_init(struct flutterpi *flutterpi, void *userdata) {
         sentry_close();
     }
 
-    plugin_registry_remove_receiver_v2_locked(flutterpi_get_plugin_registry(flutterpi), SENTRY_PLUGIN_METHOD_CHANNEL);
+    plugin_registry_remove_receiver_v2(flutterpi_get_plugin_registry(flutterpi), SENTRY_PLUGIN_METHOD_CHANNEL);
     free(plugin);
 }
 
-FLUTTERPI_PLUGIN("sentry", sentry_plugin_init, sentry_plugin_deinit, NULL);
+FLUTTERPI_PLUGIN("sentry", sentry_plugin, sentry_plugin_init, sentry_plugin_deinit)

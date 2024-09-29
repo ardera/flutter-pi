@@ -11,6 +11,7 @@
 #include "flutter-pi.h"
 #include "pluginregistry.h"
 #include "util/asserts.h"
+#include "util/logging.h"
 
 struct text_input {
     int64_t connection_id;
@@ -33,16 +34,16 @@ struct text_input {
  * UTF8 utility functions
  */
 static inline uint8_t utf8_symbol_length(uint8_t c) {
-    if ((c & 0b11110000) == 0b11110000) {
+    if ((c & 240 /* 0b11110000 */) == 240 /* 0b11110000 */) {
         return 4;
     }
-    if ((c & 0b11100000) == 0b11100000) {
+    if ((c & 224 /* 0b11100000 */) == 224 /* 0b11100000 */) {
         return 3;
     }
-    if ((c & 0b11000000) == 0b11000000) {
+    if ((c & 192 /* 0b11000000 */) == 192 /* 0b11000000 */) {
         return 2;
     }
-    if ((c & 0b10000000) == 0b10000000) {
+    if ((c & 128 /* 0b10000000 */) == 128 /* 0b10000000 */) {
         // XXX should we return 1 and don't care here?
         ASSERT_MSG(false, "Invalid UTF-8 character");
         return 0;
@@ -82,6 +83,23 @@ static inline int to_symbol_index(unsigned int byte_index) {
     }
 
     return cursor < target_cursor ? -1 : symbol_index;
+}
+
+static inline int count_utf8_characters(const char *str) {
+    int len = 0;
+    const char *cursor = str;
+
+    while (*cursor) {
+        uint8_t utf8_len = utf8_symbol_length(*cursor);
+        for (uint8_t i = 0; i < utf8_len; i++) {
+            if (!*cursor) {
+                return len;
+            }
+        }
+        len++;
+    }
+
+    return len;
 }
 
 /**
@@ -181,6 +199,7 @@ static int on_set_client(struct platch_obj *object, FlutterPlatformMessageRespon
     temp2 = jsobject_get(temp, "signed");
     if (temp2 == NULL || temp2->type == kJsonNull) {
         has_allow_signs = false;
+        allow_signs = true;
     } else if (temp2->type == kJsonTrue || temp2->type == kJsonFalse) {
         has_allow_signs = true;
         allow_signs = temp2->type == kJsonTrue;
@@ -191,6 +210,7 @@ static int on_set_client(struct platch_obj *object, FlutterPlatformMessageRespon
     temp2 = jsobject_get(temp, "decimal");
     if (temp2 == NULL || temp2->type == kJsonNull) {
         has_allow_decimal = false;
+        allow_decimal = true;
     } else if (temp2->type == kJsonTrue || temp2->type == kJsonFalse) {
         has_allow_decimal = true;
         allow_decimal = temp2->type == kJsonTrue;
@@ -239,14 +259,18 @@ static int on_set_client(struct platch_obj *object, FlutterPlatformMessageRespon
     int32_t new_id = (int32_t) object->json_arg.array[0].number_value;
 
     // everything okay, apply the new text editing config
+    text_input.has_allow_signs = has_allow_signs;
+    text_input.allow_signs = allow_signs;
+    text_input.has_allow_decimal = has_allow_decimal;
+    text_input.allow_decimal = allow_decimal;
     text_input.connection_id = new_id;
     text_input.autocorrect = autocorrect;
     text_input.input_action = input_action;
     text_input.input_type = input_type;
 
     if (autocorrect && !text_input.warned_about_autocorrect) {
-        printf(
-            "[text_input] warning: flutter requested native autocorrect, which"
+        LOG_ERROR(
+            "info: flutter requested native autocorrect, which"
             "is not supported by flutter-pi.\n"
         );
         text_input.warned_about_autocorrect = true;
@@ -527,7 +551,9 @@ int client_perform_action(double connection_id, enum text_input_action action) {
 }
 
 int client_perform_private_command(double connection_id, char *action, struct json_value *data) {
-    if (data != NULL && data->type != kJsonNull && data->type != kJsonObject) {
+    if (data == NULL) {
+        return EINVAL;
+    } else if (data->type != kJsonNull && data->type != kJsonObject) {
         return EINVAL;
     }
 
@@ -606,33 +632,29 @@ static bool model_delete_selected(void) {
     return true;
 }
 
-static bool model_add_utf8_char(uint8_t *c) {
-    size_t symbol_length;
-    uint8_t *to_move;
-
+static bool model_add_text(const char *str) {
     if (text_input.selection_base != text_input.selection_extent)
         model_delete_selected();
 
     // find out where in our string we need to insert the utf8 symbol
 
-    symbol_length = utf8_symbol_length(*c);
-    to_move = symbol_at(text_input.selection_base);
+    size_t l = strlen(str);
+    uint8_t *to_move = symbol_at(text_input.selection_base);
 
-    if (!to_move || !symbol_length)
+    if (!to_move || !l)
         return false;
 
     // move the string behind the insertion position to
     // make place for the utf8 charactercursor
 
-    memmove(to_move + symbol_length, to_move, strlen((char *) to_move) + 1 /* null byte */);
+    memmove(to_move + l, to_move, strlen((char *) to_move) + 1 /* null byte */);
 
-    // after the move, to_move points to the memory
-    // where c should be inserted
-    for (int i = 0; i < symbol_length; i++)
-        to_move[i] = c[i];
+    // We know this is not null-terminated.
+    // NOLINTNEXTLINE(bugprone-not-null-terminated-result)
+    memcpy(to_move, str, l);
 
     // move our selection to behind the inserted char
-    text_input.selection_extent++;
+    text_input.selection_extent += count_utf8_characters(str);
     text_input.selection_base = text_input.selection_extent;
 
     return true;
@@ -731,14 +753,15 @@ static int sync_editing_state(void) {
 }
 
 /**
- * `c` doesn't need to be NULL-terminated, the length of the char will be calculated
- * using the start byte.
+ * @brief Called when text input was received from the keyboard.
+ * 
+ * @param str The NULL-terminated UTF-8 string that was received.
  */
-int textin_on_utf8_char(uint8_t *c) {
+int textin_on_text(const char *str) {
     if (text_input.connection_id == -1)
         return 0;
 
-    if (model_add_utf8_char(c))
+    if (model_add_text(str))
         return sync_editing_state();
 
     return 0;
@@ -762,7 +785,7 @@ int textin_on_xkb_keysym(xkb_keysym_t keysym) {
         case XKB_KEY_KP_Enter:
         case XKB_KEY_ISO_Enter:
             if (text_input.input_type == kInputTypeMultiline)
-                needs_sync = model_add_utf8_char((uint8_t *) "\n");
+                needs_sync = model_add_text("\n");
 
             perform_action = true;
             break;
@@ -807,7 +830,7 @@ enum plugin_init_result textin_init(struct flutterpi *flutterpi, void **userdata
         return PLUGIN_INIT_RESULT_ERROR;
     }
 
-    ok = plugin_registry_set_receiver_locked(TEXT_INPUT_CHANNEL, kJSONMethodCall, on_receive);
+    ok = plugin_registry_set_receiver(TEXT_INPUT_CHANNEL, kJSONMethodCall, on_receive);
     if (ok != 0) {
         free(textin);
         return PLUGIN_INIT_RESULT_ERROR;
@@ -834,7 +857,7 @@ enum plugin_init_result textin_init(struct flutterpi *flutterpi, void **userdata
 }
 
 void textin_deinit(struct flutterpi *flutterpi, void *userdata) {
-    plugin_registry_remove_receiver_v2_locked(flutterpi_get_plugin_registry(flutterpi), TEXT_INPUT_CHANNEL);
+    plugin_registry_remove_receiver_v2(flutterpi_get_plugin_registry(flutterpi), TEXT_INPUT_CHANNEL);
     free(userdata);
 }
 
