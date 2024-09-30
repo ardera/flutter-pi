@@ -33,6 +33,7 @@
 
 #ifdef HAVE_EGL_GLES2
     #include "egl_gbm_render_surface.h"
+    #include "egl_offscreen_render_surface.h"
     #include "gl_renderer.h"
 #endif
 
@@ -1694,15 +1695,10 @@ static struct render_surface *dummy_window_get_render_surface_internal(struct wi
         #error "EGL header definitions for extension EGL_KHR_no_config_context are required."
     #endif
 
-        struct egl_gbm_render_surface *egl_surface = egl_gbm_render_surface_new_with_egl_config(
+        struct egl_offscreen_render_surface *egl_surface = egl_offscreen_render_surface_new(
             window->tracer,
             size,
-            gl_renderer_get_gbm_device(window->gl_renderer),
-            window->gl_renderer,
-            window->has_forced_pixel_format ? window->forced_pixel_format : PIXFMT_ARGB8888,
-            EGL_NO_CONFIG_KHR,
-            NULL,
-            0
+            window->gl_renderer
         );
         if (egl_surface == NULL) {
             LOG_ERROR("Couldn't create EGL GBM rendering surface.\n");
@@ -1750,7 +1746,7 @@ static EGLSurface dummy_window_get_egl_surface(struct window *window) {
 
     if (window->renderer_type == kOpenGL_RendererType) {
         struct render_surface *render_surface = dummy_window_get_render_surface_internal(window, false, VEC2I(0, 0));
-        return egl_gbm_render_surface_get_egl_surface(CAST_EGL_GBM_RENDER_SURFACE(render_surface));
+        return egl_offscreen_render_surface_get_egl_surface(CAST_EGL_OFFSCREEN_RENDER_SURFACE(render_surface));
     } else {
         return EGL_NO_SURFACE;
     }
