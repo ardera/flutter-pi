@@ -424,7 +424,7 @@ ATTR_CONST static uint64_t physical_key_for_evdev_keycode(uint16_t evdev_keycode
 
 ATTR_CONST static uint64_t physical_key_for_xkb_keycode(xkb_keycode_t xkb_keycode) {
     assert(xkb_keycode >= 8);
-    return physical_key_for_evdev_keycode(xkb_keycode - 8);
+    return physical_key_for_evdev_keycode((uint16_t) (xkb_keycode - 8));
 }
 
 ATTR_CONST static char eascii_to_lower(unsigned char n) {
@@ -622,7 +622,7 @@ ATTR_CONST static uint32_t logical_key_for_xkb_keysym(xkb_keysym_t keysym) {
     if (keysym == XKB_KEY_yen) {
         return apply_flutter_key_plane(0x00022);
     } else if (keysym < 256) {
-        return apply_unicode_key_plane(eascii_to_lower(keysym));
+        return apply_unicode_key_plane(eascii_to_lower((int8_t) keysym));
     } else if (keysym >= 0xfd06 && keysym - 0xfd06 < ARRAY_SIZE(logical_keys_1)) {
         logical = logical_keys_1[keysym];
     } else if (keysym >= 0x1008ff02 && keysym - 0x1008ff02 < ARRAY_SIZE(logical_keys_2)) {
@@ -818,6 +818,7 @@ int rawkb_on_key_event(
         return ok;
     }
 
+    // NOLINTNEXTLINE(readability-suspicious-call-argument)
     ok = rawkb_send_gtk_keyevent(plain_codepoint, xkb_keysym, xkb_keycode, modifiers.u32, is_down);
     if (ok != 0) {
         return ok;
@@ -826,7 +827,7 @@ int rawkb_on_key_event(
     return 0;
 }
 
-static void assert_key_modifiers_work() {
+static void assert_key_modifiers_work(void) {
     key_modifiers_t mods;
     memset(&mods, 0, sizeof(mods));
 

@@ -77,7 +77,7 @@ const size_t n_pixfmt_infos = n_pixfmt_infos_constexpr;
 COMPILE_ASSERT(n_pixfmt_infos_constexpr == PIXFMT_MAX + 1);
 
 #ifdef DEBUG
-void assert_pixfmt_list_valid() {
+void assert_pixfmt_list_valid(void) {
     for (enum pixfmt format = 0; format < PIXFMT_COUNT; format++) {
         assert(pixfmt_infos[format].format == format);
     }

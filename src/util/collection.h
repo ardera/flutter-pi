@@ -108,7 +108,7 @@ static inline void *uint32_to_ptr(const uint32_t v) {
 #define MAX_ALIGNMENT (__alignof__(max_align_t))
 #define IS_MAX_ALIGNED(num) ((num) % MAX_ALIGNMENT == 0)
 
-#define DOUBLE_TO_FP1616(v) ((uint32_t) ((v) *65536))
+#define DOUBLE_TO_FP1616(v) ((uint32_t) ((v) * 65536))
 #define DOUBLE_TO_FP1616_ROUNDED(v) (((uint32_t) (v)) << 16)
 
 typedef void (*void_callback_t)(void *userdata);
@@ -117,6 +117,6 @@ ATTR_PURE static inline bool streq(const char *a, const char *b) {
     return strcmp(a, b) == 0;
 }
 
-const pthread_mutexattr_t *get_default_mutex_attrs();
+const pthread_mutexattr_t *get_default_mutex_attrs(void);
 
 #endif  // _FLUTTERPI_SRC_UTIL_COLLECTION_H

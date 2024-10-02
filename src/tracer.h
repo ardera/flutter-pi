@@ -20,9 +20,9 @@ struct tracer *tracer_new_with_cbs(
     FlutterEngineTraceEventInstantFnPtr trace_instant
 );
 
-struct tracer *tracer_new_with_stubs();
+struct tracer *tracer_new_with_stubs(void);
 
-DECLARE_REF_OPS(tracer);
+DECLARE_REF_OPS(tracer)
 
 void __tracer_begin(struct tracer *tracer, const char *name);
 

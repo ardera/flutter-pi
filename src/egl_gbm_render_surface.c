@@ -146,6 +146,7 @@ static int egl_gbm_render_surface_init(
     }
 #endif
 
+    int with_modifiers_errno = 0;
     gbm_surface = NULL;
     if (allowed_modifiers != NULL) {
         gbm_surface = gbm_surface_create_with_modifiers(
@@ -157,11 +158,10 @@ static int egl_gbm_render_surface_init(
             n_allowed_modifiers
         );
         if (gbm_surface == NULL) {
-            ok = errno;
-            LOG_ERROR("Couldn't create GBM surface for rendering. gbm_surface_create_with_modifiers: %s\n", strerror(ok));
-            LOG_ERROR("Will retry without modifiers\n");
+            with_modifiers_errno = errno;
         }
     }
+
     if (gbm_surface == NULL) {
         gbm_surface = gbm_surface_create(
             gbm_device,
@@ -172,8 +172,20 @@ static int egl_gbm_render_surface_init(
         );
         if (gbm_surface == NULL) {
             ok = errno;
-            LOG_ERROR("Couldn't create GBM surface for rendering. gbm_surface_create: %s\n", strerror(ok));
-            return ok;
+
+            if (allowed_modifiers != NULL) {
+                LOG_ERROR(
+                    "Couldn't create GBM surface for rendering. gbm_surface_create_with_modifiers: %s, gbm_surface_create: %s\n",
+                    strerror(with_modifiers_errno),
+                    strerror(ok)
+                );
+            } else {
+                LOG_ERROR("Couldn't create GBM surface for rendering. gbm_surface_create: %s\n", strerror(ok));
+            }
+
+            // Return an error != 0 in any case, so the caller doesn't think
+            // that the surface was created successfully.
+            return ok ? ok : EIO;
         }
     }
 
@@ -383,10 +395,8 @@ static void on_release_layer(void *userdata) {
 static int egl_gbm_render_surface_present_kms(struct surface *s, const struct fl_layer_props *props, struct kms_req_builder *builder) {
     struct egl_gbm_render_surface *egl_surface;
     struct gbm_bo_meta *meta;
-    struct drmdev *drmdev;
     struct gbm_bo *bo;
     enum pixfmt pixel_format;
-    uint32_t fb_id, opaque_fb_id;
     int ok;
 
     egl_surface = CAST_THIS(s);
@@ -410,16 +420,18 @@ static int egl_gbm_render_surface_present_kms(struct surface *s, const struct fl
             goto fail_unlock;
         }
 
-        drmdev = kms_req_builder_get_drmdev(builder);
-        ASSERT_NOT_NULL(drmdev);
+        meta->drmdev = kms_req_builder_get_drmdev(builder);
+        ASSERT_NOT_NULL(meta->drmdev);
+
+        drmdev_ref(meta->drmdev);
 
         struct drm_crtc *crtc = kms_req_builder_get_crtc(builder);
         ASSERT_NOT_NULL(crtc);
 
-        if (drm_crtc_any_plane_supports_format(drmdev, crtc, egl_surface->pixel_format)) {
+        if (drm_crtc_any_plane_supports_format(meta->drmdev, crtc, egl_surface->pixel_format)) {
             TRACER_BEGIN(egl_surface->surface.tracer, "drmdev_add_fb (non-opaque)");
-            fb_id = drmdev_add_fb_from_gbm_bo(
-                drmdev,
+            uint32_t fb_id = drmdev_add_fb_from_gbm_bo(
+                meta->drmdev,
                 bo,
                 /* cast_opaque */ false
             );
@@ -428,7 +440,7 @@ static int egl_gbm_render_surface_present_kms(struct surface *s, const struct fl
             if (fb_id == 0) {
                 ok = EIO;
                 LOG_ERROR("Couldn't add GBM buffer as DRM framebuffer.\n");
-                goto fail_free_meta;
+                goto fail_unref_drmdev;
             }
 
             meta->has_nonopaque_fb_id = true;
@@ -441,16 +453,16 @@ static int egl_gbm_render_surface_present_kms(struct surface *s, const struct fl
         // if this EGL surface is non-opaque and has an opaque equivalent
         if (!get_pixfmt_info(egl_surface->pixel_format)->is_opaque &&
             pixfmt_opaque(egl_surface->pixel_format) != egl_surface->pixel_format &&
-            drm_crtc_any_plane_supports_format(drmdev, crtc, pixfmt_opaque(egl_surface->pixel_format))) {
-            opaque_fb_id = drmdev_add_fb_from_gbm_bo(
-                drmdev,
+            drm_crtc_any_plane_supports_format(meta->drmdev, crtc, pixfmt_opaque(egl_surface->pixel_format))) {
+            uint32_t opaque_fb_id = drmdev_add_fb_from_gbm_bo(
+                meta->drmdev,
                 bo,
                 /* cast_opaque */ true
             );
             if (opaque_fb_id == 0) {
                 ok = EIO;
                 LOG_ERROR("Couldn't add GBM buffer as opaque DRM framebuffer.\n");
-                goto fail_remove_fb;
+                goto fail_rm_nonopaque_fb;
             }
 
             meta->has_opaque_fb_id = true;
@@ -463,11 +475,9 @@ static int egl_gbm_render_surface_present_kms(struct surface *s, const struct fl
         if (!meta->has_nonopaque_fb_id && !meta->has_opaque_fb_id) {
             ok = EIO;
             LOG_ERROR("Couldn't add GBM buffer as DRM framebuffer.\n");
-            goto fail_free_meta;
+            goto fail_remove_opaque_fb;
         }
 
-        meta->drmdev = drmdev_ref(drmdev);
-        meta->nonopaque_fb_id = fb_id;
         gbm_bo_set_user_data(bo, meta, on_destroy_gbm_bo_meta);
     } else {
         // We can only add this GBM BO to a single KMS device as an fb right now.
@@ -492,6 +502,8 @@ static int egl_gbm_render_surface_present_kms(struct surface *s, const struct fl
         props->aa_rect.size.y
     );
     */
+
+    uint32_t fb_id;
 
     // So we just cast our fb to an XRGB8888 framebuffer and scanout that instead.
     if (meta->has_nonopaque_fb_id && !meta->has_opaque_fb_id) {
@@ -555,10 +567,18 @@ fail_unref_locked_fb:
     locked_fb_unref(egl_surface->locked_front_fb);
     goto fail_unlock;
 
-fail_remove_fb:
-    drmdev_rm_fb(drmdev, fb_id);
+fail_remove_opaque_fb:
+    if (meta->has_opaque_fb_id) {
+        drmdev_rm_fb(meta->drmdev, meta->opaque_fb_id);
+    }
 
-fail_free_meta:
+fail_rm_nonopaque_fb:
+    if (meta->has_nonopaque_fb_id) {
+        drmdev_rm_fb(meta->drmdev, meta->nonopaque_fb_id);
+    }
+
+fail_unref_drmdev:
+    drmdev_unref(meta->drmdev);
     free(meta);
 
 fail_unlock:
@@ -647,10 +667,10 @@ static int egl_gbm_render_surface_queue_present(struct render_surface *s, const 
 
         LOG_DEBUG(
             "using fourcc %c%c%c%c (%s) with modifier 0x%" PRIx64 "\n",
-            fourcc & 0xFF,
-            (fourcc >> 8) & 0xFF,
-            (fourcc >> 16) & 0xFF,
-            (fourcc >> 24) & 0xFF,
+            (char) (fourcc & 0xFF),
+            (char) ((fourcc >> 8) & 0xFF),
+            (char) ((fourcc >> 16) & 0xFF),
+            (char) ((fourcc >> 24) & 0xFF),
             has_format ? get_pixfmt_info(format)->name : "?",
             modifier
         );

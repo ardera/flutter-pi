@@ -296,13 +296,9 @@ static struct audio_player *audioplayers_linux_plugin_get_player(char *player_id
         return NULL;
     }
 
-    const char* event_channel = audio_player_subscribe_channel_name(player);
+    const char *event_channel = audio_player_subscribe_channel_name(player);
     // set a receiver on the videoEvents event channel
-    int ok = plugin_registry_set_receiver(
-        event_channel,
-        kStandardMethodCall,
-        on_receive_event_ch
-    );
+    int ok = plugin_registry_set_receiver(event_channel, kStandardMethodCall, on_receive_event_ch);
     if (ok != 0) {
         LOG_ERROR("Cannot set player receiver for event channel: %s\n", event_channel);
         audio_player_destroy(player);

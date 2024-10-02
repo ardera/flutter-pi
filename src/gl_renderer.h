@@ -26,6 +26,8 @@
 
 #include "egl.h"
 
+typedef void (*fn_ptr_t)(void);
+
 struct tracer;
 
 struct gl_renderer *gl_renderer_new_from_gbm_device(
@@ -59,7 +61,7 @@ int gl_renderer_clear_current(struct gl_renderer *renderer);
 
 EGLContext gl_renderer_create_context(struct gl_renderer *renderer);
 
-void *gl_renderer_get_proc_address(struct gl_renderer *renderer, const char *name);
+fn_ptr_t gl_renderer_get_proc_address(struct gl_renderer *renderer, const char *name);
 
 EGLDisplay gl_renderer_get_egl_display(struct gl_renderer *renderer);
 
@@ -71,7 +73,7 @@ bool gl_renderer_is_llvmpipe(struct gl_renderer *renderer);
 
 int gl_renderer_make_this_a_render_thread(struct gl_renderer *renderer);
 
-void gl_renderer_cleanup_this_render_thread();
+void gl_renderer_cleanup_this_render_thread(void);
 
 ATTR_PURE EGLConfig gl_renderer_choose_config(struct gl_renderer *renderer, bool has_desired_pixel_format, enum pixfmt desired_pixel_format);
 

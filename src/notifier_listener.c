@@ -48,7 +48,7 @@ int value_notifier_init(struct notifier *notifier, void *initial_value, void_cal
     return 0;
 }
 
-struct notifier *change_notifier_new() {
+struct notifier *change_notifier_new(void) {
     struct notifier *n;
     int ok;
 
