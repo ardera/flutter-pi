@@ -757,11 +757,16 @@ static int fetch_plane(int drm_fd, uint32_t plane_id, struct drm_plane *plane_ou
         } else if (streq(info->name, "alpha")) {
             has_alpha = true;
             assert(info->flags == DRM_MODE_PROP_RANGE);
-            assert(info->values[0] == 0);
-            assert(info->values[1] == 0xFFFF);
-            assert(props->prop_values[j] <= 0xFFFF);
+            assert(info->values[0] <= 0xFFFF);
+            assert(info->values[1] <= 0xFFFF);
+            assert(info->values[0] <= info->values[1]);
+            plane_out->min_alpha = (uint16_t) info->values[0];
+            plane_out->max_alpha = (uint16_t) info->values[1];
 
-            committed_alpha = (uint16_t) props->prop_values[j];
+            uint64_t value = props->prop_values[j];
+            assert(plane_out->min_alpha <= value);
+            assert(value <= plane_out->max_alpha);
+            committed_alpha = (uint16_t) value;
         } else if (streq(info->name, "pixel blend mode")) {
             has_blend_mode = true;
             assert(info->flags == DRM_MODE_PROP_ENUM);
@@ -2568,7 +2573,7 @@ int kms_req_builder_push_fb_layer(
 
         if (index == 0) {
             if (plane->has_alpha) {
-                drmModeAtomicAddProperty(builder->req, plane_id, plane->ids.alpha, DRM_BLEND_ALPHA_OPAQUE);
+                drmModeAtomicAddProperty(builder->req, plane_id, plane->ids.alpha, plane->max_alpha);
             }
 
             if (plane->has_blend_mode && plane->supported_blend_modes[kNone_DrmBlendMode]) {
