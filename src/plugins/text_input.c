@@ -11,6 +11,7 @@
 #include "flutter-pi.h"
 #include "pluginregistry.h"
 #include "util/asserts.h"
+#include "util/logging.h"
 
 struct text_input {
     int64_t connection_id;
@@ -33,16 +34,16 @@ struct text_input {
  * UTF8 utility functions
  */
 static inline uint8_t utf8_symbol_length(uint8_t c) {
-    if ((c & 0b11110000) == 0b11110000) {
+    if ((c & 240 /* 0b11110000 */) == 240 /* 0b11110000 */) {
         return 4;
     }
-    if ((c & 0b11100000) == 0b11100000) {
+    if ((c & 224 /* 0b11100000 */) == 224 /* 0b11100000 */) {
         return 3;
     }
-    if ((c & 0b11000000) == 0b11000000) {
+    if ((c & 192 /* 0b11000000 */) == 192 /* 0b11000000 */) {
         return 2;
     }
-    if ((c & 0b10000000) == 0b10000000) {
+    if ((c & 128 /* 0b10000000 */) == 128 /* 0b10000000 */) {
         // XXX should we return 1 and don't care here?
         ASSERT_MSG(false, "Invalid UTF-8 character");
         return 0;
@@ -181,6 +182,7 @@ static int on_set_client(struct platch_obj *object, FlutterPlatformMessageRespon
     temp2 = jsobject_get(temp, "signed");
     if (temp2 == NULL || temp2->type == kJsonNull) {
         has_allow_signs = false;
+        allow_signs = true;
     } else if (temp2->type == kJsonTrue || temp2->type == kJsonFalse) {
         has_allow_signs = true;
         allow_signs = temp2->type == kJsonTrue;
@@ -191,6 +193,7 @@ static int on_set_client(struct platch_obj *object, FlutterPlatformMessageRespon
     temp2 = jsobject_get(temp, "decimal");
     if (temp2 == NULL || temp2->type == kJsonNull) {
         has_allow_decimal = false;
+        allow_decimal = true;
     } else if (temp2->type == kJsonTrue || temp2->type == kJsonFalse) {
         has_allow_decimal = true;
         allow_decimal = temp2->type == kJsonTrue;
@@ -239,14 +242,18 @@ static int on_set_client(struct platch_obj *object, FlutterPlatformMessageRespon
     int32_t new_id = (int32_t) object->json_arg.array[0].number_value;
 
     // everything okay, apply the new text editing config
+    text_input.has_allow_signs = has_allow_signs;
+    text_input.allow_signs = allow_signs;
+    text_input.has_allow_decimal = has_allow_decimal;
+    text_input.allow_decimal = allow_decimal;
     text_input.connection_id = new_id;
     text_input.autocorrect = autocorrect;
     text_input.input_action = input_action;
     text_input.input_type = input_type;
 
     if (autocorrect && !text_input.warned_about_autocorrect) {
-        printf(
-            "[text_input] warning: flutter requested native autocorrect, which"
+        LOG_ERROR(
+            "info: flutter requested native autocorrect, which"
             "is not supported by flutter-pi.\n"
         );
         text_input.warned_about_autocorrect = true;
@@ -527,7 +534,9 @@ int client_perform_action(double connection_id, enum text_input_action action) {
 }
 
 int client_perform_private_command(double connection_id, char *action, struct json_value *data) {
-    if (data != NULL && data->type != kJsonNull && data->type != kJsonObject) {
+    if (data == NULL) {
+        return EINVAL;
+    } else if (data->type != kJsonNull && data->type != kJsonObject) {
         return EINVAL;
     }
 

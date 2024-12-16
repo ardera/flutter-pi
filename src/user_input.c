@@ -270,7 +270,7 @@ static void on_close(int fd, void *userdata) {
     ASSERT_NOT_NULL(userdata);
     input = userdata;
 
-    return input->interface.close(fd, input->userdata);
+    input->interface.close(fd, input->userdata);
 }
 
 static const struct libinput_interface libinput_interface = { .open_restricted = on_open, .close_restricted = on_close };
@@ -376,6 +376,8 @@ void user_input_destroy(struct user_input *input) {
         event = libinput_get_event(input->libinput);
         event_type = libinput_event_get_type(event);
 
+        PRAGMA_DIAGNOSTIC_PUSH
+        PRAGMA_DIAGNOSTIC_IGNORED("-Wswitch-enum")
         switch (event_type) {
             case LIBINPUT_EVENT_DEVICE_REMOVED:
                 ok = on_device_removed(input, event, 0, false);
@@ -383,6 +385,7 @@ void user_input_destroy(struct user_input *input) {
                 break;
             default: break;
         }
+        PRAGMA_DIAGNOSTIC_POP
 
         libinput_event_destroy(event);
     }
@@ -746,21 +749,21 @@ static int on_key_event(struct user_input *input, struct libinput_event *event) 
             // we emit UTF8 unconditionally here,
             // maybe we should check if codepoint is a control character?
             if (isprint(codepoint)) {
-                utf8_character[0] = codepoint;
+                utf8_character[0] = (uint8_t) codepoint;
             }
         } else if (codepoint < 0x800) {
-            utf8_character[0] = 0xc0 | (codepoint >> 6);
+            utf8_character[0] = 0xc0 | (uint8_t) (codepoint >> 6);
             utf8_character[1] = 0x80 | (codepoint & 0x3f);
         } else if (codepoint < 0x10000) {
             // the console keyboard driver of the linux kernel checks
             // at this point whether `codepoint` is a UTF16 high surrogate (U+D800 to U+DFFF)
             // or U+FFFF and returns without emitting UTF8 in that case.
             // don't know whether we should do this here too
-            utf8_character[0] = 0xe0 | (codepoint >> 12);
+            utf8_character[0] = 0xe0 | (uint8_t) (codepoint >> 12);
             utf8_character[1] = 0x80 | ((codepoint >> 6) & 0x3f);
             utf8_character[2] = 0x80 | (codepoint & 0x3f);
         } else if (codepoint < 0x110000) {
-            utf8_character[0] = 0xf0 | (codepoint >> 18);
+            utf8_character[0] = 0xf0 | (uint8_t) (codepoint >> 18);
             utf8_character[1] = 0x80 | ((codepoint >> 12) & 0x3f);
             utf8_character[2] = 0x80 | ((codepoint >> 6) & 0x3f);
             utf8_character[3] = 0x80 | (codepoint & 0x3f);
@@ -1356,6 +1359,11 @@ static int process_libinput_events(struct user_input *input, uint64_t timestamp)
         event = libinput_get_event(input->libinput);
         event_type = libinput_event_get_type(event);
 
+        // We explicitly don't want to handle every event type here.
+        // Otherwise we'd need to add a new `case` every libinput introduces
+        // a new event.
+        PRAGMA_DIAGNOSTIC_PUSH
+        PRAGMA_DIAGNOSTIC_IGNORED("-Wswitch-enum")
         switch (event_type) {
             case LIBINPUT_EVENT_DEVICE_ADDED:
                 ok = on_device_added(input, event, timestamp);
@@ -1481,6 +1489,7 @@ static int process_libinput_events(struct user_input *input, uint64_t timestamp)
 #endif
             default: break;
         }
+        PRAGMA_DIAGNOSTIC_POP
 
         libinput_event_destroy(event);
     }
@@ -1514,8 +1523,8 @@ int user_input_on_fd_ready(struct user_input *input) {
 
     // record cursor state before handling events
     cursor_enabled_before = input->n_cursor_devices > 0;
-    cursor_x_before = round(input->cursor_x);
-    cursor_y_before = round(input->cursor_y);
+    cursor_x_before = (int) round(input->cursor_x);
+    cursor_y_before = (int) round(input->cursor_y);
 
     // handle all available libinput events
     ok = process_libinput_events(input, timestamp);
@@ -1526,8 +1535,8 @@ int user_input_on_fd_ready(struct user_input *input) {
 
     // record cursor state after handling events
     cursor_enabled = input->n_cursor_devices > 0;
-    cursor_x = round(input->cursor_x);
-    cursor_y = round(input->cursor_y);
+    cursor_x = (int) round(input->cursor_x);
+    cursor_y = (int) round(input->cursor_y);
 
     // make sure we've dispatched all the flutter pointer events
     flush_pointer_events(input);

@@ -73,7 +73,7 @@ struct window {
      * To calculate this, the physical dimensions of the display are required. If there are no physical dimensions,
      * this will default to 1.0.
      */
-    double pixel_ratio;
+    float pixel_ratio;
 
     /**
      * @brief Whether we have physical screen dimensions and @ref width_mm and @ref height_mm contain usable values.
@@ -300,7 +300,7 @@ static int window_init(
     // clang-format on
 ) {
     enum device_orientation original_orientation;
-    double pixel_ratio;
+    float pixel_ratio;
 
     ASSERT_NOT_NULL(window);
     ASSERT_NOT_NULL(tracer);
@@ -317,7 +317,7 @@ static int window_init(
         );
         pixel_ratio = 1.0;
     } else {
-        pixel_ratio = (10.0 * width) / (width_mm * 38.0);
+        pixel_ratio = (10.0f * width) / (width_mm * 38.0f);
 
         int horizontal_dpi = (int) (width / (width_mm / 25.4));
         int vertical_dpi = (int) (height / (height_mm / 25.4));
@@ -943,9 +943,8 @@ MUST_CHECK struct window *kms_window_new(
         has_dimensions = true;
         width_mm = selected_connector->variable_state.width_mm;
         height_mm = selected_connector->variable_state.height_mm;
-    } else if (selected_connector->type == DRM_MODE_CONNECTOR_DSI
-        && selected_connector->variable_state.width_mm == 0
-        && selected_connector->variable_state.height_mm == 0) {
+    } else if (selected_connector->type == DRM_MODE_CONNECTOR_DSI && selected_connector->variable_state.width_mm == 0 &&
+               selected_connector->variable_state.height_mm == 0) {
         // assume this is the official Raspberry Pi DSI display.
         has_dimensions = true;
         width_mm = 155;
@@ -985,7 +984,7 @@ MUST_CHECK struct window *kms_window_new(
         mode_get_vrefresh(selected_mode),
         width_mm,
         height_mm,
-        window->pixel_ratio,
+        (double) (window->pixel_ratio),
         has_forced_pixel_format ? get_pixfmt_info(forced_pixel_format)->name : "(any)"
     );
 
@@ -1219,6 +1218,7 @@ static int kms_window_push_composition_locked(struct window *window, struct fl_l
 
     req = kms_req_builder_build(builder);
     if (req == NULL) {
+        ok = EIO;
         goto fail_unref_builder;
     }
 
@@ -1227,6 +1227,7 @@ static int kms_window_push_composition_locked(struct window *window, struct fl_l
 
     frame = malloc(sizeof *frame);
     if (frame == NULL) {
+        ok = ENOMEM;
         goto fail_unref_req;
     }
 
@@ -1428,11 +1429,15 @@ static struct render_surface *kms_window_get_render_surface_internal(struct wind
             drm_plane_for_each_modified_format(plane, count_modifiers_for_pixel_format, &context);
 
             n_allowed_modifiers = context.n_modifiers;
-            allowed_modifiers = calloc(n_allowed_modifiers, sizeof(*context.modifiers));
-            context.modifiers = allowed_modifiers;
+            if (n_allowed_modifiers) {
+                allowed_modifiers = calloc(n_allowed_modifiers, sizeof(*context.modifiers));
+                context.modifiers = allowed_modifiers;
 
-            // Next, fill context.modifiers with the allowed modifiers.
-            drm_plane_for_each_modified_format(plane, extract_modifiers_for_pixel_format, &context);
+                // Next, fill context.modifiers with the allowed modifiers.
+                drm_plane_for_each_modified_format(plane, extract_modifiers_for_pixel_format, &context);
+            } else {
+                allowed_modifiers = NULL;
+            }
             break;
         }
     }
@@ -1750,6 +1755,10 @@ static EGLSurface dummy_window_get_egl_surface(struct window *window) {
 
     if (window->renderer_type == kOpenGL_RendererType) {
         struct render_surface *render_surface = dummy_window_get_render_surface_internal(window, false, VEC2I(0, 0));
+        if (render_surface == NULL) {
+            return EGL_NO_SURFACE;
+        }
+
         return egl_gbm_render_surface_get_egl_surface(CAST_EGL_GBM_RENDER_SURFACE(render_surface));
     } else {
         return EGL_NO_SURFACE;
