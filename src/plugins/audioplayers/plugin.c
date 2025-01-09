@@ -156,6 +156,9 @@ static int on_local_method_call(char *channel, struct platch_obj *object, Flutte
             return platch_respond_illegal_arg_std(responsehandle, "Expected `arg['message']` to be a string.");
         }
 
+        // Avoid unused variable compile message if debugging is disabled.
+        (void) message;
+
         LOG_DEBUG("%s\n", message);
         //TODO: https://github.com/bluefireteam/audioplayers/blob/main/packages/audioplayers_linux/linux/audio_player.cc#L247
     } else if (strcmp(method, "emitError") == 0) {
