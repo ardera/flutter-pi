@@ -14,6 +14,9 @@
     #include "gles.h"
 #endif
 
+#define GSTREAMER_VER(major, minor, patch) ((((major) &0xFF) << 16) | (((minor) &0xFF) << 8) | ((patch) &0xFF))
+#define THIS_GSTREAMER_VER GSTREAMER_VER(LIBGSTREAMER_VERSION_MAJOR, LIBGSTREAMER_VERSION_MINOR, LIBGSTREAMER_VERSION_PATCH)
+
 enum format_hint { FORMAT_HINT_NONE, FORMAT_HINT_MPEG_DASH, FORMAT_HINT_HLS, FORMAT_HINT_SS, FORMAT_HINT_OTHER };
 
 enum buffering_mode { BUFFERING_MODE_STREAM, BUFFERING_MODE_DOWNLOAD, BUFFERING_MODE_TIMESHIFT, BUFFERING_MODE_LIVE };
@@ -72,7 +75,7 @@ struct gstplayer *gstplayer_new_from_asset(struct flutterpi *flutterpi, const ch
 ///     @arg uri          The URI to the video. (for example, http://, https://, rtmp://, rtsp://)
 ///     @arg format_hint  A hint to the format of the video. FORMAT_HINT_NONE means there's no hint.
 ///     @arg userdata     The userdata associated with this player.
-struct gstplayer *gstplayer_new_from_network(struct flutterpi *flutterpi, const char *uri, enum format_hint format_hint, void *userdata);
+struct gstplayer *gstplayer_new_from_network(struct flutterpi *flutterpi, const char *uri, enum format_hint format_hint, void *userdata, GstStructure *headers);
 
 /// Create a gstreamer video player that loads the video from a file URI.
 ///     @arg uri        The file:// URI to the video.
@@ -92,25 +95,19 @@ struct gstplayer *gstplayer_new_from_pipeline(struct flutterpi *flutterpi, const
 /// might be a race condition.
 void gstplayer_destroy(struct gstplayer *player);
 
-DECLARE_LOCK_OPS(gstplayer)
-
 /// Set the generic userdata associated with this gstreamer player instance.
 /// Overwrites the userdata set in the constructor and any userdata previously
-/// set using @ref gstplayer_set_userdata_locked.
+/// set using @ref gstplayer_set_userdata.
 ///     @arg userdata The new userdata that should be associated with this player.
-void gstplayer_set_userdata_locked(struct gstplayer *player, void *userdata);
+void gstplayer_set_userdata(struct gstplayer *player, void *userdata);
 
 /// Get the userdata that was given to the constructor or was previously set using
-/// @ref gstplayer_set_userdata_locked.
+/// @ref gstplayer_set_userdata.
 ///     @returns userdata associated with this player.
-void *gstplayer_get_userdata_locked(struct gstplayer *player);
+void *gstplayer_get_userdata(struct gstplayer *player);
 
 /// Get the id of the flutter external texture that this player is rendering into.
 int64_t gstplayer_get_texture_id(struct gstplayer *player);
-
-//void gstplayer_set_info_callback(struct gstplayer *player, gstplayer_info_callback_t cb, void *userdata);
-
-//void gstplayer_set_buffering_callback(struct gstplayer *player, gstplayer_buffering_callback_t callback, void *userdata);
 
 /// Add a http header (consisting of a string key and value) to the list of http headers that
 /// gstreamer will use when playing back from a HTTP/S URI.
@@ -121,12 +118,6 @@ void gstplayer_put_http_header(struct gstplayer *player, const char *key, const 
 /// buffering the video.
 ///     @returns 0 if initialization was successfull, errno-style error code if an error ocurred.
 int gstplayer_initialize(struct gstplayer *player);
-
-/// Get the video info. If the video info (format, size, etc) is already known, @arg callback will be called
-/// synchronously, inside this call. If the video info is not known, @arg callback will be called on the flutter-pi
-/// platform thread as soon as the info is known.
-///     @returns The handle for the deferred callback.
-//struct sd_event_source_generic *gstplayer_probe_video_info(struct gstplayer *player, gstplayer_info_callback_t callback, void *userdata);
 
 /// Set the current playback state to "playing" if that's not the case already.
 ///     @returns 0 if initialization was successfull, errno-style error code if an error ocurred.
@@ -163,6 +154,17 @@ int gstplayer_set_playback_speed(struct gstplayer *player, double playback_speed
 int gstplayer_step_forward(struct gstplayer *player);
 
 int gstplayer_step_backward(struct gstplayer *player);
+
+struct video_info {
+    int width, height;
+    
+    double fps;
+    
+    int64_t duration_ms;
+
+    bool can_seek;
+    int64_t seek_begin_ms, seek_end_ms;
+};
 
 /// @brief Get the value notifier for the video info.
 ///
@@ -212,19 +214,6 @@ DECLARE_REF_OPS(frame_interface)
 typedef struct _GstVideoInfo GstVideoInfo;
 typedef struct _GstVideoMeta GstVideoMeta;
 
-struct video_info {
-    int width, height;
-    double fps;
-    int64_t duration_ms;
-    bool can_seek;
-    int64_t seek_begin_ms, seek_end_ms;
-};
-
-struct frame_info {
-    const GstVideoInfo *gst_info;
-    uint32_t drm_format;
-    EGLint egl_color_space;
-};
 
 struct _GstSample;
 
@@ -237,5 +226,10 @@ void frame_destroy(struct video_frame *frame);
 struct gl_texture_frame;
 
 const struct gl_texture_frame *frame_get_gl_frame(struct video_frame *frame);
+
+struct texture;
+struct gl_renderer;
+typedef struct _GstElement GstElement;
+GstElement *flutter_gl_texture_sink_new(struct texture *texture, struct gl_renderer *renderer);
 
 #endif
