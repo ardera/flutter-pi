@@ -803,7 +803,7 @@ static struct gstplayer *gstplayer_new_v2(struct flutterpi *flutterpi, const cha
         flags &= ~GST_PLAY_FLAG_TEXT;
     }
 
-    g_object_set(p->playbin, "flags", &flags, NULL);
+    g_object_set(p->playbin, "flags", flags, NULL);
 
     if (play_video) {
         p->texture = flutterpi_create_texture(flutterpi);
