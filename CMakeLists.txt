@@ -335,6 +335,7 @@ if (BUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN)
         src/plugins/gstreamer_video_player/plugin.c
         src/plugins/gstreamer_video_player/player.c
         src/plugins/gstreamer_video_player/frame.c
+        src/plugins/gstreamer_video_player/flutter_texture_sink.c
       )
       target_link_libraries(flutterpi_module PUBLIC
         PkgConfig::LIBGSTREAMER
