@@ -176,8 +176,7 @@ static gboolean on_appsink_new_event(GstAppSink *appsink, gpointer userdata) {
     return FALSE;
 }
 
-#if THIS_GSTREAMER_VER >= GSTREAMER_VER(1, 24, 0)
-static gboolean on_appsink_propose_allocation(GstAppSink *appsink, GstQuery *query, gpointer userdata) {
+UNUSED static gboolean on_appsink_propose_allocation(GstAppSink *appsink, GstQuery *query, gpointer userdata) {
     (void) appsink;
     (void) userdata;
 
@@ -185,8 +184,8 @@ static gboolean on_appsink_propose_allocation(GstAppSink *appsink, GstQuery *que
 
     return FALSE;
 }
-#else
-static GstPadProbeReturn on_query_appsink_pad(GstPad *pad, GstPadProbeInfo *info, void *userdata) {
+
+UNUSED static GstPadProbeReturn on_query_appsink_pad(GstPad *pad, GstPadProbeInfo *info, void *userdata) {
     GstQuery *query;
 
     (void) pad;
@@ -206,7 +205,6 @@ static GstPadProbeReturn on_query_appsink_pad(GstPad *pad, GstPadProbeInfo *info
 
     return GST_PAD_PROBE_HANDLED;
 }
-#endif
 
 GstElement *flutter_gl_texture_sink_new(struct texture *texture, struct gl_renderer *renderer) {
     ASSERT_NOT_NULL(texture);
@@ -264,18 +262,22 @@ GstElement *flutter_gl_texture_sink_new(struct texture *texture, struct gl_rende
 
 #if THIS_GSTREAMER_VER >= GSTREAMER_VER(1, 24, 0)
     cbs.propose_allocation = on_appsink_propose_allocation;
-#else
-    GstPad *pad = gst_element_get_static_pad(sink, "sink");
-    if (pad == NULL) {
-        LOG_ERROR("Couldn't get static pad `sink` from appsink.\n");
-        frame_interface_unref(meta->interface);
-        gst_object_unref(element);
-        free(meta);
-        return NULL;
-    }
-
-    gst_pad_add_probe(pad, GST_PAD_PROBE_TYPE_QUERY_DOWNSTREAM, on_query_appsink_pad, NULL);
 #endif
+
+    // If instead of conditional compilation so
+    // this is type-checked even for >= 1.24.0.
+    if (THIS_GSTREAMER_VER < GSTREAMER_VER(1, 24, 0)) {
+        GstPad *pad = gst_element_get_static_pad(element, "sink");
+        if (pad == NULL) {
+            LOG_ERROR("Couldn't get static pad `sink` from appsink.\n");
+            frame_interface_unref(meta->interface);
+            gst_object_unref(element);
+            free(meta);
+            return NULL;
+        }
+
+        gst_pad_add_probe(pad, GST_PAD_PROBE_TYPE_QUERY_DOWNSTREAM, on_query_appsink_pad, NULL, NULL);
+    }
 
     gst_app_sink_set_callbacks(
         GST_APP_SINK(appsink),
