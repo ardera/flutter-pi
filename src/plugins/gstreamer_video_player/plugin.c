@@ -121,7 +121,7 @@ static void remove_player_locked(struct gstplayer_meta *meta) {
 }
 
 static struct gstplayer_meta *get_meta(struct gstplayer *player) {
-    return (struct gstplayer_meta *) gstplayer_get_userdata_locked(player);
+    return (struct gstplayer_meta *) gstplayer_get_userdata(player);
 }
 
 /// Get the player id from the given arg, which is a kStdMap.
@@ -368,7 +368,7 @@ static int on_receive_evch(char *channel, struct platch_obj *object, FlutterPlat
         return platch_respond_not_implemented(responsehandle);
     }
 
-    meta = gstplayer_get_userdata_locked(player);
+    meta = gstplayer_get_userdata(player);
 
     if (streq("listen", method)) {
         platch_respond_success_std(responsehandle, NULL);
@@ -417,43 +417,31 @@ static int on_initialize(char *channel, struct platch_obj *object, FlutterPlatfo
     return platch_respond_success_pigeon(responsehandle, NULL);
 }
 
-static int check_headers(const struct std_value *headers, FlutterPlatformMessageResponseHandle *responsehandle) {
-    const struct std_value *key, *value;
-
-    if (headers == NULL || STDVALUE_IS_NULL(*headers)) {
-        return 0;
-    } else if (!STDVALUE_IS_MAP(*headers)) {
-        platch_respond_illegal_arg_pigeon(responsehandle, "Expected `arg['httpHeaders']` to be a map of strings or null.");
-        return EINVAL;
-    }
-
-    for (int i = 0; i < headers->size; i++) {
-        key = headers->keys + i;
-        value = headers->values + i;
-
-        if (STDVALUE_IS_NULL(*key) || STDVALUE_IS_NULL(*value)) {
-            // ignore this value
-            continue;
-        } else if (STDVALUE_IS_STRING(*key) && STDVALUE_IS_STRING(*value)) {
-            // valid too
-            continue;
-        } else {
-            platch_respond_illegal_arg_pigeon(responsehandle, "Expected `arg['httpHeaders']` to be a map of strings or null.");
-            return EINVAL;
-        }
-    }
-
-    return 0;
+static void gst_structure_put_string(GstStructure *structure, const char *key, const char *value) {
+    GValue gvalue = G_VALUE_INIT;
+    g_value_set_string(&gvalue, value);
+    gst_structure_take_value(structure, key, &gvalue);
 }
 
-static int add_headers_to_player(const struct std_value *headers, struct gstplayer *player) {
+static void gst_structure_take_string(GstStructure *structure, const char *key, char *value) {
+    GValue gvalue = G_VALUE_INIT;
+    g_value_take_string(&gvalue, value);
+    gst_structure_take_value(structure, key, &gvalue);
+}
+
+static bool get_headers(const struct std_value *headers, GstStructure **structure_out, FlutterPlatformMessageResponseHandle *responsehandle) {
     const struct std_value *key, *value;
 
     if (headers == NULL || STDVALUE_IS_NULL(*headers)) {
-        return 0;
+        *structure_out = NULL;
+        return true;
     } else if (!STDVALUE_IS_MAP(*headers)) {
-        assert(false);
+        *structure_out = NULL;
+        platch_respond_illegal_arg_pigeon(responsehandle, "Expected `arg['httpHeaders']` to be a map of strings or null.");
+        return false;
     }
+
+    *structure_out = gst_structure_new_empty("http-headers");
 
     for (int i = 0; i < headers->size; i++) {
         key = headers->keys + i;
@@ -463,13 +451,17 @@ static int add_headers_to_player(const struct std_value *headers, struct gstplay
             // ignore this value
             continue;
         } else if (STDVALUE_IS_STRING(*key) && STDVALUE_IS_STRING(*value)) {
-            gstplayer_put_http_header(player, STDVALUE_AS_STRING(*key), STDVALUE_AS_STRING(*value));
+            gst_structure_put_string(*structure_out, STDVALUE_AS_STRING(*key), STDVALUE_AS_STRING(*value));
         } else {
-            assert(false);
+            gst_structure_free(*structure_out);
+            *structure_out = NULL;
+
+            platch_respond_illegal_arg_pigeon(responsehandle, "Expected `arg['httpHeaders']` to be a map of strings or null.");
+            return false;
         }
     }
 
-    return 0;
+    return true;
 }
 
 /// Allocates and initializes a gstplayer_meta struct, which we
@@ -612,19 +604,20 @@ invalid_format_hint:
         );
     }
 
-    temp = stdmap_get_str(arg, "httpHeaders");
-
-    // check our headers are valid, so we don't create our player for nothing
-    ok = check_headers(temp, responsehandle);
-    if (ok != 0) {
-        return 0;
-    }
-
     // create our actual player (this doesn't initialize it)
     if (asset != NULL) {
         player = gstplayer_new_from_asset(flutterpi, asset, package_name, NULL);
     } else {
-        player = gstplayer_new_from_network(flutterpi, uri, format_hint, NULL);
+        temp = stdmap_get_str(arg, "httpHeaders");
+
+        // check our headers are valid, so we don't create our player for nothing
+        GstStructure *headers = NULL;
+        ok = get_headers(temp, &headers, responsehandle);
+        if (ok == false) {
+            return 0;
+        }
+
+        player = gstplayer_new_from_network(flutterpi, uri, format_hint, NULL, headers);
     }
     if (player == NULL) {
         LOG_ERROR("Couldn't create gstreamer video player.\n");
@@ -640,10 +633,7 @@ invalid_format_hint:
         goto fail_destroy_player;
     }
 
-    gstplayer_set_userdata_locked(player, meta);
-
-    // Add all our HTTP headers to gstplayer using gstplayer_put_http_header
-    add_headers_to_player(temp, player);
+    gstplayer_set_userdata(player, meta);
 
     // add it to our player collection
     add_player(meta);
@@ -654,16 +644,7 @@ invalid_format_hint:
         goto fail_remove_player;
     }
 
-    // Finally, start initializing
-    ok = gstplayer_initialize(player);
-    if (ok != 0) {
-        goto fail_remove_receiver;
-    }
-
     return platch_respond_success_pigeon(responsehandle, &STDMAP1(STDSTRING("textureId"), STDINT64(gstplayer_get_texture_id(player))));
-
-fail_remove_receiver:
-    plugin_registry_remove_receiver(meta->event_channel_name);
 
 fail_remove_player:
     remove_player(meta);
@@ -1050,7 +1031,6 @@ static int on_initialize_v2(const struct raw_std_value *arg, FlutterPlatformMess
 }
 
 static int on_create_v2(const struct raw_std_value *arg, FlutterPlatformMessageResponseHandle *responsehandle) {
-    const struct raw_std_value *headers;
     struct gstplayer_meta *meta;
     struct gstplayer *player;
     enum format_hint format_hint;
@@ -1152,6 +1132,8 @@ invalid_format_hint:
         format_hint = FORMAT_HINT_NONE;
     }
 
+    GstStructure *headers = NULL;
+
     // arg[4]: HTTP Headers
     if (size >= 5) {
         arg = raw_std_value_after(arg);
@@ -1160,13 +1142,23 @@ invalid_format_hint:
             headers = NULL;
         } else if (raw_std_value_is_map(arg)) {
             for_each_entry_in_raw_std_map(key, value, arg) {
-                if (!raw_std_value_is_string(key) || !raw_std_value_is_string(value)) {
+                if (raw_std_value_is_string(key) && raw_std_value_is_string(value)) {
+                    if (headers == NULL) {
+                        headers = gst_structure_new_empty("http-headers");
+                    }
+                    
+                    char *key_str = raw_std_string_dup(key);
+                    gst_structure_take_string(headers, key_str, raw_std_string_dup(value));
+                    free(key_str);
+                } else {
                     goto invalid_headers;
                 }
             }
-            headers = arg;
         } else {
 invalid_headers:
+            if (headers != NULL) {
+                gst_structure_free(headers);
+            }
             return platch_respond_illegal_arg_std(responsehandle, "Expected `arg[4]` to be a map of strings or null.");
         }
     } else {
@@ -1201,7 +1193,7 @@ invalid_headers:
         free(asset);
         asset = NULL;
     } else if (uri != NULL) {
-        player = gstplayer_new_from_network(flutterpi, uri, format_hint, NULL);
+        player = gstplayer_new_from_network(flutterpi, uri, format_hint, NULL, headers);
 
         // gstplayer_new_from_network will dup the uri internally.
         free(uri);
@@ -1230,20 +1222,7 @@ invalid_headers:
         goto fail_destroy_player;
     }
 
-    gstplayer_set_userdata_locked(player, meta);
-
-    // Add all the HTTP headers to gstplayer using gstplayer_put_http_header
-    if (headers != NULL) {
-        for_each_entry_in_raw_std_map(header_name, header_value, headers) {
-            char *header_name_duped = raw_std_string_dup(header_name);
-            char *header_value_duped = raw_std_string_dup(header_value);
-
-            gstplayer_put_http_header(player, header_name_duped, header_value_duped);
-
-            free(header_value_duped);
-            free(header_name_duped);
-        }
-    }
+    gstplayer_set_userdata(player, meta);
 
     // Add it to our player collection
     add_player(meta);
@@ -1254,16 +1233,7 @@ invalid_headers:
         goto fail_remove_player;
     }
 
-    // Finally, start initializing
-    ok = gstplayer_initialize(player);
-    if (ok != 0) {
-        goto fail_remove_receiver;
-    }
-
     return platch_respond_success_std(responsehandle, &STDINT64(gstplayer_get_texture_id(player)));
-
-fail_remove_receiver:
-    plugin_registry_remove_receiver(meta->event_channel_name);
 
 fail_remove_player:
     remove_player(meta);
