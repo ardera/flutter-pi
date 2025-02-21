@@ -828,14 +828,11 @@ static struct video_frame *frame_new_egl_imported(struct frame_interface *interf
     } while (false)
     struct video_frame *frame;
     struct plane_info planes[MAX_N_PLANES];
-    GstVideoInfoDmaDrm drm_video_info;
     GstVideoInfo video_info;
     EGLBoolean egl_ok;
     GstBuffer *buffer;
     EGLImageKHR egl_image;
     gboolean gst_ok;
-    uint32_t drm_format;
-    uint64_t drm_modifier;
     GstCaps *caps;
     GLuint texture;
     GLenum gl_error;
@@ -850,8 +847,6 @@ static struct video_frame *frame_new_egl_imported(struct frame_interface *interf
         return NULL;
     }
 
-    bool is_drm_video_info = false;
-
     // If we don't have an explicit info given, we determine it from the sample caps.
     if (info == NULL) {
         caps = gst_sample_get_caps(sample);
@@ -859,13 +854,13 @@ static struct video_frame *frame_new_egl_imported(struct frame_interface *interf
             return NULL;
         }
 
-        is_drm_video_info = gst_video_info_dma_drm_from_caps(&drm_video_info, caps);
-
-        gst_ok = gst_video_info_from_caps(&drm_video_info, caps);
+        gst_ok = gst_video_info_from_caps(&video_info, caps);
         if (gst_ok == FALSE) {
             LOG_ERROR("Could not get video info from caps.\n");
             return NULL;
         }
+
+        info = &video_info;
     } else {
         caps = NULL;
     }
@@ -875,17 +870,13 @@ static struct video_frame *frame_new_egl_imported(struct frame_interface *interf
     height = GST_VIDEO_INFO_HEIGHT(info);
     n_planes = GST_VIDEO_INFO_N_PLANES(info);
 
-    if (is_drm_video_info) {
-        drm_format = drm_video_info.drm_fourcc;
-        drm_modifier = drm_video_info.drm_modifier;
-    } else {
-        drm_modifier = DRM_FORMAT_MOD_LINEAR;
-        drm_format = drm_format = drm_format_from_gst_info(info);
-        if (drm_format == DRM_FORMAT_INVALID) {
-            LOG_ERROR("Video format has no EGL equivalent.\n");
-            return NULL;
-        }
+    uint64_t drm_modifier = DRM_FORMAT_MOD_LINEAR;
+    uint32_t drm_format = drm_format_from_gst_info(info);
+    if (drm_format == DRM_FORMAT_INVALID) {
+        LOG_ERROR("Video format has no EGL equivalent.\n");
+        return NULL;
     }
+    
 
     bool external_only;
     for_each_format_in_frame_interface(i, format, interface) {
