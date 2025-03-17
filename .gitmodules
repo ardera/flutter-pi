@@ -1,3 +1,6 @@
 [submodule "third_party/Unity"]
 	path = third_party/Unity
 	url = https://github.com/ThrowTheSwitch/Unity
+[submodule "third_party/sentry-native"]
+	path = third_party/sentry-native
+	url = https://github.com/getsentry/sentry-native

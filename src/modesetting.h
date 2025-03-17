@@ -215,8 +215,6 @@
 
 #define DECLARE_PROP_ID_AS_UINT32(prop_name, prop_var_name) uint32_t prop_var_name;
 
-#define DRM_BLEND_ALPHA_OPAQUE 0xFFFF
-
 enum drm_blend_mode {
     kPremultiplied_DrmBlendMode,
     kCoverage_DrmBlendMode,
@@ -502,6 +500,13 @@ struct drm_plane {
     /// @brief Whether this plane has a mutable alpha property we can set.
     bool has_alpha;
 
+    /// @brief The minimum and maximum alpha values.
+    ///
+    /// Only valid if @ref has_alpha is true.
+    ///
+    /// This should be 0x0000..0xFFFF, but the xilinx driver uses different values.
+    uint16_t min_alpha, max_alpha;
+
     /// @brief Whether this plane has a mutable pixel blend mode we can set.
     bool has_blend_mode;
 
@@ -588,8 +593,15 @@ struct drm_plane {
  * @param modifier The modifier of this pixel format.
  * @param userdata Userdata that was passed to @ref drm_plane_for_each_modified_format.
  */
-typedef bool (*drm_plane_modified_format_callback_t
-)(struct drm_plane *plane, int index, enum pixfmt pixel_format, uint64_t modifier, void *userdata);
+typedef bool (*drm_plane_modified_format_callback_t)(
+    struct drm_plane *plane,
+    int index,
+    enum pixfmt pixel_format,
+    uint64_t modifier,
+    void *userdata
+);
+
+struct drmdev;
 
 /**
  * @brief Iterates over every supported pixel-format & modifier pair.
@@ -598,7 +610,12 @@ typedef bool (*drm_plane_modified_format_callback_t
  */
 void drm_plane_for_each_modified_format(struct drm_plane *plane, drm_plane_modified_format_callback_t callback, void *userdata);
 
-struct drmdev;
+bool drm_plane_supports_modified_format(struct drm_plane *plane, enum pixfmt format, uint64_t modifier);
+
+bool drm_plane_supports_unmodified_format(struct drm_plane *plane, enum pixfmt format);
+
+bool drm_crtc_any_plane_supports_format(struct drmdev *drmdev, struct drm_crtc *crtc, enum pixfmt pixel_format);
+
 struct _drmModeModeInfo;
 
 struct drmdev_interface {
@@ -686,11 +703,7 @@ uint32_t drmdev_add_fb_from_dmabuf_multiplanar(
     const uint64_t modifiers[4]
 );
 
-uint32_t drmdev_add_fb_from_gbm_bo(
-    struct drmdev *drmdev,
-    struct gbm_bo *bo,
-    bool cast_opaque
-);
+uint32_t drmdev_add_fb_from_gbm_bo(struct drmdev *drmdev, struct gbm_bo *bo, bool cast_opaque);
 
 int drmdev_rm_fb_locked(struct drmdev *drmdev, uint32_t fb_id);
 
@@ -742,17 +755,25 @@ DECLARE_REF_OPS(kms_req_builder);
 
 /**
  * @brief Gets the @ref drmdev associated with this KMS request builder.
- * 
+ *
  * @param builder The KMS request builder.
  * @returns The drmdev associated with this KMS request builder.
  */
 struct drmdev *kms_req_builder_get_drmdev(struct kms_req_builder *builder);
 
 /**
+ * @brief Gets the CRTC associated with this KMS request builder.
+ *
+ * @param builder The KMS request builder.
+ * @returns The CRTC associated with this KMS request builder.
+ */
+struct drm_crtc *kms_req_builder_get_crtc(struct kms_req_builder *builder);
+
+/**
  * @brief Adds a property to the KMS request that will set the given video mode
  * on this CRTC on commit, regardless of whether the currently committed output
  * mode is the same.
- * 
+ *
  * @param builder The KMS request builder.
  * @param mode The output mode to set (on @ref kms_req_commit)
  * @returns Zero if successful, positive errno-style error on failure.
@@ -763,7 +784,7 @@ int kms_req_builder_set_mode(struct kms_req_builder *builder, const drmModeModeI
  * @brief Adds a property to the KMS request that will unset the configured
  * output mode for this CRTC on commit, regardless of whether the currently
  * committed output mdoe is already unset.
- * 
+ *
  * @param builder The KMS request builder.
  * @returns Zero if successful, positive errno-style error on failure.
  */
@@ -772,7 +793,7 @@ int kms_req_builder_unset_mode(struct kms_req_builder *builder);
 /**
  * @brief Adds a property to the KMS request that will change the connector
  * that this CRTC is displaying content on to @param connector_id.
- * 
+ *
  * @param builder The KMS request builder.
  * @param connector_id The connector that this CRTC should display contents on.
  * @returns Zero if successful, EINVAL if the @param connector_id is invalid.
@@ -783,11 +804,11 @@ int kms_req_builder_set_connector(struct kms_req_builder *builder, uint32_t conn
  * @brief True if the next layer pushed using @ref kms_req_builder_push_fb_layer
  * should be opaque, i.e. use a framebuffer which has a pixel format that has no
  * alpha channel.
- * 
+ *
  * This is true for the bottom-most layer. There are some display controllers
  * that don't support non-opaque pixel formats for the bottom-most (primary)
  * plane. So ignoring this might lead to an EINVAL on commit.
- * 
+ *
  * @param builder The KMS request builder.
  * @returns True if the next layer should preferably be opaque, false if there's
  *          no preference.
@@ -796,13 +817,13 @@ bool kms_req_builder_prefer_next_layer_opaque(struct kms_req_builder *builder);
 
 /**
  * @brief Adds a new framebuffer (display) layer on top of the last layer.
- * 
+ *
  * If this is the first layer, the framebuffer should cover the entire screen
  * (CRTC).
- * 
+ *
  * To allow the use of explicit fencing, specify an in_fence_fd in @param layer
  * and a @param deferred_release_callback.
- * 
+ *
  * If explicit fencing is supported:
  *   - the in_fence_fd should be a DRM syncobj fd that signals
  *     when the GPU has finished rendering to the framebuffer and is ready
@@ -810,16 +831,16 @@ bool kms_req_builder_prefer_next_layer_opaque(struct kms_req_builder *builder);
  *   - @param deferred_release_callback will be called
  *     with a DRM syncobj fd that is signaled once the framebuffer is no longer
  *     being displayed on screen (and can be rendered into again)
- * 
+ *
  * If explicit fencing is not supported:
  *   - the in_fence_fd in @param layer will be closed by this procedure.
  *   - @param deferred_release_callback will NOT be called and
  *     @param release_callback will be called instead.
- * 
+ *
  * Explicit fencing is supported: When atomic modesetting is being used and
  * the driver supports it. (Driver has IN_FENCE_FD plane and OUT_FENCE_PTR crtc
  * properties)
- * 
+ *
  * @param builder          The KMS request builder.
  * @param layer            The exact details (src pos, output pos, rotation,
  *                         framebuffer) of the layer that should be shown on
@@ -862,7 +883,7 @@ int kms_req_builder_push_fb_layer(
 /**
  * @brief Push a "fake" layer that just keeps one zpos free, incase something
  * other than KMS wants to display contents there. (e.g. omxplayer)
- * 
+ *
  * @param builder The KMS request builder.
  * @param zpos_out Filled with the zpos that won't be occupied by the request
  *                 builder.
@@ -873,7 +894,7 @@ int kms_req_builder_push_zpos_placeholder_layer(struct kms_req_builder *builder,
 /**
  * @brief A KMS request (atomic or legacy modesetting) that can be committed to
  * change the state of a single CRTC.
- * 
+ *
  * Only way to construct this is by building a KMS request using
  * @ref kms_req_builder and then calling @ref kms_req_builder_build.
  */
@@ -884,7 +905,7 @@ DECLARE_REF_OPS(kms_req);
 /**
  * @brief Build the KMS request builder into an actual, immutable KMS request
  * that can be committed. Internally this doesn't do much at all.
- * 
+ *
  * @param builder The KMS request builder that should be built.
  * @returns KMS request that can be committed using @ref kms_req_commit_blocking
  *          or @ref kms_req_commit_nonblocking.

@@ -12,6 +12,7 @@
 #include <flutter_embedder.h>
 
 #include "flutter-pi.h"
+#define JSMN_STATIC
 #include "jsmn.h"
 #include "util/asserts.h"
 
@@ -1823,6 +1824,11 @@ ATTR_PURE double raw_std_value_as_float64(const struct raw_std_value *value) {
     return *(double *) get_value_ptr(value, 8);
 }
 
+ATTR_PURE size_t raw_std_string_get_length(const struct raw_std_value *value) {
+    assert(raw_std_value_is_string(value));
+    return raw_std_value_get_size(value);
+}
+
 ATTR_PURE bool raw_std_value_is_string(const struct raw_std_value *value) {
     return raw_std_value_get_type(value) == kStdString;
 }
@@ -1841,6 +1847,11 @@ MALLOCLIKE MUST_CHECK char *raw_std_string_dup(const struct raw_std_value *value
     str[size] = '\0';
 
     return str;
+}
+
+ATTR_PURE const char *raw_std_string_get_nonzero_terminated(const struct raw_std_value *value) {
+    assert(raw_std_value_is_string(value));
+    return get_array_value_ptr(value, 0, raw_std_value_get_size(value));
 }
 
 ATTR_PURE bool raw_std_string_equals(const struct raw_std_value *value, const char *str) {

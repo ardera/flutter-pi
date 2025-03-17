@@ -7,8 +7,19 @@
 	"build": {
 		"dockerfile": "Dockerfile"
 	},
+
 	// Features to add to the dev container. More info: https://containers.dev/features.
-	// "features": {},
+	"features": {
+		"ghcr.io/devcontainers/features/github-cli:1": {}
+	},
+	"mounts": [
+		{
+			"source": "desktop-linux-gh",
+			"target": "/root/.config/gh/",
+			"type": "volume"
+		}
+	],
+	
 	// Use 'forwardPorts' to make a list of ports inside the container available locally.
 	// "forwardPorts": [],
 	// Configure tool-specific properties.
@@ -25,7 +36,8 @@
 			"extensions": [
 				"ms-vscode.cpptools-extension-pack",
 				"ms-vscode.cmake-tools",
-				"github.vscode-github-actions"
+				"github.vscode-github-actions",
+				"ms-azuretools.vscode-docker"
 			]
 		}
 	}

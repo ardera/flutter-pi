@@ -520,6 +520,72 @@ exit:
     return;
 }
 
+static bool
+check_modified_format_supported(UNUSED struct drm_plane *plane, UNUSED int index, enum pixfmt format, uint64_t modifier, void *userdata) {
+    struct {
+        enum pixfmt format;
+        uint64_t modifier;
+        bool found;
+    } *context = userdata;
+
+    if (format == context->format && modifier == context->modifier) {
+        context->found = true;
+        return false;
+    } else {
+        return true;
+    }
+}
+
+bool drm_plane_supports_modified_format(struct drm_plane *plane, enum pixfmt format, uint64_t modifier) {
+    if (!plane->supported_modified_formats_blob) {
+        // return false if we want a modified format but the plane doesn't support modified formats
+        return false;
+    }
+
+    struct {
+        enum pixfmt format;
+        uint64_t modifier;
+        bool found;
+    } context = {
+        .format = format,
+        .modifier = modifier,
+        .found = false,
+    };
+
+    // Check if the requested format & modifier is supported.
+    drm_plane_for_each_modified_format(plane, check_modified_format_supported, &context);
+
+    return context.found;
+}
+
+bool drm_plane_supports_unmodified_format(struct drm_plane *plane, enum pixfmt format) {
+    // we don't want a modified format, return false if the format is not in the list
+    // of supported (unmodified) formats
+    return plane->supported_formats[format];
+}
+
+bool drm_crtc_any_plane_supports_format(struct drmdev *drmdev, struct drm_crtc *crtc, enum pixfmt pixel_format) {
+    struct drm_plane *plane;
+
+    for_each_plane_in_drmdev(drmdev, plane) {
+        if (!(plane->possible_crtcs & crtc->bitmask)) {
+            // Only query planes that are possible to connect to the CRTC we're using.
+            continue;
+        }
+
+        if (plane->type != kPrimary_DrmPlaneType && plane->type != kOverlay_DrmPlaneType) {
+            // We explicitly only look for primary and overlay planes.
+            continue;
+        }
+
+        if (drm_plane_supports_unmodified_format(plane, pixel_format)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 struct _drmModeFB2;
 
 struct drm_mode_fb2 {
@@ -691,11 +757,16 @@ static int fetch_plane(int drm_fd, uint32_t plane_id, struct drm_plane *plane_ou
         } else if (streq(info->name, "alpha")) {
             has_alpha = true;
             assert(info->flags == DRM_MODE_PROP_RANGE);
-            assert(info->values[0] == 0);
-            assert(info->values[1] == 0xFFFF);
-            assert(props->prop_values[j] <= 0xFFFF);
+            assert(info->values[0] <= 0xFFFF);
+            assert(info->values[1] <= 0xFFFF);
+            assert(info->values[0] <= info->values[1]);
+            plane_out->min_alpha = (uint16_t) info->values[0];
+            plane_out->max_alpha = (uint16_t) info->values[1];
 
-            committed_alpha = (uint16_t) props->prop_values[j];
+            uint64_t value = props->prop_values[j];
+            assert(plane_out->min_alpha <= value);
+            assert(value <= plane_out->max_alpha);
+            committed_alpha = (uint16_t) value;
         } else if (streq(info->name, "pixel blend mode")) {
             has_blend_mode = true;
             assert(info->flags == DRM_MODE_PROP_ENUM);
@@ -1020,6 +1091,30 @@ struct drmdev *drmdev_new_from_interface_fd(int fd, void *fd_metadata, const str
     ok = fetch_planes(drmdev, &drmdev->planes, &drmdev->n_planes);
     if (ok != 0) {
         goto fail_free_crtcs;
+    }
+
+    // Rockchip driver always wants the N-th primary/cursor plane to be associated with the N-th CRTC.
+    // If we don't respect this, commits will work but not actually show anything on screen.
+    int primary_plane_index = 0;
+    int cursor_plane_index = 0;
+    for (int i = 0; i < drmdev->n_planes; i++) {
+        if (drmdev->planes[i].type == DRM_PLANE_TYPE_PRIMARY) {
+            if ((drmdev->planes[i].possible_crtcs & (1 << primary_plane_index)) != 0) {
+                drmdev->planes[i].possible_crtcs = (1 << primary_plane_index);
+            } else {
+                LOG_DEBUG("Primary plane %d does not support CRTC %d.\n", primary_plane_index, primary_plane_index);
+            }
+
+            primary_plane_index++;
+        } else if (drmdev->planes[i].type == DRM_PLANE_TYPE_CURSOR) {
+            if ((drmdev->planes[i].possible_crtcs & (1 << cursor_plane_index)) != 0) {
+                drmdev->planes[i].possible_crtcs = (1 << cursor_plane_index);
+            } else {
+                LOG_DEBUG("Cursor plane %d does not support CRTC %d.\n", cursor_plane_index, cursor_plane_index);
+            }
+
+            cursor_plane_index++;
+        }
     }
 
     gbm_device = gbm_create_device(drmdev->fd);
@@ -1620,11 +1715,7 @@ uint32_t drmdev_add_fb_from_dmabuf_multiplanar(
     return fb;
 }
 
-uint32_t drmdev_add_fb_from_gbm_bo_locked(
-    struct drmdev *drmdev,
-    struct gbm_bo *bo,
-    bool cast_opaque
-) {
+uint32_t drmdev_add_fb_from_gbm_bo_locked(struct drmdev *drmdev, struct gbm_bo *bo, bool cast_opaque) {
     enum pixfmt format;
     uint32_t fourcc;
     int n_planes;
@@ -1638,9 +1729,9 @@ uint32_t drmdev_add_fb_from_gbm_bo_locked(
         LOG_ERROR("GBM pixel format is not supported.\n");
         return 0;
     }
-    
+
     format = get_pixfmt_for_gbm_format(fourcc);
-    
+
     if (cast_opaque) {
         format = pixfmt_opaque(format);
     }
@@ -1652,7 +1743,7 @@ uint32_t drmdev_add_fb_from_gbm_bo_locked(
     // for dumb buffers.
     uint64_t modifier = gbm_bo_get_modifier(bo);
     bool has_modifiers = modifier != DRM_FORMAT_MOD_INVALID;
-    
+
     for (int i = 0; i < n_planes; i++) {
         // gbm_bo_get_handle_for_plane will return -1 (in gbm_bo_handle.s32) and
         // set errno on failure.
@@ -1688,14 +1779,14 @@ uint32_t drmdev_add_fb_from_gbm_bo_locked(
         format,
         handles,
         pitches,
-        (uint32_t[4]) {
+        (uint32_t[4]){
             n_planes >= 1 ? gbm_bo_get_offset(bo, 0) : 0,
             n_planes >= 2 ? gbm_bo_get_offset(bo, 1) : 0,
             n_planes >= 3 ? gbm_bo_get_offset(bo, 2) : 0,
             n_planes >= 4 ? gbm_bo_get_offset(bo, 3) : 0,
         },
         has_modifiers,
-        (uint64_t[4]) {
+        (uint64_t[4]){
             n_planes >= 1 ? modifier : 0,
             n_planes >= 2 ? modifier : 0,
             n_planes >= 3 ? modifier : 0,
@@ -1704,11 +1795,7 @@ uint32_t drmdev_add_fb_from_gbm_bo_locked(
     );
 }
 
-uint32_t drmdev_add_fb_from_gbm_bo(
-    struct drmdev *drmdev,
-    struct gbm_bo *bo,
-    bool cast_opaque
-) {
+uint32_t drmdev_add_fb_from_gbm_bo(struct drmdev *drmdev, struct gbm_bo *bo, bool cast_opaque) {
     uint32_t fb;
 
     drmdev_lock(drmdev);
@@ -1966,22 +2053,6 @@ drmModeModeInfo *__next_mode(const struct drm_connector *connector, const drmMod
 #else
     #define LOG_DRM_PLANE_ALLOCATION_DEBUG(...)
 #endif
-
-static bool
-check_modified_format_supported(UNUSED struct drm_plane *plane, UNUSED int index, enum pixfmt format, uint64_t modifier, void *userdata) {
-    struct {
-        enum pixfmt format;
-        uint64_t modifier;
-        bool found;
-    } *context = userdata;
-
-    if (format == context->format && modifier == context->modifier) {
-        context->found = true;
-        return false;
-    } else {
-        return true;
-    }
-}
 
 static bool plane_qualifies(
     // clang-format off
@@ -2279,6 +2350,10 @@ struct drmdev *kms_req_builder_get_drmdev(struct kms_req_builder *builder) {
     return builder->drmdev;
 }
 
+struct drm_crtc *kms_req_builder_get_crtc(struct kms_req_builder *builder) {
+    return builder->crtc;
+}
+
 bool kms_req_builder_prefer_next_layer_opaque(struct kms_req_builder *builder) {
     ASSERT_NOT_NULL(builder);
     return builder->n_layers == 0;
@@ -2498,7 +2573,7 @@ int kms_req_builder_push_fb_layer(
 
         if (index == 0) {
             if (plane->has_alpha) {
-                drmModeAtomicAddProperty(builder->req, plane_id, plane->ids.alpha, DRM_BLEND_ALPHA_OPAQUE);
+                drmModeAtomicAddProperty(builder->req, plane_id, plane->ids.alpha, plane->max_alpha);
             }
 
             if (plane->has_blend_mode && plane->supported_blend_modes[kNone_DrmBlendMode]) {
@@ -2567,6 +2642,10 @@ UNUSED void kms_req_unrefp(struct kms_req **req) {
 
 UNUSED void kms_req_swap_ptrs(struct kms_req **oldp, struct kms_req *new) {
     return kms_req_builder_swap_ptrs((struct kms_req_builder **) oldp, (struct kms_req_builder *) new);
+}
+
+static bool drm_plane_is_active(struct drm_plane *plane) {
+    return plane->committed_state.fb_id != 0 && plane->committed_state.crtc_id != 0;
 }
 
 static int
@@ -2729,11 +2808,24 @@ kms_req_commit_common(struct kms_req *req, bool blocking, kms_scanout_cb_t scano
 
         /// TODO: Call drmModeSetPlane for all other layers
         /// TODO: Assert here
-
     } else {
         /// TODO: If we can do explicit fencing, don't use the page flip event.
         /// TODO: Can we set OUT_FENCE_PTR even though we didn't set any IN_FENCE_FDs?
         flags = DRM_MODE_PAGE_FLIP_EVENT | (blocking ? 0 : DRM_MODE_ATOMIC_NONBLOCK) | (update_mode ? DRM_MODE_ATOMIC_ALLOW_MODESET : 0);
+
+        // All planes that are not used by us and are connected to our CRTC
+        // should be disabled.
+        {
+            int i;
+            BITSET_FOREACH_SET(i, builder->available_planes, 32) {
+                struct drm_plane *plane = builder->drmdev->planes + i;
+
+                if (drm_plane_is_active(plane) && plane->committed_state.crtc_id == builder->crtc->id) {
+                    drmModeAtomicAddProperty(builder->req, plane->id, plane->ids.crtc_id, 0);
+                    drmModeAtomicAddProperty(builder->req, plane->id, plane->ids.fb_id, 0);
+                }
+            }
+        }
 
         if (builder->connector != NULL) {
             // add the CRTC_ID property if that was explicitly set

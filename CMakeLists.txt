@@ -23,27 +23,20 @@
 # SOFTWARE.
 #
 
-cmake_minimum_required(VERSION 3.10.2)
-
-if(NOT CMAKE_BUILD_TYPE)
-    set(CMAKE_BUILD_TYPE "Release" CACHE STRING "Choose the type of build, options are: Debug, Release, or MinSizeRel." FORCE)
-    message(STATUS "CMAKE_BUILD_TYPE not set, defaulting to Release.")
-endif()
-
-project(flutter-pi LANGUAGES C VERSION "1.0.0")
-
-message(STATUS "Generator .............. ${CMAKE_GENERATOR}")
-message(STATUS "Build Type ............. ${CMAKE_BUILD_TYPE}")
+cmake_minimum_required(VERSION 3.10.0)
 
 # configure options
 option(BUILD_TEXT_INPUT_PLUGIN "Include the text input plugin in the finished binary. Enables text input (to flutter text fields, for example) via attached keyboards." ON)
 option(BUILD_RAW_KEYBOARD_PLUGIN "Include the raw keyboard plugin in the finished binary. Enables raw keycode listening in flutter via the flutter RawKeyboard interface." ON)
 option(BUILD_TEST_PLUGIN "Include the test plugin in the finished binary. Allows testing platform channel communication." OFF)
+
 option(BUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN "Include the gstreamer based video plugins in the finished binary. Allows for more stable, hardware accelerated video playback in flutter using gstreamer." ON)
-option(BUILD_GSTREAMER_AUDIO_PLAYER_PLUGIN "Include the gstreamer based audio plugins in the finished binary." ON)
 option(TRY_BUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN "Don't throw an error if the gstreamer libs aren't found, instead just don't build the gstreamer video player plugin in that case." ON)
+
+option(BUILD_GSTREAMER_AUDIO_PLAYER_PLUGIN "Include the gstreamer based audio plugins in the finished binary." ON)
 option(TRY_BUILD_GSTREAMER_AUDIO_PLAYER_PLUGIN "Don't throw an error if the gstreamer libs aren't found, instead just don't build gstreamer audio plugin." ON)
 option(BUILD_PRINTING_PLUGIN "Include the printing plugin in the finished binary." OFF)
+option(BUILD_SENTRY_PLUGIN "Include the sentry plugin in the finished binary. Allows for crash reporting to sentry.io." OFF)
 option(BUILD_CHARSET_CONVERTER_PLUGIN "Include the charset converter plugin in the finished binary." OFF)
 option(ENABLE_OPENGL "Build with EGL/OpenGL rendering support." ON)
 option(TRY_ENABLE_OPENGL "Don't throw an error if EGL/OpenGL aren't found, instead just build without EGL/OpenGL support in that case." ON)
@@ -66,15 +59,35 @@ option(LINT_EGL_HEADERS "Set an define that'll make the egl.h only export the ex
 option(DEBUG_DRM_PLANE_ALLOCATIONS "Add logging in modesetting.c for debugging the process of choosing a fitting DRM plane for a framebuffer layer." OFF)
 option(USE_LEGACY_KMS "Force the use of legacy KMS." OFF)
 
+# This is a CMake recognized variable, but we set it to off by default here.
+option(CMAKE_POSITION_INDEPENDENT_CODE "Enable/Disable Position Independent Code" OFF)
+
 set(FILESYSTEM_LAYOUTS default meta-flutter)
 set(FILESYSTEM_LAYOUT "default" CACHE STRING "Where to look for the icudtl.dat, app.so/libapp.so, flutter asset bundle.")
 set_property(CACHE FILESYSTEM_LAYOUT PROPERTY STRINGS ${FILESYSTEM_LAYOUTS})
 
+set(SENTRY_BACKEND "crashpad" CACHE STRING "What sentry backend to use, when the sentry plugin is built. Allowed values are inproc, crashpad and breakpad.")
+option(SENTRY_PLUGIN_BUNDLE_CRASHPAD_HANDLER "Bundle the crashpad_handler with the flutter-pi executable." ON)
+
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-include(ExternalProject)
+if(NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE "Release" CACHE STRING "Choose the type of build, options are: Debug, Release, or MinSizeRel." FORCE)
+    message(STATUS "CMAKE_BUILD_TYPE not set, defaulting to Release.")
+endif()
+
+if (BUILD_SENTRY_PLUGIN)
+  set(flutterpi_languages C CXX ASM)
+else()
+  set(flutterpi_languages C ASM)
+endif()
+
+project(flutter-pi LANGUAGES ${flutterpi_languages} VERSION "1.0.0")
+
+message(STATUS "Generator .............. ${CMAKE_GENERATOR}")
+message(STATUS "Build Type ............. ${CMAKE_BUILD_TYPE}")
+
 include(CheckCCompilerFlag)
-include(FetchContent)
 
 # Those libraries we definitely need.
 include(FindPkgConfig)
@@ -89,6 +102,24 @@ pkg_check_modules(LIBUDEV REQUIRED IMPORTED_TARGET libudev)
 set(THREADS_PREFER_PTHREAD_FLAG ON)
 find_package(Threads REQUIRED)
 
+if(POLICY CMP0083)
+  cmake_policy(SET CMP0083 NEW)
+
+  include(CheckPIESupported)
+  check_pie_supported()
+endif()
+
+message(STATUS "PIE .................... ${CMAKE_POSITION_INDEPENDENT_CODE}")
+
+# flutter-pi executable
+add_executable(
+  flutter-pi
+  src/main.c
+)
+
+# flutterpi_module
+# We separate the actual flutter-pi code into a separate object library
+# so we can link against it in the tests.
 add_library(
   flutterpi_module OBJECT
   src/flutter-pi.c
@@ -146,6 +177,9 @@ if (CMAKE_C_COMPILER_ID STREQUAL "GNU")
   if (CMAKE_C_COMPILER_VERSION VERSION_LESS "11.3")
     target_compile_options(flutterpi_module PUBLIC -Wno-missing-field-initializers)
   endif()
+  target_link_options(flutter-pi PUBLIC LINKER:--build-id)
+elseif (CMAKE_C_COMPILER_ID STREQUAL "Clang")
+  target_link_options(flutter-pi PUBLIC LINKER:--build-id=sha1)
 endif()
 
 # libinput stuff
@@ -350,6 +384,28 @@ if (BUILD_CHARSET_CONVERTER_PLUGIN)
   target_sources(flutterpi_module PRIVATE src/plugins/charset_converter.c)
 endif()
 
+# Sentry Plugin
+set(HAVE_BUNDLED_CRASHPAD_HANDLER OFF)
+if (BUILD_SENTRY_PLUGIN)
+  set(SENTRY_PIC ${CMAKE_POSITION_INDEPENDENT_CODE} CACHE BOOL "")
+  add_subdirectory(third_party/sentry-native)
+
+  target_sources(flutterpi_module PRIVATE src/plugins/sentry/sentry.c)
+  target_link_libraries(flutterpi_module PUBLIC sentry::sentry)
+
+  if (SENTRY_BACKEND STREQUAL "crashpad" AND SENTRY_PLUGIN_BUNDLE_CRASHPAD_HANDLER)
+    set(HAVE_BUNDLED_CRASHPAD_HANDLER ON)
+  
+    target_sources(flutter-pi PRIVATE src/crashpad_handler_trampoline.cc)
+    # link against the same libraries the crashpad_handler uses
+    
+    get_target_property(handler_deps crashpad_handler INTERFACE_LINK_LIBRARIES)
+    target_link_libraries(flutter-pi PUBLIC ${handler_deps})
+  endif()
+endif()
+message(STATUS "Sentry plugin .......... ${BUILD_SENTRY_PLUGIN}")
+message(STATUS "Bundle crashpad_handler  ${HAVE_BUNDLED_CRASHPAD_HANDLER}")
+
 # Needed so dart VM can actually resolve symbols in the same
 # executable. (For dart:ffi DynamicLibrary.executable / DynamicLibrary.process)
 target_link_options(flutterpi_module PUBLIC -rdynamic)
@@ -403,12 +459,8 @@ if (COMPILER_SUPPORTS_MACRO_PREFIX_MAP)
 endif()
 
 # Actual flutter-pi executable.
-add_executable(
-  flutter-pi
-  src/main.c
-)
 target_link_libraries(
-  flutter-pi
+  flutter-pi PUBLIC
   flutterpi_module
 )
 install(TARGETS flutter-pi RUNTIME DESTINATION bin)

@@ -815,6 +815,7 @@ static int on_send_platform_message(void *userdata) {
         message.channel = msg->target_channel;
         message.message_size = msg->message_size;
         message.response_handle = msg->response_handle;
+        message.message = msg->message;
 
         result = flutterpi->flutter.procs.SendPlatformMessage(flutterpi->flutter.engine, &message);
     }
@@ -1830,35 +1831,6 @@ static int on_user_input_fd_ready(sd_event_source *s, int fd, uint32_t revents, 
     return user_input_on_fd_ready(input);
 }
 
-struct cmd_args {
-    bool has_orientation;
-    enum device_orientation orientation;
-
-    bool has_rotation;
-    int rotation;
-
-    bool has_physical_dimensions;
-    struct vec2i physical_dimensions;
-
-    bool has_pixel_format;
-    enum pixfmt pixel_format;
-
-    bool has_runtime_mode;
-    enum flutter_runtime_mode runtime_mode;
-
-    char *bundle_path;
-
-    int engine_argc;
-    char **engine_argv;
-
-    bool use_vulkan;
-
-    char *desired_videomode;
-
-    bool dummy_display;
-    struct vec2i dummy_display_size;
-};
-
 static struct flutter_paths *setup_paths(enum flutter_runtime_mode runtime_mode, const char *app_bundle_path) {
 #if defined(FILESYSTEM_LAYOUT_DEFAULT)
     return fs_layout_flutterpi_resolve(app_bundle_path, runtime_mode);
@@ -1881,13 +1853,16 @@ static bool parse_vec2i(const char *str, struct vec2i *out) {
     return true;
 }
 
-static bool parse_cmd_args(int argc, char **argv, struct cmd_args *result_out) {
+bool flutterpi_parse_cmdline_args(int argc, char **argv, struct flutterpi_cmdline_args *result_out) {
     bool finished_parsing_options;
     int runtime_mode_int = FLUTTER_RUNTIME_MODE_DEBUG;
     int vulkan_int = false;
     int dummy_display_int = 0;
     int longopt_index = 0;
     int opt, ok;
+
+    // start parsing from the first argument, in case this is called multiple times.
+    optind = 1;
 
     struct option long_options[] = {
         { "release", no_argument, &runtime_mode_int, FLUTTER_RUNTIME_MODE_RELEASE },
@@ -1973,6 +1948,14 @@ static bool parse_cmd_args(int argc, char **argv, struct cmd_args *result_out) {
                     return false;
                 }
 
+                if (result_out->physical_dimensions.x < 0 || result_out->physical_dimensions.y < 0) {
+                    LOG_ERROR("ERROR: Invalid argument for --dimensions passed.\n");
+                    result_out->physical_dimensions = VEC2I(0, 0);
+                    return false;
+                }
+
+                result_out->has_physical_dimensions = true;
+
                 break;
 
             case 'p':
@@ -2031,7 +2014,7 @@ valid_format:
         return false;
     }
 
-    result_out->bundle_path = realpath(argv[optind], NULL);
+    result_out->bundle_path = strdup(argv[optind]);
     result_out->runtime_mode = runtime_mode_int;
     result_out->has_runtime_mode = runtime_mode_int != 0;
 
@@ -2039,13 +2022,6 @@ valid_format:
     result_out->engine_argc = argc - optind;
     result_out->engine_argv = argv + optind;
 
-#ifndef HAVE_VULKAN
-    if (vulkan_int == true) {
-        LOG_ERROR("ERROR: --vulkan was specified, but flutter-pi was built without vulkan support.\n");
-        printf("%s", usage);
-        return false;
-    }
-#endif
     result_out->use_vulkan = vulkan_int;
 
     result_out->dummy_display = !!dummy_display_int;
@@ -2336,7 +2312,7 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
     struct compositor *compositor;
     struct flutterpi *fpi;
     struct sd_event *event_loop;
-    struct cmd_args cmd_args;
+    struct flutterpi_cmdline_args cmd_args;
     struct libseat *libseat;
     struct locales *locales;
     struct drmdev *drmdev;
@@ -2354,10 +2330,18 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
     /// TODO: Remove this
     flutterpi = fpi;
 
-    ok = parse_cmd_args(argc, argv, &cmd_args);
+    ok = flutterpi_parse_cmdline_args(argc, argv, &cmd_args);
     if (ok == false) {
         goto fail_free_fpi;
     }
+
+#ifndef HAVE_VULKAN
+    if (cmd_args.use_vulkan == true) {
+        LOG_ERROR("ERROR: --vulkan was specified, but flutter-pi was built without vulkan support.\n");
+        printf("%s", usage);
+        return NULL;
+    }
+#endif
 
     runtime_mode = cmd_args.has_runtime_mode ? cmd_args.runtime_mode : FLUTTER_RUNTIME_MODE_DEBUG;
     bundle_path = cmd_args.bundle_path;
@@ -2476,7 +2460,6 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
         }
     }
 
-
     tracer = tracer_new_with_stubs();
     if (tracer == NULL) {
         LOG_ERROR("Couldn't create event tracer.\n");
@@ -2523,8 +2506,6 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
                 "         This warning will probably result in a \"failed to set mode\" error\n"
                 "         later on in the initialization.\n"
             );
-            ok = EINVAL;
-            goto fail_unref_scheduler;
         }
 #else
         UNREACHABLE();
@@ -2726,7 +2707,7 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
     fpi->vk_renderer = vk_renderer;
     fpi->user_input = input;
     fpi->flutter.runtime_mode = runtime_mode;
-    fpi->flutter.bundle_path = bundle_path;
+    fpi->flutter.bundle_path = realpath(bundle_path, NULL);
     fpi->flutter.engine_argc = engine_argc;
     fpi->flutter.engine_argv = engine_argv;
     fpi->flutter.paths = paths;
