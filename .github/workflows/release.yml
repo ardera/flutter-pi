@@ -64,7 +64,7 @@ jobs:
           ARCH: ${{ matrix.debian-arch }}
         run: |
           apt-get update && apt-get install -y \
-            git cmake ninja-build clang lld \
+            git cmake ninja-build clang lld xz-utils \
             libdrm-dev:$ARCH libgbm-dev:$ARCH libsystemd-dev:$ARCH libinput-dev:$ARCH libudev-dev:$ARCH libxkbcommon-dev:$ARCH \
             libgstreamer-plugins-base1.0-dev:$ARCH \
             libvulkan-dev:$ARCH \
