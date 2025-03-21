@@ -18,7 +18,7 @@ jobs:
     name: Build
     runs-on: ubuntu-latest
     container:
-      image: debian:bullseye
+      image: ${{ matrix.container }}
       env:
         DEBIAN_FRONTEND: noninteractive
     strategy:
@@ -27,6 +27,7 @@ jobs:
           - arm-linux-gnueabihf
           - aarch64-linux-gnu
           - x86_64-linux-gnu
+          - riscv64-linux-gnu
         buildtype:
           - debug
           - release
@@ -34,14 +35,22 @@ jobs:
           - target: 'x86_64-linux-gnu'
             is-cross: false
             debian-arch: 'amd64'
+            container: 'debian:bullseye'
 
           - target: 'aarch64-linux-gnu'
             is-cross: true
             debian-arch: 'arm64'
+            container: 'debian:bullseye'
 
           - target: 'arm-linux-gnueabihf'
             is-cross: true
             debian-arch: 'armhf'
+            container: 'debian:bullseye'
+
+          - target: 'riscv64-linux-gnu'
+            is-cross: true
+            debian-arch: 'riscv64'
+            container: 'ubuntu:noble'
 
     steps:
       - name: Add debian multiarch
