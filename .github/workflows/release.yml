@@ -50,7 +50,7 @@ jobs:
           - target: 'riscv64-linux-gnu'
             is-cross: true
             debian-arch: 'riscv64'
-            container: 'ubuntu:noble'
+            container: 'debian:trixie'
 
     steps:
       - name: Add debian multiarch
