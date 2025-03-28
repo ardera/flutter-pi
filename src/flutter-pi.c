@@ -141,6 +141,8 @@ OPTIONS:\n\
                              without a display attached.\n\
   --dummy-display-size \"width,height\" The width & height of the dummy display\n\
                              in pixels.\n\
+  --drm-vout-display <drm-device>  The DRM display to use.\n\
+                             HDMI-A-1, HDMI-A-2, DSI-1, DSI-2.\n\
 \n\
   -h, --help                 Show this help and exit.\n\
 \n\
@@ -262,6 +264,8 @@ struct flutterpi {
     bool session_active;
 
     char *desired_videomode;
+
+    char *drm_vout_display;
 };
 
 struct device_id_and_fd {
@@ -1853,6 +1857,16 @@ static bool parse_vec2i(const char *str, struct vec2i *out) {
     return true;
 }
 
+bool is_valid_drm_display(const char *display) {
+    const char *valid_displays[] = { "HDMI-A-1", "HDMI-A-2", "DSI-1", "DSI-2" };
+    for (size_t i = 0; i < sizeof(valid_displays) / sizeof(valid_displays[0]); i++) {
+        if (strcmp(display, valid_displays[i]) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
 bool flutterpi_parse_cmdline_args(int argc, char **argv, struct flutterpi_cmdline_args *result_out) {
     bool finished_parsing_options;
     int runtime_mode_int = FLUTTER_RUNTIME_MODE_DEBUG;
@@ -1876,6 +1890,7 @@ bool flutterpi_parse_cmdline_args(int argc, char **argv, struct flutterpi_cmdlin
         { "videomode", required_argument, NULL, 'v' },
         { "dummy-display", no_argument, &dummy_display_int, 1 },
         { "dummy-display-size", required_argument, NULL, 's' },
+        { "drm-vout-display", required_argument, NULL, 'i' },
         { 0, 0, 0, 0 },
     };
 
@@ -1997,6 +2012,17 @@ valid_format:
 
                 break;
 
+            case 'i':  // --drm-vout-display
+                result_out->drm_vout_display = strdup(optarg);
+                if (result_out->drm_vout_display == NULL) {
+                    return false;
+                }
+                if (!is_valid_drm_display(result_out->drm_vout_display)) {
+                    LOG_ERROR("Invalid DRM display specified: %s. Valid options are HDMI-A-1, HDMI-A-2, DSI-1, DSI-2.\n", optarg);
+                    return false;
+                }
+                break;
+
             case 'h': printf("%s", usage); return false;
 
             case '?':
@@ -2099,6 +2125,25 @@ static void on_drmdev_close(int fd, void *fd_metadata, void *userdata) {
 
 static const struct drmdev_interface drmdev_interface = { .open = on_drmdev_open, .close = on_drmdev_close };
 
+bool parse_drm_vout_display(const char *display, int *type_out, int *type_id_out) {
+    if (strcmp(display, "HDMI-A-1") == 0) {
+        *type_out = DRM_MODE_CONNECTOR_HDMIA;
+        *type_id_out = 1;
+    } else if (strcmp(display, "HDMI-A-2") == 0) {
+        *type_out = DRM_MODE_CONNECTOR_HDMIA;
+        *type_id_out = 2;
+    } else if (strcmp(display, "DSI-1") == 0) {
+        *type_out = DRM_MODE_CONNECTOR_DSI;
+        *type_id_out = 1;
+    } else if (strcmp(display, "DSI-2") == 0) {
+        *type_out = DRM_MODE_CONNECTOR_DSI;
+        *type_id_out = 2;
+    } else {
+        return false;
+    }
+    return true;
+}
+
 static struct drmdev *find_drmdev(struct libseat *libseat) {
     struct drm_connector *connector;
     struct drmdev *drmdev;
@@ -2137,7 +2182,21 @@ static struct drmdev *find_drmdev(struct libseat *libseat) {
 
         for_each_connector_in_drmdev(drmdev, connector) {
             if (connector->variable_state.connection_state == kConnected_DrmConnectionState) {
-                goto found_connected_connector;
+                if (flutterpi->drm_vout_display != NULL) {
+                    // We only want to use the display that was specified on the command line.
+                    int expected_type, expected_type_id;
+                    if (!parse_drm_vout_display(flutterpi->drm_vout_display, &expected_type, &expected_type_id)) {
+                        continue;
+                    }
+
+                    if (connector->type == expected_type && connector->type_id == expected_type_id) {
+                        goto found_connected_connector;
+                    } else {
+                        continue; 
+                    }
+                } else {
+                    goto found_connected_connector;
+                }
             }
         }
         LOG_ERROR("Device \"%s\" doesn't have a display connected. Skipping.\n", device->nodes[DRM_NODE_PRIMARY]);
@@ -2334,6 +2393,8 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
     if (ok == false) {
         goto fail_free_fpi;
     }
+
+    fpi->drm_vout_display = cmd_args.drm_vout_display ? strdup(cmd_args.drm_vout_display) : NULL;
 
 #ifndef HAVE_VULKAN
     if (cmd_args.use_vulkan == true) {

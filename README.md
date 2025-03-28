@@ -382,6 +382,9 @@ OPTIONS:
   --dummy-display-size "width,height" The width & height of the dummy display
                              in pixels.
 
+  --drm-vout-display <drm-device>  The DRM display to use.\n\
+                             HDMI-A-1, HDMI-A-2, DSI-1, DSI-2.\n\
+
   -h, --help                 Show this help and exit.
 
 EXAMPLES:

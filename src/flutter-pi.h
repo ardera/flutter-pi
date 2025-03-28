@@ -141,6 +141,8 @@ struct flutterpi_cmdline_args {
 
     bool dummy_display;
     struct vec2i dummy_display_size;
+
+    char *drm_vout_display;
 };
 
 int flutterpi_fill_view_properties(bool has_orientation, enum device_orientation orientation, bool has_rotation, int rotation);
