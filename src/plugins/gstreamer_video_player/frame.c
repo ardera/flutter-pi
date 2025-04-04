@@ -233,35 +233,31 @@ struct frame_interface *frame_interface_new(struct gl_renderer *renderer) {
 
     PFNEGLCREATEIMAGEKHRPROC create_image = (PFNEGLCREATEIMAGEKHRPROC) gl_renderer_get_proc_address(renderer, "eglCreateImageKHR");
     if (create_image == NULL) {
-        LOG_ERROR("Could not resolve eglCreateImageKHR EGL procedure.\n");
         goto fail_destroy_context;
     }
 
     PFNEGLDESTROYIMAGEKHRPROC destroy_image = (PFNEGLDESTROYIMAGEKHRPROC) gl_renderer_get_proc_address(renderer, "eglDestroyImageKHR");
     if (destroy_image == NULL) {
-        LOG_ERROR("Could not resolve eglDestroyImageKHR EGL procedure.\n");
         goto fail_destroy_context;
     }
 
     PFNGLEGLIMAGETARGETTEXTURE2DOESPROC gl_egl_image_target_texture2d = (PFNGLEGLIMAGETARGETTEXTURE2DOESPROC
     ) gl_renderer_get_proc_address(renderer, "glEGLImageTargetTexture2DOES");
     if (gl_egl_image_target_texture2d == NULL) {
-        LOG_ERROR("Could not resolve glEGLImageTargetTexture2DOES EGL procedure.\n");
         goto fail_destroy_context;
     }
 
     // These two are optional.
-    // Might be useful in the future.
 #ifdef EGL_EXT_image_dma_buf_import_modifiers
     PFNEGLQUERYDMABUFFORMATSEXTPROC egl_query_dmabuf_formats = (PFNEGLQUERYDMABUFFORMATSEXTPROC
-    ) gl_renderer_get_proc_address(renderer, "eglQueryDmaBufFormatsEXT");
+    ) gl_renderer_try_get_proc_address(renderer, "eglQueryDmaBufFormatsEXT");
     if (egl_query_dmabuf_formats == NULL && supports_extended_imports) {
         LOG_ERROR("Could not resolve eglQueryDmaBufFormatsEXT egl procedure, even though it is listed as supported.\n");
         supports_extended_imports = false;
     }
 
     PFNEGLQUERYDMABUFMODIFIERSEXTPROC egl_query_dmabuf_modifiers = (PFNEGLQUERYDMABUFMODIFIERSEXTPROC
-    ) gl_renderer_get_proc_address(renderer, "eglQueryDmaBufModifiersEXT");
+    ) gl_renderer_try_get_proc_address(renderer, "eglQueryDmaBufModifiersEXT");
     if (egl_query_dmabuf_modifiers == NULL && supports_extended_imports) {
         LOG_ERROR("Could not resolve eglQueryDmaBufModifiersEXT egl procedure, even though it is listed as supported.\n");
         supports_extended_imports = false;
@@ -281,8 +277,38 @@ struct frame_interface *frame_interface_new(struct gl_renderer *renderer) {
         UNREACHABLE();
 #endif
     } else {
-        n_formats = 0;
-        formats = NULL;
+        // If EGL doesn't support querying the supported formats & modifiers for import,
+        // use a static list of formats that mostly work.
+        //
+        // This can happen on ARM Mali for example:
+        //   ===================================
+        //   EGL information:
+        //     version: "1.4 Midgard-"r18p0-01rel0""
+        //     vendor: "ARM"
+        //     client extensions: "EGL_EXT_client_extensions EGL_EXT_platform_base EGL_KHR_client_get_all_proc_addresses EGL_KHR_platform_gbm EGL_MESA_platform_gbm EGL_KHR_platform_wayland EGL_EXT_platform_wayland"
+        //     display extensions: "EGL_WL_bind_wayland_display EGL_KHR_partial_update EGL_KHR_image_pixmap EGL_EXT_image_dma_buf_import EGL_KHR_config_attribs EGL_KHR_image EGL_KHR_image_base EGL_KHR_fence_sync EGL_KHR_wait_sync EGL_KHR_gl_colorspace EGL_KHR_get_all_proc_addresses EGL_IMG_context_priority EGL_ARM_pixmap_multisample_discard EGL_ARM_implicit_external_sync EGL_KHR_gl_texture_2D_image EGL_KHR_gl_renderbuffer_image EGL_KHR_create_context EGL_KHR_surfaceless_context EGL_KHR_gl_texture_cubemap_image EGL_EXT_create_context_robustness"
+        //   ===================================
+        //   OpenGL ES 2.x information:
+        //     version: "OpenGL ES 3.2 v1.r18p0-01rel0.db8fd8841edf74cef96ef24ce665edac"
+        //     shading language version: "OpenGL ES GLSL ES 3.20"
+        //     vendor: "ARM"
+        //     renderer: "Mali-T860"
+        //   ===================================
+        //
+        /// TODO: For each format, try creating a GBM bo and importing, to see if it
+        ///  actually works.
+        static const struct egl_modified_format fallback_formats[] = {
+            {DRM_FORMAT_ARGB8888, DRM_FORMAT_MOD_INVALID, false},
+            {DRM_FORMAT_XRGB8888, DRM_FORMAT_MOD_INVALID, false},
+            {DRM_FORMAT_YUYV, DRM_FORMAT_MOD_INVALID, false},
+            {DRM_FORMAT_NV12, DRM_FORMAT_MOD_INVALID, false},
+            {DRM_FORMAT_YUV420, DRM_FORMAT_MOD_INVALID, false},
+            {DRM_FORMAT_YUV444, DRM_FORMAT_MOD_INVALID, false},
+            {DRM_FORMAT_XYUV8888, DRM_FORMAT_MOD_INVALID, false},
+        };
+
+        n_formats = ARRAY_SIZE(fallback_formats);
+        formats = memdup(fallback_formats, sizeof(fallback_formats));
     }
 
     interface->gbm_device = gbm_device;
