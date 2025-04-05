@@ -11,23 +11,18 @@ You can now **theoretically** run every flutter app you want using flutter-pi, i
 _The difference between packages and plugins is that packages don't include any native code, they are just pure Dart. Plugins (like the [shared_preferences plugin](https://github.com/flutter/plugins/tree/main/packages/shared_preferences)) include platform-specific code._
 
 ## 🖥️ Supported Platforms
-Flutter-Pi is routinely tested on multiple embedded platforms, including Raspberry Pi 4 & 5, Texas Instruments AM62 and a RISC-V Banana Pi BPI-F3.
-It should work fine on other linux platforms, granted that the following conditions are satisfied:
-
-- support for hardware 3D acceleration. more precisely support for kernel-modesetting (KMS) and the direct rendering infrastructure (DRI).
-  This excludes older devices like the [NXP i.MX6](https://www.nxp.com/products/processors-and-microcontrollers/arm-processors/i-mx-applications-processors/i-mx-6-processors:IMX6X_SERIES) (when not using etnaviv)
-- CPU architecture is one of ARMv7, ARMv8, x86 64bit or RISC-V.
-  This means flutter-pi won't work on a Pi Zero (only the first one) or Pi 1, which have ARMv6.
-
-Known working boards:
-
-- Pi 2, 3, 4, 5 (even the 512MB models)
-- Pi Zero 2 (W)
-- Texas Instruments AM62
-- NXP i.MX8
+Flutter-Pi is working on the following Boards & SoCs:
+- Raspberry Pi 2, 3, 4, 5 and Zero 2 (even the 512MB models)
+- Texas Instruments AM62, NXP i.MX8 (using yocto & [meta-flutter](https://github.com/meta-flutter/meta-flutter) or [buildroot](https://buildroot.org/))
 - Banana Pi BPI-F3
 
-If you encounter issues running flutter-pi on any of the supported platforms listed above and any other platforms too, please report them to me and I'll fix them.
+It should work fine on other linux platforms, granted that the following conditions are satisfied:
+- Support for hardware 3D acceleration. More precisely support for kernel-modesetting (KMS) and the direct rendering infrastructure (DRI).
+  - E.g. the [NXP i.MX6](https://www.nxp.com/products/processors-and-microcontrollers/arm-processors/i-mx-applications-processors/i-mx-6-processors:IMX6X_SERIES) will not work by default when using the proprietary Vivante driver, however it's very easy to just use [etnaviv](https://github.com/etnaviv/etna_viv) instead.
+- CPU architecture is ARMv7, ARMv8, x86 64bit or RISC-V. (Requirement of the Flutter Engine)
+  - This means flutter-pi won't work on a Pi Zero (only the first one) or Raspberry Pi 1, which have an ARMv6 core.
+
+If you encounter issues running flutter-pi on any platform that should be working, please report them to me and I'll fix them!
 
 ## 📑 Contents
 
@@ -51,7 +46,7 @@ If you encounter issues running flutter-pi on any of the supported platforms lis
 
 ### Dependencies
 
-1. Install cmake, graphics, system libraries and fonts:
+1. Install cmake, graphics & system libraries and fonts:
     ```shell
     sudo apt install cmake libgles-dev libegl-dev libdrm-dev libgbm-dev libsystemd-dev libinput-dev libudev-dev libxkbcommon-dev fontconfig fonts-liberation
     ```
@@ -93,23 +88,17 @@ If you encounter issues running flutter-pi on any of the supported platforms lis
     ```
 
 ## 🚀 Running your App on the Device
-1. If you're currently running a desktop environment, 
-1. Open raspi-config:
+1. Make sure you disabled your desktop environment:
     ```bash
-    sudo raspi-config
+    sudo systemctl set-default multi-user.target
     ```
-    
-2. Switch to console mode:
-   `System Options -> Boot / Auto Login` and select `Console` or `Console (Autologin)`.
+    (You can switch back to graphical using `sudo systemctl set-default graphical.target`
 
-5. Leave `raspi-config`.
-
-6. Give the `pi` permission to use 3D acceleration. (**NOTE:** potential security hazard. If you don't want to do this, launch `flutter-pi` using `sudo` instead.)
+2. Give the `pi` permission to use 3D acceleration. (**NOTE:** potential security hazard. If you don't want to do this, launch `flutter-pi` using `sudo` instead.)
     ```bash
     usermod -a -G render pi
     ```
-
-7. Finish and reboot.
+3. Finish and reboot.
 
 <details>
   <summary>More information</summary>
@@ -124,12 +113,12 @@ If you encounter issues running flutter-pi on any of the supported platforms lis
 The app can be built anywhere you want, e.g. Mac, Windows and Linux (arm32, arm64, x64, risc-v).
 
 _One-time setup:_
-1. Make sure you've installed the flutter SDK. Only flutter SDK >= 3.10.5 is supported for the new method at the moment.
+1. Make sure you've installed the Flutter SDK.
 2. Install the [flutterpi_tool](https://pub.dev/packages/flutterpi_tool):
    Run `flutter pub global activate flutterpi_tool` (One time only)
 3. If running `flutterpi_tool` directly doesn't work, follow https://dart.dev/tools/pub/cmd/pub-global#running-a-script-from-your-path
    to add the dart global bin directory to your path.
-4. If there are dependency conflicts when upgrading the Flutter SDK, first: try deactivating and then activating flutterpi_tool again:
+4. If there are dependency conflicts after upgrading the Flutter SDK, first: try deactivating and then activating flutterpi_tool again:
    ```
    flutter pub global deactivate flutterpi_tool
    flutter pub global activate flutterpi_tool
@@ -149,17 +138,12 @@ _Running an app_
 _Example:_
 1. We'll build the asset bundle for `flutter_gallery` and run it on a Raspberry Pi 4 called `my-pi` in this example.
 ```bash
-git clone https://github.com/flutter/gallery.git flutter_gallery
-cd flutter_gallery
-git checkout d77920b4ced4a105ad35659fbe3958800d418fb9
-
+git clone https://github.com/flutter/gallery.git flutter_gallery && cd flutter_gallery
 flutterpi_tool devices add pi@my-pi
 flutterpi_tool run -d my-pi
 ```
 
 2. On Raspberry Pi, run `` to install the runtime requirement of flutter_gallery. (otherwise it may [throw exception](https://github.com/flutter/gallery/issues/979#issuecomment-1693361972))
-
-3. Done. You can now run this app in release mode using `flutter-pi --release /home/pi/flutter_gallery`.
 
 ### Running your App with flutter-pi
 ```txt
@@ -271,7 +255,7 @@ Graphics performance is actually pretty good. With most of the apps inside the `
 ### Touchscreen Latency
 Due to the way the touchscreen driver works in raspbian, there's some delta between an actual touch of the touchscreen and a touch event arriving at userspace. The touchscreen driver in the raspbian kernel actually just repeatedly polls some buffer shared with the firmware running on the VideoCore, and the videocore repeatedly polls the touchscreen. (both at 60Hz) So on average, there's a delay of 17ms (minimum 0ms, maximum 34ms). Actually, the firmware is polling correctly at ~60Hz, but the linux driver is not because there's a bug. The linux side actually polls at 25Hz, which makes touch applications look terrible. (When you drag something in a touch application, but the application only gets new touch data at 25Hz, it'll look like the application itself is _redrawing_ at 25Hz, making it look very laggy) The github issue for this raspberry pi kernel bug is [here](https://github.com/raspberrypi/linux/issues/3777). Leave a like on the issue if you'd like to see this fixed in the kernel.
 
-This is why I created my own (userspace) touchscreen driver, for improved latency & polling rate. See [this repo](https://github.com/ardera/raspberrypi-fast-ts) for details. The driver is very easy to use and the difference is noticeable, flutter apps look and feel a lot better with this driver.
+If you're not shy of some experimentation, you can try using this old (userspace) touchscreen driver: https://github.com/ardera/raspberrypi-fast-ts. I created it a while ago to improve latency and polling rate, but it's a bit out of date now. The difference is noticeable though, flutter apps look and feel a lot better when using it.
 
 ## 📦 Useful Dart Packages
 
