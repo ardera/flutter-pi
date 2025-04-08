@@ -141,7 +141,7 @@ OPTIONS:\n\
                              without a display attached.\n\
   --dummy-display-size \"width,height\" The width & height of the dummy display\n\
                              in pixels.\n\
-  --drm-vout-display <drm-device>  The DRM display to use.\n\
+  --display <device>         The display to use.\n\
                              HDMI-A-1, HDMI-A-2, DSI-1, DSI-2.\n\
 \n\
   -h, --help                 Show this help and exit.\n\
@@ -1890,7 +1890,7 @@ bool flutterpi_parse_cmdline_args(int argc, char **argv, struct flutterpi_cmdlin
         { "videomode", required_argument, NULL, 'v' },
         { "dummy-display", no_argument, &dummy_display_int, 1 },
         { "dummy-display-size", required_argument, NULL, 's' },
-        { "drm-vout-display", required_argument, NULL, 'i' },
+        { "display", required_argument, NULL, 'i' },
         { 0, 0, 0, 0 },
     };
 
@@ -2012,13 +2012,13 @@ valid_format:
 
                 break;
 
-            case 'i':  // --drm-vout-display
+            case 'i':  // --display
                 result_out->drm_vout_display = strdup(optarg);
                 if (result_out->drm_vout_display == NULL) {
                     return false;
                 }
                 if (!is_valid_drm_display(result_out->drm_vout_display)) {
-                    LOG_ERROR("Invalid DRM display specified: %s. Valid options are HDMI-A-1, HDMI-A-2, DSI-1, DSI-2.\n", optarg);
+                    LOG_ERROR("Invalid display specified: %s. Valid options are HDMI-A-1, HDMI-A-2, DSI-1, DSI-2.\n", optarg);
                     return false;
                 }
                 break;
