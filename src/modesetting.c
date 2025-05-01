@@ -2990,3 +2990,16 @@ int kms_req_commit_blocking(struct kms_req *req, uint64_t *vblank_ns_out) {
 int kms_req_commit_nonblocking(struct kms_req *req, kms_scanout_cb_t scanout_cb, void *userdata, void_callback_t destroy_cb) {
     return kms_req_commit_common(req, false, scanout_cb, userdata, destroy_cb);
 }
+
+
+void kms_drm_setProperty(struct drmdev *drmdev, uint32_t propId, uint64_t value){
+    struct drm_connector *connectors =  drmdev->connectors;
+    size_t n_connectors = drmdev->n_connectors;
+    for (int i = 0; i < n_connectors; i++) {
+        if (
+        connectors->variable_state.connection_state == kConnected_DrmConnectionState ||
+        connectors->variable_state.connection_state == kUnknown_DrmConnectionState ){
+            drmModeObjectSetProperty(drmdev->fd, connectors->id, DRM_MODE_OBJECT_CONNECTOR, propId, value);
+        }
+    }
+}
