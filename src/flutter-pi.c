@@ -2861,7 +2861,6 @@ int flutterpi_app_main(int argc, char **argv) {
 
 
 uint32_t KMS_DRM_isAvailable() {
-    // if (plugin!= NULL && plugin->flutterpi->drmdev != NULL) {
     if (flutterpi->drmdev != NULL) {
         return 1;
     }
