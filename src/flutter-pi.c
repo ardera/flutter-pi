@@ -2860,17 +2860,17 @@ int flutterpi_app_main(int argc, char **argv) {
 
 
 
-uint32_t KMS_DRM_isAvailable() {
+uint32_t dpms_isAvailable() {
     if (flutterpi->drmdev != NULL) {
         return 1;
     }
     return 0;
 }
 
-void KMS_DRM_setProperty(uint32_t propId, uint64_t value) {
-    kms_drm_setProperty(flutterpi->drmdev, propId, value);
+void dpms_setProperty(uint64_t value) {
+    kms_dpms_setValue(flutterpi->drmdev,value);
 }
 
-uint64_t KMS_DRM_getProperty(uint32_t propId) {
-    return -1;
+uint64_t dpms_getProperty(){
+    return kms_dpms_getValue(flutterpi->drmdev);
 }

@@ -196,10 +196,10 @@ void flutterpi_trace_event_begin(struct flutterpi *flutterpi, const char *name);
 
 void flutterpi_trace_event_end(struct flutterpi *flutterpi, const char *name);
 
-uint32_t KMS_DRM_isAvailable();
+uint32_t dpms_isAvailable();
 
-void KMS_DRM_setProperty(uint32_t propId, uint64_t value) ;
+void dpms_setProperty(uint64_t value) ;
 
-uint64_t KMS_DRM_getProperty(uint32_t propId);
+uint64_t dpms_getProperty();
 
 #endif  // _FLUTTERPI_SRC_FLUTTERPI_H
