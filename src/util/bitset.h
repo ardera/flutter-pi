@@ -38,6 +38,8 @@
  * generic bitset implementation
  */
 
+#define BIT(x) (1u << (x))
+
 #define BITSET_WORD unsigned int
 #define BITSET_WORDBITS (sizeof(BITSET_WORD) * 8)
 

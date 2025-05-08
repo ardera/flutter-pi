@@ -40,6 +40,9 @@
 #include <stdint.h>
 #include <stdlib.h>
 
+#include "kms/resources.h"
+#include "kms/drmdev.h"
+#include "kms/req_builder.h"
 #include "compositor_ng.h"
 #include "surface.h"
 #include "surface_private.h"

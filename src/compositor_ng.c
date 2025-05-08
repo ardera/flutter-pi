@@ -27,7 +27,10 @@
 #include "dummy_render_surface.h"
 #include "flutter-pi.h"
 #include "frame_scheduler.h"
-#include "modesetting.h"
+#include "kms/drmdev.h"
+#include "kms/req_builder.h"
+#include "kms/resources.h"
+#include "kms/monitor.h"
 #include "notifier_listener.h"
 #include "pixel_format.h"
 #include "render_surface.h"
@@ -36,6 +39,8 @@
 #include "util/collection.h"
 #include "util/logging.h"
 #include "util/refcounting.h"
+#include "util/khash.h"
+#include "util/event_loop.h"
 #include "window.h"
 
 #include "config.h"
@@ -59,7 +64,7 @@
  * @brief A nicer, ref-counted version of the FlutterLayer's passed by the engine to the present layer callback.
  *
  * Differences to the FlutterLayer's passed to the present layer callback:
- *  - for platform views:
+ *  - for platform platform_views:
  *    - struct platform_view* object as the platform view instead of int64_t view id
  *    - position is given as a quadrilateral or axis-aligned rectangle instead of a bunch of (broken) transforms
  *    - same for clip rects
@@ -111,6 +116,9 @@ void fl_layer_composition_destroy(struct fl_layer_composition *composition) {
 
 DEFINE_REF_OPS(fl_layer_composition, n_refs)
 
+KHASH_MAP_INIT_INT64(view, struct window *)
+KHASH_MAP_INIT_INT64(platform_view, struct surface *)
+
 /**
  * @brief The flutter compositor. Responsible for taking the FlutterLayers, processing them into a struct fl_layer_composition*, then passing
  * those to the window so it can show it on screen.
@@ -124,16 +132,23 @@ struct compositor {
 
     struct tracer *tracer;
     struct window *main_window;
-    struct util_dynarray views;
+
+    int64_t next_view_id;
+    khash_t(view) *views;
+
+    int64_t next_platform_view_id;
+    khash_t(platform_view) *platform_views;
 
     FlutterCompositor flutter_compositor;
 
     struct vec2f cursor_pos;
-};
 
-struct platform_view_with_id {
-    int64_t id;
-    struct surface *surface;
+    struct drmdev *drmdev;
+    struct drm_monitor *monitor;
+    struct drm_resources *resources;
+
+    struct evloop *raster_loop;
+    struct evsrc *drm_monitor_evsrc;
 };
 
 static bool on_flutter_present_layers(const FlutterLayer **layers, size_t layers_count, void *userdata);
@@ -143,52 +158,147 @@ on_flutter_create_backing_store(const FlutterBackingStoreConfig *config, Flutter
 
 static bool on_flutter_collect_backing_store(const FlutterBackingStore *fl_store, void *userdata);
 
-MUST_CHECK struct compositor *compositor_new(struct tracer *tracer, struct window *main_window) {
-    struct compositor *compositor;
-    int ok;
+static bool on_flutter_present_view(const FlutterPresentViewInfo *present_info);
 
-    compositor = malloc(sizeof *compositor);
-    if (compositor == NULL) {
+static enum event_handler_return on_drm_monitor_ready(int fd, uint32_t events, void *userdata) {
+    struct compositor *compositor;
+
+    ASSERT_NOT_NULL(userdata);
+    (void) fd;
+    (void) events;
+    
+    compositor = userdata;
+
+    // This will in turn probobly call on_drm_uevent.
+    drm_monitor_dispatch(compositor->monitor);
+
+    return EVENT_HANDLER_CONTINUE;
+}
+
+static void on_drm_uevent(const struct drm_uevent *event, void *userdata) {
+    struct compositor *compositor;
+
+    ASSERT_NOT_NULL(event);
+    ASSERT_NOT_NULL(userdata);
+    compositor = userdata;
+
+    drm_resources_update(compositor->resources, drmdev_get_modesetting_fd(compositor->drmdev), event);
+    drm_resources_apply_rockchip_workaround(compositor->resources);
+
+    /// TODO: Check for added displays
+    UNIMPLEMENTED();
+}
+
+static const struct drm_uevent_listener uevent_listener = {
+    .on_uevent = on_drm_uevent,
+};
+
+MUST_CHECK struct compositor *compositor_new(struct tracer *tracer, struct evloop *raster_loop, struct window *main_window, struct udev *udev, struct drmdev *drmdev, struct drm_resources *resources) {
+    struct compositor *c;
+    int bucket_status;
+
+    ASSERT_NOT_NULL(tracer);
+    ASSERT_NOT_NULL(raster_loop);
+    ASSERT_NOT_NULL(main_window);
+    ASSERT_NOT_NULL(drmdev);
+
+    c = calloc(1, sizeof *c);
+    if (c == NULL) {
+        return NULL;
+    }
+
+    mutex_init(&c->mutex);
+    c->views = kh_init(view);
+    c->platform_views = kh_init(platform_view);
+
+    khiter_t entry = kh_put(view, c->views, 0, &bucket_status);
+    if (bucket_status == -1) {
         goto fail_return_null;
     }
 
-    ok = pthread_mutex_init(&compositor->mutex, NULL);
-    if (ok != 0) {
-        goto fail_free_compositor;
-    }
+    kh_value(c->views, entry) = window_ref(main_window);
 
-    util_dynarray_init(&compositor->views);
-
-    compositor->n_refs = REFCOUNT_INIT_1;
-    compositor->main_window = window_ref(main_window);
+    c->n_refs = REFCOUNT_INIT_1;
+    c->main_window = window_ref(main_window);
 
     // just so we get an error if the FlutterCompositor struct was updated
-    COMPILE_ASSERT(sizeof(FlutterCompositor) == 24 || sizeof(FlutterCompositor) == 48);
-    memset(&compositor->flutter_compositor, 0, sizeof(FlutterCompositor));
+    COMPILE_ASSERT(sizeof(FlutterCompositor) == 28 || sizeof(FlutterCompositor) == 56);
+    memset(&c->flutter_compositor, 0, sizeof(FlutterCompositor));
 
-    compositor->flutter_compositor.struct_size = sizeof(FlutterCompositor);
-    compositor->flutter_compositor.user_data = compositor;
-    compositor->flutter_compositor.create_backing_store_callback = on_flutter_create_backing_store;
-    compositor->flutter_compositor.collect_backing_store_callback = on_flutter_collect_backing_store;
-    compositor->flutter_compositor.present_layers_callback = on_flutter_present_layers;
-    compositor->flutter_compositor.avoid_backing_store_cache = true;
+    c->flutter_compositor.struct_size = sizeof(FlutterCompositor);
+    c->flutter_compositor.user_data = c;
+    c->flutter_compositor.create_backing_store_callback = on_flutter_create_backing_store;
+    c->flutter_compositor.collect_backing_store_callback = on_flutter_collect_backing_store;
+    c->flutter_compositor.present_layers_callback = NULL;
+    c->flutter_compositor.avoid_backing_store_cache = true;
+    c->flutter_compositor.present_view_callback = on_flutter_present_view;
 
-    compositor->tracer = tracer_ref(tracer);
-    compositor->cursor_pos = VEC2F(0, 0);
-    return compositor;
+    c->tracer = tracer_ref(tracer);
+    c->cursor_pos = VEC2F(0, 0);
+    
+    c->next_view_id = 1;
+    c->next_platform_view_id = 1;
 
-fail_free_compositor:
-    free(compositor);
+
+    c->raster_loop = evloop_ref(raster_loop);
+    c->drmdev = drmdev_ref(drmdev);
+
+    if (udev == NULL) {
+        udev = udev_new();
+        if (udev == NULL) {
+            LOG_ERROR("Couldn't create udev.\n");
+            goto fail_return_null;
+        }
+    } else {
+        udev_ref(udev);
+    }
+
+    c->monitor = drm_monitor_new(NULL, udev, &uevent_listener, c);
+
+    udev_unref(udev);
+
+    if (c->monitor == NULL) {
+        goto fail_return_null;
+    }
+
+    c->resources = resources != NULL ? drm_resources_ref(resources) : drmdev_query_resources(drmdev);
+
+    c->drm_monitor_evsrc = evloop_add_io(raster_loop, drm_monitor_get_fd(c->monitor), EPOLLIN, on_drm_monitor_ready, c);
+    return c;
 
 fail_return_null:
     return NULL;
 }
 
 void compositor_destroy(struct compositor *compositor) {
-    util_dynarray_foreach(&compositor->views, struct platform_view_with_id, view) {
-        surface_unref(view->surface);
+    struct window *window;
+    kh_foreach_value(compositor->views, window,
+        window_unref(window);
+    );
+
+    kh_destroy(view, compositor->views);
+
+    struct surface *surface;
+    kh_foreach_value(compositor->platform_views, surface,
+        surface_unref(surface);
+    )
+
+    kh_destroy(platform_view, compositor->platform_views);
+
+    if (compositor->drm_monitor_evsrc != NULL) {
+        evsrc_destroy(compositor->drm_monitor_evsrc);
     }
-    util_dynarray_fini(&compositor->views);
+    if (compositor->monitor != NULL) {
+        drm_monitor_destroy(compositor->monitor);
+    }
+    if (compositor->resources != NULL) {
+        drm_resources_unref(compositor->resources);
+    }
+    if (compositor->drmdev != NULL) {
+        drmdev_unref(compositor->drmdev);
+    }
+    evloop_unref(compositor->raster_loop);
+
     tracer_unref(compositor->tracer);
     window_unref(compositor->main_window);
     pthread_mutex_destroy(&compositor->mutex);
@@ -198,6 +308,42 @@ void compositor_destroy(struct compositor *compositor) {
 DEFINE_REF_OPS(compositor, n_refs)
 
 DEFINE_STATIC_LOCK_OPS(compositor, mutex)
+
+static struct surface *compositor_get_platform_view_by_id_locked(struct compositor *compositor, int64_t view_id) {
+    khiter_t entry = kh_get(platform_view, compositor->platform_views, view_id);
+    if (entry != kh_end(compositor->platform_views)) {
+        return surface_ref(kh_value(compositor->platform_views, entry));
+    }
+
+    return NULL;
+}
+
+static struct surface *compositor_get_platform_view_by_id(struct compositor *compositor, int64_t view_id) {
+    compositor_lock(compositor);
+    struct surface *surface = compositor_get_platform_view_by_id_locked(compositor, view_id);
+    compositor_unlock(compositor);
+
+    return surface;
+}
+
+static struct window *compositor_get_view_by_id_locked(struct compositor *compositor, int64_t view_id) {
+    struct window *window = NULL;
+
+    khiter_t entry = kh_get(view, compositor->views, view_id);
+    if (entry != kh_end(compositor->views)) {
+        window = window_ref(kh_value(compositor->views, entry));
+    }
+
+    return window;
+}
+
+static struct window *compositor_get_view_by_id(struct compositor *compositor, int64_t view_id) {
+    compositor_lock(compositor);
+    struct window *window = compositor_get_view_by_id_locked(compositor, view_id);
+    compositor_unlock(compositor);
+    
+    return window;
+}
 
 void compositor_get_view_geometry(struct compositor *compositor, struct view_geometry *view_geometry_out) {
     *view_geometry_out = window_get_view_geometry(compositor->main_window);
@@ -213,12 +359,25 @@ int compositor_get_next_vblank(struct compositor *compositor, uint64_t *next_vbl
     return window_get_next_vblank(compositor->main_window, next_vblank_ns_out);
 }
 
-static int compositor_push_composition(struct compositor *compositor, struct fl_layer_composition *composition) {
+static int compositor_push_composition(struct compositor *compositor, bool has_view_id, int64_t view_id, struct fl_layer_composition *composition) {
+    struct window *window;
     int ok;
 
+    if (has_view_id) {
+        window = compositor_get_view_by_id(compositor, view_id);
+        if (window == NULL) {
+            LOG_ERROR("Couldn't find window with id %" PRId64 " to push composition to.\n", view_id);
+            return EINVAL;
+        }
+    } else {
+        window = window_ref(compositor->main_window);
+    }
+
     TRACER_BEGIN(compositor->tracer, "window_push_composition");
-    ok = window_push_composition(compositor->main_window, composition);
+    ok = window_push_composition(window, composition);
     TRACER_END(compositor->tracer, "window_push_composition");
+
+    window_unref(window);
 
     return ok;
 }
@@ -308,16 +467,26 @@ static void fill_platform_view_layer_props(
     props_out->clip_rects = NULL;
 }
 
-static int compositor_push_fl_layers(struct compositor *compositor, size_t n_fl_layers, const FlutterLayer **fl_layers) {
+static int compositor_push_fl_layers(struct compositor *compositor, bool has_view_id, int64_t view_id, size_t n_fl_layers, const FlutterLayer **fl_layers) {
     struct fl_layer_composition *composition;
+    struct view_geometry geometry;
+    struct window *window;
     int ok;
+
+    window = has_view_id ? compositor_get_view_by_id(compositor, view_id) : window_ref(compositor->main_window);
+    if (window == NULL) {
+        LOG_ERROR("Couldn't find window with id %" PRId64 " to push flutter layers to.\n", view_id);
+        return EINVAL;
+    }
+
+    geometry = window_get_view_geometry(window);
+
+    window_unrefp(&window);
 
     composition = fl_layer_composition_new(n_fl_layers);
     if (composition == NULL) {
         return ENOMEM;
     }
-
-    compositor_lock(compositor);
 
     for (int i = 0; i < n_fl_layers; i++) {
         const FlutterLayer *fl_layer = fl_layers[i];
@@ -339,28 +508,16 @@ static int compositor_push_fl_layers(struct compositor *compositor, size_t n_fl_
             layer->props.n_clip_rects = 0;
             layer->props.clip_rects = NULL;
         } else {
-            ASSERT_EQUALS(fl_layer->type, kFlutterLayerContentTypePlatformView);
+            ASSUME(fl_layer->type == kFlutterLayerContentTypePlatformView);
 
-            /// TODO: Maybe always check if the ID is valid?
-#if DEBUG
-            // if we're in debug mode, we actually check if the ID is a valid,
-            // registered ID.
-            /// TODO: Implement
-            layer->surface = compositor_get_view_by_id_locked(compositor, fl_layer->platform_view->identifier);
+            layer->surface = compositor_get_platform_view_by_id(compositor, fl_layer->platform_view->identifier);
             if (layer->surface == NULL) {
-                layer->surface = CAST_SURFACE(
-                    dummy_render_surface_new(compositor->tracer, VEC2I((int) fl_layer->size.width, (int) fl_layer->size.height))
-                );
-            }
-#else
-            // in release mode, we just assume the id is valid.
-            // Since the surface constructs the ID by just casting the surface pointer to an int64_t,
-            // we can easily cast it back without too much trouble.
-            // Only problem is if the id is garbage, we won't notice and the returned surface is garbage too.
-            layer->surface = surface_ref(surface_from_id(fl_layer->platform_view->identifier));
-#endif
+                /// TODO: Just leave the layer away in this case.
+                LOG_ERROR("Invalid platform view id %" PRId64 " in flutter layer.\n", fl_layer->platform_view->identifier);
 
-            struct view_geometry geometry = window_get_view_geometry(compositor->main_window);
+                layer->surface =
+                    CAST_SURFACE(dummy_render_surface_new(compositor->tracer, VEC2I(fl_layer->size.width, fl_layer->size.height)));
+            }
 
             // The coordinates flutter gives us are a bit buggy, so calculating the right geometry is really a problem on its own
             /// TODO: Don't unconditionally take the geometry from the main window.
@@ -377,18 +534,16 @@ static int compositor_push_fl_layers(struct compositor *compositor, size_t n_fl_
         }
     }
 
-    compositor_unlock(compositor);
-
     TRACER_BEGIN(compositor->tracer, "compositor_push_composition");
-    ok = compositor_push_composition(compositor, composition);
+    ok = compositor_push_composition(compositor, has_view_id, view_id, composition);
     TRACER_END(compositor->tracer, "compositor_push_composition");
 
     fl_layer_composition_unref(composition);
-
     return ok;
 }
 
-static bool on_flutter_present_layers(const FlutterLayer **layers, size_t layers_count, void *userdata) {
+/// TODO: Remove
+UNUSED static bool on_flutter_present_layers(const FlutterLayer **layers, size_t layers_count, void *userdata) {
     struct compositor *compositor;
     int ok;
 
@@ -398,7 +553,7 @@ static bool on_flutter_present_layers(const FlutterLayer **layers, size_t layers
     compositor = userdata;
 
     TRACER_BEGIN(compositor->tracer, "compositor_push_fl_layers");
-    ok = compositor_push_fl_layers(compositor, layers_count, layers);
+    ok = compositor_push_fl_layers(compositor, false, -1, layers_count, layers);
     TRACER_END(compositor->tracer, "compositor_push_fl_layers");
 
     if (ok != 0) {
@@ -408,59 +563,61 @@ static bool on_flutter_present_layers(const FlutterLayer **layers, size_t layers
     return true;
 }
 
-ATTR_PURE static bool platform_view_with_id_equal(const struct platform_view_with_id lhs, const struct platform_view_with_id rhs) {
-    return lhs.id == rhs.id;
+static bool on_flutter_present_view(const FlutterPresentViewInfo *present_info) {
+    struct compositor *compositor;
+    int ok;
+
+    ASSERT_NOT_NULL(present_info);
+    compositor = present_info->user_data;
+
+    TRACER_BEGIN(compositor->tracer, "compositor_push_fl_layers");
+    ok = compositor_push_fl_layers(compositor, true, present_info->view_id, present_info->layers_count, present_info->layers);
+    TRACER_END(compositor->tracer, "compositor_push_fl_layers");
+
+    if (ok != 0) {
+        return false;
+    }
+
+    return true;
 }
 
-int compositor_set_platform_view(struct compositor *compositor, int64_t id, struct surface *surface) {
-    struct platform_view_with_id *view;
+int compositor_add_platform_view(struct compositor *compositor, struct surface *surface) {
+    khiter_t entry;
+    int bucket_status;
 
     ASSERT_NOT_NULL(compositor);
-    assert(id != 0);
     ASSERT_NOT_NULL(surface);
 
     compositor_lock(compositor);
 
-    view = NULL;
-    util_dynarray_foreach(&compositor->views, struct platform_view_with_id, view_iter) {
-        if (view_iter->id == id) {
-            view = view_iter;
-            break;
-        }
+    int64_t id = compositor->next_platform_view_id++;
+
+    entry = kh_put(platform_view, compositor->platform_views, id, &bucket_status);
+    if (bucket_status == -1) {
+        compositor_unlock(compositor);
+        return ENOMEM;
     }
 
-    if (view == NULL) {
-        if (surface != NULL) {
-            struct platform_view_with_id v = {
-                .id = id,
-                .surface = surface_ref(surface),
-            };
-
-            util_dynarray_append(&compositor->views, struct platform_view_with_id, v);
-        }
-    } else {
-        ASSERT_NOT_NULL(view->surface);
-        if (surface == NULL) {
-            util_dynarray_delete_unordered_ext(&compositor->views, struct platform_view_with_id, *view, platform_view_with_id_equal);
-            surface_unref(view->surface);
-            free(view);
-        } else {
-            surface_swap_ptrs(&view->surface, surface);
-        }
-    }
+    kh_value(compositor->platform_views, entry) = surface_ref(surface);
 
     compositor_unlock(compositor);
     return 0;
 }
 
-struct surface *compositor_get_view_by_id_locked(struct compositor *compositor, int64_t view_id) {
-    util_dynarray_foreach(&compositor->views, struct platform_view_with_id, view) {
-        if (view->id == view_id) {
-            return view->surface;
-        }
+void compositor_remove_platform_view(struct compositor *compositor, int64_t id) {
+    khiter_t entry;
+
+    ASSERT_NOT_NULL(compositor);
+
+    compositor_lock(compositor);
+
+    entry = kh_get(platform_view, compositor->platform_views, id);
+    if (entry != kh_end(compositor->platform_views)) {
+        surface_unref(kh_value(compositor->platform_views, entry));
+        kh_del(platform_view, compositor->platform_views, entry);
     }
 
-    return NULL;
+    compositor_unlock(compositor);
 }
 
 #ifdef HAVE_EGL_GLES2
@@ -477,6 +634,7 @@ static bool
 on_flutter_create_backing_store(const FlutterBackingStoreConfig *config, FlutterBackingStore *backing_store_out, void *userdata) {
     struct render_surface *s;
     struct compositor *compositor;
+    struct window *window;
     int ok;
 
     ASSERT_NOT_NULL(config);
@@ -484,11 +642,17 @@ on_flutter_create_backing_store(const FlutterBackingStoreConfig *config, Flutter
     ASSERT_NOT_NULL(userdata);
     compositor = userdata;
 
+    window = compositor_get_view_by_id(compositor, config->view_id);
+    if (window == NULL) {
+        LOG_ERROR("Couldn't find window with id %" PRId64 " to create backing store for.\n", config->view_id);
+        return false;
+    }
+
     // this will not increase the refcount on the surface.
-    s = window_get_render_surface(compositor->main_window, VEC2I((int) config->size.width, (int) config->size.height));
+    s = window_get_render_surface(window, VEC2I((int) config->size.width, (int) config->size.height));
     if (s == NULL) {
         LOG_ERROR("Couldn't create render surface for flutter to render into.\n");
-        return false;
+        goto fail_unref_window;
     }
 
     COMPILE_ASSERT(sizeof(FlutterBackingStore) == 56 || sizeof(FlutterBackingStore) == 80);
@@ -504,13 +668,17 @@ on_flutter_create_backing_store(const FlutterBackingStoreConfig *config, Flutter
     ok = render_surface_fill(s, backing_store_out);
     if (ok != 0) {
         LOG_ERROR("Couldn't fill flutter backing store with concrete OpenGL framebuffer/texture or Vulkan image.\n");
-        return false;
+        goto fail_unref_window;
     }
 
     // now we can set the user_data.
     backing_store_out->user_data = s;
-
+    window_unref(window);
     return true;
+
+fail_unref_window:
+    window_unref(window);
+    return false;
 }
 
 static bool on_flutter_collect_backing_store(const FlutterBackingStore *fl_store, void *userdata) {
@@ -577,4 +745,223 @@ void compositor_set_cursor(
     );
 
     compositor_unlock(compositor);
+}
+
+static bool call_display_callback_with_drm_connector(display_callback_t callback, const struct drm_connector *connector, void *userdata) {
+    (void) callback;
+    (void) connector;
+    (void) userdata;
+    
+    /// TODO: Implement
+    UNIMPLEMENTED();
+}
+
+static bool call_connector_callback_with_drm_connector(connector_callback_t callback, const struct drm_connector *connector, void *userdata) {
+    struct connector conn = {
+        .id = NULL,
+        .type = CONNECTOR_TYPE_OTHER,
+        .other_type_name = NULL,
+    };
+
+    switch (connector->type) {
+        case DRM_MODE_CONNECTOR_Unknown:
+            conn.id = alloca_sprintf("Unknown-%" PRIu32, connector->type_id);
+            conn.type = CONNECTOR_TYPE_OTHER;
+            conn.other_type_name = "Unknown";
+            break;
+        case DRM_MODE_CONNECTOR_VGA:
+            conn.id = alloca_sprintf("VGA-%" PRIu32, connector->type_id);
+            conn.type = CONNECTOR_TYPE_VGA;
+            break;
+        case DRM_MODE_CONNECTOR_DVII:
+            conn.id = alloca_sprintf("DVI-I-%" PRIu32, connector->type_id);
+            conn.type = CONNECTOR_TYPE_DVI;
+            break;
+        case DRM_MODE_CONNECTOR_DVID:
+            conn.id = alloca_sprintf("DVI-D-%" PRIu32, connector->type_id);
+            conn.type = CONNECTOR_TYPE_DVI;
+            break;
+        case DRM_MODE_CONNECTOR_DVIA:
+            conn.id = alloca_sprintf("DVI-A-%" PRIu32, connector->type_id);
+            conn.type = CONNECTOR_TYPE_DVI;
+            break;
+        case DRM_MODE_CONNECTOR_Composite:
+            conn.id = alloca_sprintf("Composite-%" PRIu32, connector->type_id);
+            conn.type = CONNECTOR_TYPE_OTHER;
+            conn.other_type_name = "Composite";
+            break;
+        case DRM_MODE_CONNECTOR_SVIDEO:
+            conn.id = alloca_sprintf("SVIDEO-%" PRIu32, connector->type_id);
+            conn.type = CONNECTOR_TYPE_OTHER;
+            conn.other_type_name = "SVIDEO";
+            break;
+        case DRM_MODE_CONNECTOR_LVDS:
+            conn.id = alloca_sprintf("LVDS-%" PRIu32, connector->type_id);
+            conn.type = CONNECTOR_TYPE_LVDS;
+            break;
+        case DRM_MODE_CONNECTOR_Component:
+            conn.id = alloca_sprintf("Component-%" PRIu32, connector->type_id);
+            conn.type = CONNECTOR_TYPE_OTHER;
+            conn.other_type_name = "Component";
+            break;
+        case DRM_MODE_CONNECTOR_9PinDIN:
+            conn.id = alloca_sprintf("DIN-%" PRIu32, connector->type_id);
+            conn.type = CONNECTOR_TYPE_OTHER;
+            conn.other_type_name = "DIN";
+            break;
+        case DRM_MODE_CONNECTOR_DisplayPort:
+            conn.id = alloca_sprintf("DP-%" PRIu32, connector->type_id);
+            conn.type = CONNECTOR_TYPE_DISPLAY_PORT;
+            break;
+        case DRM_MODE_CONNECTOR_HDMIA:
+            conn.id = alloca_sprintf("HDMI-A-%" PRIu32, connector->type_id);
+            conn.type = CONNECTOR_TYPE_HDMI;
+            break;
+        case DRM_MODE_CONNECTOR_HDMIB:
+            conn.id = alloca_sprintf("HDMI-B-%" PRIu32, connector->type_id);
+            conn.type = CONNECTOR_TYPE_HDMI;
+            break;
+        case DRM_MODE_CONNECTOR_TV:
+            conn.id = alloca_sprintf("TV-%" PRIu32, connector->type_id);
+            conn.type = CONNECTOR_TYPE_TV;
+            break;
+        case DRM_MODE_CONNECTOR_eDP:
+            conn.id = alloca_sprintf("eDP-%" PRIu32, connector->type_id);
+            conn.type = CONNECTOR_TYPE_EDP;
+            break;
+        case DRM_MODE_CONNECTOR_VIRTUAL:
+            conn.id = alloca_sprintf("Virtual-%" PRIu32, connector->type_id);
+            conn.type = CONNECTOR_TYPE_OTHER;
+            conn.other_type_name = "Virtual";
+            break;
+        case DRM_MODE_CONNECTOR_DSI:
+            conn.id = alloca_sprintf("DSI-%" PRIu32, connector->type_id);
+            conn.type = CONNECTOR_TYPE_DSI;
+            break;
+        case DRM_MODE_CONNECTOR_DPI:
+            conn.id = alloca_sprintf("DPI-%" PRIu32, connector->type_id);
+            conn.type = CONNECTOR_TYPE_DPI;
+            break;
+        case DRM_MODE_CONNECTOR_WRITEBACK:
+            return true;
+        case DRM_MODE_CONNECTOR_SPI:
+            conn.id = alloca_sprintf("SPI-%" PRIu32, connector->type_id);
+            conn.type = CONNECTOR_TYPE_OTHER;
+            conn.other_type_name = "SPI";
+            break;
+        case DRM_MODE_CONNECTOR_USB:
+            conn.id = alloca_sprintf("USB-%" PRIu32, connector->type_id);
+            conn.type = CONNECTOR_TYPE_OTHER;
+            conn.other_type_name = "USB";
+            break;
+        default:
+            return true;
+    }
+
+    return callback(&conn, userdata);
+}
+
+int64_t compositor_add_view(
+    struct compositor *compositor,
+    struct window *window
+) {
+    ASSERT_NOT_NULL(compositor);
+    ASSERT_NOT_NULL(window);
+    int64_t view_id;
+
+    compositor_lock(compositor);
+
+    view_id = compositor->next_view_id++;
+
+    khiter_t entry = kh_put(view, compositor->views, view_id, NULL);
+    kh_val(compositor->views, entry) = window_ref(window);
+
+    compositor_unlock(compositor);
+
+    return view_id;
+}
+
+void compositor_remove_view(
+    struct compositor *compositor,
+    int64_t view_id
+) {
+    ASSERT_NOT_NULL(compositor);
+    ASSERT(view_id != 0);
+
+    compositor_lock(compositor);
+
+    khiter_t entry = kh_get(view, compositor->views, view_id);
+    if (entry != kh_end(compositor->views)) {
+        window_unref(kh_val(compositor->views, entry));
+        kh_del(view, compositor->views, entry);
+    }
+
+    compositor_unlock(compositor);
+}
+
+int compositor_put_implicit_view(
+    struct compositor *compositor,
+    struct window *window
+) {
+    int bucket_status;
+
+    ASSERT_NOT_NULL(compositor);
+    ASSERT_NOT_NULL(window);
+
+    compositor_lock(compositor);
+
+    khiter_t entry = kh_put(view, compositor->views, 0, &bucket_status);
+    if (bucket_status == -1) {
+        compositor_unlock(compositor);
+        return ENOMEM;
+    }
+
+    if (bucket_status == 0) {
+        window_swap_ptrs(&kh_val(compositor->views, entry), window);
+    } else {
+        kh_val(compositor->views, entry) = window_ref(window);
+    }
+
+    compositor_unlock(compositor);
+
+    return 0;
+}
+
+void compositor_for_each_display(
+    struct compositor *compositor,
+    display_callback_t callback,
+    void *userdata
+) {
+    struct drm_connector *connector;
+
+    (void) compositor;
+    (void) callback;
+    (void) userdata;
+    (void) connector;
+
+    /// TODO: Implement
+    UNIMPLEMENTED();
+
+    /// TODO: drm_resources is not mt-safe, but compositor_for_each_connector might not be called on the raster thread
+    ///   (which uses drm_resources)
+
+    drm_resources_for_each_connector(compositor->resources, connector) {
+        if (!call_display_callback_with_drm_connector(callback, connector, userdata)) {
+            break;
+        }
+    }
+}
+ 
+void compositor_for_each_connector(
+    struct compositor *compositor,
+    connector_callback_t callback,
+    void *userdata
+) {
+    /// TODO: drm_resources is not mt-safe, but compositor_for_each_connector might not be called on the raster thread
+    ///   (which uses drm_resources)
+    drm_resources_for_each_connector(compositor->resources, connector) {
+        if (!call_connector_callback_with_drm_connector(callback, connector, userdata)) {
+            break;
+        }
+    }
 }

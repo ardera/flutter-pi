@@ -523,34 +523,6 @@ static inline uint64_t u_uintN_max(unsigned bit_size) {
     #endif
 #endif
 
-/* Macros for static type-safety checking.
- *
- * https://clang.llvm.org/docs/ThreadSafetyAnalysis.html
- */
-
-#if __has_attribute(capability)
-typedef int __attribute__((capability("mutex"))) lock_cap_t;
-
-    #define GUARDED_BY(l) __attribute__((guarded_by(l)))
-    #define ACQUIRE_CAP(l) __attribute((acquire_capability(l), no_thread_safety_analysis))
-    #define RELEASE_CAP(l) __attribute((release_capability(l), no_thread_safety_analysis))
-    #define ASSERT_CAP(l) __attribute((assert_capability(l), no_thread_safety_analysis))
-    #define REQUIRES_CAP(l) __attribute((requires_capability(l)))
-    #define DISABLE_THREAD_SAFETY_ANALYSIS __attribute((no_thread_safety_analysis))
-
-#else
-
-typedef int lock_cap_t;
-
-    #define GUARDED_BY(l)
-    #define ACQUIRE_CAP(l)
-    #define RELEASE_CAP(l)
-    #define ASSERT_CAP(l)
-    #define REQUIRES_CAP(l)
-    #define DISABLE_THREAD_SAFETY_ANALYSIS
-
-#endif
-
 #define DO_PRAGMA(X) _Pragma(#X)
 
 #if defined(__clang__)

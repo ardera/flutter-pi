@@ -16,7 +16,9 @@
 #include "egl.h"
 #include "gl_renderer.h"
 #include "gles.h"
-#include "modesetting.h"
+#include "kms/drmdev.h"
+#include "kms/req_builder.h"
+#include "kms/resources.h"
 #include "pixel_format.h"
 #include "render_surface.h"
 #include "render_surface_private.h"
@@ -428,7 +430,7 @@ static int egl_gbm_render_surface_present_kms(struct surface *s, const struct fl
         struct drm_crtc *crtc = kms_req_builder_get_crtc(builder);
         ASSERT_NOT_NULL(crtc);
 
-        if (drm_crtc_any_plane_supports_format(meta->drmdev, crtc, egl_surface->pixel_format)) {
+        if (drm_resources_any_crtc_plane_supports_format(kms_req_builder_peek_resources(builder), crtc->id, egl_surface->pixel_format)) {
             TRACER_BEGIN(egl_surface->surface.tracer, "drmdev_add_fb (non-opaque)");
             uint32_t fb_id = drmdev_add_fb_from_gbm_bo(
                 meta->drmdev,
@@ -453,9 +455,10 @@ static int egl_gbm_render_surface_present_kms(struct surface *s, const struct fl
         // if this EGL surface is non-opaque and has an opaque equivalent
         if (!get_pixfmt_info(egl_surface->pixel_format)->is_opaque &&
             pixfmt_opaque(egl_surface->pixel_format) != egl_surface->pixel_format &&
-            drm_crtc_any_plane_supports_format(meta->drmdev, crtc, pixfmt_opaque(egl_surface->pixel_format))) {
-            uint32_t opaque_fb_id = drmdev_add_fb_from_gbm_bo(
-                meta->drmdev,
+            drm_resources_any_crtc_plane_supports_format(kms_req_builder_peek_resources(builder), crtc->id, pixfmt_opaque(egl_surface->pixel_format))) {
+
+            opaque_fb_id = drmdev_add_fb_from_gbm_bo(
+                drmdev,
                 bo,
                 /* cast_opaque */ true
             );
