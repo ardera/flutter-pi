@@ -1,237 +1,903 @@
 #define _GNU_SOURCE
 
+#include <stdbool.h>
+#include <stdio.h>
+#include <stdlib.h>
+
+#include "flutter_embedder.h"
+#include "util/asserts.h"
+#include "util/macros.h"
+
 #include "flutter-pi.h"
 #include "platformchannel.h"
 #include "pluginregistry.h"
-#include "plugins/audioplayers.h"
+#include "notifier_listener.h"
+
 #include "util/collection.h"
 #include "util/list.h"
 #include "util/logging.h"
+#include "util/khash.h"
+
+#include "plugins/gstreamer_video_player.h"
 
 #define AUDIOPLAYERS_LOCAL_CHANNEL "xyz.luan/audioplayers"
 #define AUDIOPLAYERS_GLOBAL_CHANNEL "xyz.luan/audioplayers.global"
 
-static struct audio_player *audioplayers_linux_plugin_get_player(char *player_id, char *mode);
-static void audioplayers_linux_plugin_dispose_player(struct audio_player *player);
+#define STR_LINK_TROUBLESHOOTING \
+  "https://github.com/bluefireteam/audioplayers/blob/main/troubleshooting.md"
 
-struct audio_player_entry {
-    struct list_head entry;
-    struct audio_player *player;
+KHASH_MAP_INIT_STR(audioplayers, struct gstplayer *)
+
+struct audioplayer_meta {
+    char *id;
+    char *event_channel;
+    bool subscribed;
+    bool release_on_stop;
+
+    struct listener *duration_listener;
+    struct listener *eos_listener;
 };
 
-static struct plugin {
+struct plugin {
     struct flutterpi *flutterpi;
     bool initialized;
 
-    struct list_head players;
-} plugin;
+    khash_t(audioplayers) players;
+};
 
-static int on_local_method_call(char *channel, struct platch_obj *object, FlutterPlatformMessageResponseHandle *responsehandle) {
-    struct audio_player *player;
-    struct std_value *args, *tmp;
-    const char *method;
-    char *player_id, *mode;
-    struct std_value result = STDNULL;
-    int ok;
+static void on_receive_event_ch(void *userdata, const FlutterPlatformMessage *message);
 
-    (void) responsehandle;
-    (void) channel;
-    method = object->method;
-    args = &object->std_arg;
+static void respond_plugin_error_ext(const FlutterPlatformMessageResponseHandle *response_handle, const char *message, struct std_value *details) {
+    platch_respond_error_std(response_handle, "LinuxAudioError", (char*) message, details);
+}
 
-    LOG_DEBUG("call(method=%s)\n", method);
+static void respond_plugin_error(const FlutterPlatformMessageResponseHandle *response_handle, const char *message) {
+    respond_plugin_error_ext(response_handle, message, NULL);
+}
 
-    if (args == NULL || !STDVALUE_IS_MAP(*args)) {
-        return platch_respond_illegal_arg_std(responsehandle, "Expected `arg` to be a map.");
+static bool ensure_gstreamer_initialized(struct plugin *plugin, const FlutterPlatformMessageResponseHandle *responsehandle) {
+    if (plugin->initialized) {
+        return true;
     }
 
-    tmp = stdmap_get_str(&object->std_arg, "playerId");
-    if (tmp == NULL || !STDVALUE_IS_STRING(*tmp)) {
-        LOG_ERROR("Call missing mandatory parameter player_id.\n");
-        return platch_respond_illegal_arg_std(responsehandle, "Expected `arg['playerId'] to be a string.");
-    }
-    player_id = STDVALUE_AS_STRING(*tmp);
-    tmp = stdmap_get_str(args, "mode");
-    if (tmp == NULL) {
-        mode = "";
-    } else if (STDVALUE_IS_STRING(*tmp)) {
-        mode = STDVALUE_AS_STRING(*tmp);
-    } else {
-        return platch_respond_illegal_arg_std(responsehandle, "Expected `arg['mode']` to be a string or null.");
+    GError *error;
+    gboolean success = gst_init_check(NULL, NULL, &error);
+    if (success) {
+        plugin->initialized = true;
+        return true;
     }
 
-    player = audioplayers_linux_plugin_get_player(player_id, mode);
+    char *details = NULL;
+    int status = asprintf(&details, "%s (Domain: %s, Code: %d)", error->message, g_quark_to_string(error->domain), error->code);
+    if (status == -1) {
+        // ENOMEM;
+        return false;
+    }
+
+    // clang-format off
+    respond_plugin_error_ext(
+        responsehandle,
+        "Failed to initialize gstreamer.",
+        &STDSTRING(details)
+    );
+    // clang-format on
+
+    free(details);
+
+    return false;
+}
+
+static struct gstplayer *get_player_by_id(struct plugin *plugin, const char *id) {
+    khint_t index = kh_get_audioplayers(&plugin->players, id);
+    if (index == kh_end(&plugin->players)) {
+        return NULL;
+    }
+
+    return kh_value(&plugin->players, index);
+}
+
+static const struct raw_std_value *get_player_id_from_arg(const struct raw_std_value *arg, const FlutterPlatformMessageResponseHandle *responsehandle) {
+    if (!raw_std_value_is_map(arg)) {
+        platch_respond_illegal_arg_std(responsehandle, "Expected `arg` to be a map.");
+        return NULL;
+    }
+
+    const struct raw_std_value *player_id = raw_std_map_find_str(arg, "playerId");
+    if (player_id == NULL || !raw_std_value_is_string(player_id)) {
+        platch_respond_illegal_arg_std(responsehandle, "Expected `arg['playerId']` to be a string.");
+        return NULL;
+    }
+
+    return player_id;
+}
+
+static struct gstplayer *get_player_from_arg(struct plugin *plugin, const struct raw_std_value *arg, const FlutterPlatformMessageResponseHandle *responsehandle) {
+    const struct raw_std_value *id = get_player_id_from_arg(arg, responsehandle);
+    if (id == NULL) {
+        return NULL;
+    }
+
+    char *id_duped = raw_std_string_dup(id);
+    if (id_duped == NULL) {
+        return NULL;
+    }
+
+    struct gstplayer *player = get_player_by_id(plugin, id_duped);
+
+    free(id_duped);
+
     if (player == NULL) {
-        return platch_respond_native_error_std(responsehandle, ENOMEM);
+        platch_respond_illegal_arg_std(responsehandle, "Expected `arg['playerId']` to be a valid player id.");
+        return NULL;
     }
 
-    if (streq(method, "create")) {
-        //audioplayers_linux_plugin_get_player() creates player if it doesn't exist
-    } else if (streq(method, "pause")) {
-        audio_player_pause(player);
-    } else if (streq(method, "resume")) {
-        audio_player_resume(player);
-    } else if (streq(method, "stop")) {
-        audio_player_pause(player);
-        audio_player_set_position(player, 0);
-    } else if (streq(method, "release")) {
-        audio_player_release(player);
-    } else if (streq(method, "seek")) {
-        tmp = stdmap_get_str(args, "position");
-        if (tmp == NULL || !STDVALUE_IS_INT(*tmp)) {
-            return platch_respond_illegal_arg_std(responsehandle, "Expected `arg['position']` to be an int.");
-        }
-
-        int64_t position = STDVALUE_AS_INT(*tmp);
-        audio_player_set_position(player, position);
-    } else if (streq(method, "setSourceUrl")) {
-        tmp = stdmap_get_str(args, "url");
-        if (tmp == NULL || !STDVALUE_IS_STRING(*tmp)) {
-            return platch_respond_illegal_arg_std(responsehandle, "Expected `arg['url']` to be a string.");
-        }
-        char *url = STDVALUE_AS_STRING(*tmp);
-
-        tmp = stdmap_get_str(args, "isLocal");
-        if (tmp == NULL || !STDVALUE_IS_BOOL(*tmp)) {
-            return platch_respond_illegal_arg_std(responsehandle, "Expected `arg['isLocal']` to be a bool.");
-        }
-
-        bool is_local = STDVALUE_AS_BOOL(*tmp);
-        if (is_local) {
-            char *local_url = NULL;
-            ok = asprintf(&local_url, "file://%s", url);
-            if (ok < 0) {
-                return platch_respond_native_error_std(responsehandle, ENOMEM);
-            }
-            url = local_url;
-        }
-
-        audio_player_set_source_url(player, url);
-    } else if (streq(method, "getDuration")) {
-        result = STDINT64(audio_player_get_duration(player));
-    } else if (streq(method, "setVolume")) {
-        tmp = stdmap_get_str(args, "volume");
-        if (tmp != NULL && STDVALUE_IS_FLOAT(*tmp)) {
-            audio_player_set_volume(player, STDVALUE_AS_FLOAT(*tmp));
-        } else {
-            return platch_respond_illegal_arg_std(responsehandle, "Expected `arg['volume']` to be a float.");
-        }
-    } else if (streq(method, "getCurrentPosition")) {
-        result = STDINT64(audio_player_get_position(player));
-    } else if (streq(method, "setPlaybackRate")) {
-        tmp = stdmap_get_str(args, "playbackRate");
-        if (tmp != NULL && STDVALUE_IS_FLOAT(*tmp)) {
-            audio_player_set_playback_rate(player, STDVALUE_AS_FLOAT(*tmp));
-        } else {
-            return platch_respond_illegal_arg_std(responsehandle, "Expected `arg['playbackRate']` to be a float.");
-        }
-    } else if (streq(method, "setReleaseMode")) {
-        tmp = stdmap_get_str(args, "releaseMode");
-        if (tmp != NULL && STDVALUE_IS_STRING(*tmp)) {
-            char *release_mode = STDVALUE_AS_STRING(*tmp);
-            bool looping = strstr(release_mode, "loop") != NULL;
-            audio_player_set_looping(player, looping);
-        } else {
-            return platch_respond_illegal_arg_std(responsehandle, "Expected `arg['releaseMode']` to be a string.");
-        }
-    } else if (streq(method, "setPlayerMode")) {
-        // TODO check support for low latency mode:
-        // https://gstreamer.freedesktop.org/documentation/additional/design/latency.html?gi-language=c
-    } else if (strcmp(method, "setBalance") == 0) {
-        tmp = stdmap_get_str(args, "balance");
-        if (tmp != NULL && STDVALUE_IS_FLOAT(*tmp)) {
-            audio_player_set_balance(player, STDVALUE_AS_FLOAT(*tmp));
-        } else {
-            return platch_respond_illegal_arg_std(responsehandle, "Expected `arg['balance']` to be a float.");
-        }
-    } else if (strcmp(method, "emitLog") == 0) {
-        tmp = stdmap_get_str(args, "message");
-        char *message;
-
-        if (tmp == NULL) {
-            message = "";
-        } else if (STDVALUE_IS_STRING(*tmp)) {
-            message = STDVALUE_AS_STRING(*tmp);
-        } else {
-            return platch_respond_illegal_arg_std(responsehandle, "Expected `arg['message']` to be a string.");
-        }
-
-        // Avoid unused variable compile message if debugging is disabled.
-        (void) message;
-
-        LOG_DEBUG("%s\n", message);
-        //TODO: https://github.com/bluefireteam/audioplayers/blob/main/packages/audioplayers_linux/linux/audio_player.cc#L247
-    } else if (strcmp(method, "emitError") == 0) {
-        tmp = stdmap_get_str(args, "code");
-        char *code;
-
-        if (tmp == NULL) {
-            code = "";
-        } else if (STDVALUE_IS_STRING(*tmp)) {
-            code = STDVALUE_AS_STRING(*tmp);
-        } else {
-            return platch_respond_illegal_arg_std(responsehandle, "Expected `arg['code']` to be a string.");
-        }
-
-        tmp = stdmap_get_str(args, "message");
-        char *message;
-
-        if (tmp == NULL) {
-            message = "";
-        } else if (STDVALUE_IS_STRING(*tmp)) {
-            message = STDVALUE_AS_STRING(*tmp);
-        } else {
-            return platch_respond_illegal_arg_std(responsehandle, "Expected `arg['message']` to be a string.");
-        }
-
-        LOG_ERROR("Error: %s; message=%s\n", code, message);
-        //TODO: https://github.com/bluefireteam/audioplayers/blob/main/packages/audioplayers_linux/linux/audio_player.cc#L144
-    } else if (strcmp(method, "dispose") == 0) {
-        audioplayers_linux_plugin_dispose_player(player);
-        player = NULL;
-    } else {
-        return platch_respond_not_implemented(responsehandle);
-    }
-
-    return platch_respond_success_std(responsehandle, &result);
+    return player;
 }
 
-static int on_global_method_call(char *channel, struct platch_obj *object, FlutterPlatformMessageResponseHandle *responsehandle) {
-    (void) responsehandle;
-    (void) channel;
-    (void) object;
-
-    return platch_respond_success_std(responsehandle, &STDBOOL(true));
-}
-
-static int on_receive_event_ch(char *channel, struct platch_obj *object, FlutterPlatformMessageResponseHandle *responsehandle) {
-    if (strcmp(object->method, "listen") == 0) {
-        LOG_DEBUG("%s: listen()\n", channel);
-
-        list_for_each_entry_safe(struct audio_player_entry, entry, &plugin.players, entry) {
-            if (audio_player_set_subscription_status(entry->player, channel, true)) {
-                return platch_respond_success_std(responsehandle, NULL);
-            }
-        }
-
-        LOG_ERROR("%s: player not found\n", channel);
-        return platch_respond_not_implemented(responsehandle);
-    } else if (strcmp(object->method, "cancel") == 0) {
-        LOG_DEBUG("%s: cancel()\n", channel);
-
-        list_for_each_entry_safe(struct audio_player_entry, entry, &plugin.players, entry) {
-            if (audio_player_set_subscription_status(entry->player, channel, false)) {
-                return platch_respond_success_std(responsehandle, NULL);
-            }
-        }
-
-        LOG_ERROR("%s: player not found\n", channel);
-        return platch_respond_not_implemented(responsehandle);
-    } else {
-        return platch_respond_not_implemented(responsehandle);
+UNUSED static void send_error_event(struct audioplayer_meta *meta, GError *error) {
+    if (!meta->subscribed) {
+        return;
     }
 
-    return 0;
+    gchar* message;
+    if (error->domain == GST_STREAM_ERROR ||
+        error->domain == GST_RESOURCE_ERROR) {
+        message =
+            "Failed to set source. For troubleshooting, "
+            "see: " STR_LINK_TROUBLESHOOTING;
+    } else {
+        message = "Unknown GstGError. See details.";
+    }
+
+    char *details = NULL;
+    int status = asprintf(&details, "%s (Domain: %s, Code: %d)", error->message, g_quark_to_string(error->domain), error->code);
+    if (status == -1) {
+        // ENOMEM;
+        return;
+    }
+
+    // clang-format off
+    platch_send_error_event_std(
+        meta->event_channel,
+        "LinuxAudioError",
+        message,
+        &STDSTRING(details)
+    );
+    // clang-format on
+
+    free(details);
+}
+
+UNUSED static void send_prepared_event(struct audioplayer_meta *meta, bool prepared) {
+    if (!meta->subscribed) {
+        return;
+    }
+
+    // clang-format off
+    platch_send_success_event_std(
+        meta->event_channel,
+        &STDMAP2(
+            STDSTRING("event"), STDSTRING("audio.onPrepared"),
+            STDSTRING("value"), STDBOOL(prepared)
+        )
+    );
+    // clang-format on
+}
+
+static void send_duration_update(struct audioplayer_meta *meta, int64_t duration_ms) {
+    if (!meta->subscribed) {
+        return;
+    }
+
+    // clang-format off
+    platch_send_success_event_std(
+        meta->event_channel,
+        &STDMAP2(
+            STDSTRING("event"), STDSTRING("audio.onDuration"),
+            STDSTRING("value"), STDINT64(duration_ms)
+        )
+    );
+    // clang-format on
+}
+
+UNUSED static void send_seek_completed(struct audioplayer_meta *meta) {
+    if (!meta->subscribed) {
+        return;
+    }
+
+    // clang-format off
+    platch_send_success_event_std(
+        meta->event_channel,
+        &STDMAP2(
+            STDSTRING("event"), STDSTRING("audio.onDuration"),
+            STDSTRING("value"), STDBOOL(true)
+        )
+    );
+    // clang-format on
+}
+
+static void send_playback_complete(struct audioplayer_meta *meta) {
+    if (!meta->subscribed) {
+        return;
+    }
+
+    // clang-format off
+    platch_send_success_event_std(
+        meta->event_channel,
+        &STDMAP2(
+            STDSTRING("event"), STDSTRING("audio.onComplete"),
+            STDSTRING("value"), STDBOOL(true)
+        )
+    );
+    // clang-format on
+}
+
+UNUSED static void send_player_log(struct audioplayer_meta *meta, const char *message) {
+    if (!meta->subscribed) {
+        return;
+    }
+
+    // clang-format off
+    platch_send_success_event_std(
+        meta->event_channel,
+        &STDMAP2(
+            STDSTRING("event"), STDSTRING("audio.onLog"),
+            STDSTRING("value"), STDSTRING((char*) message)
+        )
+    );
+    // clang-format on
+}
+
+static void on_create(struct plugin *p, const struct raw_std_value *arg, const FlutterPlatformMessageResponseHandle *responsehandle) {
+    const struct raw_std_value *player_id = get_player_id_from_arg(arg, responsehandle);
+    if (!player_id) {
+        return;
+    }
+
+    if (!ensure_gstreamer_initialized(p, responsehandle)) {
+        return;
+    }
+
+    struct audioplayer_meta *meta = calloc(1, sizeof(struct audioplayer_meta));
+    if (meta == NULL) {
+        platch_respond_native_error_std(responsehandle, ENOMEM);
+        return;
+    }
+
+    meta->id = raw_std_string_dup(player_id);
+    if (meta->id == NULL) {
+        platch_respond_native_error_std(responsehandle, ENOMEM);
+        return;
+    }
+
+    int status = 0;
+    khint_t index = kh_put(audioplayers, &p->players, meta->id, &status);
+    if (status == -1) {
+        free(meta->id);
+        free(meta);
+        platch_respond_native_error_std(responsehandle, ENOMEM);
+        return;
+    } else if (status == 0) {
+        free(meta->id);
+        free(meta);
+
+        platch_respond_illegal_arg_std(responsehandle, "Player with given id already exists.");
+        return;
+    }
+
+    status = asprintf(&meta->event_channel, "xyz.luan/audioplayers/events/%s", meta->id);
+    if (status == -1) {
+        kh_del(audioplayers, &p->players, index);
+        free(meta->id);
+        free(meta);
+
+        platch_respond_native_error_std(responsehandle, ENOMEM);
+        return;
+    }
+
+    struct gstplayer *player = gstplayer_new(
+        p->flutterpi,
+        NULL,
+        meta,
+        /* play_video */ false, /* play_audio */ true, /* subtitles */ false,
+        NULL
+    );
+    if (player == NULL) {
+        free(meta->event_channel);
+        kh_del(audioplayers, &p->players, index);
+        free(meta->id);
+        free(meta);
+
+        platch_respond_error_std(responsehandle, "not-initialized", "Could not initialize gstplayer.", NULL);
+        return;
+    }
+
+    gstplayer_set_userdata(player, meta);
+
+    plugin_registry_set_receiver_v2(
+        flutterpi_get_plugin_registry(flutterpi),
+        meta->event_channel,
+        on_receive_event_ch,
+        player
+    );
+
+    kh_value(&p->players, index) = player;
+}
+
+static void on_pause(struct plugin *p, const struct raw_std_value *arg, const FlutterPlatformMessageResponseHandle *responsehandle) {
+    struct gstplayer *player = get_player_from_arg(p, arg, responsehandle);
+    if (player == NULL) {
+        return;
+    }
+
+    int err = gstplayer_pause(player);
+    if (err != 0) {
+        platch_respond_native_error_std(responsehandle, err);
+    } else {
+        platch_respond_success_std(responsehandle, NULL);
+    }
+}
+
+static void on_resume(struct plugin *p, const struct raw_std_value *arg, const FlutterPlatformMessageResponseHandle *responsehandle) {
+    struct gstplayer *player = get_player_from_arg(p, arg, responsehandle);
+    if (player == NULL) {
+        return;
+    }
+
+    /// TODO: Should resume behave different to play?
+    int err = gstplayer_play(player);
+    if (err != 0) {
+        platch_respond_native_error_std(responsehandle, err);
+    } else {
+        platch_respond_success_std(responsehandle, NULL);
+    }
+}
+
+static void on_stop(struct plugin *p, const struct raw_std_value *arg, const FlutterPlatformMessageResponseHandle *responsehandle) {
+    struct gstplayer *player = get_player_from_arg(p, arg, responsehandle);
+    if (player == NULL) {
+        return;
+    }
+
+    /// TODO: Maybe provide gstplayer_stop
+    int err = gstplayer_pause(player);
+    if (err != 0) {
+        platch_respond_native_error_std(responsehandle, err);
+        return;
+    }
+
+    err = gstplayer_seek_to(player, 0, /* nearest_keyframe */ false);
+    if (err != 0) {
+        platch_respond_native_error_std(responsehandle, err);
+        return;
+    }
+
+    platch_respond_success_std(responsehandle, NULL);
+}
+
+static void on_release(struct plugin *p, const struct raw_std_value *arg, const FlutterPlatformMessageResponseHandle *responsehandle) {
+    struct gstplayer *player = get_player_from_arg(p, arg, responsehandle);
+    if (player == NULL) {
+        return;
+    }
+
+    gstplayer_release(player);
+
+    platch_respond_success_std(responsehandle, NULL);
+}
+
+static void on_seek(struct plugin *p, const struct raw_std_value *arg, const FlutterPlatformMessageResponseHandle *responsehandle) {
+    struct gstplayer *player = get_player_from_arg(p, arg, responsehandle);
+    if (player == NULL) {
+        return;
+    }
+
+    const struct raw_std_value *position = raw_std_map_find_str(arg, "position");
+    if (position == NULL || !raw_std_value_is_int(position)) {
+        platch_respond_illegal_arg_std(responsehandle, "Expected `arg['position'] to be an int.");
+        return;
+    }
+
+    int64_t position_int = raw_std_value_as_int(position);
+
+    int err = gstplayer_seek_to(player, position_int, /* nearest_keyframe */ false);
+    if (err != 0) {
+        platch_respond_native_error_std(responsehandle, err);
+        return;
+    }
+
+    platch_respond_success_std(responsehandle, NULL);
+}
+
+static void on_set_source_url(struct plugin *p, const struct raw_std_value *arg, const FlutterPlatformMessageResponseHandle *responsehandle) {
+    struct gstplayer *player = get_player_from_arg(p, arg, responsehandle);
+    if (player == NULL) {
+        return;
+    }
+
+    const struct raw_std_value *src_url = raw_std_map_find_str(arg, "url");
+    if (src_url == NULL || !raw_std_value_is_string(src_url)) {
+        platch_respond_illegal_arg_std(responsehandle, "Expected `arg['url']` to be a string.");
+        return;
+    }
+
+    const struct raw_std_value *is_local = raw_std_map_find_str(arg, "isLocal");
+    if (src_url != NULL && !raw_std_value_is_null(is_local) && !raw_std_value_is_bool(is_local)) {
+        platch_respond_illegal_arg_std(responsehandle, "Expected `arg['isLocal']` to be a bool or null.");
+        return;
+    }
+
+    const struct raw_std_value *mime_type = raw_std_map_find_str(arg, "mimeType");
+    if (mime_type != NULL && !raw_std_value_is_null(mime_type) && !raw_std_value_is_string(mime_type)) {
+        platch_respond_illegal_arg_std(responsehandle, "Expected `arg['mimeType']` to be a bool or null.");
+        return;
+    }
+
+    char *src_url_duped = raw_std_string_dup(src_url);
+
+    bool ok = gstplayer_preroll(player, src_url_duped);
+
+    free(src_url_duped);
+
+    if (!ok) {
+        respond_plugin_error(responsehandle, "Could not preroll pipeline.");
+        return;
+    }
+
+    platch_respond_success_std(responsehandle, NULL);
+}
+
+static void on_get_duration(struct plugin *p, const struct raw_std_value *arg, const FlutterPlatformMessageResponseHandle *responsehandle) {
+    struct gstplayer *player = get_player_from_arg(p, arg, responsehandle);
+    if (player == NULL) {
+        return;
+    }
+
+    int64_t duration_ms = gstplayer_get_duration(player);
+    if (duration_ms == -1) {
+        platch_respond_success_std(responsehandle, NULL);
+    }
+
+    platch_respond_success_std(responsehandle, &STDINT64(duration_ms));
+}
+
+static void on_set_volume(struct plugin *p, const struct raw_std_value *arg, const FlutterPlatformMessageResponseHandle *responsehandle) {
+    struct gstplayer *player = get_player_from_arg(p, arg, responsehandle);
+    if (player == NULL) {
+        return;
+    }
+
+    const struct raw_std_value *volume = raw_std_map_find_str(arg, "volume");
+    if (volume == NULL || !raw_std_value_is_float64(volume)) {
+        platch_respond_illegal_arg_std(responsehandle, "Expected `arg['volume'] to be a double.");
+        return;
+    }
+
+    double volume_float = raw_std_value_as_float64(volume);
+
+    int err = gstplayer_set_volume(player, volume_float);
+    if (err != 0) {
+        platch_respond_native_error_std(responsehandle, err);
+        return;
+    }
+
+    platch_respond_success_std(responsehandle, NULL);
+}
+
+static void on_get_position(struct plugin *p, const struct raw_std_value *arg, const FlutterPlatformMessageResponseHandle *responsehandle) {
+    struct gstplayer *player = get_player_from_arg(p, arg, responsehandle);
+    if (player == NULL) {
+        return;
+    }
+
+    int64_t position = gstplayer_get_position(player);
+    if (position < 0) {
+        platch_respond_native_error_std(responsehandle, EIO);
+        return;
+    }
+
+    platch_respond_success_std(responsehandle, &STDINT64(position));
+}
+
+static void on_set_playback_rate(struct plugin *p, const struct raw_std_value *arg, const FlutterPlatformMessageResponseHandle *responsehandle) {
+    struct gstplayer *player = get_player_from_arg(p, arg, responsehandle);
+    if (player == NULL) {
+        return;
+    }
+
+    const struct raw_std_value *rate = raw_std_map_find_str(arg, "playbackRate");
+    if (rate == NULL || !raw_std_value_is_float64(rate)) {
+        platch_respond_illegal_arg_std(responsehandle, "Expected `arg['playbackRate'] to be a double.");
+        return;
+    }
+
+    double rate_float = raw_std_value_as_float64(rate);
+
+    int err = gstplayer_set_playback_speed(player, rate_float);
+    if (err != 0) {
+        platch_respond_native_error_std(responsehandle, err);
+        return;
+    }
+
+    platch_respond_success_std(responsehandle, NULL);
+}
+
+static void on_set_release_mode(struct plugin *p, const struct raw_std_value *arg, const FlutterPlatformMessageResponseHandle *responsehandle) {
+    struct gstplayer *player = get_player_from_arg(p, arg, responsehandle);
+    if (player == NULL) {
+        return;
+    }
+
+    const struct raw_std_value *mode = raw_std_map_find_str(arg, "releaseMode");
+    if (mode == NULL || !raw_std_value_is_string(mode)) {
+        platch_respond_illegal_arg_std(responsehandle, "Expected `arg['releaseMode'] to be a string.");
+        return;
+    }
+
+    bool is_release = false;
+    bool is_loop = false;
+    bool is_stop = false;
+
+    if (raw_std_string_equals(mode, "ReleaseMode.release")) {
+        is_release = true;
+    } else if (raw_std_string_equals(mode, "ReleaseMode.loop")) {
+        is_loop = true;
+    } else if (raw_std_string_equals(mode, "ReleaseMode.stop")) {
+        is_stop = true;
+    } else {
+        platch_respond_illegal_arg_std(responsehandle, "Expected `arg['releaseMode']` to be a string-ification of a ReleaseMode enum value.");
+        return;
+    }
+
+    // TODO: Handle ReleaseMode.release & ReleaseMode.stop
+    (void) is_release;
+    (void) is_stop;
+
+    int err = gstplayer_set_looping(player, is_loop);
+    if (err != 0) {
+        platch_respond_native_error_std(responsehandle, err);
+        return;
+    }
+
+    platch_respond_success_std(responsehandle, NULL);
+}
+
+static void on_set_player_mode(struct plugin *p, const struct raw_std_value *arg, const FlutterPlatformMessageResponseHandle *responsehandle) {
+    struct gstplayer *player = get_player_from_arg(p, arg, responsehandle);
+    if (player == NULL) {
+        return;
+    }
+
+    const struct raw_std_value *mode = raw_std_map_find_str(arg, "playerMode");
+    if (mode == NULL || !raw_std_value_is_string(mode)) {
+        platch_respond_illegal_arg_std(responsehandle, "Expected `arg['playerMode'] to be a string.");
+        return;
+    }
+
+    bool is_media_player = false;
+    bool is_low_latency = false;
+
+    if (raw_std_string_equals(mode, "PlayerMode.mediaPlayer")) {
+        is_media_player = true;
+    } else if (raw_std_string_equals(mode, "PlayerMode.lowLatency")) {
+        is_low_latency = true;
+    } else {
+        platch_respond_illegal_arg_std(responsehandle, "Expected `arg['playerMode']` to be a string-ification of a PlayerMode enum value.");
+        return;
+    }
+
+    // TODO: Handle player mode
+    // TODO check support for low latency mode:
+    // https://gstreamer.freedesktop.org/documentation/additional/design/latency.html?gi-language=c
+    (void) is_media_player;
+    (void) is_low_latency;
+
+    platch_respond_success_std(responsehandle, NULL);
+}
+
+static void on_set_balance(struct plugin *p, const struct raw_std_value *arg, const FlutterPlatformMessageResponseHandle *responsehandle) {
+    struct gstplayer *player = get_player_from_arg(p, arg, responsehandle);
+    if (player == NULL) {
+        return;
+    }
+
+    const struct raw_std_value *balance = raw_std_map_find_str(arg, "balance");
+    if (balance == NULL || !raw_std_value_is_float64(balance)) {
+        platch_respond_illegal_arg_std(responsehandle, "Expected `arg['balance'] to be a double.");
+        return;
+    }
+
+    double balance_float = raw_std_value_as_float64(balance);
+
+    if (balance_float < -1.0) {
+        balance_float = -1.0;
+    } else if (balance_float > 1.0) {
+        balance_float = 1.0;
+    }
+
+    gstplayer_set_audio_balance(player, balance_float);
+
+    platch_respond_success_std(responsehandle, NULL);
+}
+
+static void on_player_emit_log(struct plugin *p, const struct raw_std_value *arg, const FlutterPlatformMessageResponseHandle *responsehandle) {
+    struct gstplayer *player = get_player_from_arg(p, arg, responsehandle);
+    if (player == NULL) {
+        return;
+    }
+
+    const struct raw_std_value *message = raw_std_map_find_str(arg, "message");
+    if (message == NULL || !raw_std_value_is_string(message)) {
+        platch_respond_illegal_arg_std(responsehandle, "Expected `arg['message'] to be a string.");
+        return;
+    }
+
+    LOG_DEBUG("%*s", (int) raw_std_string_get_length(message), raw_std_string_get_nonzero_terminated(message));
+
+    platch_respond_success_std(responsehandle, NULL);
+}
+
+static void on_player_emit_error(struct plugin *p, const struct raw_std_value *arg, const FlutterPlatformMessageResponseHandle *responsehandle) {
+    struct gstplayer *player = get_player_from_arg(p, arg, responsehandle);
+    if (player == NULL) {
+        return;
+    }
+
+    const struct raw_std_value *code = raw_std_map_find_str(arg, "code");
+    if (code == NULL || !raw_std_value_is_string(code)) {
+        platch_respond_illegal_arg_std(responsehandle, "Expected `arg['code'] to be a string.");
+        return;
+    }
+
+    const struct raw_std_value *message = raw_std_map_find_str(arg, "message");
+    if (message == NULL || !raw_std_value_is_string(message)) {
+        platch_respond_illegal_arg_std(responsehandle, "Expected `arg['message'] to be a string.");
+        return;
+    }
+
+    LOG_ERROR(
+        "%*s, %*s",
+        (int) raw_std_string_get_length(code), raw_std_string_get_nonzero_terminated(code),
+        (int) raw_std_string_get_length(message), raw_std_string_get_nonzero_terminated(message)
+    );
+
+    platch_respond_success_std(responsehandle, NULL);
+}
+
+static void on_dispose(struct plugin *p, const struct raw_std_value *arg, const FlutterPlatformMessageResponseHandle *responsehandle) {
+    const struct raw_std_value *id = get_player_id_from_arg(arg, responsehandle);
+    if (id == NULL) {
+        return;
+    }
+
+    struct gstplayer *player = get_player_from_arg(p, arg, responsehandle);
+    if (player == NULL) {
+        return;
+    }
+
+    char *id_duped = raw_std_string_dup(id);
+
+    khint_t index = kh_get(audioplayers, &p->players, id_duped);
+
+    // Should be valid since we already know the player exists from above
+    assert(index <= kh_end(&p->players));
+
+    free(id_duped);
+
+    // Remove the entry from the hashmap
+    kh_del(audioplayers, &p->players, index);
+
+    struct audioplayer_meta *meta = gstplayer_get_userdata(player);
+
+    plugin_registry_remove_receiver_v2(flutterpi_get_plugin_registry(p->flutterpi), meta->event_channel);
+    free(meta->event_channel);
+    free(meta->id);
+    free(meta);
+
+    // Destroy the player
+    gstplayer_destroy(player);
+
+    platch_respond_success_std(responsehandle, NULL);
+}
+
+static void on_player_method_call(void *userdata, const FlutterPlatformMessage *message) {
+    struct plugin *plugin = userdata;
+
+    const struct raw_std_value *envelope = raw_std_method_call_from_buffer(message->message, message->message_size);
+    if (!envelope) {
+        platch_respond_malformed_message_std(message);
+        return;
+    }
+
+    const struct raw_std_value *arg = raw_std_method_call_get_arg(envelope);
+    ASSERT_NOT_NULL(arg);
+
+    if (raw_std_method_call_is_method(envelope, "create")) {
+        on_create(plugin, arg, message->response_handle);
+    } else if (raw_std_method_call_is_method(envelope, "pause")) {
+        on_pause(plugin, arg, message->response_handle);
+    } else if (raw_std_method_call_is_method(envelope, "resume")) {
+        on_resume(plugin, arg, message->response_handle);
+    } else if (raw_std_method_call_is_method(envelope, "stop")) {
+        on_stop(plugin, arg, message->response_handle);
+    } else if (raw_std_method_call_is_method(envelope, "release")) {
+        on_release(plugin, arg, message->response_handle);
+    } else if (raw_std_method_call_is_method(envelope, "seek")) {
+        on_seek(plugin, arg, message->response_handle);
+    } else if (raw_std_method_call_is_method(envelope, "setSourceUrl")) {
+        on_set_source_url(plugin, arg, message->response_handle);
+    } else if (raw_std_method_call_is_method(envelope, "getDuration")) {
+        on_get_duration(plugin, arg, message->response_handle);
+    } else if (raw_std_method_call_is_method(envelope, "setVolume")) {
+        on_set_volume(plugin, arg, message->response_handle);
+    } else if (raw_std_method_call_is_method(envelope, "getCurrentPosition")) {
+        on_get_position(plugin, arg, message->response_handle);
+    } else if (raw_std_method_call_is_method(envelope, "setPlaybackRate")) {
+        on_set_playback_rate(plugin, arg, message->response_handle);
+    } else if (raw_std_method_call_is_method(envelope, "setReleaseMode")) {
+        on_set_release_mode(plugin, arg, message->response_handle);
+    } else if (raw_std_method_call_is_method(envelope, "setPlayerMode")) {
+        on_set_player_mode(plugin, arg, message->response_handle);
+    } else if (raw_std_method_call_is_method(envelope, "setBalance") == 0) {
+        on_set_balance(plugin, arg, message->response_handle);
+    } else if (raw_std_method_call_is_method(envelope, "emitLog") == 0) {
+        on_player_emit_log(plugin, arg, message->response_handle);
+    } else if (raw_std_method_call_is_method(envelope, "emitError") == 0) {
+        on_player_emit_error(plugin, arg, message->response_handle);
+    } else if (raw_std_method_call_is_method(envelope, "dispose") == 0) {
+        on_dispose(plugin, arg, message->response_handle);
+    } else {
+        platch_respond_not_implemented(message->response_handle);
+    }
+}
+
+static void on_init(struct plugin *p, const struct raw_std_value *arg, const FlutterPlatformMessageResponseHandle *responsehandle) {
+    (void) p;
+    (void) arg;
+    platch_respond_success_std(responsehandle, NULL);
+}
+
+static void on_set_audio_context(struct plugin *p, const struct raw_std_value *arg, const FlutterPlatformMessageResponseHandle *responsehandle) {
+    (void) p;
+    (void) arg;
+    platch_respond_success_std(responsehandle, NULL);
+}
+
+static void on_emit_log(
+    struct plugin *p,
+    const struct raw_std_value *arg,
+    const FlutterPlatformMessageResponseHandle *responsehandle
+) {
+    (void) p;
+
+    const struct raw_std_value *message = raw_std_map_find_str(arg, "message");
+    if (message == NULL || !raw_std_value_is_string(message)) {
+        platch_respond_illegal_arg_std(responsehandle, "Expected `arg['message'] to be a string.");
+        return;
+    }
+
+    LOG_DEBUG("%*s", (int) raw_std_string_get_length(message), raw_std_string_get_nonzero_terminated(message));
+
+    platch_respond_success_std(responsehandle, NULL);
+}
+
+static void on_emit_error(
+    struct plugin *p,
+    const struct raw_std_value *arg,
+    const FlutterPlatformMessageResponseHandle *responsehandle
+) {
+    (void) p;
+
+    const struct raw_std_value *code = raw_std_map_find_str(arg, "code");
+    if (code == NULL || !raw_std_value_is_string(code)) {
+        platch_respond_illegal_arg_std(responsehandle, "Expected `arg['code'] to be a string.");
+        return;
+    }
+
+    const struct raw_std_value *message = raw_std_map_find_str(arg, "message");
+    if (message == NULL || !raw_std_value_is_string(message)) {
+        platch_respond_illegal_arg_std(responsehandle, "Expected `arg['message'] to be a string.");
+        return;
+    }
+
+    LOG_ERROR(
+        "%*s, %*s",
+        (int) raw_std_string_get_length(code), raw_std_string_get_nonzero_terminated(code),
+        (int) raw_std_string_get_length(message), raw_std_string_get_nonzero_terminated(message)
+    );
+
+    platch_respond_success_std(responsehandle, NULL);
+}
+
+static void on_global_method_call(void *userdata, const FlutterPlatformMessage *message) {
+    struct plugin *plugin = userdata;
+
+    const struct raw_std_value *envelope = raw_std_method_call_from_buffer(message->message, message->message_size);
+    if (!envelope) {
+        platch_respond_malformed_message_std(message);
+        return;
+    }
+
+    const struct raw_std_value *arg = raw_std_method_call_get_arg(envelope);
+    ASSERT_NOT_NULL(arg);
+
+    if (raw_std_method_call_is_method(envelope, "init")) {
+        on_init(plugin, arg, message->response_handle);
+    } else if (raw_std_method_call_is_method(envelope, "setAudioContext")) {
+        on_set_audio_context(plugin, arg, message->response_handle);
+    } else if (raw_std_method_call_is_method(envelope, "emitLog")) {
+        on_emit_log(plugin, arg, message->response_handle);
+    } else if (raw_std_method_call_is_method(envelope, "emitError")) {
+        on_emit_error(plugin, arg, message->response_handle);
+    } else {
+        platch_respond_not_implemented(message->response_handle);
+    }
+}
+
+static enum listener_return on_duration_notify(void *arg, void *userdata) {
+    ASSERT_NOT_NULL(userdata);
+    struct gstplayer *player = userdata;
+
+    struct audioplayer_meta *meta = gstplayer_get_userdata(player);
+    ASSERT_NOT_NULL(meta);
+
+    ASSERT_NOT_NULL(arg);
+    int64_t *duration_ms = arg;
+
+    send_duration_update(meta, *duration_ms);
+    return kNoAction;
+}
+
+static enum listener_return on_eos_notify(void *arg, void *userdata) {
+    (void) arg;
+
+    ASSERT_NOT_NULL(userdata);
+    struct gstplayer *player = userdata;
+
+    struct audioplayer_meta *meta = gstplayer_get_userdata(player);
+    ASSERT_NOT_NULL(meta);
+
+    send_playback_complete(meta);
+
+    return kNoAction;
+}
+
+static void on_receive_event_ch(void *userdata, const FlutterPlatformMessage *message) {
+    ASSERT_NOT_NULL(userdata);
+
+    struct gstplayer *player = userdata;
+
+    struct audioplayer_meta *meta = gstplayer_get_userdata(player);
+    ASSERT_NOT_NULL(meta);
+
+    const struct raw_std_value *envelope = raw_std_method_call_from_buffer(message->message, message->message_size);
+    if (envelope == NULL) {
+        platch_respond_malformed_message_std(message);
+        return;
+    }
+
+    /// TODO: Implement
+    if (raw_std_method_call_is_method(envelope, "listen") == 0) {
+        platch_respond_success_std(message->response_handle, NULL);
+
+        if (!meta->subscribed) {
+            meta->subscribed = true;
+
+            meta->duration_listener = notifier_listen(gstplayer_get_duration_notifier(player), on_duration_notify, NULL, player);
+            meta->eos_listener = notifier_listen(gstplayer_get_eos_notifier(player), on_eos_notify, NULL, player);
+        }
+    } else if (raw_std_method_call_is_method(envelope, "cancel") == 0) {
+        platch_respond_success_std(message->response_handle, NULL);
+
+        if (meta->subscribed) {
+            meta->subscribed = false;
+
+            notifier_unlisten(gstplayer_get_duration_notifier(player), meta->duration_listener);
+            notifier_unlisten(gstplayer_get_eos_notifier(player), meta->eos_listener);
+        }
+    } else {
+        platch_respond_not_implemented(message->response_handle);
+    }
 }
 
 enum plugin_init_result audioplayers_plugin_init(struct flutterpi *flutterpi, void **userdata_out) {
@@ -239,16 +905,29 @@ enum plugin_init_result audioplayers_plugin_init(struct flutterpi *flutterpi, vo
 
     (void) userdata_out;
 
-    plugin.flutterpi = flutterpi;
-    plugin.initialized = false;
-    list_inithead(&plugin.players);
+    struct plugin *plugin = calloc(1, sizeof(struct plugin));
+    if (plugin == NULL) {
+        return PLUGIN_INIT_RESULT_ERROR;
+    }
 
-    ok = plugin_registry_set_receiver_locked(AUDIOPLAYERS_GLOBAL_CHANNEL, kStandardMethodCall, on_global_method_call);
+    plugin->initialized = false;
+
+    ok = plugin_registry_set_receiver_v2_locked(
+        flutterpi_get_plugin_registry(flutterpi),
+        AUDIOPLAYERS_GLOBAL_CHANNEL,
+        on_global_method_call,
+        plugin
+    );
     if (ok != 0) {
         return PLUGIN_INIT_RESULT_ERROR;
     }
 
-    ok = plugin_registry_set_receiver_locked(AUDIOPLAYERS_LOCAL_CHANNEL, kStandardMethodCall, on_local_method_call);
+    ok = plugin_registry_set_receiver_v2_locked(
+        flutterpi_get_plugin_registry(flutterpi),
+        AUDIOPLAYERS_LOCAL_CHANNEL,
+        on_player_method_call,
+        plugin
+    );
     if (ok != 0) {
         goto fail_remove_global_receiver;
     }
@@ -256,78 +935,29 @@ enum plugin_init_result audioplayers_plugin_init(struct flutterpi *flutterpi, vo
     return PLUGIN_INIT_RESULT_INITIALIZED;
 
 fail_remove_global_receiver:
-    plugin_registry_remove_receiver_locked(AUDIOPLAYERS_GLOBAL_CHANNEL);
+    plugin_registry_remove_receiver_v2_locked(
+        flutterpi_get_plugin_registry(flutterpi),
+        AUDIOPLAYERS_GLOBAL_CHANNEL
+    );
 
     return PLUGIN_INIT_RESULT_ERROR;
 }
 
 void audioplayers_plugin_deinit(struct flutterpi *flutterpi, void *userdata) {
     (void) flutterpi;
-    (void) userdata;
 
-    plugin_registry_remove_receiver_locked(AUDIOPLAYERS_GLOBAL_CHANNEL);
-    plugin_registry_remove_receiver_locked(AUDIOPLAYERS_LOCAL_CHANNEL);
+    ASSERT_NOT_NULL(userdata);
+    struct plugin *plugin = userdata;
 
-    list_for_each_entry_safe(struct audio_player_entry, entry, &plugin.players, entry) {
-        audio_player_destroy(entry->player);
-        list_del(&entry->entry);
-        free(entry);
-    }
-}
+    plugin_registry_remove_receiver_v2_locked(flutterpi_get_plugin_registry(flutterpi), AUDIOPLAYERS_GLOBAL_CHANNEL);
+    plugin_registry_remove_receiver_v2_locked(flutterpi_get_plugin_registry(flutterpi), AUDIOPLAYERS_LOCAL_CHANNEL);
 
-static struct audio_player *audioplayers_linux_plugin_get_player(char *player_id, char *mode) {
-    struct audio_player_entry *entry;
-    struct audio_player *player;
-
-    (void) mode;
-
-    list_for_each_entry_safe(struct audio_player_entry, entry, &plugin.players, entry) {
-        if (audio_player_is_id(entry->player, player_id)) {
-            return entry->player;
-        }
-    }
-
-    entry = malloc(sizeof *entry);
-    ASSUME(entry != NULL);
-
-    LOG_DEBUG("Create player(id=%s)\n", player_id);
-    player = audio_player_new(player_id, AUDIOPLAYERS_LOCAL_CHANNEL);
-
-    if (player == NULL) {
-        LOG_ERROR("player(id=%s) cannot be created", player_id);
-        free(entry);
-        return NULL;
-    }
-
-    const char* event_channel = audio_player_subscribe_channel_name(player);
-    // set a receiver on the videoEvents event channel
-    int ok = plugin_registry_set_receiver(
-        event_channel,
-        kStandardMethodCall,
-        on_receive_event_ch
-    );
-    if (ok != 0) {
-        LOG_ERROR("Cannot set player receiver for event channel: %s\n", event_channel);
-        audio_player_destroy(player);
-        free(entry);
-        return NULL;
-    }
-
-    entry->entry = (struct list_head){ NULL, NULL };
-    entry->player = player;
-
-    list_add(&entry->entry, &plugin.players);
-    return player;
-}
-
-static void audioplayers_linux_plugin_dispose_player(struct audio_player *player) {
-    list_for_each_entry_safe(struct audio_player_entry, entry, &plugin.players, entry) {
-        if (entry->player == player) {
-            list_del(&entry->entry);
-            plugin_registry_remove_receiver(audio_player_subscribe_channel_name(player));
-            audio_player_destroy(player);
-        }
-    }
+    const char *id;
+    struct gstplayer *player;
+    kh_foreach(&plugin->players, id, player, {
+        gstplayer_destroy(player);
+        free((char*) id);
+    })
 }
 
 FLUTTERPI_PLUGIN("audioplayers", audioplayers, audioplayers_plugin_init, audioplayers_plugin_deinit)
