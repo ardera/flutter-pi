@@ -363,7 +363,6 @@ if (BUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN OR BUILD_GSTREAMER_AUDIO_PLAYER_PLUGIN)#
   if (BUILD_GSTREAMER_AUDIO_PLAYER_PLUGIN AND LIBGSTREAMER_FOUND)
     target_sources(flutterpi_module PRIVATE
       src/plugins/audioplayers/plugin.c
-      src/plugins/audioplayers/player.c
     )
   endif()
 endif()
