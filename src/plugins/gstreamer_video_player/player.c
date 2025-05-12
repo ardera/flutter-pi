@@ -9,10 +9,13 @@
 #include <drm_fourcc.h>
 #include <gst/allocators/gstdmabuf.h>
 #include <gst/app/gstappsink.h>
-#include <gst/gst.h>
 #include <gst/gstmemory.h>
 #include <gst/gstpad.h>
 #include <gst/video/gstvideometa.h>
+#include <gst/gstelementfactory.h>
+#include <gst/gstclock.h>
+#include <gst/gstelement.h>
+#include <gst/gstobject.h>
 
 #include "flutter-pi.h"
 #include "notifier_listener.h"
@@ -138,9 +141,17 @@ struct gstplayer {
     int64_t desired_position_ms;
 
     struct notifier video_info_notifier, buffering_state_notifier, error_notifier;
+    struct notifier duration_notifier, seeking_info_notifier;
+    struct notifier eos_notifier;
 
     bool has_sent_info;
     struct incomplete_video_info info;
+
+    bool has_duration;
+    int64_t duration;
+
+    bool has_seeking_info;
+    struct seeking_info seeking_info;
 
     // bool has_gst_info;
     // GstVideoInfo gst_info;
@@ -152,11 +163,14 @@ struct gstplayer {
     sd_event_source *busfd_events;
 
     GstElement *playbin;
+    GstElement *audiopanorama;
+
+    gulong on_element_added_signal_handler;
 
     bool is_live;
 };
 
-static int maybe_send_info(struct gstplayer *player) {
+static int maybe_send_video_info(struct gstplayer *player) {
     struct video_info *duped;
 
     if (player->info.has_resolution && player->info.has_fps && player->info.has_duration && player->info.has_seeking_info) {
@@ -169,6 +183,7 @@ static int maybe_send_info(struct gstplayer *player) {
 
         notifier_notify(&player->video_info_notifier, duped);
     }
+
     return 0;
 }
 
@@ -181,6 +196,9 @@ static void fetch_duration(struct gstplayer *player) {
         if (player->is_live) {
             player->info.info.duration_ms = INT64_MAX;
             player->info.has_duration = true;
+
+            player->has_duration = true;
+            player->duration = INT64_MAX;
             return;
         } else {
             LOG_PLAYER_ERROR(player, "Could not fetch duration. (gst_element_query_duration)\n");
@@ -190,6 +208,9 @@ static void fetch_duration(struct gstplayer *player) {
 
     player->info.info.duration_ms = GST_TIME_AS_MSECONDS(duration);
     player->info.has_duration = true;
+
+    player->duration = GST_TIME_AS_MSECONDS(duration);
+    player->has_duration = true;
 }
 
 static void fetch_seeking(struct gstplayer *player) {
@@ -205,6 +226,11 @@ static void fetch_seeking(struct gstplayer *player) {
             player->info.info.seek_begin_ms = 0;
             player->info.info.seek_end_ms = 0;
             player->info.has_seeking_info = true;
+
+            player->seeking_info.can_seek = false;
+            player->seeking_info.seek_begin_ms = 0;
+            player->seeking_info.seek_end_ms = 0;
+            player->has_seeking_info = true;
             return;
         } else {
             LOG_PLAYER_DEBUG(player, "Could not query seeking info. (gst_element_query)\n");
@@ -220,6 +246,11 @@ static void fetch_seeking(struct gstplayer *player) {
     player->info.info.seek_begin_ms = GST_TIME_AS_MSECONDS(seek_begin);
     player->info.info.seek_end_ms = GST_TIME_AS_MSECONDS(seek_end);
     player->info.has_seeking_info = true;
+
+    player->seeking_info.can_seek = seekable;
+    player->seeking_info.seek_begin_ms = GST_TIME_AS_MSECONDS(seek_begin);
+    player->seeking_info.seek_end_ms = GST_TIME_AS_MSECONDS(seek_end);
+    player->has_seeking_info = true;
 }
 
 static void update_buffering_state(struct gstplayer *player, GstObject *element) {
@@ -324,7 +355,6 @@ static int apply_playback_state(struct gstplayer *player) {
                 GST_TIME_ARGS(GST_CLOCK_TIME_NONE)
             );
 
-
             ok = gst_element_seek(
                 GST_ELEMENT(player->playbin),
                 desired_rate,
@@ -346,7 +376,7 @@ static int apply_playback_state(struct gstplayer *player) {
             }
         } else {
             LOG_PLAYER_DEBUG(
-                player, 
+                player,
                 "gst_element_seek(..., rate: %f, start: %" GST_TIME_FORMAT ", end: %" GST_TIME_FORMAT ", ...)\n",
                 desired_rate,
                 GST_TIME_ARGS(0),
@@ -382,7 +412,7 @@ static int apply_playback_state(struct gstplayer *player) {
     ok = gst_element_get_state(player->playbin, &current_state, &pending_state, 0);
     if (ok == GST_STATE_CHANGE_FAILURE) {
         LOG_PLAYER_DEBUG(
-            player, 
+            player,
             "last gstreamer pipeline state change failed. gst_element_get_state(element name: %s): GST_STATE_CHANGE_FAILURE\n",
             GST_ELEMENT_NAME(player->playbin)
         );
@@ -394,7 +424,7 @@ static int apply_playback_state(struct gstplayer *player) {
             // we're already in the desired state, and we're also not changing it
             // no need to do anything.
             LOG_PLAYER_DEBUG(
-                player, 
+                player,
                 "apply_playback_state(playing: %s): already in desired state and none pending\n",
                 PLAYPAUSE_STATE_AS_STRING(player->playpause_state)
             );
@@ -402,7 +432,7 @@ static int apply_playback_state(struct gstplayer *player) {
         }
 
         LOG_PLAYER_DEBUG(
-            player, 
+            player,
             "apply_playback_state(playing: %s): setting state to %s\n",
             PLAYPAUSE_STATE_AS_STRING(player->playpause_state),
             gst_element_state_get_name(desired_state)
@@ -419,7 +449,7 @@ static int apply_playback_state(struct gstplayer *player) {
         /// TODO: Implement properly
 
         LOG_PLAYER_DEBUG(
-            player, 
+            player,
             "apply_playback_state(playing: %s): async state change in progress, setting state to %s\n",
             PLAYPAUSE_STATE_AS_STRING(player->playpause_state),
             gst_element_state_get_name(desired_state)
@@ -436,7 +466,7 @@ static int apply_playback_state(struct gstplayer *player) {
 
 static void on_gstreamer_error_message(struct gstplayer *player, GstMessage *msg) {
     (void) player;
-    
+
     GError *error;
     gchar *debug_info;
 
@@ -450,6 +480,9 @@ static void on_gstreamer_error_message(struct gstplayer *player, GstMessage *msg
         error->message,
         debug_info
     );
+
+    notifier_notify(&player->error_notifier, error);
+
     g_clear_error(&error);
     g_free(debug_info);
 }
@@ -518,7 +551,7 @@ static void on_state_change_message(struct gstplayer *player, GstMessage *msg) {
     GstState old, current, pending;
 
     gst_message_parse_state_changed(msg, &old, &current, &pending);
-            
+
     if (GST_MESSAGE_SRC(msg) == GST_OBJECT(player->playbin)) {
         LOG_PLAYER_DEBUG(
             player,
@@ -529,13 +562,32 @@ static void on_state_change_message(struct gstplayer *player, GstMessage *msg) {
             gst_element_state_get_name(pending)
         );
 
-        if (!player->info.has_duration && (current == GST_STATE_PAUSED || current == GST_STATE_PLAYING)) {
+        if (current == GST_STATE_PAUSED || current == GST_STATE_PLAYING) {
             // it's our pipeline that changed to either playing / paused, and we don't have info about our video duration yet.
             // get that info now.
             // technically we can already fetch the duration when the decodebin changed to PAUSED state.
-            fetch_duration(player);
-            fetch_seeking(player);
-            maybe_send_info(player);
+
+            if (!player->has_duration) {
+                fetch_duration(player);
+
+                if (player->has_duration) {
+                    int64_t *duped = memdup(&player->duration, sizeof(int64_t));
+
+                    notifier_notify(&player->duration_notifier, duped);
+                }
+            }
+
+            if (!player->has_seeking_info) {
+                fetch_seeking(player);
+
+                if (player->has_seeking_info) {
+                    struct seeking_info *duped = memdup(&player->seeking_info, sizeof(struct seeking_info));
+
+                    notifier_notify(&player->seeking_info_notifier, duped);
+                }
+            }
+
+            maybe_send_video_info(player);
         }
     }
 }
@@ -561,7 +613,7 @@ static void on_application_message(struct gstplayer *player, GstMessage *msg) {
         }
     } else if (gst_message_has_name(msg, "video-info")) {
         const GstStructure *structure = gst_message_get_structure(msg);
-        
+
         const GValue *value = gst_structure_get_value(structure, "info");
         assert(G_VALUE_HOLDS_POINTER(value));
 
@@ -612,6 +664,10 @@ static void on_bus_message(struct gstplayer *player, GstMessage *msg) {
 
         case GST_MESSAGE_EOS:
             LOG_PLAYER_DEBUG(player, "end of stream, src: %s\n", GST_MESSAGE_SRC_NAME(msg));
+
+            if (GST_MESSAGE_SRC(msg) == GST_OBJECT(player->playbin)) {
+                notifier_notify(&player->eos_notifier, NULL);
+            }
             break;
 
         case GST_MESSAGE_REQUEST_STATE: {
@@ -737,7 +793,7 @@ static void on_about_to_finish(GstElement *playbin, gpointer userdata) {
 
 static GstPadProbeReturn on_video_sink_event(GstPad *pad, GstPadProbeInfo *info, gpointer userdata) {
     GstBus *bus = userdata;
-    
+
     (void) pad;
 
     GstEvent *event = gst_pad_probe_info_get_event(info);
@@ -777,20 +833,23 @@ static GstPadProbeReturn on_video_sink_event(GstPad *pad, GstPadProbeInfo *info,
     return GST_PAD_PROBE_REMOVE;
 }
 
-static struct gstplayer *gstplayer_new_v2(struct flutterpi *flutterpi, const char *uri, void *userdata, bool play_video, bool play_audio, bool subtitles, GstStructure *headers) {
+struct gstplayer *gstplayer_new(struct flutterpi *flutterpi, const char *uri, void *userdata, bool play_video, bool play_audio, bool subtitles, GstStructure *headers) {
     struct gstplayer *p = calloc(1, sizeof(struct gstplayer));
     if (p == NULL) {
         return NULL;
     }
-    
+
 #ifdef DEBUG
     p->debug_id = allocate_id();
 #endif
     p->userdata = userdata;
 
     value_notifier_init(&p->video_info_notifier, NULL, free);
+    value_notifier_init(&p->duration_notifier, NULL, free);
+    value_notifier_init(&p->seeking_info_notifier, NULL, free);
     value_notifier_init(&p->buffering_state_notifier, NULL, free);
     change_notifier_init(&p->error_notifier);
+    change_notifier_init(&p->eos_notifier);
 
     // playbin3 doesn't let use disable hardware decoders,
     // which we need to do for gstreamer < 1.22.8.
@@ -803,8 +862,6 @@ static struct gstplayer *gstplayer_new_v2(struct flutterpi *flutterpi, const cha
         LOG_PLAYER_ERROR(p, "Couldn't create playbin instance.\n");
         goto fail_free_p;
     }
-
-    g_object_set(p->playbin, "uri", uri, NULL);
 
     gint flags = 0;
 
@@ -846,7 +903,7 @@ static struct gstplayer *gstplayer_new_v2(struct flutterpi *flutterpi, const cha
         if (p->texture == NULL) {
             goto fail_unref_playbin;
         }
-        
+
         struct gl_renderer *gl_renderer = flutterpi_get_gl_renderer(flutterpi);
 
         GstElement *sink = flutter_gl_texture_sink_new(p->texture, gl_renderer);
@@ -854,12 +911,9 @@ static struct gstplayer *gstplayer_new_v2(struct flutterpi *flutterpi, const cha
             goto fail_destroy_texture;
         }
 
-        /// TODO: What's the ownership transfer here?
+        // playbin (playsink) takes a (sinking) reference
+        // on the video sink
         g_object_set(p->playbin, "video-sink", sink, NULL);
-    
-        // Apply capture-io-mode: dmabuf to any v4l2 decoders.
-        /// TODO: This might be unnecessary / deprecated nowadays.
-        g_signal_connect(p->playbin, "element-setup", G_CALLBACK(on_element_setup), NULL);
 
         GstPad *video_sink_pad = gst_element_get_static_pad(sink, "sink");
         if (video_sink_pad == NULL) {
@@ -869,6 +923,22 @@ static struct gstplayer *gstplayer_new_v2(struct flutterpi *flutterpi, const cha
 
         // This will send a `video-info` application message to the bus when it sees a caps event.
         gst_pad_add_probe(video_sink_pad, GST_PAD_PROBE_TYPE_EVENT_DOWNSTREAM, on_video_sink_event, gst_pipeline_get_bus(GST_PIPELINE(p->playbin)), NULL);
+
+        gst_object_unref(video_sink_pad);
+        video_sink_pad = NULL;
+
+        // Apply capture-io-mode: dmabuf to any v4l2 decoders.
+        /// TODO: This might be unnecessary / deprecated nowadays.
+        g_signal_connect(p->playbin, "element-setup", G_CALLBACK(on_element_setup), NULL);
+
+        gst_object_unref(sink);
+    }
+
+    if (play_audio) {
+        p->audiopanorama = gst_element_factory_make("audiopanorama", NULL);
+        if (p->audiopanorama != NULL) {
+            g_object_set(p->playbin, "audio-filter", p->audiopanorama, NULL);
+        }
     }
 
     // Only try to configure headers if we actually have some.
@@ -889,16 +959,21 @@ static struct gstplayer *gstplayer_new_v2(struct flutterpi *flutterpi, const cha
 
     gst_object_unref(bus);
 
-    GstStateChangeReturn status = gst_element_set_state(p->playbin, GST_STATE_PAUSED);
-    if (status == GST_STATE_CHANGE_NO_PREROLL) {
-        LOG_PLAYER_DEBUG(p, "Is live!\n");
-        p->is_live = true;
-    } else if (status == GST_STATE_CHANGE_FAILURE) {
-        LOG_PLAYER_ERROR(p, "Could not set pipeline to paused state.\n");
-        goto fail_rm_event_source;
-    } else {
-        LOG_PLAYER_DEBUG(p, "Not live!\n");
-        p->is_live = false;
+    // If we have a URI, preroll it.
+    if (uri != NULL) {
+        g_object_set(p->playbin, "uri", uri, NULL);
+
+        GstStateChangeReturn status = gst_element_set_state(p->playbin, GST_STATE_PAUSED);
+        if (status == GST_STATE_CHANGE_NO_PREROLL) {
+            LOG_PLAYER_DEBUG(p, "Is live!\n");
+            p->is_live = true;
+        } else if (status == GST_STATE_CHANGE_FAILURE) {
+            LOG_PLAYER_ERROR(p, "Could not set pipeline to paused state.\n");
+            goto fail_rm_event_source;
+        } else {
+            LOG_PLAYER_DEBUG(p, "Not live!\n");
+            p->is_live = false;
+        }
     }
 
     return p;
@@ -908,7 +983,7 @@ fail_rm_event_source:
 
 fail_destroy_texture:
     gst_object_unref(p->playbin);
-    
+
     // The flutter upload sink uses the texture internally,
     // so the playbin (which contains the upload sink) must be destroyed first,
     // before the texture can be destroyed.
@@ -937,7 +1012,7 @@ struct gstplayer *gstplayer_new_from_asset(struct flutterpi *flutterpi, const ch
         return NULL;
     }
 
-    player = gstplayer_new_v2(flutterpi, uri, userdata, /* play_video */ true, /* play_audio */ false, /* play_text */ false, NULL);
+    player = gstplayer_new(flutterpi, uri, userdata, /* play_video */ true, /* play_audio */ false, /* play_text */ false, NULL);
 
     free(uri);
 
@@ -946,15 +1021,15 @@ struct gstplayer *gstplayer_new_from_asset(struct flutterpi *flutterpi, const ch
 
 struct gstplayer *gstplayer_new_from_network(struct flutterpi *flutterpi, const char *uri, enum format_hint format_hint, void *userdata, GstStructure *headers) {
     (void) format_hint;
-    return gstplayer_new_v2(flutterpi, uri, userdata, true, true, false, headers);
+    return gstplayer_new(flutterpi, uri, userdata, true, true, false, headers);
 }
 
 struct gstplayer *gstplayer_new_from_file(struct flutterpi *flutterpi, const char *uri, void *userdata) {
-    return gstplayer_new_v2(flutterpi, uri, userdata, true, true, false, NULL);
+    return gstplayer_new(flutterpi, uri, userdata, true, true, false, NULL);
 }
 
 struct gstplayer *gstplayer_new_from_content_uri(struct flutterpi *flutterpi, const char *uri, void *userdata, GstStructure *headers) {
-    return gstplayer_new_v2(flutterpi, uri, userdata, true, true, false, headers);
+    return gstplayer_new(flutterpi, uri, userdata, true, true, false, headers);
 }
 
 struct gstplayer *gstplayer_new_from_pipeline(struct flutterpi *flutterpi, const char *pipeline, void *userdata) {
@@ -968,8 +1043,11 @@ struct gstplayer *gstplayer_new_from_pipeline(struct flutterpi *flutterpi, const
 void gstplayer_destroy(struct gstplayer *player) {
     LOG_PLAYER_DEBUG(player, "destroy()\n");
     notifier_deinit(&player->video_info_notifier);
+    notifier_deinit(&player->duration_notifier);
+    notifier_deinit(&player->seeking_info_notifier);
     notifier_deinit(&player->buffering_state_notifier);
     notifier_deinit(&player->error_notifier);
+    notifier_deinit(&player->eos_notifier);
     gst_element_set_state(GST_ELEMENT(player->playbin), GST_STATE_READY);
     gst_element_set_state(GST_ELEMENT(player->playbin), GST_STATE_NULL);
     gst_object_unref(player->playbin);
@@ -1044,6 +1122,14 @@ int64_t gstplayer_get_position(struct gstplayer *player) {
     return GST_TIME_AS_MSECONDS(position);
 }
 
+int64_t gstplayer_get_duration(struct gstplayer *player) {
+    if (!player->has_duration) {
+        return -1;
+    } else {
+        return player->duration;
+    }
+}
+
 int gstplayer_seek_to(struct gstplayer *player, int64_t position, bool nearest_keyframe) {
     LOG_PLAYER_DEBUG(player, "seek_to(%" PRId64 ")\n", position);
     player->has_desired_position = true;
@@ -1102,8 +1188,68 @@ int gstplayer_step_backward(struct gstplayer *player) {
     return 0;
 }
 
+void gstplayer_set_audio_balance(struct gstplayer *player, float balance) {
+    if (player->audiopanorama) {
+        g_object_set(player->audiopanorama, "panorama", (gfloat) balance, NULL);
+    }
+}
+
+float gstplayer_get_audio_balance(struct gstplayer *player) {
+    if (player->audiopanorama) {
+        gfloat balance = 0.0;
+        g_object_get(player->audiopanorama, "panorama", &balance, NULL);
+        return balance;
+    } else {
+        return 0.0;
+    }
+}
+
+bool gstplayer_release(struct gstplayer *p) {
+    GstStateChangeReturn status = gst_element_set_state(p->playbin, GST_STATE_NULL);
+    if (status == GST_STATE_CHANGE_FAILURE) {
+        LOG_ERROR("Could not set pipeline to NULL state.\n");
+        return false;
+    } else {
+        return true;
+    }
+}
+
+bool gstplayer_preroll(struct gstplayer *p, const char *uri) {
+    GstState current, pending;
+
+    GstStateChangeReturn status = gst_element_get_state(p->playbin, &current, &pending, 0 * GST_SECOND);
+    if (status != GST_STATE_CHANGE_SUCCESS || current != GST_STATE_NULL) {
+        LOG_ERROR("Pipeline must be in NULL (released) state to preroll new source.\n");
+        return false;
+    }
+
+    g_object_set(p->playbin, "uri", uri, NULL);
+
+    status = gst_element_set_state(p->playbin, GST_STATE_PAUSED);
+    if (status == GST_STATE_CHANGE_NO_PREROLL) {
+        p->is_live = true;
+    } else if (status == GST_STATE_CHANGE_FAILURE) {
+        LOG_ERROR("Could not set pipeline to paused state.\n");
+        return false;
+    } else {
+        p->is_live = false;
+    }
+
+    // TODO: Trigger events here (duration change, video info, etc)
+
+    return true;
+}
+
 struct notifier *gstplayer_get_video_info_notifier(struct gstplayer *player) {
     return &player->video_info_notifier;
+}
+
+struct notifier *gstplayer_get_duration_notifier(struct gstplayer *player) {
+    return &player->duration_notifier;
+}
+
+struct notifier *gstplayer_get_seeking_info_notifier(struct gstplayer *player) {
+    return &player->seeking_info_notifier;
 }
 
 struct notifier *gstplayer_get_buffering_state_notifier(struct gstplayer *player) {
@@ -1112,4 +1258,8 @@ struct notifier *gstplayer_get_buffering_state_notifier(struct gstplayer *player
 
 struct notifier *gstplayer_get_error_notifier(struct gstplayer *player) {
     return &player->error_notifier;
+}
+
+struct notifier *gstplayer_get_eos_notifier(struct gstplayer *player) {
+    return &player->eos_notifier;
 }
