@@ -15,6 +15,7 @@
 #include "platformchannel.h"
 #include "pluginregistry.h"
 #include "plugins/gstreamer_video_player.h"
+#include "plugins/gstplayer.h"
 #include "texture_registry.h"
 #include "util/collection.h"
 #include "util/list.h"
@@ -97,9 +98,9 @@ static struct gstplayer *get_player_by_evch(const char *const event_channel_name
 
 /**
  * @brief Remove a player instance from the player list.
- * 
+ *
  * Assumes the plugin struct is not locked.
- * 
+ *
  */
 static void remove_player(struct gstplayer_meta *meta) {
     plugin_lock(&plugin);
@@ -111,9 +112,9 @@ static void remove_player(struct gstplayer_meta *meta) {
 
 /**
  * @brief Remove a player instance from the player list.
- * 
+ *
  * Assumes the plugin struct is locked.
- * 
+ *
  */
 static void remove_player_locked(struct gstplayer_meta *meta) {
     ASSERT_MUTEX_LOCKED(plugin.lock);
@@ -315,7 +316,7 @@ static enum listener_return on_video_info_notify(void *arg, void *userdata) {
     /// on_video_info_notify is called on an internal thread,
     /// but send_initialized_event is (should be) mt-safe
     send_initialized_event(meta, !info->can_seek, info->width, info->height, info->duration_ms);
-    
+
     /// FIXME: Threading
     /// Set this to NULL here so we don't unlisten to it twice.
     meta->video_info_listener = NULL;
@@ -1146,7 +1147,7 @@ invalid_format_hint:
                     if (headers == NULL) {
                         headers = gst_structure_new_empty("http-headers");
                     }
-                    
+
                     char *key_str = raw_std_string_dup(key);
                     gst_structure_take_string(headers, key_str, raw_std_string_dup(value));
                     free(key_str);
