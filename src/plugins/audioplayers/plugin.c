@@ -4,6 +4,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#include <gst/gst.h>
+#include <glib.h>
+
 #include "flutter_embedder.h"
 #include "util/asserts.h"
 #include "util/macros.h"
@@ -17,8 +20,7 @@
 #include "util/list.h"
 #include "util/logging.h"
 #include "util/khash.h"
-
-#include "plugins/gstreamer_video_player.h"
+#include "plugins/gstplayer.h"
 
 #define AUDIOPLAYERS_LOCAL_CHANNEL "xyz.luan/audioplayers"
 #define AUDIOPLAYERS_GLOBAL_CHANNEL "xyz.luan/audioplayers.global"

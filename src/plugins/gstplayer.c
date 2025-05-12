@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 
+#include <stdatomic.h>
 #include <inttypes.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -17,13 +18,20 @@
 #include <gst/gstelement.h>
 #include <gst/gstobject.h>
 
+
 #include "flutter-pi.h"
 #include "notifier_listener.h"
 #include "platformchannel.h"
 #include "pluginregistry.h"
-#include "plugins/gstreamer_video_player.h"
+#include "plugins/gstplayer.h"
 #include "texture_registry.h"
 #include "util/logging.h"
+
+#include "config.h"
+
+#ifdef HAVE_GSTREAMER_VIDEO_PLAYER
+    #include "gstreamer_video_player.h"
+#endif
 
 #define LOG_GST_SET_STATE_ERROR(_element)                                                                               \
     LOG_ERROR(                                                                                                          \
@@ -742,7 +750,7 @@ typedef enum {
   GST_PLAY_FLAG_FORCE_SW_DECODERS = (1 << 12),
 } GstPlayFlags;
 
-static void on_element_setup(GstElement *playbin, GstElement *element, gpointer userdata) {
+UNUSED static void on_element_setup(GstElement *playbin, GstElement *element, gpointer userdata) {
     (void) playbin;
     (void) userdata;
 
@@ -791,7 +799,7 @@ static void on_about_to_finish(GstElement *playbin, gpointer userdata) {
     gst_object_unref(bus);
 }
 
-static GstPadProbeReturn on_video_sink_event(GstPad *pad, GstPadProbeInfo *info, gpointer userdata) {
+UNUSED static GstPadProbeReturn on_video_sink_event(GstPad *pad, GstPadProbeInfo *info, gpointer userdata) {
     GstBus *bus = userdata;
 
     (void) pad;
@@ -899,6 +907,7 @@ struct gstplayer *gstplayer_new(struct flutterpi *flutterpi, const char *uri, vo
     g_object_set(p->playbin, "flags", flags, NULL);
 
     if (play_video) {
+#ifdef HAVE_GSTREAMER_VIDEO_PLAYER
         p->texture = flutterpi_create_texture(flutterpi);
         if (p->texture == NULL) {
             goto fail_unref_playbin;
@@ -932,6 +941,12 @@ struct gstplayer *gstplayer_new(struct flutterpi *flutterpi, const char *uri, vo
         g_signal_connect(p->playbin, "element-setup", G_CALLBACK(on_element_setup), NULL);
 
         gst_object_unref(sink);
+#else
+        (void) flutterpi;
+
+        ASSERT_MSG(0, "Video playback with gstplayer is only supported when building with the gstreamer video player plugin.");
+        goto fail_unref_playbin;
+#endif
     }
 
     if (play_audio) {
@@ -981,7 +996,7 @@ struct gstplayer *gstplayer_new(struct flutterpi *flutterpi, const char *uri, vo
 fail_rm_event_source:
     sd_event_source_disable_unref(p->busfd_events);
 
-fail_destroy_texture:
+fail_destroy_texture: UNUSED
     gst_object_unref(p->playbin);
 
     // The flutter upload sink uses the texture internally,

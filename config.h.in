@@ -26,5 +26,6 @@
 #cmakedefine ENABLE_MTRACE
 #cmakedefine ENABLE_ASAN
 #cmakedefine HAVE_BUNDLED_CRASHPAD_HANDLER
+#cmakedefine HAVE_GSTREAMER_VIDEO_PLAYER
 
 #endif

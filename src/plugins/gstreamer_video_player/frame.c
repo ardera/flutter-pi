@@ -16,6 +16,7 @@
 // This will error if we don't have EGL / OpenGL ES support.
 #include "gl_renderer.h"
 #include "plugins/gstreamer_video_player.h"
+#include "plugins/gstplayer.h"
 #include "util/logging.h"
 #include "util/refcounting.h"
 
@@ -28,7 +29,7 @@ struct video_frame {
     GstSample *sample;
 
     struct frame_interface *interface;
-    
+
     uint32_t drm_format;
 
     int n_dmabuf_fds;
@@ -876,7 +877,7 @@ static struct video_frame *frame_new_egl_imported(struct frame_interface *interf
         LOG_ERROR("Video format has no EGL equivalent.\n");
         return NULL;
     }
-    
+
 
     bool external_only;
     for_each_format_in_frame_interface(i, format, interface) {
