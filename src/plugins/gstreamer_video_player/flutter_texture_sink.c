@@ -4,17 +4,9 @@
 #include <gst/video/gstvideometa.h>
 #include <gst/allocators/gstdmabuf.h>
 
-#include "plugins/gstreamer_video_player.h"
-#include "plugins/gstplayer.h"
+#include "../gstreamer_video_player.h"
 #include "texture_registry.h"
 #include "util/logging.h"
-
-#if !defined(HAVE_EGL_GLES2)
-    #error "gstreamer video player requires EGL and OpenGL ES2 support."
-#else
-    #include "egl.h"
-    #include "gles.h"
-#endif
 
 struct texture_sink {
     struct texture *fl_texture;
@@ -161,7 +153,7 @@ static gboolean on_appsink_new_event(GstAppSink *appsink, gpointer userdata) {
     (void) userdata;
 
     GstMiniObject *obj;
-
+    
     do {
         obj = gst_app_sink_try_pull_object(appsink, 0);
         if (obj == NULL) {
