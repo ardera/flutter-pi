@@ -18,6 +18,7 @@
 #include <gst/gstelement.h>
 #include <gst/gstobject.h>
 
+
 #include "flutter-pi.h"
 #include "notifier_listener.h"
 #include "platformchannel.h"
@@ -970,8 +971,7 @@ struct gstplayer *gstplayer_new(struct flutterpi *flutterpi, const char *uri, vo
     return p;
 
 fail_rm_event_source:
-    sd_event_source_set_enabled(p->busfd_events, false);
-    sd_event_source_unref(p->busfd_events);
+    sd_event_source_disable_unref(p->busfd_events);
 
 fail_destroy_texture: UNUSED
     gst_object_unref(p->playbin);
