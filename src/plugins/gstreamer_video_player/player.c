@@ -308,13 +308,6 @@ static int apply_playback_state(struct gstplayer *player) {
             }
         }
 
-        GstSeekFlags seek_flags = GST_SEEK_FLAG_FLUSH;
-        if (player->do_fast_seeking) {
-            seek_flags |= GST_SEEK_FLAG_KEY_UNIT | GST_SEEK_FLAG_SNAP_NEAREST;
-        } else {
-            seek_flags |= GST_SEEK_FLAG_ACCURATE;
-        }
-
         if (player->direction == kForward) {
             LOG_PLAYER_DEBUG(
                 player,
@@ -323,13 +316,12 @@ static int apply_playback_state(struct gstplayer *player) {
                 GST_TIME_ARGS(position),
                 GST_TIME_ARGS(GST_CLOCK_TIME_NONE)
             );
-
-
             ok = gst_element_seek(
                 GST_ELEMENT(player->playbin),
                 desired_rate,
                 GST_FORMAT_TIME,
-                seek_flags,
+                GST_SEEK_FLAG_FLUSH |
+                    (player->do_fast_seeking ? GST_SEEK_FLAG_KEY_UNIT | GST_SEEK_FLAG_SNAP_NEAREST : GST_SEEK_FLAG_ACCURATE),
                 GST_SEEK_TYPE_SET,
                 position,
                 GST_SEEK_TYPE_SET,
@@ -356,7 +348,8 @@ static int apply_playback_state(struct gstplayer *player) {
                 GST_ELEMENT(player->playbin),
                 desired_rate,
                 GST_FORMAT_TIME,
-                seek_flags,
+                GST_SEEK_FLAG_FLUSH |
+                    (player->do_fast_seeking ? GST_SEEK_FLAG_KEY_UNIT | GST_SEEK_FLAG_SNAP_NEAREST : GST_SEEK_FLAG_ACCURATE),
                 GST_SEEK_TYPE_SET,
                 0,
                 GST_SEEK_TYPE_SET,
