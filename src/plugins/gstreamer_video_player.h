@@ -5,8 +5,6 @@
 #include "util/lock_ops.h"
 #include "util/refcounting.h"
 
-#include <gst/video/video-format.h>
-
 #include "config.h"
 
 #if !defined(HAVE_EGL_GLES2)
@@ -66,19 +64,6 @@ struct buffering_state {
 struct video_info;
 struct gstplayer;
 struct flutterpi;
-
-typedef struct _GstStructure GstStructure;
-
-/// Create a gstreamer video player.
-struct gstplayer *gstplayer_new(
-    struct flutterpi *flutterpi,
-    const char *uri,
-    void *userdata,
-    bool play_video,
-    bool play_audio,
-    bool subtitles,
-    GstStructure *headers
-);
 
 /// Create a gstreamer video player that loads the video from a flutter asset.
 ///     @arg asset_path     The path of the asset inside the asset bundle.
@@ -146,11 +131,6 @@ int gstplayer_pause(struct gstplayer *player);
 ///     @returns Current playback position, in milliseconds from the beginning of the video.
 int64_t gstplayer_get_position(struct gstplayer *player);
 
-/// Get the duration of the currently playing medium.
-///     @returns  Duration of the current medium in milliseconds, -1 if the duration
-///               is not yet known, or INT64_MAX for live sources.
-int64_t gstplayer_get_duration(struct gstplayer *player);
-
 /// Set whether the video should loop.
 ///     @arg looping    Whether the video should start playing from the beginning when the
 ///                     end is reached.
@@ -175,14 +155,6 @@ int gstplayer_step_forward(struct gstplayer *player);
 
 int gstplayer_step_backward(struct gstplayer *player);
 
-void gstplayer_set_audio_balance(struct gstplayer *player, float balance);
-
-float gstplayer_get_audio_balance(struct gstplayer *player);
-
-bool gstplayer_release(struct gstplayer *p);
-
-bool gstplayer_preroll(struct gstplayer *p, const char *uri);
-
 struct video_info {
     int width, height;
     
@@ -200,17 +172,6 @@ struct video_info {
 /// The listeners will be called on an internal gstreamer thread.
 /// So you need to make sure you do the proper rethreading in the listener callback.
 struct notifier *gstplayer_get_video_info_notifier(struct gstplayer *player);
-
-struct seeking_info {
-    bool can_seek;
-    int64_t seek_begin_ms, seek_end_ms;
-};
-
-struct notifier *gstplayer_get_seeking_info_notifier(struct gstplayer *player);
-
-struct notifier *gstplayer_get_duration_notifier(struct gstplayer *player);
-
-struct notifier *gstplayer_get_eos_notifier(struct gstplayer *player);
 
 /// @brief Get the value notifier for the buffering state.
 ///
