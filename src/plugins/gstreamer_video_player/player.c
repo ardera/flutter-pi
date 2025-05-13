@@ -660,23 +660,10 @@ void on_source_setup(GstElement *playbin, GstElement *source, gpointer userdata)
     }
 }
 
-/**
- * See: https://gitlab.freedesktop.org/gstreamer/gstreamer/-/blob/main/subprojects/gst-plugins-base/gst/playback/gstplay-enum.h
- */
 typedef enum {
-  GST_PLAY_FLAG_VIDEO         = (1 << 0),
-  GST_PLAY_FLAG_AUDIO         = (1 << 1),
-  GST_PLAY_FLAG_TEXT          = (1 << 2),
-  GST_PLAY_FLAG_VIS           = (1 << 3),
-  GST_PLAY_FLAG_SOFT_VOLUME   = (1 << 4),
-  GST_PLAY_FLAG_NATIVE_AUDIO  = (1 << 5),
-  GST_PLAY_FLAG_NATIVE_VIDEO  = (1 << 6),
-  GST_PLAY_FLAG_DOWNLOAD      = (1 << 7),
-  GST_PLAY_FLAG_BUFFERING     = (1 << 8),
-  GST_PLAY_FLAG_DEINTERLACE   = (1 << 9),
-  GST_PLAY_FLAG_SOFT_COLORBALANCE = (1 << 10),
-  GST_PLAY_FLAG_FORCE_FILTERS = (1 << 11),
-  GST_PLAY_FLAG_FORCE_SW_DECODERS = (1 << 12),
+    GST_PLAY_FLAG_VIDEO = (1 << 0),
+    GST_PLAY_FLAG_AUDIO = (1 << 1),
+    GST_PLAY_FLAG_TEXT = (1 << 2)
 } GstPlayFlags;
 
 static void on_element_setup(GstElement *playbin, GstElement *element, gpointer userdata) {
@@ -785,13 +772,8 @@ static struct gstplayer *gstplayer_new_v2(struct flutterpi *flutterpi, const cha
     value_notifier_init(&p->buffering_state_notifier, NULL, free);
     change_notifier_init(&p->error_notifier);
 
-    // playbin3 doesn't let use disable hardware decoders,
-    // which we need to do for gstreamer < 1.22.8.
-#if THIS_GSTREAMER_VER < GSTREAMER_VER(1, 22, 8)
-    p->playbin = gst_element_factory_make("playbin", "playbin");
-#else
+    /// TODO: Use playbin or playbin3?
     p->playbin = gst_element_factory_make("playbin3", "playbin");
-#endif
     if (p->playbin == NULL) {
         LOG_PLAYER_ERROR(p, "Couldn't create playbin instance.\n");
         goto fail_free_p;
@@ -820,17 +802,6 @@ static struct gstplayer *gstplayer_new_v2(struct flutterpi *flutterpi, const cha
     } else {
         flags &= ~GST_PLAY_FLAG_TEXT;
     }
-
-    // Gstreamer older than 1.22.8 has a buffer management issue when seeking.
-    // https://gitlab.freedesktop.org/gstreamer/gstreamer/-/merge_requests/4465
-    //
-    // This is a bit more coarse than necessary; we technically only
-    // need to disable the v4l2 decoders.
-#if THIS_GSTREAMER_VER < GSTREAMER_VER(1, 22, 8)
-    flags |= GST_PLAY_FLAG_FORCE_SW_DECODERS;
-#else
-    flags &= ~GST_PLAY_FLAG_FORCE_SW_DECODERS;
-#endif
 
     g_object_set(p->playbin, "flags", flags, NULL);
 
@@ -930,7 +901,7 @@ struct gstplayer *gstplayer_new_from_asset(struct flutterpi *flutterpi, const ch
         return NULL;
     }
 
-    player = gstplayer_new_v2(flutterpi, uri, userdata, /* play_video */ true, /* play_audio */ false, /* play_text */ false, NULL);
+    player = gstplayer_new_v2(flutterpi, uri, userdata, true, true, false, NULL);
 
     free(uri);
 
