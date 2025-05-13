@@ -157,6 +157,7 @@ static GstCaps *caps_for_frame_interface(struct frame_interface *interface) {
     return caps;
 }
 
+#if THIS_GSTREAMER_VER >= GSTREAMER_VER(1, 20, 0)
 static gboolean on_appsink_new_event(GstAppSink *appsink, gpointer userdata) {
     (void) userdata;
 
@@ -183,6 +184,7 @@ static gboolean on_appsink_new_event(GstAppSink *appsink, gpointer userdata) {
 
     return FALSE;
 }
+#endif
 
 UNUSED static gboolean on_appsink_propose_allocation(GstAppSink *appsink, GstQuery *query, gpointer userdata) {
     (void) appsink;
