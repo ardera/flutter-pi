@@ -26,7 +26,6 @@
 #include "plugins/gstplayer.h"
 #include "texture_registry.h"
 #include "util/logging.h"
-#include "util/macros.h"
 
 #include "config.h"
 
@@ -812,10 +811,8 @@ UNUSED static GstPadProbeReturn on_video_sink_event(GstPad *pad, GstPadProbeInfo
         return GST_PAD_PROBE_OK;
     }
 
-    GstVideoInfo *videoinfo = gst_video_info_new();
-    ASSUME(videoinfo != NULL);
-
-    if (!gst_video_info_from_caps(videoinfo, caps)) {
+    GstVideoInfo *videoinfo = gst_video_info_new_from_caps(caps);
+    if (!videoinfo) {
         LOG_ERROR("Could not determine video properties of caps event.\n");
         return GST_PAD_PROBE_OK;
     }
