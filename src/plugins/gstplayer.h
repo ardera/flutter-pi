@@ -4,6 +4,10 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#include <glib.h>
+
+#include "util/collection.h"
+
 #include "config.h"
 
 #define GSTREAMER_VER(major, minor, patch) ((((major) &0xFF) << 16) | (((minor) &0xFF) << 8) | ((patch) &0xFF))
@@ -60,6 +64,12 @@ struct notifier;
 
 typedef struct _GstStructure GstStructure;
 
+struct async_completer {
+    void_callback_t on_done;
+    void (*on_error)(void *userdata, GError *error);
+    void *userdata;
+};
+
 /// Create a gstreamer video player.
 struct gstplayer *gstplayer_new(
     struct flutterpi *flutterpi,
@@ -67,7 +77,6 @@ struct gstplayer *gstplayer_new(
     void *userdata,
     bool play_video,
     bool play_audio,
-    bool subtitles,
     GstStructure *headers
 );
 
@@ -145,7 +154,7 @@ int64_t gstplayer_get_duration(struct gstplayer *player);
 /// Set whether the video should loop.
 ///     @arg looping    Whether the video should start playing from the beginning when the
 ///                     end is reached.
-int gstplayer_set_looping(struct gstplayer *player, bool looping);
+int gstplayer_set_looping(struct gstplayer *player, bool looping, bool gapless);
 
 /// Set the playback volume.
 ///     @arg volume     Desired volume as a value between 0 and 1.
@@ -155,6 +164,10 @@ int gstplayer_set_volume(struct gstplayer *player, double volume);
 ///     @arg position            Position to seek to in milliseconds from the beginning of the video.
 ///     @arg nearest_keyframe    If true, seek to the nearest keyframe instead. Might be faster but less accurate.
 int gstplayer_seek_to(struct gstplayer *player, int64_t position, bool nearest_keyframe);
+
+/// Seek to a specific position in the video and call
+/// @arg on_seek_done with @arg userdata when done.
+int gstplayer_seek_with_completer(struct gstplayer *player, int64_t position, bool nearest_keyframe, struct async_completer completer);
 
 /// Set the playback speed of the player.
 ///   1.0: normal playback speed
@@ -170,9 +183,9 @@ void gstplayer_set_audio_balance(struct gstplayer *player, float balance);
 
 float gstplayer_get_audio_balance(struct gstplayer *player);
 
-bool gstplayer_release(struct gstplayer *p);
+bool gstplayer_set_source(struct gstplayer *p, const char *uri);
 
-bool gstplayer_preroll(struct gstplayer *p, const char *uri);
+bool gstplayer_set_source_with_completer(struct gstplayer *p, const char *uri, struct async_completer completer);
 
 struct video_info {
     int width, height;

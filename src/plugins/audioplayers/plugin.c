@@ -38,6 +38,7 @@ struct audioplayer_meta {
 
     struct listener *duration_listener;
     struct listener *eos_listener;
+    struct listener *error_listener;
 };
 
 struct plugin {
@@ -46,6 +47,15 @@ struct plugin {
 
     khash_t(audioplayers) players;
 };
+
+static const char *player_get_id(struct gstplayer *player) {
+    struct audioplayer_meta *meta = gstplayer_get_userdata(player);
+
+    return meta->id;
+}
+
+#define LOG_AUDIOPLAYER_DEBUG(player, fmtstring, ...) LOG_DEBUG("audio player \"%s\": " fmtstring, player_get_id(player), ##__VA_ARGS__)
+#define LOG_AUDIOPLAYER_ERROR(player, fmtstring, ...) LOG_ERROR("audio player \"%s\": " fmtstring, player_get_id(player), ##__VA_ARGS__)
 
 static void on_receive_event_ch(void *userdata, const FlutterPlatformMessage *message);
 
@@ -136,7 +146,7 @@ static struct gstplayer *get_player_from_arg(struct plugin *plugin, const struct
     return player;
 }
 
-UNUSED static void send_error_event(struct audioplayer_meta *meta, GError *error) {
+static void send_error_event(struct audioplayer_meta *meta, GError *error) {
     if (!meta->subscribed) {
         return;
     }
@@ -170,7 +180,7 @@ UNUSED static void send_error_event(struct audioplayer_meta *meta, GError *error
     free(details);
 }
 
-UNUSED static void send_prepared_event(struct audioplayer_meta *meta, bool prepared) {
+static void send_prepared_event(struct audioplayer_meta *meta, bool prepared) {
     if (!meta->subscribed) {
         return;
     }
@@ -186,8 +196,13 @@ UNUSED static void send_prepared_event(struct audioplayer_meta *meta, bool prepa
     // clang-format on
 }
 
-static void send_duration_update(struct audioplayer_meta *meta, int64_t duration_ms) {
+static void send_duration_update(struct audioplayer_meta *meta, bool has_duration, int64_t duration_ms) {
     if (!meta->subscribed) {
+        return;
+    }
+
+    if (!has_duration) {
+        // TODO: Check the behaviour in upstream audioplayers
         return;
     }
 
@@ -202,7 +217,7 @@ static void send_duration_update(struct audioplayer_meta *meta, int64_t duration
     // clang-format on
 }
 
-UNUSED static void send_seek_completed(struct audioplayer_meta *meta) {
+static void send_seek_completed(struct audioplayer_meta *meta) {
     if (!meta->subscribed) {
         return;
     }
@@ -210,9 +225,8 @@ UNUSED static void send_seek_completed(struct audioplayer_meta *meta) {
     // clang-format off
     platch_send_success_event_std(
         meta->event_channel,
-        &STDMAP2(
-            STDSTRING("event"), STDSTRING("audio.onDuration"),
-            STDSTRING("value"), STDBOOL(true)
+        &STDMAP1(
+            STDSTRING("event"), STDSTRING("audio.onSeekComplete")
         )
     );
     // clang-format on
@@ -226,9 +240,8 @@ static void send_playback_complete(struct audioplayer_meta *meta) {
     // clang-format off
     platch_send_success_event_std(
         meta->event_channel,
-        &STDMAP2(
-            STDSTRING("event"), STDSTRING("audio.onComplete"),
-            STDSTRING("value"), STDBOOL(true)
+        &STDMAP1(
+            STDSTRING("event"), STDSTRING("audio.onComplete")
         )
     );
     // clang-format on
@@ -272,6 +285,8 @@ static void on_create(struct plugin *p, const struct raw_std_value *arg, const F
         return;
     }
 
+    LOG_DEBUG("create(id: \"%s\")\n", meta->id);
+
     int status = 0;
     khint_t index = kh_put(audioplayers, &p->players, meta->id, &status);
     if (status == -1) {
@@ -301,7 +316,7 @@ static void on_create(struct plugin *p, const struct raw_std_value *arg, const F
         p->flutterpi,
         NULL,
         meta,
-        /* play_video */ false, /* play_audio */ true, /* subtitles */ false,
+        /* play_video */ false, /* play_audio */ true,
         NULL
     );
     if (player == NULL) {
@@ -324,6 +339,8 @@ static void on_create(struct plugin *p, const struct raw_std_value *arg, const F
     );
 
     kh_value(&p->players, index) = player;
+
+    platch_respond_success_std(responsehandle, NULL);
 }
 
 static void on_pause(struct plugin *p, const struct raw_std_value *arg, const FlutterPlatformMessageResponseHandle *responsehandle) {
@@ -332,12 +349,11 @@ static void on_pause(struct plugin *p, const struct raw_std_value *arg, const Fl
         return;
     }
 
-    int err = gstplayer_pause(player);
-    if (err != 0) {
-        platch_respond_native_error_std(responsehandle, err);
-    } else {
-        platch_respond_success_std(responsehandle, NULL);
-    }
+    LOG_AUDIOPLAYER_DEBUG(player, "pause()\n");
+
+    gstplayer_pause(player);
+
+    platch_respond_success_std(responsehandle, NULL);
 }
 
 static void on_resume(struct plugin *p, const struct raw_std_value *arg, const FlutterPlatformMessageResponseHandle *responsehandle) {
@@ -346,13 +362,12 @@ static void on_resume(struct plugin *p, const struct raw_std_value *arg, const F
         return;
     }
 
+    LOG_AUDIOPLAYER_DEBUG(player, "resume()\n");
+
     /// TODO: Should resume behave different to play?
-    int err = gstplayer_play(player);
-    if (err != 0) {
-        platch_respond_native_error_std(responsehandle, err);
-    } else {
-        platch_respond_success_std(responsehandle, NULL);
-    }
+    gstplayer_play(player);
+
+    platch_respond_success_std(responsehandle, NULL);
 }
 
 static void on_stop(struct plugin *p, const struct raw_std_value *arg, const FlutterPlatformMessageResponseHandle *responsehandle) {
@@ -361,16 +376,18 @@ static void on_stop(struct plugin *p, const struct raw_std_value *arg, const Flu
         return;
     }
 
+    LOG_AUDIOPLAYER_DEBUG(player, "stop()\n");
+
     /// TODO: Maybe provide gstplayer_stop
     int err = gstplayer_pause(player);
     if (err != 0) {
-        platch_respond_native_error_std(responsehandle, err);
+        platch_respond_success_std(responsehandle, NULL);
         return;
     }
 
     err = gstplayer_seek_to(player, 0, /* nearest_keyframe */ false);
     if (err != 0) {
-        platch_respond_native_error_std(responsehandle, err);
+        platch_respond_success_std(responsehandle, NULL);
         return;
     }
 
@@ -383,7 +400,9 @@ static void on_release(struct plugin *p, const struct raw_std_value *arg, const 
         return;
     }
 
-    gstplayer_release(player);
+    LOG_AUDIOPLAYER_DEBUG(player, "release()\n");
+
+    gstplayer_set_source(player, NULL);
 
     platch_respond_success_std(responsehandle, NULL);
 }
@@ -402,13 +421,26 @@ static void on_seek(struct plugin *p, const struct raw_std_value *arg, const Flu
 
     int64_t position_int = raw_std_value_as_int(position);
 
-    int err = gstplayer_seek_to(player, position_int, /* nearest_keyframe */ false);
-    if (err != 0) {
-        platch_respond_native_error_std(responsehandle, err);
-        return;
-    }
+    LOG_AUDIOPLAYER_DEBUG(player, "seek(position_ms: %"PRIi64")\n", position_int);
+
+    gstplayer_seek_with_completer(
+        player,
+        position_int,
+        /* nearest_keyframe */ false,
+        (struct async_completer) {
+            .on_done = (void_callback_t) send_seek_completed,
+            .on_error = NULL,
+            .userdata = gstplayer_get_userdata(player)
+        }
+    );
 
     platch_respond_success_std(responsehandle, NULL);
+}
+
+static void on_set_source_url_complete(void *userdata) {
+    struct audioplayer_meta *meta = userdata;
+
+    send_prepared_event(meta, true);
 }
 
 static void on_set_source_url(struct plugin *p, const struct raw_std_value *arg, const FlutterPlatformMessageResponseHandle *responsehandle) {
@@ -436,8 +468,34 @@ static void on_set_source_url(struct plugin *p, const struct raw_std_value *arg,
     }
 
     char *src_url_duped = raw_std_string_dup(src_url);
+    if (!src_url_duped) return;
 
-    bool ok = gstplayer_preroll(player, src_url_duped);
+    LOG_AUDIOPLAYER_DEBUG(player, "set_source_url(url: \"%s\")\n", src_url_duped);
+
+    // audioplayers attempts to use file paths (e.g. /tmp/abcd) as source URIs.
+    // detect that and constrcut a proper url from it.
+    if (src_url_duped[0] == '/') {
+        free(src_url_duped);
+
+        int result = asprintf(
+            &src_url_duped,
+            "file://%.*s",
+            (int) raw_std_string_get_length(src_url),
+            raw_std_string_get_nonzero_terminated(src_url)
+        );
+        if (result < 0) {
+            return;
+        }
+    }
+
+    bool ok = gstplayer_set_source_with_completer(
+        player,
+        src_url_duped,
+        (struct async_completer) {
+            .on_done = on_set_source_url_complete,
+            .userdata = gstplayer_get_userdata(player)
+        }
+    );
 
     free(src_url_duped);
 
@@ -455,9 +513,12 @@ static void on_get_duration(struct plugin *p, const struct raw_std_value *arg, c
         return;
     }
 
+    LOG_AUDIOPLAYER_DEBUG(player, "get_duration()\n");
+
     int64_t duration_ms = gstplayer_get_duration(player);
     if (duration_ms == -1) {
         platch_respond_success_std(responsehandle, NULL);
+        return;
     }
 
     platch_respond_success_std(responsehandle, &STDINT64(duration_ms));
@@ -477,11 +538,9 @@ static void on_set_volume(struct plugin *p, const struct raw_std_value *arg, con
 
     double volume_float = raw_std_value_as_float64(volume);
 
-    int err = gstplayer_set_volume(player, volume_float);
-    if (err != 0) {
-        platch_respond_native_error_std(responsehandle, err);
-        return;
-    }
+    LOG_AUDIOPLAYER_DEBUG(player, "set_volume(volume: %f)\n", volume_float);
+
+    gstplayer_set_volume(player, volume_float);
 
     platch_respond_success_std(responsehandle, NULL);
 }
@@ -494,7 +553,7 @@ static void on_get_position(struct plugin *p, const struct raw_std_value *arg, c
 
     int64_t position = gstplayer_get_position(player);
     if (position < 0) {
-        platch_respond_native_error_std(responsehandle, EIO);
+        platch_respond_success_std(responsehandle, &STDNULL);
         return;
     }
 
@@ -515,10 +574,15 @@ static void on_set_playback_rate(struct plugin *p, const struct raw_std_value *a
 
     double rate_float = raw_std_value_as_float64(rate);
 
-    int err = gstplayer_set_playback_speed(player, rate_float);
-    if (err != 0) {
-        platch_respond_native_error_std(responsehandle, err);
+    LOG_AUDIOPLAYER_DEBUG(player, "set_playback_rate(rate: %f)\n", rate_float);
+
+    if (rate_float < 0.0) {
+        respond_plugin_error(responsehandle, "Backward playback is not supported.\n");
         return;
+    } else if (rate_float == 0.0) {
+        gstplayer_pause(player);
+    } else {
+        gstplayer_set_playback_speed(player, rate_float);
     }
 
     platch_respond_success_std(responsehandle, NULL);
@@ -535,6 +599,11 @@ static void on_set_release_mode(struct plugin *p, const struct raw_std_value *ar
         platch_respond_illegal_arg_std(responsehandle, "Expected `arg['releaseMode'] to be a string.");
         return;
     }
+
+    LOG_AUDIOPLAYER_DEBUG(player, "set_release_mode(mode: %.*s)\n",
+        (int) raw_std_string_get_length(mode),
+        raw_std_string_get_nonzero_terminated(mode)
+    );
 
     bool is_release = false;
     bool is_loop = false;
@@ -555,9 +624,9 @@ static void on_set_release_mode(struct plugin *p, const struct raw_std_value *ar
     (void) is_release;
     (void) is_stop;
 
-    int err = gstplayer_set_looping(player, is_loop);
+    int err = gstplayer_set_looping(player, is_loop, false);
     if (err != 0) {
-        platch_respond_native_error_std(responsehandle, err);
+        platch_respond_success_std(responsehandle, NULL);
         return;
     }
 
@@ -575,6 +644,11 @@ static void on_set_player_mode(struct plugin *p, const struct raw_std_value *arg
         platch_respond_illegal_arg_std(responsehandle, "Expected `arg['playerMode'] to be a string.");
         return;
     }
+
+    LOG_AUDIOPLAYER_DEBUG(player, "set_player_mode(mode: %.*s)\n",
+        (int) raw_std_string_get_length(mode),
+        raw_std_string_get_nonzero_terminated(mode)
+    );
 
     bool is_media_player = false;
     bool is_low_latency = false;
@@ -611,6 +685,8 @@ static void on_set_balance(struct plugin *p, const struct raw_std_value *arg, co
 
     double balance_float = raw_std_value_as_float64(balance);
 
+    LOG_AUDIOPLAYER_DEBUG(player, "set_balance(balance: %f)\n", balance_float);
+
     if (balance_float < -1.0) {
         balance_float = -1.0;
     } else if (balance_float > 1.0) {
@@ -634,7 +710,7 @@ static void on_player_emit_log(struct plugin *p, const struct raw_std_value *arg
         return;
     }
 
-    LOG_DEBUG("%*s", (int) raw_std_string_get_length(message), raw_std_string_get_nonzero_terminated(message));
+    LOG_DEBUG("%.*s", (int) raw_std_string_get_length(message), raw_std_string_get_nonzero_terminated(message));
 
     platch_respond_success_std(responsehandle, NULL);
 }
@@ -658,7 +734,7 @@ static void on_player_emit_error(struct plugin *p, const struct raw_std_value *a
     }
 
     LOG_ERROR(
-        "%*s, %*s",
+        "%.*s, %.*s",
         (int) raw_std_string_get_length(code), raw_std_string_get_nonzero_terminated(code),
         (int) raw_std_string_get_length(message), raw_std_string_get_nonzero_terminated(message)
     );
@@ -676,6 +752,8 @@ static void on_dispose(struct plugin *p, const struct raw_std_value *arg, const 
     if (player == NULL) {
         return;
     }
+
+    LOG_AUDIOPLAYER_DEBUG(player, "dispose()\n");
 
     char *id_duped = raw_std_string_dup(id);
 
@@ -778,7 +856,7 @@ static void on_emit_log(
         return;
     }
 
-    LOG_DEBUG("%*s", (int) raw_std_string_get_length(message), raw_std_string_get_nonzero_terminated(message));
+    LOG_DEBUG("%.*s", (int) raw_std_string_get_length(message), raw_std_string_get_nonzero_terminated(message));
 
     platch_respond_success_std(responsehandle, NULL);
 }
@@ -803,7 +881,7 @@ static void on_emit_error(
     }
 
     LOG_ERROR(
-        "%*s, %*s",
+        "%.*s, %.*s",
         (int) raw_std_string_get_length(code), raw_std_string_get_nonzero_terminated(code),
         (int) raw_std_string_get_length(message), raw_std_string_get_nonzero_terminated(message)
     );
@@ -843,10 +921,13 @@ static enum listener_return on_duration_notify(void *arg, void *userdata) {
     struct audioplayer_meta *meta = gstplayer_get_userdata(player);
     ASSERT_NOT_NULL(meta);
 
-    ASSERT_NOT_NULL(arg);
-    int64_t *duration_ms = arg;
+    if (arg != NULL) {
+        int64_t *duration_ms = arg;
+        send_duration_update(meta, true, *duration_ms);
+    } else {
+        send_duration_update(meta, false, -1);
+    }
 
-    send_duration_update(meta, *duration_ms);
     return kNoAction;
 }
 
@@ -860,6 +941,21 @@ static enum listener_return on_eos_notify(void *arg, void *userdata) {
     ASSERT_NOT_NULL(meta);
 
     send_playback_complete(meta);
+
+    return kNoAction;
+}
+
+static enum listener_return on_error_notify(void *arg, void *userdata) {
+    ASSERT_NOT_NULL(arg);
+    GError *error = arg;
+
+    ASSERT_NOT_NULL(userdata);
+    struct gstplayer *player = userdata;
+
+    struct audioplayer_meta *meta = gstplayer_get_userdata(player);
+    ASSERT_NOT_NULL(meta);
+
+    send_error_event(meta, error);
 
     return kNoAction;
 }
@@ -879,7 +975,7 @@ static void on_receive_event_ch(void *userdata, const FlutterPlatformMessage *me
     }
 
     /// TODO: Implement
-    if (raw_std_method_call_is_method(envelope, "listen") == 0) {
+    if (raw_std_method_call_is_method(envelope, "listen")) {
         platch_respond_success_std(message->response_handle, NULL);
 
         if (!meta->subscribed) {
@@ -887,15 +983,17 @@ static void on_receive_event_ch(void *userdata, const FlutterPlatformMessage *me
 
             meta->duration_listener = notifier_listen(gstplayer_get_duration_notifier(player), on_duration_notify, NULL, player);
             meta->eos_listener = notifier_listen(gstplayer_get_eos_notifier(player), on_eos_notify, NULL, player);
+            meta->error_listener = notifier_listen(gstplayer_get_error_notifier(player), on_error_notify, NULL, player);
         }
-    } else if (raw_std_method_call_is_method(envelope, "cancel") == 0) {
+    } else if (raw_std_method_call_is_method(envelope, "cancel")) {
         platch_respond_success_std(message->response_handle, NULL);
 
         if (meta->subscribed) {
             meta->subscribed = false;
 
-            notifier_unlisten(gstplayer_get_duration_notifier(player), meta->duration_listener);
+            notifier_unlisten(gstplayer_get_eos_notifier(player), meta->error_listener);
             notifier_unlisten(gstplayer_get_eos_notifier(player), meta->eos_listener);
+            notifier_unlisten(gstplayer_get_duration_notifier(player), meta->duration_listener);
         }
     } else {
         platch_respond_not_implemented(message->response_handle);
@@ -912,6 +1010,7 @@ enum plugin_init_result audioplayers_plugin_init(struct flutterpi *flutterpi, vo
         return PLUGIN_INIT_RESULT_ERROR;
     }
 
+    plugin->flutterpi = flutterpi;
     plugin->initialized = false;
 
     ok = plugin_registry_set_receiver_v2_locked(
