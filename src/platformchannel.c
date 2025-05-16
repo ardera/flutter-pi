@@ -1320,6 +1320,10 @@ int platch_respond_native_error_std(const FlutterPlatformMessageResponseHandle *
     return platch_respond_error_std(handle, "nativeerror", strerror(_errno), &STDINT32(_errno));
 }
 
+int platch_respond_malformed_message_std(const FlutterPlatformMessage *message) {
+    return platch_respond_error_std(message->response_handle, "malformed-message", "The platform message received was malformed.", &STDNULL);
+}
+
 /************************
  * JSON METHOD CHANNELS *
  ************************/
@@ -2482,4 +2486,14 @@ MALLOCLIKE MUST_CHECK char *raw_std_method_call_get_method_dup(const struct raw_
 
 ATTR_PURE const struct raw_std_value *raw_std_method_call_get_arg(const struct raw_std_value *value) {
     return raw_std_value_after(value);
+}
+
+ATTR_PURE const struct raw_std_value *raw_std_method_call_from_buffer(const void *buffer, size_t buffer_size) {
+    const struct raw_std_value *envelope = (const struct raw_std_value *) buffer;
+
+    if (!raw_std_method_call_check(envelope, buffer_size)) {
+        return NULL;
+    } else {
+        return envelope;
+    }
 }

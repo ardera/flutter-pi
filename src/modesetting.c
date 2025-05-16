@@ -2448,9 +2448,6 @@ int kms_req_builder_push_fb_layer(
             /* id_range */ false, 0
             // clang-format on
         );
-        if (plane == NULL) {
-            LOG_DEBUG("Couldn't find a fitting cursor plane.\n");
-        }
     }
 
     /// TODO: Not sure we can use crtc_x, crtc_y, etc with primary planes

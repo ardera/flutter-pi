@@ -92,6 +92,7 @@ struct drmdev;
 struct locales;
 struct vk_renderer;
 struct flutterpi;
+struct tracer;
 
 /// TODO: Remove this
 extern struct flutterpi *flutterpi;
@@ -187,6 +188,8 @@ struct gbm_device *flutterpi_get_gbm_device(struct flutterpi *flutterpi);
 bool flutterpi_has_gl_renderer(struct flutterpi *flutterpi);
 
 struct gl_renderer *flutterpi_get_gl_renderer(struct flutterpi *flutterpi);
+
+struct tracer *flutterpi_get_tracer(struct flutterpi *flutterpi);
 
 void flutterpi_set_pointer_kind(struct flutterpi *flutterpi, enum pointer_kind kind);
 

@@ -99,3 +99,6 @@ Icon
 Network Trash Folder
 Temporary Items
 .apdisk
+
+# Used by zed to store clangd cache
+.cache

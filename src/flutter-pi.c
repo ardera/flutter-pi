@@ -1039,6 +1039,11 @@ struct gl_renderer *flutterpi_get_gl_renderer(struct flutterpi *flutterpi) {
     return flutterpi->gl_renderer;
 }
 
+struct tracer *flutterpi_get_tracer(struct flutterpi *flutterpi) {
+    ASSERT_NOT_NULL(flutterpi);
+    return flutterpi->tracer;
+}
+
 void flutterpi_set_pointer_kind(struct flutterpi *flutterpi, enum pointer_kind kind) {
     return compositor_set_cursor(flutterpi->compositor, false, false, true, kind, false, VEC2F(0, 0));
 }

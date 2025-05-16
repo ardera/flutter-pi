@@ -3,7 +3,7 @@
  * Platform Channels
  *
  * Encoding/Decoding of flutter platform messages, with different
- * 
+ *
  * Supported codecs:
  *  - standard message & method codec,
  *  - json message & method codec
@@ -1491,6 +1491,8 @@ int platch_respond_illegal_arg_ext_std(const FlutterPlatformMessageResponseHandl
 
 int platch_respond_native_error_std(const FlutterPlatformMessageResponseHandle *handle, int _errno);
 
+int platch_respond_malformed_message_std(const FlutterPlatformMessage *message);
+
 int platch_respond_success_json(const FlutterPlatformMessageResponseHandle *handle, struct json_value *return_value);
 
 int platch_respond_error_json(
@@ -1614,6 +1616,7 @@ ATTR_PURE bool raw_std_method_call_check(const struct raw_std_value *value, size
 ATTR_PURE bool raw_std_method_call_response_check(const struct raw_std_value *value, size_t buffer_size);
 ATTR_PURE bool raw_std_event_check(const struct raw_std_value *value, size_t buffer_size);
 
+ATTR_PURE const struct raw_std_value *raw_std_method_call_from_buffer(const void *buffer, size_t buffer_size);
 ATTR_PURE const struct raw_std_value *raw_std_method_call_get_method(const struct raw_std_value *value);
 ATTR_PURE bool raw_std_method_call_is_method(const struct raw_std_value *value, const char *method_name);
 MALLOCLIKE MUST_CHECK char *raw_std_method_call_get_method_dup(const struct raw_std_value *value);
