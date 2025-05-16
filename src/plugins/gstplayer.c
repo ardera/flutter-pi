@@ -17,6 +17,9 @@
 #include <gst/gstclock.h>
 #include <gst/gstelement.h>
 #include <gst/gstobject.h>
+#include <gst/gstformat.h>
+#include <gst/gstmessage.h>
+#include <gst/gstsegment.h>
 
 #include "flutter-pi.h"
 #include "notifier_listener.h"
@@ -24,8 +27,11 @@
 #include "pluginregistry.h"
 #include "plugins/gstplayer.h"
 #include "texture_registry.h"
+#include "tracer.h"
 #include "util/logging.h"
 #include "util/macros.h"
+#include "util/collection.h"
+#include "util/asserts.h"
 
 #include "config.h"
 
@@ -33,23 +39,26 @@
     #include "gstreamer_video_player.h"
 #endif
 
-#define LOG_GST_SET_STATE_ERROR(_element)                                                                               \
-    LOG_ERROR(                                                                                                          \
-        "setting gstreamer playback state failed. gst_element_set_state(element name: %s): GST_STATE_CHANGE_FAILURE\n", \
-        GST_ELEMENT_NAME(_element)                                                                                      \
-    )
-#define LOG_GST_GET_STATE_ERROR(_element)                                                                          \
-    LOG_ERROR(                                                                                                     \
-        "last gstreamer state change failed. gst_element_get_state(element name: %s): GST_STATE_CHANGE_FAILURE\n", \
-        GST_ELEMENT_NAME(_element)                                                                                 \
-    )
-
 #define LOG_PLAYER_DEBUG(player, fmtstring, ...) LOG_DEBUG("gstplayer-%"PRIi64": " fmtstring, player->debug_id, ##__VA_ARGS__)
 #ifdef DEBUG
     #define LOG_PLAYER_ERROR(player, fmtstring, ...) LOG_ERROR("gstplayer-%"PRIi64": " fmtstring, player->debug_id, ##__VA_ARGS__)
 #else
     #define LOG_PLAYER_ERROR(player, fmtstring, ...) LOG_ERROR(fmtstring, ##__VA_ARGS__)
 #endif
+
+#define LOG_GST_SET_STATE_ERROR(player, _element)                                                                       \
+    LOG_PLAYER_ERROR(                                                                                                   \
+        player,                                                                                                         \
+        "setting gstreamer playback state failed. gst_element_set_state(element name: %s): GST_STATE_CHANGE_FAILURE\n", \
+        GST_ELEMENT_NAME(_element)                                                                                      \
+    )
+
+#define LOG_GST_GET_STATE_ERROR(player, _element)                                                                  \
+    LOG_PLAYER_ERROR(                                                                                              \
+        player,                                                                                                    \
+        "last gstreamer state change failed. gst_element_get_state(element name: %s): GST_STATE_CHANGE_FAILURE\n", \
+        GST_ELEMENT_NAME(_element)                                                                                 \
+    )
 
 struct incomplete_video_info {
     bool has_resolution;
@@ -83,7 +92,6 @@ struct gstplayer {
 #endif
 
     struct flutterpi *flutterpi;
-    struct tracer *tracer;
 
     void *userdata;
 
@@ -103,7 +111,15 @@ struct gstplayer {
      * @brief True if the video should seemlessly start from the beginning once the end is reached.
      *
      */
-    atomic_bool looping;
+    bool looping;
+
+    /**
+     * @brief True if the looping should use gapless looping using either the about-to-finish callback
+     * from playbin or segments.
+     *
+     * Configured in gstplayer_set_looping
+     */
+    bool gapless_looping;
 
     /**
      * @brief The desired playback state. Either paused, playing, or single-frame stepping.
@@ -161,22 +177,113 @@ struct gstplayer {
     bool has_seeking_info;
     struct seeking_info seeking_info;
 
-    // bool has_gst_info;
-    // GstVideoInfo gst_info;
-
+    /**
+     * The flutter texture that this video player is pushing frames to.
+     */
     struct texture *texture;
 
-    // GstElement *pipeline, *sink;
-    // GstBus *bus;
     sd_event_source *busfd_events;
 
+    /**
+     * The gstreamer playbin, which gstplayer is just
+     * a wrapper around, basically.
+     */
     GstElement *playbin;
+
+    /**
+     * The gstreamer audiopanorama element, used as the "audio-filter"
+     * if audio playback is enabled, and used to change the audio
+     * left/right balance.
+     */
     GstElement *audiopanorama;
 
-    gulong on_element_added_signal_handler;
-
+    /**
+     * True if we're playing back a live source,
+     * e.g. a live stream
+     */
     bool is_live;
+
+    /**
+     * Callbacks to be called on ASYNC_DONE gstreamer messages.
+     *
+     * ASYNC_DONE messages indicate completion of an async state
+     * change or a flushing seek.
+     */
+    size_t n_async_completers;
+    struct async_completer completers[8];
+
+    /**
+     * @brief Use the playbin "uri" property and "about-to-finish" signal
+     * to achieve gapless looping, if looping is desired.
+     *
+     * It's a bit unclear whether this is worse or equally as good as
+     * using segments; so segment looping is preferred for now.
+     *
+     * However, segments are not always super reliable (e.g. playbin3
+     * segment looping is broken in gstreamer < 1.22.9), so the playbin
+     * method is kept intact still as a backup.
+     */
+    bool playbin_gapless;
+
+    /**
+     * @brief Use segments to do gapless looping, if looping is desired.
+     *
+     * (Instead of e.g. seeking back to start on EOS, or setting the
+     * playbin uri property in about-to-finish)
+     */
+    bool segment_gapless;
+
+    /**
+     * The source uri this gstplayer should play back.
+     *
+     * Mostly used to as the argument to `g_object_set(p->playbin, "uri", ...)`
+     * in on_about_to_finish, as querying the current source uri from the playbin
+     * is not always reliable.
+     */
+    char *uri;
+
+    /**
+     * True if we did already issue a flushing seek
+     * with GST_SEEK_FLAG_SEGMENT.
+     *
+     * A flushing seek with GST_SEEK_FLAG_SEGMENT has to be
+     * issued to start gapless looping.
+     */
+    bool did_configure_segment;
 };
+
+static struct async_completer pop_completer(struct gstplayer *player) {
+    ASSERT(player->n_async_completers > 0);
+
+    struct async_completer completer = player->completers[0];
+
+    player->n_async_completers--;
+    if (player->n_async_completers > 0) {
+        memmove(player->completers + 0, player->completers + 1, player->n_async_completers * sizeof(struct async_completer));
+    }
+
+    return completer;
+}
+
+static void on_async_done_message(struct gstplayer *player) {
+    if (player->n_async_completers > 0) {
+        struct async_completer completer = pop_completer(player);
+
+        if (completer.on_done) {
+            completer.on_done(completer.userdata);
+        }
+    }
+}
+
+static void on_async_error(struct gstplayer *player, GError *error) {
+    if (player->n_async_completers > 0) {
+        struct async_completer completer = pop_completer(player);
+
+        if (completer.on_error) {
+            completer.on_error(completer.userdata, error);
+        }
+    }
+}
 
 static int maybe_send_video_info(struct gstplayer *player) {
     struct video_info *duped;
@@ -327,6 +434,22 @@ static int apply_playback_state(struct gstplayer *player) {
     double desired_rate;
     int64_t position;
 
+    ok = gst_element_get_state(player->playbin, &current_state, &pending_state, 0);
+    if (ok == GST_STATE_CHANGE_FAILURE) {
+        LOG_PLAYER_DEBUG(
+            player,
+            "last gstreamer pipeline state change failed. gst_element_get_state(element name: %s): GST_STATE_CHANGE_FAILURE\n",
+            GST_ELEMENT_NAME(player->playbin)
+        );
+        return EIO;
+    }
+
+    if (current_state == GST_STATE_NULL) {
+        // We don't have a playback source right now.
+        // Don't do anything.
+        return 0;
+    }
+
     desired_state = player->playpause_state == kPlaying ? GST_STATE_PLAYING : GST_STATE_PAUSED; /* use GST_STATE_PAUSED if we're stepping */
 
     /// Use 1.0 if we're stepping, otherwise use the stored playback rate for the current direction.
@@ -336,7 +459,8 @@ static int apply_playback_state(struct gstplayer *player) {
         desired_rate = player->direction == kForward ? player->playback_rate_forward : player->playback_rate_backward;
     }
 
-    if (player->current_playback_rate != desired_rate || player->has_desired_position) {
+    bool is_segment_looping = player->looping && player->gapless_looping && player->segment_gapless;
+    if (player->current_playback_rate != desired_rate || player->has_desired_position || (player->did_configure_segment != is_segment_looping)) {
         if (player->has_desired_position) {
             position = player->desired_position_ms * GST_MSECOND;
         } else {
@@ -348,6 +472,14 @@ static int apply_playback_state(struct gstplayer *player) {
         }
 
         GstSeekFlags seek_flags = GST_SEEK_FLAG_FLUSH;
+
+        // Only configure segment looping if we actually
+        // are segment looping, because it will
+        // swallow the end-of-stream events apparently.
+        if (is_segment_looping) {
+            seek_flags |= GST_SEEK_FLAG_SEGMENT;
+        }
+
         if (player->do_fast_seeking) {
             seek_flags |= GST_SEEK_FLAG_KEY_UNIT | GST_SEEK_FLAG_SNAP_NEAREST;
         } else {
@@ -368,10 +500,8 @@ static int apply_playback_state(struct gstplayer *player) {
                 desired_rate,
                 GST_FORMAT_TIME,
                 seek_flags,
-                GST_SEEK_TYPE_SET,
-                position,
-                GST_SEEK_TYPE_SET,
-                GST_CLOCK_TIME_NONE
+                GST_SEEK_TYPE_SET, position,
+                GST_SEEK_TYPE_SET, GST_CLOCK_TIME_NONE
             );
             if (ok == FALSE) {
                 LOG_PLAYER_ERROR(
@@ -395,10 +525,8 @@ static int apply_playback_state(struct gstplayer *player) {
                 desired_rate,
                 GST_FORMAT_TIME,
                 seek_flags,
-                GST_SEEK_TYPE_SET,
-                0,
-                GST_SEEK_TYPE_SET,
-                position
+                GST_SEEK_TYPE_SET, 0,
+                GST_SEEK_TYPE_SET, position
             );
 
             if (ok == FALSE) {
@@ -415,16 +543,7 @@ static int apply_playback_state(struct gstplayer *player) {
         player->current_playback_rate = desired_rate;
         player->fallback_position_ms = GST_TIME_AS_MSECONDS(position);
         player->has_desired_position = false;
-    }
-
-    ok = gst_element_get_state(player->playbin, &current_state, &pending_state, 0);
-    if (ok == GST_STATE_CHANGE_FAILURE) {
-        LOG_PLAYER_DEBUG(
-            player,
-            "last gstreamer pipeline state change failed. gst_element_get_state(element name: %s): GST_STATE_CHANGE_FAILURE\n",
-            GST_ELEMENT_NAME(player->playbin)
-        );
-        return EIO;
+        player->did_configure_segment = is_segment_looping;
     }
 
     if (pending_state == GST_STATE_VOID_PENDING) {
@@ -449,7 +568,7 @@ static int apply_playback_state(struct gstplayer *player) {
         ok = gst_element_set_state(player->playbin, desired_state);
 
         if (ok == GST_STATE_CHANGE_FAILURE) {
-            LOG_GST_SET_STATE_ERROR(player->playbin);
+            LOG_GST_SET_STATE_ERROR(player, player->playbin);
             return EIO;
         }
     } else if (pending_state != desired_state) {
@@ -465,11 +584,27 @@ static int apply_playback_state(struct gstplayer *player) {
 
         ok = gst_element_set_state(player->playbin, desired_state);
         if (ok == GST_STATE_CHANGE_FAILURE) {
-            LOG_GST_SET_STATE_ERROR(player->playbin);
+            LOG_GST_SET_STATE_ERROR(player, player->playbin);
             return EIO;
         }
     }
     return 0;
+}
+
+static void on_eos_message(struct gstplayer *player, GstMessage *msg) {
+    if (GST_MESSAGE_SRC(msg) == GST_OBJECT(player->playbin)) {
+        if (player->looping) {
+            LOG_PLAYER_DEBUG(player, "playbin end of stream, seeking back to start (flushing)\n");
+            player->desired_position_ms = 0;
+            player->has_desired_position = true;
+            apply_playback_state(player);
+        } else {
+            LOG_PLAYER_DEBUG(player, "playbin end of stream\n");
+            notifier_notify(&player->eos_notifier, NULL);
+        }
+    } else {
+        LOG_PLAYER_DEBUG(player, "end of stream for element: %s\n", GST_MESSAGE_SRC_NAME(msg));
+    }
 }
 
 static void on_gstreamer_error_message(struct gstplayer *player, GstMessage *msg) {
@@ -488,6 +623,8 @@ static void on_gstreamer_error_message(struct gstplayer *player, GstMessage *msg
         error->message,
         debug_info
     );
+
+    on_async_error(player, error);
 
     notifier_notify(&player->error_notifier, error);
 
@@ -534,20 +671,22 @@ static void on_buffering_message(struct gstplayer *player, GstMessage *msg) {
     gst_message_parse_buffering(msg, &percent);
     gst_message_parse_buffering_stats(msg, &mode, &avg_in, &avg_out, &buffering_left);
 
-    LOG_PLAYER_DEBUG(
-        player,
-        "buffering, src: %s, percent: %d, mode: %s, avg in: %d B/s, avg out: %d B/s, %" GST_TIME_FORMAT "\n",
-        GST_MESSAGE_SRC_NAME(msg),
-        percent,
-        mode == GST_BUFFERING_STREAM    ? "stream" :
-        mode == GST_BUFFERING_DOWNLOAD  ? "download" :
-        mode == GST_BUFFERING_TIMESHIFT ? "timeshift" :
-        mode == GST_BUFFERING_LIVE      ? "live" :
-                                            "?",
-        avg_in,
-        avg_out,
-        GST_TIME_ARGS(buffering_left * GST_MSECOND)
-    );
+    if (percent == 0 || percent == 100) {
+        LOG_PLAYER_DEBUG(
+            player,
+            "buffering, src: %s, percent: %d, mode: %s, avg in: %d B/s, avg out: %d B/s, %" GST_TIME_FORMAT "\n",
+            GST_MESSAGE_SRC_NAME(msg),
+            percent,
+            mode == GST_BUFFERING_STREAM    ? "stream" :
+            mode == GST_BUFFERING_DOWNLOAD  ? "download" :
+            mode == GST_BUFFERING_TIMESHIFT ? "timeshift" :
+            mode == GST_BUFFERING_LIVE      ? "live" :
+                                                "?",
+            avg_in,
+            avg_out,
+            GST_TIME_ARGS(buffering_left * GST_MSECOND)
+        );
+    }
 
     /// TODO: GST_MESSAGE_BUFFERING is only emitted when we actually need to wait on some buffering till we can resume the playback.
     /// However, the info we send to the callback also contains information on the buffered video ranges.
@@ -555,7 +694,7 @@ static void on_buffering_message(struct gstplayer *player, GstMessage *msg) {
     update_buffering_state(player, GST_MESSAGE_SRC(msg));
 }
 
-static void on_state_change_message(struct gstplayer *player, GstMessage *msg) {
+static void on_state_changed_message(struct gstplayer *player, GstMessage *msg) {
     GstState old, current, pending;
 
     gst_message_parse_state_changed(msg, &old, &current, &pending);
@@ -563,14 +702,25 @@ static void on_state_change_message(struct gstplayer *player, GstMessage *msg) {
     if (GST_MESSAGE_SRC(msg) == GST_OBJECT(player->playbin)) {
         LOG_PLAYER_DEBUG(
             player,
-            "playbin state changed: src: %s, old: %s, current: %s, pending: %s\n",
-            GST_MESSAGE_SRC_NAME(msg),
+            "playbin state changed: old: %s, current: %s, pending: %s\n",
             gst_element_state_get_name(old),
             gst_element_state_get_name(current),
             gst_element_state_get_name(pending)
         );
 
-        if (current == GST_STATE_PAUSED || current == GST_STATE_PLAYING) {
+        if (current == GST_STATE_READY || current == GST_STATE_NULL) {
+            if (player->has_duration) {
+                player->has_duration = false;
+                notifier_notify(&player->duration_notifier, NULL);
+            }
+
+            player->info.has_duration = false;
+
+            player->has_seeking_info = false;
+            player->info.has_seeking_info = false;
+
+            player->did_configure_segment = false;
+        } else if ((current == GST_STATE_PAUSED || current == GST_STATE_PLAYING) && (old == GST_STATE_READY || old == GST_STATE_NULL)) {
             // it's our pipeline that changed to either playing / paused, and we don't have info about our video duration yet.
             // get that info now.
             // technically we can already fetch the duration when the decodebin changed to PAUSED state.
@@ -600,25 +750,86 @@ static void on_state_change_message(struct gstplayer *player, GstMessage *msg) {
     }
 }
 
+static void on_segment_start_message(struct gstplayer *player, GstMessage *msg) {
+    GstFormat format;
+    gint64 position;
+    gst_message_parse_segment_start(msg, &format, &position);
+
+    if (format == GST_FORMAT_TIME) {
+        LOG_PLAYER_DEBUG(
+            player,
+            "segment start. src: %s, position: %" GST_TIME_FORMAT "\n",
+            GST_MESSAGE_SRC_NAME(msg),
+            GST_TIME_ARGS(position)
+        );
+    } else {
+        LOG_PLAYER_DEBUG(
+            player,
+            "segment start. src: %s, position: %" PRId64 " (%s)\n",
+            GST_MESSAGE_SRC_NAME(msg),
+            position,
+            gst_format_get_name(format)
+        );
+    }
+}
+
+static void on_segment_done_message(struct gstplayer *player, GstMessage *msg) {
+    (void) msg;
+
+    if (player->looping && player->gapless_looping && player->segment_gapless) {
+        LOG_PLAYER_DEBUG(player, "Segment done. Seeking back to segment start (segment, non-flushing)\n");
+        gboolean ok = gst_element_seek(
+            player->playbin,
+            player->current_playback_rate,
+            GST_FORMAT_TIME,
+            GST_SEEK_FLAG_SEGMENT,
+            GST_SEEK_TYPE_SET, 0,
+            GST_SEEK_TYPE_SET, GST_CLOCK_TIME_NONE
+        );
+        if (!ok) {
+            LOG_PLAYER_DEBUG(player, "Could not seek back to segment start.\n");
+        }
+    }
+}
+
+static void on_duration_changed_message(struct gstplayer *player, GstMessage *msg) {
+    (void) msg;
+
+    if (!player->has_duration) {
+        fetch_duration(player);
+
+        if (player->has_duration) {
+            int64_t *duped = memdup(&player->duration, sizeof(int64_t));
+
+            notifier_notify(&player->duration_notifier, duped);
+        }
+    }
+
+    if (!player->has_seeking_info) {
+        fetch_seeking(player);
+
+        if (player->has_seeking_info) {
+            struct seeking_info *duped = memdup(&player->seeking_info, sizeof(struct seeking_info));
+
+            notifier_notify(&player->seeking_info_notifier, duped);
+        }
+    }
+
+    maybe_send_video_info(player);
+}
+
+static void on_about_to_finish_message(struct gstplayer *player) {
+    if (player->looping && player->uri && player->playbin_gapless) {
+        LOG_PLAYER_DEBUG(player, "Got about-to-finish signal, configuring next playback item\n");
+        g_object_set(player->playbin, "uri", player->uri, NULL);
+    } else {
+        LOG_PLAYER_DEBUG(player, "Got about-to-finish signal\n");
+    }
+}
+
 static void on_application_message(struct gstplayer *player, GstMessage *msg) {
     if (gst_message_has_name(msg, "appsink-eos")) {
-        if (player->looping) {
-            // we have an appsink end of stream event
-            // and we should be looping, so seek back to start
-            LOG_PLAYER_DEBUG(player, "appsink eos, seeking back to segment start (flushing)\n");
-            gst_element_seek(
-                GST_ELEMENT(player->playbin),
-                player->current_playback_rate,
-                GST_FORMAT_TIME,
-                GST_SEEK_FLAG_FLUSH | GST_SEEK_FLAG_ACCURATE,
-                GST_SEEK_TYPE_SET,
-                0,
-                GST_SEEK_TYPE_SET,
-                GST_CLOCK_TIME_NONE
-            );
-
-            apply_playback_state(player);
-        }
+        // unhandled
     } else if (gst_message_has_name(msg, "video-info")) {
         const GstStructure *structure = gst_message_get_structure(msg);
 
@@ -637,12 +848,22 @@ static void on_application_message(struct gstplayer *player, GstMessage *msg) {
 
         LOG_PLAYER_DEBUG(player, "Determined resolution: %d x %d and framerate: %f\n", player->info.info.width, player->info.info.height, player->info.info.fps);
     } else if (gst_message_has_name(msg, "about-to-finish")) {
-        LOG_PLAYER_DEBUG(player, "Got about-to-finish signal\n");
+        on_about_to_finish_message(player);
     }
+}
+
+static void start_async(struct gstplayer *player, struct async_completer completer) {
+    ASSERT(player->n_async_completers < ARRAY_SIZE(player->completers));
+
+    player->completers[player->n_async_completers++] = completer;
 }
 
 static void on_bus_message(struct gstplayer *player, GstMessage *msg) {
     switch (GST_MESSAGE_TYPE(msg)) {
+        case GST_MESSAGE_EOS:
+            on_eos_message(player, msg);
+            break;
+
         case GST_MESSAGE_ERROR:
             on_gstreamer_error_message(player, msg);
             break;
@@ -655,49 +876,115 @@ static void on_bus_message(struct gstplayer *player, GstMessage *msg) {
             on_gstreamer_info_message(player, msg);
             break;
 
+        case GST_MESSAGE_TAG: {
+            if (0) {
+                GstTagList *tags;
+                gst_message_parse_tag(msg, &tags);
+
+                char *str = gst_tag_list_to_string(tags);
+
+                LOG_PLAYER_DEBUG(player, "%s found tags: %s\n", GST_MESSAGE_SRC_NAME(msg), str);
+
+                free(str);
+            }
+            break;
+        }
+
         case GST_MESSAGE_BUFFERING:
             on_buffering_message(player, msg);
             break;
 
         case GST_MESSAGE_STATE_CHANGED:
-            on_state_change_message(player, msg);
+            on_state_changed_message(player, msg);
             break;
 
-        case GST_MESSAGE_ASYNC_DONE: break;
+        case GST_MESSAGE_APPLICATION:
+            on_application_message(player, msg);
+            break;
+
+        case GST_MESSAGE_SEGMENT_START:
+            on_segment_start_message(player, msg);
+            break;
+
+        case GST_MESSAGE_SEGMENT_DONE:
+            on_segment_done_message(player, msg);
+            break;
+
+        case GST_MESSAGE_DURATION_CHANGED:
+            on_duration_changed_message(player, msg);
+            break;
 
         case GST_MESSAGE_LATENCY:
-            LOG_PLAYER_DEBUG(player, "gstreamer: redistributing latency\n");
+            LOG_PLAYER_DEBUG(player, "redistributing latency\n");
             gst_bin_recalculate_latency(GST_BIN(player->playbin));
             break;
 
-        case GST_MESSAGE_EOS:
-            LOG_PLAYER_DEBUG(player, "end of stream, src: %s\n", GST_MESSAGE_SRC_NAME(msg));
-
-            if (GST_MESSAGE_SRC(msg) == GST_OBJECT(player->playbin)) {
-                notifier_notify(&player->eos_notifier, NULL);
-            }
+        case GST_MESSAGE_ASYNC_DONE:
+            on_async_done_message(player);
             break;
 
         case GST_MESSAGE_REQUEST_STATE: {
             GstState requested;
 
             gst_message_parse_request_state(msg, &requested);
-            LOG_PLAYER_DEBUG(
-                player,
-                "gstreamer state change to %s was requested by %s\n",
-                gst_element_state_get_name(requested),
-                GST_MESSAGE_SRC_NAME(msg)
-            );
             gst_element_set_state(GST_ELEMENT(player->playbin), requested);
             break;
         }
 
-        case GST_MESSAGE_APPLICATION:
-            on_application_message(player, msg);
+        case GST_MESSAGE_QOS: {
+            if (0) {
+                gboolean live = false;
+                uint64_t running_time = 0;
+                uint64_t stream_time = 0;
+                uint64_t timestamp = 0;
+                uint64_t duration = 0;
+
+                GstFormat format = GST_FORMAT_DEFAULT;
+                uint64_t processed = 0;
+                uint64_t dropped = 0;
+
+                int64_t jitter = 0;
+                double proportion = 1.0;
+                int quality = 0;
+
+                gst_message_parse_qos(msg, &live, &running_time, &stream_time, &timestamp, &duration);
+                gst_message_parse_qos_stats(msg, &format, &processed, &dropped);
+                gst_message_parse_qos_values(msg, &jitter, &proportion, &quality);
+
+                LOG_PLAYER_DEBUG(
+                    player,
+                    "Quality of Service: %s\n"
+                    "  live: %s\n"
+                    "  running time: %" GST_TIME_FORMAT "\n"
+                    "  stream time: %" GST_TIME_FORMAT "\n"
+                    "  timestamp: %" GST_TIME_FORMAT "\n"
+                    "  duration: %" GST_TIME_FORMAT "\n"
+                    "  processed: %" PRIu64 " (%s)\n"
+                    "  dropped: %" PRIu64 " (%s)\n"
+                    "  jitter: %" PRId64 "\n"
+                    "  proportion: %f\n"
+                    "  quality: %d\n",
+                    GST_MESSAGE_SRC_NAME(msg),
+                    live ? "yes" : "no",
+                    GST_TIME_ARGS(running_time),
+                    GST_TIME_ARGS(stream_time),
+                    GST_TIME_ARGS(timestamp),
+                    GST_TIME_ARGS(duration),
+                    processed, gst_format_get_name(format),
+                    dropped, gst_format_get_name(format),
+                    jitter,
+                    proportion,
+                    quality
+                );
+            }
             break;
+        }
 
         default:
-            LOG_PLAYER_DEBUG(player, "gstreamer message: %s, src: %s\n", GST_MESSAGE_TYPE_NAME(msg), GST_MESSAGE_SRC_NAME(msg));
+            if (0) {
+                LOG_PLAYER_DEBUG(player, "gstreamer message: %s, src: %s\n", GST_MESSAGE_TYPE_NAME(msg), GST_MESSAGE_SRC_NAME(msg));
+            }
+
             break;
     }
     return;
@@ -833,7 +1120,9 @@ UNUSED static GstPadProbeReturn on_video_sink_event(GstPad *pad, GstPadProbeInfo
     return GST_PAD_PROBE_REMOVE;
 }
 
-struct gstplayer *gstplayer_new(struct flutterpi *flutterpi, const char *uri, void *userdata, bool play_video, bool play_audio, bool subtitles, GstStructure *headers) {
+struct gstplayer *gstplayer_new(struct flutterpi *flutterpi, const char *uri, void *userdata, bool play_video, bool play_audio, GstStructure *headers) {
+    ASSERT_NOT_NULL(flutterpi);
+
     struct gstplayer *p = calloc(1, sizeof(struct gstplayer));
     if (p == NULL) {
         return NULL;
@@ -843,6 +1132,38 @@ struct gstplayer *gstplayer_new(struct flutterpi *flutterpi, const char *uri, vo
     p->debug_id = allocate_id();
 #endif
     p->userdata = userdata;
+    p->current_playback_rate = 1.0;
+    p->playback_rate_forward = 1.0;
+    p->playback_rate_backward = 1.0;
+
+    // Gapless looping is configured in the gstplayer_set_looping call.
+    //
+    // Without gapless looping, we'll just seek back to start on EOS,
+    // which always works.
+    p->gapless_looping = false;
+
+    // Gapless looping using playbin "about-to-finish" is unreliable
+    // in audio playback.
+    //
+    // E.g., using the audioplayers example and looping the first ("coin")
+    // sound, switching to the second sound will first play the second sound,
+    // then play part of the first sound at higher pitch, and then loop the
+    // second sound.
+    //
+    // Also, it seems like the playbin recreates all the elements & decoders,
+    // so it's not super resource-saving either.
+    p->playbin_gapless = false;
+
+    // Segment gapless looping works mostly fine, but is also
+    // not completely reliable.
+    //
+    // E.g., looping the second ("laser") sound of the audioplayers
+    // example will play back 1-2 seconds of noise after
+    // the laser sound, then play the laser sound, then noise, etc.
+    //
+    // Segment looping does not work with playbin3 in gstreamer
+    // < 1.22.9 because of a bug in multiqueue.
+    p->segment_gapless = true;
 
     value_notifier_init(&p->video_info_notifier, NULL, free);
     value_notifier_init(&p->duration_notifier, NULL, free);
@@ -851,8 +1172,8 @@ struct gstplayer *gstplayer_new(struct flutterpi *flutterpi, const char *uri, vo
     change_notifier_init(&p->error_notifier);
     change_notifier_init(&p->eos_notifier);
 
-    /// TODO: Use playbin or playbin3?
-    p->playbin = gst_element_factory_make("playbin3", "playbin");
+    // playbin is more reliable for now than playbin3 (see above)
+    p->playbin = gst_element_factory_make("playbin", "playbin");
     if (p->playbin == NULL) {
         LOG_PLAYER_ERROR(p, "Couldn't create playbin instance.\n");
         goto fail_free_p;
@@ -874,11 +1195,7 @@ struct gstplayer *gstplayer_new(struct flutterpi *flutterpi, const char *uri, vo
         flags &= ~GST_PLAY_FLAG_AUDIO;
     }
 
-    if (subtitles) {
-        flags |= GST_PLAY_FLAG_TEXT;
-    } else {
-        flags &= ~GST_PLAY_FLAG_TEXT;
-    }
+    flags &= ~GST_PLAY_FLAG_TEXT;
 
     g_object_set(p->playbin, "flags", flags, NULL);
 
@@ -925,6 +1242,7 @@ struct gstplayer *gstplayer_new(struct flutterpi *flutterpi, const char *uri, vo
 #endif
     }
 
+
     if (play_audio) {
         p->audiopanorama = gst_element_factory_make("audiopanorama", NULL);
         if (p->audiopanorama != NULL) {
@@ -965,6 +1283,8 @@ struct gstplayer *gstplayer_new(struct flutterpi *flutterpi, const char *uri, vo
             LOG_PLAYER_DEBUG(p, "Not live!\n");
             p->is_live = false;
         }
+
+        p->uri = strdup(uri);
     }
 
     return p;
@@ -1004,7 +1324,7 @@ struct gstplayer *gstplayer_new_from_asset(struct flutterpi *flutterpi, const ch
         return NULL;
     }
 
-    player = gstplayer_new(flutterpi, uri, userdata, /* play_video */ true, /* play_audio */ false, /* play_text */ false, NULL);
+    player = gstplayer_new(flutterpi, uri, userdata, /* play_video */ true, /* play_audio */ true, NULL);
 
     free(uri);
 
@@ -1013,15 +1333,15 @@ struct gstplayer *gstplayer_new_from_asset(struct flutterpi *flutterpi, const ch
 
 struct gstplayer *gstplayer_new_from_network(struct flutterpi *flutterpi, const char *uri, enum format_hint format_hint, void *userdata, GstStructure *headers) {
     (void) format_hint;
-    return gstplayer_new(flutterpi, uri, userdata, true, true, false, headers);
+    return gstplayer_new(flutterpi, uri, userdata, /* play_video */ true, /* play_audio */ true, headers);
 }
 
 struct gstplayer *gstplayer_new_from_file(struct flutterpi *flutterpi, const char *uri, void *userdata) {
-    return gstplayer_new(flutterpi, uri, userdata, true, true, false, NULL);
+    return gstplayer_new(flutterpi, uri, userdata, /* play_video */ true, /* play_audio */ true, NULL);
 }
 
 struct gstplayer *gstplayer_new_from_content_uri(struct flutterpi *flutterpi, const char *uri, void *userdata, GstStructure *headers) {
-    return gstplayer_new(flutterpi, uri, userdata, true, true, false, headers);
+    return gstplayer_new(flutterpi, uri, userdata, /* play_video */ true, /* play_audio */ true, headers);
 }
 
 struct gstplayer *gstplayer_new_from_pipeline(struct flutterpi *flutterpi, const char *pipeline, void *userdata) {
@@ -1076,9 +1396,24 @@ int gstplayer_pause(struct gstplayer *player) {
     return apply_playback_state(player);
 }
 
-int gstplayer_set_looping(struct gstplayer *player, bool looping) {
-    LOG_PLAYER_DEBUG(player, "set_looping(%s)\n", looping ? "true" : "false");
+int gstplayer_set_looping(struct gstplayer *player, bool looping, bool gapless) {
+    LOG_PLAYER_DEBUG(player, "set_looping(%s, gapless: %s)\n", looping ? "true" : "false", gapless ? "true" : "false");
+
+    if (player->playbin_gapless && gapless) {
+        // If we're enabling (gapless) looping,
+        // already configure the next playback URI,
+        // since we don't know if the about-to-finish callback
+        // has already arrived or not.
+        if (!player->looping && looping && player->uri) {
+            g_object_set(player->playbin, "uri", player->uri, NULL);
+        }
+    }
+
     player->looping = looping;
+    player->gapless_looping = gapless;
+
+    apply_playback_state(player);
+
     return 0;
 }
 
@@ -1095,7 +1430,7 @@ int64_t gstplayer_get_position(struct gstplayer *player) {
 
     GstStateChangeReturn statechange = gst_element_get_state(GST_ELEMENT(player->playbin), &current, &pending, 0);
     if (statechange == GST_STATE_CHANGE_FAILURE) {
-        LOG_GST_GET_STATE_ERROR(player->playbin);
+        LOG_GST_GET_STATE_ERROR(player, player->playbin);
         return -1;
     }
 
@@ -1127,6 +1462,19 @@ int gstplayer_seek_to(struct gstplayer *player, int64_t position, bool nearest_k
     player->has_desired_position = true;
     player->desired_position_ms = position;
     player->do_fast_seeking = nearest_keyframe;
+    return apply_playback_state(player);
+}
+
+int gstplayer_seek_with_completer(struct gstplayer *player, int64_t position, bool nearest_keyframe, struct async_completer completer) {
+    LOG_PLAYER_DEBUG(player, "seek_to(%" PRId64 ")\n", position);
+    player->has_desired_position = true;
+    player->desired_position_ms = position;
+    player->do_fast_seeking = nearest_keyframe;
+
+    if (completer.on_done || completer.on_error) {
+        start_async(player, completer);
+    }
+
     return apply_playback_state(player);
 }
 
@@ -1196,40 +1544,72 @@ float gstplayer_get_audio_balance(struct gstplayer *player) {
     }
 }
 
-bool gstplayer_release(struct gstplayer *p) {
-    GstStateChangeReturn status = gst_element_set_state(p->playbin, GST_STATE_NULL);
-    if (status == GST_STATE_CHANGE_FAILURE) {
-        LOG_ERROR("Could not set pipeline to NULL state.\n");
-        return false;
-    } else {
+bool gstplayer_set_source_with_completer(struct gstplayer *p, const char *uri, struct async_completer completer) {
+    GstStateChangeReturn result;
+    const char *current_uri = NULL;
+
+    g_object_get(p->playbin, "current-uri", &current_uri, NULL);
+
+    // If we're already playing back the desired uri, don't change it.
+    if ((current_uri == uri) || (uri && current_uri && streq(current_uri, uri))) {
+        if (completer.on_done) {
+            completer.on_done(completer.userdata);
+        }
+
         return true;
     }
-}
 
-bool gstplayer_preroll(struct gstplayer *p, const char *uri) {
-    GstState current, pending;
+    p->uri = strdup(uri);
 
-    GstStateChangeReturn status = gst_element_get_state(p->playbin, &current, &pending, 0 * GST_SECOND);
-    if (status != GST_STATE_CHANGE_SUCCESS || current != GST_STATE_NULL) {
-        LOG_ERROR("Pipeline must be in NULL (released) state to preroll new source.\n");
+    // If the playbin supports instant-uri, use it.
+    // if (g_object_class_find_property(G_OBJECT_GET_CLASS(p->playbin), "instant-uri")) {
+    //     g_object_set(p->playbin, "instant-uri", TRUE, "uri", uri, NULL);
+    // } else {
+
+    result = gst_element_set_state(p->playbin, GST_STATE_NULL);
+    if (result != GST_STATE_CHANGE_SUCCESS) {
+        LOG_PLAYER_ERROR(p, "Could not set pipeline to NULL state to change uri.\n");
         return false;
     }
 
     g_object_set(p->playbin, "uri", uri, NULL);
 
-    status = gst_element_set_state(p->playbin, GST_STATE_PAUSED);
-    if (status == GST_STATE_CHANGE_NO_PREROLL) {
-        p->is_live = true;
-    } else if (status == GST_STATE_CHANGE_FAILURE) {
-        LOG_ERROR("Could not set pipeline to paused state.\n");
+    result = gst_element_set_state(p->playbin, GST_STATE_PAUSED);
+    if (result == GST_STATE_CHANGE_FAILURE) {
+        LOG_PLAYER_ERROR(p, "Could not set pipeline to PAUSED state to play new uri.\n");
         return false;
-    } else {
+    } else if (result == GST_STATE_CHANGE_NO_PREROLL) {
+        p->is_live = true;
+
+        if (completer.on_done != NULL) {
+            completer.on_done(completer.userdata);
+        }
+    } else if (result == GST_STATE_CHANGE_SUCCESS) {
         p->is_live = false;
+
+        if (completer.on_done) {
+            completer.on_done(completer.userdata);
+        }
+    } else if (result == GST_STATE_CHANGE_ASYNC) {
+        /// TODO: What is is_live here?
+        p->is_live = false;
+
+        if (completer.on_done || completer.on_error) {
+            start_async(p, completer);
+        }
     }
 
-    // TODO: Trigger events here (duration change, video info, etc)
+    gstplayer_seek_to(p, 0, false);
 
     return true;
+}
+
+bool gstplayer_set_source(struct gstplayer *p, const char *uri) {
+    return gstplayer_set_source_with_completer(p, uri, (struct async_completer) {
+        .on_done = NULL,
+        .on_error = NULL,
+        .userdata = NULL
+    });
 }
 
 struct notifier *gstplayer_get_video_info_notifier(struct gstplayer *player) {

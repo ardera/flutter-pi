@@ -698,7 +698,8 @@ static int on_set_looping(char *channel, struct platch_obj *object, FlutterPlatf
         return platch_respond_illegal_arg_ext_pigeon(responsehandle, "Expected `arg['isLooping']` to be a boolean, but was:", temp);
     }
 
-    gstplayer_set_looping(player, loop);
+    gstplayer_set_looping(player, loop, true);
+
     return platch_respond_success_pigeon(responsehandle, NULL);
 }
 
@@ -1283,7 +1284,21 @@ static int on_set_looping_v2(const struct raw_std_value *arg, FlutterPlatformMes
         return platch_respond_illegal_arg_std(responsehandle, "Expected `arg[1]` to be a bool.");
     }
 
-    ok = gstplayer_set_looping(player, looping);
+    // For video playback, gapless looping usually works fine
+    // it seems.
+    bool gapless = true;
+    if (raw_std_list_get_size(arg) >= 3) {
+        const struct raw_std_value *third = raw_std_list_get_nth_element(arg, 2);
+        if (raw_std_value_is_null(third)) {
+            // unchanged
+        } else if (raw_std_value_is_bool(third)) {
+            gapless = raw_std_value_as_bool(third);
+        } else {
+            return platch_respond_illegal_arg_std(responsehandle, "Expected `arg[2]` to be a bool or null.");
+        }
+    }
+
+    ok = gstplayer_set_looping(player, looping, gapless);
     if (ok != 0) {
         return platch_respond_native_error_std(responsehandle, ok);
     }
