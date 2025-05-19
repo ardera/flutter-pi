@@ -1201,11 +1201,16 @@ invalid_headers:
         free(uri);
         uri = NULL;
     } else if (pipeline != NULL) {
-        player = gstplayer_new_from_pipeline(flutterpi, pipeline, NULL);
-
-        // gstplayer_new_from_network will dup the pipeline internally.
         free(pipeline);
-        pipeline = NULL;
+
+        /// TODO: Implement
+
+        return platch_respond_error_std(
+            responsehandle,
+            "unimplemented",
+            "Creating players from pipeline is not supported yet for the playbin-based video player.",
+            NULL
+        );
     } else {
         UNREACHABLE();
     }
