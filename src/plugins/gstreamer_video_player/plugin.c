@@ -607,7 +607,7 @@ invalid_format_hint:
 
     // create our actual player (this doesn't initialize it)
     if (asset != NULL) {
-        player = gstplayer_new_from_asset(flutterpi, asset, package_name, NULL);
+        player = gstplayer_new_from_asset(flutterpi, asset, package_name, true, false, NULL);
     } else {
         temp = stdmap_get_str(arg, "httpHeaders");
 
@@ -618,7 +618,7 @@ invalid_format_hint:
             return 0;
         }
 
-        player = gstplayer_new_from_network(flutterpi, uri, format_hint, NULL, headers);
+        player = gstplayer_new_from_network(flutterpi, uri, format_hint, true, false, NULL, headers);
     }
     if (player == NULL) {
         LOG_ERROR("Couldn't create gstreamer video player.\n");
@@ -1188,29 +1188,217 @@ invalid_headers:
 
     // Create our actual player (this doesn't initialize it)
     if (asset != NULL) {
-        player = gstplayer_new_from_asset(flutterpi, asset, package_name, NULL);
+        player = gstplayer_new_from_asset(flutterpi, asset, package_name, true, false, NULL);
 
         // gstplayer_new_from_network will construct a file:// URI out of the
         // asset path internally.
         free(asset);
         asset = NULL;
     } else if (uri != NULL) {
-        player = gstplayer_new_from_network(flutterpi, uri, format_hint, NULL, headers);
+        player = gstplayer_new_from_network(flutterpi, uri, format_hint, true, false, NULL, headers);
 
         // gstplayer_new_from_network will dup the uri internally.
         free(uri);
         uri = NULL;
     } else if (pipeline != NULL) {
+        player = gstplayer_new_from_pipeline(flutterpi, pipeline, NULL);
+
         free(pipeline);
+    } else {
+        UNREACHABLE();
+    }
 
-        /// TODO: Implement
+    if (player == NULL) {
+        LOG_ERROR("Couldn't create gstreamer video player.\n");
+        ok = EIO;
+        goto fail_respond_error;
+    }
 
-        return platch_respond_error_std(
-            responsehandle,
-            "unimplemented",
-            "Creating players from pipeline is not supported yet for the playbin-based video player.",
-            NULL
-        );
+    // create a meta object so we can store the event channel name
+    // of a player with it
+    meta = create_meta(gstplayer_get_texture_id(player), player);
+    if (meta == NULL) {
+        ok = ENOMEM;
+        goto fail_destroy_player;
+    }
+
+    gstplayer_set_userdata(player, meta);
+
+    // Add it to our player collection
+    add_player(meta);
+
+    // Set a receiver on the videoEvents event channel
+    ok = plugin_registry_set_receiver(meta->event_channel_name, kStandardMethodCall, on_receive_evch);
+    if (ok != 0) {
+        goto fail_remove_player;
+    }
+
+    return platch_respond_success_std(responsehandle, &STDINT64(gstplayer_get_texture_id(player)));
+
+fail_remove_player:
+    remove_player(meta);
+    destroy_meta(meta);
+
+fail_destroy_player:
+    gstplayer_destroy(player);
+
+fail_respond_error:
+    return platch_respond_native_error_std(responsehandle, ok);
+}
+
+static int on_create_with_audio(const struct raw_std_value *arg, FlutterPlatformMessageResponseHandle *responsehandle) {
+    struct gstplayer_meta *meta;
+    struct gstplayer *player;
+    enum format_hint format_hint;
+    char *asset, *uri, *package_name;
+    size_t size;
+    int ok;
+
+    ok = ensure_initialized();
+    if (ok != 0) {
+        return respond_init_failed_v2(responsehandle);
+    }
+
+    if (!raw_std_value_is_list(arg)) {
+        return platch_respond_illegal_arg_std(responsehandle, "Expected `arg` to be a List.");
+    }
+
+    size = raw_std_list_get_size(arg);
+
+    // arg[0]: Asset Path
+    if (size >= 1) {
+        arg = raw_std_list_get_first_element(arg);
+
+        if (raw_std_value_is_null(arg)) {
+            asset = NULL;
+        } else if (raw_std_value_is_string(arg)) {
+            asset = raw_std_string_dup(arg);
+            if (asset == NULL) {
+                ok = ENOMEM;
+                goto fail_respond_error;
+            }
+        } else {
+            return platch_respond_illegal_arg_std(responsehandle, "Expected `arg[0]` to be a String or null.");
+        }
+    } else {
+        asset = NULL;
+    }
+
+    // arg[1]: Package Name
+    if (size >= 2) {
+        arg = raw_std_value_after(arg);
+
+        if (raw_std_value_is_null(arg)) {
+            package_name = NULL;
+        } else if (raw_std_value_is_string(arg)) {
+            package_name = raw_std_string_dup(arg);
+            if (package_name == NULL) {
+                ok = ENOMEM;
+                goto fail_respond_error;
+            }
+        } else {
+            return platch_respond_illegal_arg_std(responsehandle, "Expected `arg[1]` to be a String or null.");
+        }
+    } else {
+        package_name = NULL;
+    }
+
+    // arg[1]: URI
+    if (size >= 3) {
+        arg = raw_std_value_after(arg);
+
+        if (raw_std_value_is_null(arg)) {
+            uri = NULL;
+        } else if (raw_std_value_is_string(arg)) {
+            uri = raw_std_string_dup(arg);
+            if (uri == NULL) {
+                ok = ENOMEM;
+                goto fail_respond_error;
+            }
+        } else {
+            return platch_respond_illegal_arg_std(responsehandle, "Expected `arg[2]` to be a String or null.");
+        }
+    } else {
+        uri = NULL;
+    }
+
+    // arg[3]: Format Hint
+    if (size >= 4) {
+        arg = raw_std_value_after(arg);
+
+        if (raw_std_value_is_null(arg)) {
+            format_hint = FORMAT_HINT_NONE;
+        } else if (raw_std_value_is_string(arg)) {
+            if (raw_std_string_equals(arg, "ss")) {
+                format_hint = FORMAT_HINT_SS;
+            } else if (raw_std_string_equals(arg, "hls")) {
+                format_hint = FORMAT_HINT_HLS;
+            } else if (raw_std_string_equals(arg, "dash")) {
+                format_hint = FORMAT_HINT_MPEG_DASH;
+            } else if (raw_std_string_equals(arg, "other")) {
+                format_hint = FORMAT_HINT_OTHER;
+            } else {
+                goto invalid_format_hint;
+            }
+        } else {
+invalid_format_hint:
+            return platch_respond_illegal_arg_std(responsehandle, "Expected `arg[3]` to be one of 'ss', 'hls', 'dash', 'other' or null.");
+        }
+    } else {
+        format_hint = FORMAT_HINT_NONE;
+    }
+
+    GstStructure *headers = NULL;
+
+    // arg[4]: HTTP Headers
+    if (size >= 5) {
+        arg = raw_std_value_after(arg);
+
+        if (raw_std_value_is_null(arg)) {
+            headers = NULL;
+        } else if (raw_std_value_is_map(arg)) {
+            for_each_entry_in_raw_std_map(key, value, arg) {
+                if (raw_std_value_is_string(key) && raw_std_value_is_string(value)) {
+                    if (headers == NULL) {
+                        headers = gst_structure_new_empty("http-headers");
+                    }
+
+                    char *key_str = raw_std_string_dup(key);
+                    gst_structure_take_string(headers, key_str, raw_std_string_dup(value));
+                    free(key_str);
+                } else {
+                    goto invalid_headers;
+                }
+            }
+        } else {
+invalid_headers:
+            if (headers != NULL) {
+                gst_structure_free(headers);
+            }
+            return platch_respond_illegal_arg_std(responsehandle, "Expected `arg[4]` to be a map of strings or null.");
+        }
+    } else {
+        headers = NULL;
+    }
+
+    if ((asset ? 1 : 0) + (uri ? 1 : 0) != 1) {
+        return platch_respond_illegal_arg_std(responsehandle, "Expected exactly one of `arg[0]` or `arg[2]` to be non-null.");
+    }
+
+    // Create our actual player (this doesn't initialize it)
+    if (asset != NULL) {
+        player = gstplayer_new_from_asset(flutterpi, asset, package_name, true, true, NULL);
+
+        // gstplayer_new_from_network will construct a file:// URI out of the
+        // asset path internally.
+        free(asset);
+        asset = NULL;
+    } else if (uri != NULL) {
+        player = gstplayer_new_from_network(flutterpi, uri, format_hint, true, true, NULL, headers);
+
+        // gstplayer_new_from_network will dup the uri internally.
+        free(uri);
+        uri = NULL;
     } else {
         UNREACHABLE();
     }
@@ -1550,6 +1738,8 @@ static int on_receive_method_channel_v2(char *channel, struct platch_obj *object
         return on_initialize_v2(arg, responsehandle);
     } else if (raw_std_string_equals(method, "create")) {
         return on_create_v2(arg, responsehandle);
+    } else if (raw_std_string_equals(method, "createWithAudio")) {
+        return on_create_with_audio(arg, responsehandle);
     } else if (raw_std_string_equals(method, "dispose")) {
         return on_dispose_v2(arg, responsehandle);
     } else if (raw_std_string_equals(method, "setLooping")) {
