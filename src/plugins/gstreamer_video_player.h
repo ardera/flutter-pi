@@ -66,6 +66,9 @@ const struct gl_texture_frame *frame_get_gl_frame(struct video_frame *frame);
 struct texture;
 struct gl_renderer;
 typedef struct _GstElement GstElement;
+
 GstElement *flutter_gl_texture_sink_new(struct texture *texture, struct gl_renderer *renderer);
+
+bool flutter_gl_texture_sink_patch(GstElement *element, struct texture *texture, struct gl_renderer *renderer);
 
 #endif

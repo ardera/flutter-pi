@@ -70,7 +70,16 @@ struct async_completer {
     void *userdata;
 };
 
-/// Create a gstreamer video player.
+/**
+ * @brief Create a gstreamer player that loads the media from a generic (file, network) URI.
+ * 
+ * @arg uri          The URI to the media.
+ * @arg format_hint  A hint to the format of the video. FORMAT_HINT_NONE means there's no hint.
+ * @arg play_video   Whether the player should play video.
+ * @arg play_audio   Whether the player should play audio.
+ * @arg userdata     The userdata associated with this player.
+ * @arg headers      HTTP headers to use for the network requests.
+ */
 struct gstplayer *gstplayer_new(
     struct flutterpi *flutterpi,
     const char *uri,
@@ -80,27 +89,46 @@ struct gstplayer *gstplayer_new(
     GstStructure *headers
 );
 
-/// Create a gstreamer video player that loads the video from a flutter asset.
-///     @arg asset_path     The path of the asset inside the asset bundle.
-///     @arg package_name   The name of the package containing the asset
-///     @arg userdata       The userdata associated with this player
-struct gstplayer *gstplayer_new_from_asset(struct flutterpi *flutterpi, const char *asset_path, const char *package_name, void *userdata);
+/**
+ * @brief Create a gstreamer player that loads the media from a flutter asset.
+ * 
+ * @arg asset_path     The path of the asset inside the asset bundle.
+ * @arg package_name   The name of the package containing the asset
+ * @arg play_video     Whether the player should play video.
+ * @arg play_audio     Whether the player should play audio.
+ * @arg userdata       The userdata associated with this player
+ */
+struct gstplayer *gstplayer_new_from_asset(struct flutterpi *flutterpi, const char *asset_path, const char *package_name, bool play_video, bool play_audio, void *userdata);
 
-/// Create a gstreamer video player that loads the video from a network URI.
-///     @arg uri          The URI to the video. (for example, http://, https://, rtmp://, rtsp://)
-///     @arg format_hint  A hint to the format of the video. FORMAT_HINT_NONE means there's no hint.
-///     @arg userdata     The userdata associated with this player.
-struct gstplayer *gstplayer_new_from_network(struct flutterpi *flutterpi, const char *uri, enum format_hint format_hint, void *userdata, GstStructure *headers);
+/**
+ * @brief Create a gstreamer player that loads the media from a network URI.
+ * 
+ * @arg uri          The URI to the media. (for example, http://, https://, rtmp://, rtsp://)
+ * @arg format_hint  A hint to the format of the media. FORMAT_HINT_NONE means there's no hint.
+ * @arg play_video   Whether the player should play video.
+ * @arg play_audio   Whether the player should play audio.
+ * @arg userdata     The userdata associated with this player.
+ * @arg headers      HTTP headers to use for the network requests.
+ */
+struct gstplayer *gstplayer_new_from_network(struct flutterpi *flutterpi, const char *uri, enum format_hint format_hint, bool play_video, bool play_audio, void *userdata, GstStructure *headers);
 
-/// Create a gstreamer video player that loads the video from a file URI.
-///     @arg uri        The file:// URI to the video.
-///     @arg userdata   The userdata associated with this player.
-struct gstplayer *gstplayer_new_from_file(struct flutterpi *flutterpi, const char *uri, void *userdata);
+/**
+ * @brief Create a gstreamer player that loads the media from a file URI.
+ * 
+ * @arg uri         The file:// URI to the audio or video file.
+ * @arg play_video  Whether the player should play video.
+ * @arg play_audio  Whether the player should play audio.
+ * @arg userdata    The userdata associated with this player.
+ */ 
+struct gstplayer *gstplayer_new_from_file(struct flutterpi *flutterpi, const char *uri, bool play_video, bool play_audio, void *userdata);
 
-/// Create a gstreamer video player with a custom gstreamer pipeline.
-///     @arg pipeline  The description of the custom pipeline that should be used. Should contain an appsink called "sink".
-///     @arg userdata  The userdata associated with this player.
-struct gstplayer *gstplayer_new_from_pipeline(struct flutterpi *flutterpi, const char *pipeline, void *userdata);
+/**
+ * @brief Create a gstreamer player with a custom gstreamer pipeline.
+ * 
+ * @arg pipeline_descr  The description of the custom pipeline that should be used. Should contain an appsink called "sink".
+ * @arg userdata        The userdata associated with this player.
+ */    
+struct gstplayer *gstplayer_new_from_pipeline(struct flutterpi *flutterpi, const char *pipeline_descr, void *userdata);
 
 /// Destroy this gstreamer player instance and the resources
 /// associated with it. (texture, gstreamer pipeline, etc)

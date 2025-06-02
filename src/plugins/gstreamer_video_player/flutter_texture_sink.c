@@ -128,14 +128,16 @@ static GstFlowReturn on_appsink_new_sample(GstAppSink *appsink, void *userdata) 
 }
 
 static void on_appsink_cbs_destroy(void *userdata) {
-    struct gstplayer *player;
+    struct texture_sink *meta;
 
     LOG_DEBUG("on_appsink_cbs_destroy()\n");
     ASSERT_NOT_NULL(userdata);
 
-    player = userdata;
+    meta = userdata;
 
-    (void) player;
+    // meta->texture is not owned by us. freed by the player
+    frame_interface_unref(meta->interface);
+    free(meta);
 }
 
 static GstCaps *caps_for_frame_interface(struct frame_interface *interface) {
@@ -216,40 +218,33 @@ UNUSED static GstPadProbeReturn on_query_appsink_pad(GstPad *pad, GstPadProbeInf
     return GST_PAD_PROBE_HANDLED;
 }
 
-GstElement *flutter_gl_texture_sink_new(struct texture *texture, struct gl_renderer *renderer) {
+bool flutter_gl_texture_sink_patch(GstElement *element, struct texture *texture, struct gl_renderer *renderer) {
+    ASSERT_NOT_NULL(element);
     ASSERT_NOT_NULL(texture);
     ASSERT_NOT_NULL(renderer);
 
     struct texture_sink *meta = calloc(1, sizeof(struct texture_sink));
     if (meta == NULL) {
-        return NULL;
+        return false;
     }
 
     meta->fl_texture = texture;
 
-    GstElement *element = gst_element_factory_make("appsink", "appsink");
-    if (element == NULL) {
-        free(meta);
-        return NULL;
-    }
-
     meta->interface = frame_interface_new(renderer);
     if (meta->interface == NULL) {
-        gst_object_unref(element);
         free(meta);
-        return NULL;
+        return false;
     }
 
     GstCaps *caps = caps_for_frame_interface(meta->interface);
     if (caps == NULL) {
         frame_interface_unref(meta->interface);
-        gst_object_unref(element);
         free(meta);
-        return NULL;
+        return false;
     }
 
-    GstBaseSink *basesink = GST_BASE_SINK_CAST(element);
-    GstAppSink *appsink = GST_APP_SINK_CAST(element);
+    GstBaseSink *basesink = GST_BASE_SINK(element);
+    GstAppSink *appsink = GST_APP_SINK(element);
 
     gst_base_sink_set_max_lateness(basesink, 20 * GST_MSECOND);
     gst_base_sink_set_qos_enabled(basesink, TRUE);
@@ -281,9 +276,8 @@ GstElement *flutter_gl_texture_sink_new(struct texture *texture, struct gl_rende
         if (pad == NULL) {
             LOG_ERROR("Couldn't get static pad `sink` from appsink.\n");
             frame_interface_unref(meta->interface);
-            gst_object_unref(element);
             free(meta);
-            return NULL;
+            return false;
         }
 
         gst_pad_add_probe(pad, GST_PAD_PROBE_TYPE_QUERY_DOWNSTREAM, on_query_appsink_pad, NULL, NULL);
@@ -295,6 +289,23 @@ GstElement *flutter_gl_texture_sink_new(struct texture *texture, struct gl_rende
         meta,
         on_appsink_cbs_destroy
     );
+
+    return element;
+}
+
+GstElement *flutter_gl_texture_sink_new(struct texture *texture, struct gl_renderer *renderer) {
+    ASSERT_NOT_NULL(texture);
+    ASSERT_NOT_NULL(renderer);
+
+    GstElement *element = gst_element_factory_make("appsink", "appsink");
+    if (element == NULL) {
+        return NULL;
+    }
+
+    if (!flutter_gl_texture_sink_patch(element, texture, renderer)) {
+        gst_object_unref(element);
+        return NULL;
+    }
 
     return element;
 }
