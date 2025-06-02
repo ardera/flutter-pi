@@ -1190,14 +1190,14 @@ struct gstplayer *gstplayer_new(struct flutterpi *flutterpi, const char *uri, vo
 
     p->tracer = flutterpi_get_tracer(flutterpi);
 
+    TRACER_BEGIN(p->tracer, "gstplayer_new()");
+
     value_notifier_init(&p->video_info_notifier, NULL, free);
     value_notifier_init(&p->duration_notifier, NULL, free);
     value_notifier_init(&p->seeking_info_notifier, NULL, free);
     value_notifier_init(&p->buffering_state_notifier, NULL, free);
     change_notifier_init(&p->error_notifier);
     change_notifier_init(&p->eos_notifier);
-
-    TRACER_BEGIN(p->tracer, "gstplayer_new()");
 
     // playbin is more reliable for now than playbin3 (see above)
     p->playbin = gst_element_factory_make("playbin", "playbin");
@@ -1315,6 +1315,8 @@ struct gstplayer *gstplayer_new(struct flutterpi *flutterpi, const char *uri, vo
     }
 
     TRACER_END(p->tracer, "gstplayer_new()");
+
+    LOG_PLAYER_DEBUG(p, "gstplayer_new(\"%s\", %s): %s\n", uri ?: "", play_audio ? "with audio" : "without audio", p->is_live ? "live" : "not live");
 
     return p;
 

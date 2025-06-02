@@ -607,7 +607,7 @@ invalid_format_hint:
 
     // create our actual player (this doesn't initialize it)
     if (asset != NULL) {
-        player = gstplayer_new_from_asset(flutterpi, asset, package_name, true, false, NULL);
+        player = gstplayer_new_from_asset(flutterpi, asset, package_name, /* play_video */ true, /* play_audio */ false, NULL);
     } else {
         temp = stdmap_get_str(arg, "httpHeaders");
 
@@ -618,7 +618,7 @@ invalid_format_hint:
             return 0;
         }
 
-        player = gstplayer_new_from_network(flutterpi, uri, format_hint, true, false, NULL, headers);
+        player = gstplayer_new_from_network(flutterpi, uri, format_hint, /* play_video */ true, /* play_audio */ false, NULL, headers);
     }
     if (player == NULL) {
         LOG_ERROR("Couldn't create gstreamer video player.\n");
@@ -1188,14 +1188,14 @@ invalid_headers:
 
     // Create our actual player (this doesn't initialize it)
     if (asset != NULL) {
-        player = gstplayer_new_from_asset(flutterpi, asset, package_name, true, false, NULL);
+        player = gstplayer_new_from_asset(flutterpi, asset, package_name,  /* play_video */ true,  /* play_audio */ false, NULL);
 
         // gstplayer_new_from_network will construct a file:// URI out of the
         // asset path internally.
         free(asset);
         asset = NULL;
     } else if (uri != NULL) {
-        player = gstplayer_new_from_network(flutterpi, uri, format_hint, true, false, NULL, headers);
+        player = gstplayer_new_from_network(flutterpi, uri, format_hint, /* play_video */ true,  /* play_audio */ false, NULL, headers);
 
         // gstplayer_new_from_network will dup the uri internally.
         free(uri);
@@ -1387,14 +1387,14 @@ invalid_headers:
 
     // Create our actual player (this doesn't initialize it)
     if (asset != NULL) {
-        player = gstplayer_new_from_asset(flutterpi, asset, package_name, true, true, NULL);
+        player = gstplayer_new_from_asset(flutterpi, asset, package_name, /* play_video */ true, /* play_audio */ true, NULL);
 
         // gstplayer_new_from_network will construct a file:// URI out of the
         // asset path internally.
         free(asset);
         asset = NULL;
     } else if (uri != NULL) {
-        player = gstplayer_new_from_network(flutterpi, uri, format_hint, true, true, NULL, headers);
+        player = gstplayer_new_from_network(flutterpi, uri, format_hint, /* play_video */ true, /* play_audio */ true, NULL, headers);
 
         // gstplayer_new_from_network will dup the uri internally.
         free(uri);
