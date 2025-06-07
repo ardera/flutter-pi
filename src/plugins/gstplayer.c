@@ -447,7 +447,10 @@ static int apply_playback_state(struct gstplayer *player) {
 
     TRACER_BEGIN(player->tracer, "apply_playback_state()");
 
+    TRACER_BEGIN(player->tracer, "gst_element_get_state()");
     ok = gst_element_get_state(player->pipeline, &current_state, &pending_state, 0);
+    TRACER_END(player->tracer, "gst_element_get_state()");
+
     if (ok == GST_STATE_CHANGE_FAILURE) {
         LOG_PLAYER_DEBUG(
             player,
@@ -478,7 +481,10 @@ static int apply_playback_state(struct gstplayer *player) {
         if (player->has_desired_position) {
             position = player->desired_position_ms * GST_MSECOND;
         } else {
+            TRACER_BEGIN(player->tracer, "gst_element_query_position()");
             ok = gst_element_query_position(GST_ELEMENT(player->pipeline), GST_FORMAT_TIME, &position);
+            TRACER_END(player->tracer, "gst_element_query_position()");
+            
             if (ok == FALSE) {
                 LOG_PLAYER_ERROR(player, "Could not get the current playback position to apply the playback speed.\n");
                 goto fail_stop_trace;
@@ -509,6 +515,7 @@ static int apply_playback_state(struct gstplayer *player) {
                 GST_TIME_ARGS(GST_CLOCK_TIME_NONE)
             );
 
+            TRACER_BEGIN(player->tracer, "gst_element_seek()");
             ok = gst_element_seek(
                 GST_ELEMENT(player->pipeline),
                 desired_rate,
@@ -517,6 +524,8 @@ static int apply_playback_state(struct gstplayer *player) {
                 GST_SEEK_TYPE_SET, position,
                 GST_SEEK_TYPE_SET, GST_CLOCK_TIME_NONE
             );
+            TRACER_END(player->tracer, "gst_element_seek()");
+
             if (ok == FALSE) {
                 LOG_PLAYER_ERROR(
                     player,
@@ -534,6 +543,8 @@ static int apply_playback_state(struct gstplayer *player) {
                 GST_TIME_ARGS(0),
                 GST_TIME_ARGS(position)
             );
+
+            TRACER_BEGIN(player->tracer, "gst_element_seek()");
             ok = gst_element_seek(
                 GST_ELEMENT(player->pipeline),
                 desired_rate,
@@ -542,6 +553,7 @@ static int apply_playback_state(struct gstplayer *player) {
                 GST_SEEK_TYPE_SET, 0,
                 GST_SEEK_TYPE_SET, position
             );
+            TRACER_END(player->tracer, "gst_element_seek()");
 
             if (ok == FALSE) {
                 LOG_PLAYER_ERROR(
@@ -580,7 +592,9 @@ static int apply_playback_state(struct gstplayer *player) {
             gst_element_state_get_name(desired_state)
         );
 
+        TRACER_BEGIN(player->tracer, "gst_element_set_state()");
         ok = gst_element_set_state(player->pipeline, desired_state);
+        TRACER_END(player->tracer, "gst_element_set_state()");
 
         if (ok == GST_STATE_CHANGE_FAILURE) {
             LOG_GST_SET_STATE_ERROR(player, player->pipeline);
@@ -597,7 +611,10 @@ static int apply_playback_state(struct gstplayer *player) {
             gst_element_state_get_name(desired_state)
         );
 
+        TRACER_BEGIN(player->tracer, "gst_element_set_state()");
         ok = gst_element_set_state(player->pipeline, desired_state);
+        TRACER_END(player->tracer, "gst_element_set_state()");
+
         if (ok == GST_STATE_CHANGE_FAILURE) {
             LOG_GST_SET_STATE_ERROR(player, player->pipeline);
             goto fail_stop_trace;
@@ -1022,7 +1039,10 @@ static int on_bus_fd_ready(sd_event_source *s, int fd, uint32_t revents, void *u
 
     GstMessage *msg = gst_bus_pop(gst_element_get_bus(player->pipeline));
     if (msg != NULL) {
+        TRACER_BEGIN(player->tracer, "on_bus_message()");
         on_bus_message(player, msg);
+        TRACER_END(player->tracer, "on_bus_message()");
+
         gst_message_unref(msg);
     }
 
@@ -1237,7 +1257,7 @@ struct gstplayer *gstplayer_new(struct flutterpi *flutterpi, const char *uri, vo
 
         struct gl_renderer *gl_renderer = flutterpi_get_gl_renderer(flutterpi);
 
-        GstElement *sink = flutter_gl_texture_sink_new(p->texture, gl_renderer);
+        GstElement *sink = flutter_gl_texture_sink_new(p->texture, gl_renderer, p->tracer);
         if (sink == NULL) {
             goto fail_destroy_texture;
         }
@@ -1426,7 +1446,7 @@ struct gstplayer *gstplayer_new_from_pipeline(struct flutterpi *flutterpi, const
 
     struct gl_renderer *gl_renderer = flutterpi_get_gl_renderer(flutterpi);
 
-    if (!flutter_gl_texture_sink_patch(sink, p->texture, gl_renderer)) {
+    if (!flutter_gl_texture_sink_patch(sink, p->texture, gl_renderer, p->tracer)) {
         LOG_ERROR("Could not setup appsink.\n");
         goto fail_unref_pipeline;
     }
