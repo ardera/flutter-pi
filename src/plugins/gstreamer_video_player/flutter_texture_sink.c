@@ -8,6 +8,7 @@
 #include "plugins/gstplayer.h"
 #include "texture_registry.h"
 #include "util/logging.h"
+#include "tracer.h"
 
 #if !defined(HAVE_EGL_GLES2)
     #error "gstreamer video player requires EGL and OpenGL ES2 support."
@@ -19,6 +20,7 @@
 struct texture_sink {
     struct texture *fl_texture;
     struct frame_interface *interface;
+    struct tracer *tracer;
 };
 
 static void on_destroy_texture_frame(const struct texture_frame *texture_frame, void *userdata) {
@@ -66,19 +68,27 @@ static GstFlowReturn on_appsink_new_preroll(GstAppSink *appsink, void *userdata)
 
     struct texture_sink *meta = userdata;
 
+    TRACER_BEGIN(meta->tracer, "on_appsink_new_preroll()");
+
+    TRACER_BEGIN(meta->tracer, "gst_app_sink_try_pull_preroll()");
     sample = gst_app_sink_try_pull_preroll(appsink, 0);
+    TRACER_END(meta->tracer, "gst_app_sink_try_pull_preroll()");
+
     if (sample == NULL) {
         LOG_ERROR("gstreamer returned a NULL sample.\n");
-        return GST_FLOW_ERROR;
+        goto fail_stop_tracing;
     }
 
+    TRACER_BEGIN(meta->tracer, "frame_new()");
     // supply video info here
     frame = frame_new(meta->interface, sample, NULL);
+    TRACER_END(meta->tracer, "frame_new()");
 
     // the frame has a reference on the sample internally.
     gst_sample_unref(sample);
 
     if (frame != NULL) {
+        TRACER_BEGIN(meta->tracer, "texture_push_frame()");
         texture_push_frame(
             meta->fl_texture,
             &(struct texture_frame){
@@ -87,9 +97,15 @@ static GstFlowReturn on_appsink_new_preroll(GstAppSink *appsink, void *userdata)
                 .userdata = frame,
             }
         );
+        TRACER_END(meta->tracer, "texture_push_frame()");
     }
 
+    TRACER_END(meta->tracer, "on_appsink_new_preroll()");
     return GST_FLOW_OK;
+
+fail_stop_tracing:
+    TRACER_END(meta->tracer, "on_appsink_new_preroll()");
+    return GST_FLOW_ERROR;
 }
 
 static GstFlowReturn on_appsink_new_sample(GstAppSink *appsink, void *userdata) {
@@ -101,19 +117,27 @@ static GstFlowReturn on_appsink_new_sample(GstAppSink *appsink, void *userdata) 
 
     struct texture_sink *meta = userdata;
 
+    TRACER_BEGIN(meta->tracer, "on_appsink_new_sample()");
+
+    TRACER_BEGIN(meta->tracer, "gst_app_sink_try_pull_sample()");
     sample = gst_app_sink_try_pull_sample(appsink, 0);
+    TRACER_END(meta->tracer, "gst_app_sink_try_pull_sample()");
+
     if (sample == NULL) {
         LOG_ERROR("gstreamer returned a NULL sample.\n");
-        return GST_FLOW_ERROR;
+        goto fail_stop_tracing;
     }
 
+    TRACER_BEGIN(meta->tracer, "frame_new()");
     // supply video info here
     frame = frame_new(meta->interface, sample, NULL);
+    TRACER_END(meta->tracer, "frame_new()");
 
     // the frame has a reference on the sample internally.
     gst_sample_unref(sample);
 
     if (frame != NULL) {
+        TRACER_BEGIN(meta->tracer, "texture_push_frame()");
         texture_push_frame(
             meta->fl_texture,
             &(struct texture_frame){
@@ -122,9 +146,15 @@ static GstFlowReturn on_appsink_new_sample(GstAppSink *appsink, void *userdata) 
                 .userdata = frame,
             }
         );
+        TRACER_END(meta->tracer, "texture_push_frame()");
     }
 
+    TRACER_END(meta->tracer, "on_appsink_new_preroll()");
     return GST_FLOW_OK;
+
+fail_stop_tracing:
+    TRACER_END(meta->tracer, "on_appsink_new_preroll()");
+    return GST_FLOW_ERROR;
 }
 
 static void on_appsink_cbs_destroy(void *userdata) {
@@ -136,6 +166,7 @@ static void on_appsink_cbs_destroy(void *userdata) {
     meta = userdata;
 
     // meta->texture is not owned by us. freed by the player
+    tracer_unref(meta->tracer);
     frame_interface_unref(meta->interface);
     free(meta);
 }
@@ -218,7 +249,7 @@ UNUSED static GstPadProbeReturn on_query_appsink_pad(GstPad *pad, GstPadProbeInf
     return GST_PAD_PROBE_HANDLED;
 }
 
-bool flutter_gl_texture_sink_patch(GstElement *element, struct texture *texture, struct gl_renderer *renderer) {
+bool flutter_gl_texture_sink_patch(GstElement *element, struct texture *texture, struct gl_renderer *renderer, struct tracer *tracer) {
     ASSERT_NOT_NULL(element);
     ASSERT_NOT_NULL(texture);
     ASSERT_NOT_NULL(renderer);
@@ -283,6 +314,8 @@ bool flutter_gl_texture_sink_patch(GstElement *element, struct texture *texture,
         gst_pad_add_probe(pad, GST_PAD_PROBE_TYPE_QUERY_DOWNSTREAM, on_query_appsink_pad, NULL, NULL);
     }
 
+    meta->tracer = tracer_ref(tracer);
+
     gst_app_sink_set_callbacks(
         GST_APP_SINK(appsink),
         &cbs,
@@ -293,7 +326,7 @@ bool flutter_gl_texture_sink_patch(GstElement *element, struct texture *texture,
     return element;
 }
 
-GstElement *flutter_gl_texture_sink_new(struct texture *texture, struct gl_renderer *renderer) {
+GstElement *flutter_gl_texture_sink_new(struct texture *texture, struct gl_renderer *renderer, struct tracer *tracer) {
     ASSERT_NOT_NULL(texture);
     ASSERT_NOT_NULL(renderer);
 
@@ -302,7 +335,7 @@ GstElement *flutter_gl_texture_sink_new(struct texture *texture, struct gl_rende
         return NULL;
     }
 
-    if (!flutter_gl_texture_sink_patch(element, texture, renderer)) {
+    if (!flutter_gl_texture_sink_patch(element, texture, renderer, tracer)) {
         gst_object_unref(element);
         return NULL;
     }
