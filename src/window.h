@@ -11,7 +11,7 @@
 #define _FLUTTERPI_SRC_WINDOW_H
 
 #include "compositor_ng.h"
-#include "modesetting.h"
+#include "kms/resources.h"
 #include "pixel_format.h"
 #include "util/refcounting.h"
 
@@ -65,6 +65,7 @@ struct window *kms_window_new(
     bool has_explicit_dimensions, int width_mm, int height_mm,
     bool has_forced_pixel_format, enum pixfmt forced_pixel_format,
     struct drmdev *drmdev,
+    struct drm_resources *resources,
     const char *desired_videomode
     // clang-format on
 );

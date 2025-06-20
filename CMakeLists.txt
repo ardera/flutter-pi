@@ -127,10 +127,12 @@ add_library(
   src/platformchannel.c
   src/pluginregistry.c
   src/texture_registry.c
-  src/modesetting.c
-  src/util/collection.c
+  src/kms/drmdev.c
+  src/kms/req_builder.c
+  src/kms/resources.c
   src/util/bitscan.c
   src/util/vector.c
+  src/util/collection.c
   src/cursor.c
   src/keyboard.c
   src/user_input.c

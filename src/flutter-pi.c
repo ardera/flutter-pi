@@ -45,7 +45,7 @@
 #include "frame_scheduler.h"
 #include "keyboard.h"
 #include "locales.h"
-#include "modesetting.h"
+#include "kms/drmdev.h"
 #include "pixel_format.h"
 #include "platformchannel.h"
 #include "pluginregistry.h"
@@ -1097,7 +1097,8 @@ static int on_drmdev_ready(sd_event_source *s, int fd, uint32_t revents, void *u
     ASSERT_NOT_NULL(userdata);
     drmdev = userdata;
 
-    return drmdev_on_event_fd_ready(drmdev);
+    drmdev_dispatch_modesetting(drmdev);
+    return 0;
 }
 
 static const FlutterLocale *on_compute_platform_resolved_locales(const FlutterLocale **locales, size_t n_locales) {
@@ -2120,74 +2121,7 @@ static void on_drmdev_close(int fd, void *fd_metadata, void *userdata) {
     }
 }
 
-static const struct drmdev_interface drmdev_interface = { .open = on_drmdev_open, .close = on_drmdev_close };
-
-static struct drmdev *find_drmdev(struct libseat *libseat) {
-    struct drm_connector *connector;
-    struct drmdev *drmdev;
-    drmDevicePtr devices[64];
-    int ok, n_devices;
-
-#ifndef HAVE_LIBSEAT
-    ASSERT_EQUALS(libseat, NULL);
-#endif
-
-    ok = drmGetDevices2(0, devices, ARRAY_SIZE(devices));
-    if (ok < 0) {
-        LOG_ERROR("Could not query DRM device list: %s\n", strerror(-ok));
-        return NULL;
-    }
-
-    n_devices = ok;
-
-    // find a GPU that has a primary node
-    drmdev = NULL;
-    for (int i = 0; i < n_devices; i++) {
-        drmDevicePtr device;
-
-        device = devices[i];
-
-        if (!(device->available_nodes & (1 << DRM_NODE_PRIMARY))) {
-            // We need a primary node.
-            continue;
-        }
-
-        drmdev = drmdev_new_from_path(device->nodes[DRM_NODE_PRIMARY], &drmdev_interface, libseat);
-        if (drmdev == NULL) {
-            LOG_ERROR("Could not create drmdev from device at \"%s\". Continuing.\n", device->nodes[DRM_NODE_PRIMARY]);
-            continue;
-        }
-
-        for_each_connector_in_drmdev(drmdev, connector) {
-            if (connector->variable_state.connection_state == kConnected_DrmConnectionState) {
-                goto found_connected_connector;
-            }
-        }
-        LOG_ERROR("Device \"%s\" doesn't have a display connected. Skipping.\n", device->nodes[DRM_NODE_PRIMARY]);
-        drmdev_unref(drmdev);
-        continue;
-
-found_connected_connector:
-        break;
-    }
-
-    drmFreeDevices(devices, n_devices);
-
-    if (drmdev == NULL) {
-        LOG_ERROR(
-            "flutter-pi couldn't find a usable DRM device.\n"
-            "Please make sure you've enabled the Fake-KMS driver in raspi-config.\n"
-            "If you're not using a Raspberry Pi, please make sure there's KMS support for your graphics chip.\n"
-        );
-        goto fail_free_devices;
-    }
-
-    return drmdev;
-
-fail_free_devices:
-    drmFreeDevices(devices, n_devices);
-    return NULL;
-}
+static const struct drmdev_file_interface drmdev_interface = { .open = on_drmdev_open, .close = on_drmdev_close };
 
 static struct gbm_device *open_rendernode_as_gbm_device(void) {
     struct gbm_device *gbm;
@@ -2338,7 +2272,6 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
     struct flutterpi_cmdline_args cmd_args;
     struct libseat *libseat;
     struct locales *locales;
-    struct drmdev *drmdev;
     struct tracer *tracer;
     struct window *window;
     void *engine_handle;
@@ -2455,6 +2388,8 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
 
     locales_print(locales);
 
+    struct drmdev *drmdev = NULL;
+    struct drm_resources *resources = NULL;
     if (cmd_args.dummy_display) {
         drmdev = NULL;
 
@@ -2467,10 +2402,15 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
             goto fail_destroy_locales;
         }
     } else {
-        drmdev = find_drmdev(libseat);
+        // TODO: Share this udev instance with the one the user input uses.
+        struct udev *udev = udev_new();
+
+        drmdev = drmdev_new_from_udev_primary(udev, "seat0", &drmdev_interface, NULL);
         if (drmdev == NULL) {
             goto fail_destroy_locales;
         }
+
+        udev_unref(udev);
 
         gbm_device = drmdev_get_gbm_device(drmdev);
         if (gbm_device == NULL) {
@@ -2563,6 +2503,7 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
             cmd_args.has_physical_dimensions, cmd_args.physical_dimensions.x, cmd_args.physical_dimensions.y,
             cmd_args.has_pixel_format, cmd_args.pixel_format,
             drmdev,
+            resources,
             desired_videomode
             // clang-format on
         );
@@ -2572,6 +2513,8 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
         }
     }
 
+    drm_resources_unrefp(&resources);
+
     compositor = compositor_new(tracer, window);
     if (compositor == NULL) {
         LOG_ERROR("Couldn't create compositor.\n");
@@ -2580,7 +2523,7 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
 
     /// TODO: Do we really need the window after this?
     if (drmdev != NULL) {
-        ok = sd_event_add_io(event_loop, NULL, drmdev_get_event_fd(drmdev), EPOLLIN | EPOLLHUP | EPOLLPRI, on_drmdev_ready, drmdev);
+        ok = sd_event_add_io(event_loop, NULL, drmdev_get_modesetting_fd(drmdev), EPOLLIN | EPOLLHUP | EPOLLPRI, on_drmdev_ready, drmdev);
         if (ok < 0) {
             LOG_ERROR("Could not add DRM pageflip event listener. sd_event_add_io: %s\n", strerror(-ok));
             goto fail_unref_compositor;
@@ -2778,6 +2721,9 @@ fail_unref_tracer:
     tracer_unref(tracer);
 
 fail_destroy_drmdev:
+    if (resources != NULL) {
+        drm_resources_unref(resources);
+    }
     drmdev_unref(drmdev);
 
 fail_destroy_locales:
