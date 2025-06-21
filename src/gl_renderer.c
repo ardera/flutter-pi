@@ -62,24 +62,23 @@ struct gl_renderer {
 #endif
 };
 
-static void *try_get_proc_address(const char *name) {
-    void *address;
-
-    address = eglGetProcAddress(name);
-    if (address) {
-        return address;
+static fn_ptr_t try_get_proc_address(const char *name) {
+    fn_ptr_t fn = eglGetProcAddress(name);
+    if (fn) {
+        return fn;
     }
 
-    address = dlsym(RTLD_DEFAULT, name);
-    if (address) {
-        return address;
+    void *void_fn = dlsym(RTLD_DEFAULT, name);
+    if (void_fn) {
+        *((void **) &fn) = void_fn;
+        return fn;
     }
 
-    return NULL;
+    return (fn_ptr_t) NULL;
 }
 
-static void *get_proc_address(const char *name) {
-    void *address;
+static fn_ptr_t get_proc_address(const char *name) {
+    fn_ptr_t address;
 
     address = try_get_proc_address(name);
     if (address == NULL) {
@@ -177,13 +176,13 @@ struct gl_renderer *gl_renderer_new_from_gbm_device(
 // PFNEGLGETPLATFORMDISPLAYEXTPROC, PFNEGLCREATEPLATFORMWINDOWSURFACEEXTPROC
 // are defined by EGL_EXT_platform_base.
 #ifdef EGL_EXT_platform_base
-    PFNEGLGETPLATFORMDISPLAYEXTPROC egl_get_platform_display_ext;
-    PFNEGLCREATEPLATFORMWINDOWSURFACEEXTPROC egl_create_platform_window_surface_ext;
+    PFNEGLGETPLATFORMDISPLAYEXTPROC egl_get_platform_display_ext = NULL;
+    PFNEGLCREATEPLATFORMWINDOWSURFACEEXTPROC egl_create_platform_window_surface_ext = NULL;
 #endif
 
     if (supports_egl_ext_platform_base) {
 #ifdef EGL_EXT_platform_base
-        egl_get_platform_display_ext = try_get_proc_address("eglGetPlatformDisplayEXT");
+        egl_get_platform_display_ext = (PFNEGLGETPLATFORMDISPLAYEXTPROC) try_get_proc_address("eglGetPlatformDisplayEXT");
         if (egl_get_platform_display_ext == NULL) {
             LOG_ERROR("Couldn't resolve \"eglGetPlatformDisplayEXT\" even though \"EGL_EXT_platform_base\" was listed as supported.\n");
             supports_egl_ext_platform_base = false;
@@ -195,7 +194,8 @@ struct gl_renderer *gl_renderer_new_from_gbm_device(
 
     if (supports_egl_ext_platform_base) {
 #ifdef EGL_EXT_platform_base
-        egl_create_platform_window_surface_ext = try_get_proc_address("eglCreatePlatformWindowSurfaceEXT");
+        egl_create_platform_window_surface_ext = (PFNEGLCREATEPLATFORMWINDOWSURFACEEXTPROC
+        ) try_get_proc_address("eglCreatePlatformWindowSurfaceEXT");
         if (egl_create_platform_window_surface_ext == NULL) {
             LOG_ERROR(
                 "Couldn't resolve \"eglCreatePlatformWindowSurfaceEXT\" even though \"EGL_EXT_platform_base\" was listed as supported.\n"
@@ -217,8 +217,9 @@ struct gl_renderer *gl_renderer_new_from_gbm_device(
     bool failed_before = false;
 
 #ifdef EGL_VERSION_1_5
-    PFNEGLGETPLATFORMDISPLAYPROC egl_get_platform_display = try_get_proc_address("eglGetPlatformDisplay");
-    PFNEGLCREATEPLATFORMWINDOWSURFACEPROC egl_create_platform_window_surface = try_get_proc_address("eglCreatePlatformWindowSurface");
+    PFNEGLGETPLATFORMDISPLAYPROC egl_get_platform_display = (PFNEGLGETPLATFORMDISPLAYPROC) try_get_proc_address("eglGetPlatformDisplay");
+    PFNEGLCREATEPLATFORMWINDOWSURFACEPROC egl_create_platform_window_surface = (PFNEGLCREATEPLATFORMWINDOWSURFACEPROC
+    ) try_get_proc_address("eglCreatePlatformWindowSurface");
 
     if (egl_display == EGL_NO_DISPLAY && egl_get_platform_display != NULL) {
         egl_display = egl_get_platform_display(EGL_PLATFORM_GBM_KHR, gbm_device, NULL);
@@ -550,7 +551,7 @@ int gl_renderer_clear_current(struct gl_renderer *renderer) {
     return 0;
 }
 
-void *gl_renderer_get_proc_address(ASSERTED struct gl_renderer *renderer, const char *name) {
+fn_ptr_t gl_renderer_get_proc_address(ASSERTED struct gl_renderer *renderer, const char *name) {
     ASSERT_NOT_NULL(renderer);
     ASSERT_NOT_NULL(name);
     return get_proc_address(name);
@@ -628,7 +629,7 @@ int gl_renderer_make_this_a_render_thread(struct gl_renderer *renderer) {
     return 0;
 }
 
-void gl_renderer_cleanup_this_render_thread() {
+void gl_renderer_cleanup_this_render_thread(void) {
     EGLDisplay display;
     EGLContext context;
     EGLBoolean egl_ok;

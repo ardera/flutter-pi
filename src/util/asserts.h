@@ -18,18 +18,7 @@
 #define ASSERT_EQUALS_MSG(__a, __b, __msg) ASSERT_MSG((__a) == (__b), __msg)
 #define ASSERT_EGL_TRUE(__var) assert((__var) == EGL_TRUE)
 #define ASSERT_EGL_TRUE_MSG(__var, __msg) ASSERT_MSG((__var) == EGL_TRUE, __msg)
-#define ASSERT_MUTEX_LOCKED(__mutex)               \
-    assert(({                                      \
-        bool result;                               \
-        int r = pthread_mutex_trylock(&(__mutex)); \
-        if (r == 0) {                              \
-            pthread_mutex_unlock(&(__mutex));      \
-            result = false;                        \
-        } else {                                   \
-            result = true;                         \
-        }                                          \
-        result;                                    \
-    }))
+
 #define ASSERT_ZERO(__var) assert((__var) == 0)
 #define ASSERT_ZERO_MSG(__var, __msg) ASSERT_MSG((__var) == 0, __msg)
 

@@ -1,10 +1,10 @@
 #include <flutter-pi.h>
 #include <unity.h>
 
-void setUp() {
+void setUp(void) {
 }
 
-void tearDown() {
+void tearDown(void) {
 }
 
 #define TEST_ASSERT_EQUAL_BOOL(expected, actual)                                \
@@ -50,7 +50,7 @@ void expect_parsed_cmdline_args_matches(int argc, char **argv, bool expected_res
     TEST_ASSERT_EQUAL_INT(expected.dummy_display_size.y, actual.dummy_display_size.y);
 }
 
-static struct flutterpi_cmdline_args get_default_args() {
+static struct flutterpi_cmdline_args get_default_args(void) {
     static char *engine_argv[1] = { "flutter-pi" };
 
     return (struct flutterpi_cmdline_args){
@@ -74,7 +74,7 @@ static struct flutterpi_cmdline_args get_default_args() {
     };
 }
 
-void test_parse_orientation_arg() {
+void test_parse_orientation_arg(void) {
     struct flutterpi_cmdline_args expected = get_default_args();
 
     // test --orientation
@@ -132,7 +132,7 @@ void test_parse_orientation_arg() {
     );
 }
 
-void test_parse_rotation_arg() {
+void test_parse_rotation_arg(void) {
     struct flutterpi_cmdline_args expected = get_default_args();
 
     expected.has_rotation = true;
@@ -149,7 +149,7 @@ void test_parse_rotation_arg() {
     expect_parsed_cmdline_args_matches(4, (char *[]){ "flutter-pi", "--rotation", "270", BUNDLE_PATH }, true, expected);
 }
 
-void test_parse_physical_dimensions_arg() {
+void test_parse_physical_dimensions_arg(void) {
     struct flutterpi_cmdline_args expected = get_default_args();
 
     expected.bundle_path = NULL;
@@ -164,7 +164,7 @@ void test_parse_physical_dimensions_arg() {
     expect_parsed_cmdline_args_matches(4, (char *[]){ "flutter-pi", "--dimensions", "10,10", BUNDLE_PATH }, true, expected);
 }
 
-void test_parse_pixel_format_arg() {
+void test_parse_pixel_format_arg(void) {
     struct flutterpi_cmdline_args expected = get_default_args();
 
     expected.has_pixel_format = true;
@@ -176,7 +176,7 @@ void test_parse_pixel_format_arg() {
     expect_parsed_cmdline_args_matches(4, (char *[]){ "flutter-pi", "--pixelformat", "RGBA8888", BUNDLE_PATH }, true, expected);
 }
 
-void test_parse_runtime_mode_arg() {
+void test_parse_runtime_mode_arg(void) {
     struct flutterpi_cmdline_args expected = get_default_args();
 
     // test --debug, --profile, --release
@@ -194,14 +194,14 @@ void test_parse_runtime_mode_arg() {
     expect_parsed_cmdline_args_matches(3, (char *[]){ "flutter-pi", "--release", BUNDLE_PATH }, true, expected);
 }
 
-void test_parse_bundle_path_arg() {
+void test_parse_bundle_path_arg(void) {
     struct flutterpi_cmdline_args expected = get_default_args();
 
     expected.bundle_path = "/path/to/bundle/test";
     expect_parsed_cmdline_args_matches(2, (char *[]){ "flutter-pi", "/path/to/bundle/test" }, true, expected);
 }
 
-void test_parse_engine_arg() {
+void test_parse_engine_arg(void) {
     struct flutterpi_cmdline_args expected = get_default_args();
 
     expected.engine_argc = 2;
@@ -210,14 +210,14 @@ void test_parse_engine_arg() {
     expect_parsed_cmdline_args_matches(3, (char *[]){ "flutter-pi", BUNDLE_PATH, "engine-arg" }, true, expected);
 }
 
-void test_parse_vulkan_arg() {
+void test_parse_vulkan_arg(void) {
     struct flutterpi_cmdline_args expected = get_default_args();
 
     expected.use_vulkan = true;
     expect_parsed_cmdline_args_matches(3, (char *[]){ "flutter-pi", "--vulkan", BUNDLE_PATH }, true, expected);
 }
 
-void test_parse_desired_videomode_arg() {
+void test_parse_desired_videomode_arg(void) {
     struct flutterpi_cmdline_args expected = get_default_args();
 
     expected.desired_videomode = "1920x1080";
@@ -227,7 +227,7 @@ void test_parse_desired_videomode_arg() {
     expect_parsed_cmdline_args_matches(4, (char *[]){ "flutter-pi", "--videomode", "1920x1080@60", BUNDLE_PATH }, true, expected);
 }
 
-int main() {
+int main(void) {
     UNITY_BEGIN();
 
     RUN_TEST(test_parse_runtime_mode_arg);

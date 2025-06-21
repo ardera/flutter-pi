@@ -54,7 +54,7 @@ static struct plugin {
     struct list_head players;
 } plugin;
 
-DEFINE_LOCK_OPS(plugin, lock);
+DEFINE_LOCK_OPS(plugin, lock)
 
 /// Add a player instance to the player collection.
 static void add_player(struct gstplayer_meta *meta) {
@@ -116,7 +116,7 @@ static void remove_player(struct gstplayer_meta *meta) {
  * 
  */
 static void remove_player_locked(struct gstplayer_meta *meta) {
-    ASSERT_MUTEX_LOCKED(plugin.lock);
+    assert_mutex_locked(&plugin.lock);
     list_del(&meta->entry);
 }
 
@@ -204,7 +204,7 @@ get_player_from_map_arg(struct std_value *arg, struct gstplayer **player_out, Fl
     return 0;
 }
 
-static int ensure_initialized() {
+static int ensure_initialized(void) {
     GError *gst_error;
     gboolean success;
 
@@ -953,11 +953,18 @@ get_player_from_texture_id_with_custom_errmsg(int64_t texture_id, FlutterPlatfor
         plugin_lock(&plugin);
 
         int n_texture_ids = list_length(&plugin.players);
-        int64_t *texture_ids = alloca(sizeof(int64_t) * n_texture_ids);
-        int64_t *texture_ids_cursor = texture_ids;
 
-        list_for_each_entry(struct gstplayer_meta, meta, &plugin.players, entry) {
-            *texture_ids_cursor++ = gstplayer_get_texture_id(meta->player);
+        int64_t *texture_ids;
+
+        if (n_texture_ids == 0) {
+            texture_ids = NULL;
+        } else {
+            texture_ids = alloca(sizeof(int64_t) * n_texture_ids);
+            int64_t *texture_ids_cursor = texture_ids;
+
+            list_for_each_entry(struct gstplayer_meta, meta, &plugin.players, entry) {
+                *texture_ids_cursor++ = gstplayer_get_texture_id(meta->player);
+            }
         }
 
         plugin_unlock(&plugin);
@@ -1078,8 +1085,7 @@ static int on_create_v2(const struct raw_std_value *arg, FlutterPlatformMessageR
         } else if (raw_std_value_is_string(arg)) {
             asset = raw_std_string_dup(arg);
             if (asset == NULL) {
-                ok = ENOMEM;
-                goto fail_respond_error;
+                return platch_respond_native_error_std(responsehandle, ENOMEM);
             }
         } else {
             return platch_respond_illegal_arg_std(responsehandle, "Expected `arg[0]` to be a String or null.");
@@ -1097,11 +1103,12 @@ static int on_create_v2(const struct raw_std_value *arg, FlutterPlatformMessageR
         } else if (raw_std_value_is_string(arg)) {
             package_name = raw_std_string_dup(arg);
             if (package_name == NULL) {
-                ok = ENOMEM;
-                goto fail_respond_error;
+                ok = platch_respond_native_error_std(responsehandle, ENOMEM);
+                goto fail_free_asset;
             }
         } else {
-            return platch_respond_illegal_arg_std(responsehandle, "Expected `arg[1]` to be a String or null.");
+            ok = platch_respond_illegal_arg_std(responsehandle, "Expected `arg[1]` to be a String or null.");
+            goto fail_free_asset;
         }
     } else {
         package_name = NULL;
@@ -1116,11 +1123,12 @@ static int on_create_v2(const struct raw_std_value *arg, FlutterPlatformMessageR
         } else if (raw_std_value_is_string(arg)) {
             uri = raw_std_string_dup(arg);
             if (uri == NULL) {
-                ok = ENOMEM;
-                goto fail_respond_error;
+                ok = platch_respond_native_error_std(responsehandle, ENOMEM);
+                goto fail_free_package_name;
             }
         } else {
-            return platch_respond_illegal_arg_std(responsehandle, "Expected `arg[2]` to be a String or null.");
+            ok = platch_respond_illegal_arg_std(responsehandle, "Expected `arg[2]` to be a String or null.");
+            goto fail_free_package_name;
         }
     } else {
         uri = NULL;
@@ -1146,7 +1154,8 @@ static int on_create_v2(const struct raw_std_value *arg, FlutterPlatformMessageR
             }
         } else {
 invalid_format_hint:
-            return platch_respond_illegal_arg_std(responsehandle, "Expected `arg[3]` to be one of 'ss', 'hls', 'dash', 'other' or null.");
+            ok = platch_respond_illegal_arg_std(responsehandle, "Expected `arg[3]` to be one of 'ss', 'hls', 'dash', 'other' or null.");
+            goto fail_free_uri;
         }
     } else {
         format_hint = FORMAT_HINT_NONE;
@@ -1167,7 +1176,8 @@ invalid_format_hint:
             headers = arg;
         } else {
 invalid_headers:
-            return platch_respond_illegal_arg_std(responsehandle, "Expected `arg[4]` to be a map of strings or null.");
+            ok = platch_respond_illegal_arg_std(responsehandle, "Expected `arg[4]` to be a map of strings or null.");
+            goto fail_free_uri;
         }
     } else {
         headers = NULL;
@@ -1182,14 +1192,16 @@ invalid_headers:
         } else if (raw_std_value_is_string(arg)) {
             pipeline = raw_std_string_dup(arg);
         } else {
-            return platch_respond_illegal_arg_std(responsehandle, "Expected `arg[5]` to be a string or null.");
+            ok = platch_respond_illegal_arg_std(responsehandle, "Expected `arg[5]` to be a string or null.");
+            goto fail_free_headers;
         }
     } else {
         pipeline = NULL;
     }
 
     if ((asset ? 1 : 0) + (uri ? 1 : 0) + (pipeline ? 1 : 0) != 1) {
-        return platch_respond_illegal_arg_std(responsehandle, "Expected exactly one of `arg[0]`, `arg[2]` or `arg[5]` to be non-null.");
+        ok = platch_respond_illegal_arg_std(responsehandle, "Expected exactly one of `arg[0]`, `arg[2]` or `arg[5]` to be non-null.");
+        goto fail_free_pipeline;
     }
 
     // Create our actual player (this doesn't initialize it)
@@ -1216,17 +1228,37 @@ invalid_headers:
         UNREACHABLE();
     }
 
-    if (player == NULL) {
-        LOG_ERROR("Couldn't create gstreamer video player.\n");
-        ok = EIO;
-        goto fail_respond_error;
+    if (asset != NULL) {
+        free(asset);
+        asset = NULL;
     }
 
+    if (package_name != NULL) {
+        free(package_name);
+        package_name = NULL;
+    }
+
+    if (uri != NULL) {
+        free(uri);
+        uri = NULL;
+    }
+
+    if (pipeline != NULL) {
+        free(pipeline);
+        pipeline = NULL;
+    }
+
+    if (player == NULL) {
+        LOG_ERROR("Couldn't create gstreamer video player.\n");
+        ok = platch_respond_native_error_std(responsehandle, EIO);
+        goto fail_destroy_player;
+    }
+ 
     // create a meta object so we can store the event channel name
     // of a player with it
     meta = create_meta(gstplayer_get_texture_id(player), player);
     if (meta == NULL) {
-        ok = ENOMEM;
+        ok = platch_respond_native_error_std(responsehandle, ENOMEM);
         goto fail_destroy_player;
     }
 
@@ -1272,8 +1304,24 @@ fail_remove_player:
 fail_destroy_player:
     gstplayer_destroy(player);
 
-fail_respond_error:
-    return platch_respond_native_error_std(responsehandle, ok);
+fail_free_pipeline:
+    free(pipeline);
+
+fail_free_headers:
+fail_free_uri:
+    if (uri != NULL) {
+        free(uri);
+    }
+
+    if (package_name != NULL) {
+        free(package_name);
+    }
+
+    if (asset != NULL) {
+        free(asset);
+    }
+
+    return ok;
 }
 
 static int on_dispose_v2(const struct raw_std_value *arg, FlutterPlatformMessageResponseHandle *responsehandle) {

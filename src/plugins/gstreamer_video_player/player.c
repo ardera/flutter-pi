@@ -472,6 +472,8 @@ static void on_bus_message(struct gstplayer *player, GstMessage *msg) {
     gchar *debug_info;
 
     DEBUG_TRACE_BEGIN(player, "on_bus_message");
+    PRAGMA_DIAGNOSTIC_PUSH
+    PRAGMA_DIAGNOSTIC_IGNORED("-Wswitch-enum")
     switch (GST_MESSAGE_TYPE(msg)) {
         case GST_MESSAGE_ERROR:
             gst_message_parse_error(msg, &error, &debug_info);
@@ -604,6 +606,7 @@ static void on_bus_message(struct gstplayer *player, GstMessage *msg) {
 
         default: LOG_DEBUG("gstreamer message: %s, src: %s\n", GST_MESSAGE_TYPE_NAME(msg), GST_MESSAGE_SRC_NAME(msg)); break;
     }
+    PRAGMA_DIAGNOSTIC_POP
     DEBUG_TRACE_END(player, "on_bus_message");
     return;
 }

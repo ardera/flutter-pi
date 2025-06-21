@@ -55,7 +55,7 @@ struct vk_renderer;
  *
  * @return New vulkan renderer instance.
  */
-struct vk_renderer *vk_renderer_new();
+struct vk_renderer *vk_renderer_new(void);
 
 void vk_renderer_destroy(struct vk_renderer *renderer);
 

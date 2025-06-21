@@ -52,7 +52,7 @@ static VkBool32 on_debug_utils_message(
     UNUSED void *userdata
 ) {
     LOG_DEBUG(
-        "[%s] (%d, %s) %s (queues: %d, cmdbufs: %d, objects: %d)\n",
+        "[%s] (%d, %s) %s (queues: %u, cmdbufs: %u, objects: %u)\n",
         severity == VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT ? "VERBOSE" :
         severity == VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT    ? "INFO" :
         severity == VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT ? "WARNING" :
@@ -160,7 +160,7 @@ struct vk_renderer {
     const char **enabled_device_extensions;
 };
 
-MUST_CHECK struct vk_renderer *vk_renderer_new() {
+MUST_CHECK struct vk_renderer *vk_renderer_new(void) {
     PFN_vkDestroyDebugUtilsMessengerEXT destroy_debug_utils_messenger;
     PFN_vkCreateDebugUtilsMessengerEXT create_debug_utils_messenger;
     VkDebugUtilsMessengerEXT debug_utils_messenger;

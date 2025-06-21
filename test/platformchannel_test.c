@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 #include "platformchannel.h"
 
+#include <float.h>
 #include <limits.h>
 #include <math.h>
 #include <stdalign.h>
@@ -10,34 +11,37 @@
 #define RAW_STD_BUF(...) (const struct raw_std_value *) ((const uint8_t[]){ __VA_ARGS__ })
 #define AS_RAW_STD_VALUE(_value) ((const struct raw_std_value *) (_value))
 
+#define DBL_INFINITY ((double) INFINITY)
+#define DBL_NAN ((double) NAN)
+
 // required by Unity.
-void setUp() {
+void setUp(void) {
 }
 
-void tearDown() {
+void tearDown(void) {
 }
 
-void test_raw_std_value_is_null() {
+void test_raw_std_value_is_null(void) {
     TEST_ASSERT_TRUE(raw_std_value_is_null(RAW_STD_BUF(kStdNull)));
     TEST_ASSERT_FALSE(raw_std_value_is_null(RAW_STD_BUF(kStdTrue)));
 }
 
-void test_raw_std_value_is_true() {
+void test_raw_std_value_is_true(void) {
     TEST_ASSERT_TRUE(raw_std_value_is_true(RAW_STD_BUF(kStdTrue)));
     TEST_ASSERT_FALSE(raw_std_value_is_true(RAW_STD_BUF(kStdFalse)));
 }
 
-void test_raw_std_value_is_false() {
+void test_raw_std_value_is_false(void) {
     TEST_ASSERT_TRUE(raw_std_value_is_false(RAW_STD_BUF(kStdFalse)));
     TEST_ASSERT_FALSE(raw_std_value_is_false(RAW_STD_BUF(kStdTrue)));
 }
 
-void test_raw_std_value_is_int32() {
+void test_raw_std_value_is_int32(void) {
     TEST_ASSERT_TRUE(raw_std_value_is_int32(RAW_STD_BUF(kStdInt32)));
     TEST_ASSERT_FALSE(raw_std_value_is_int32(RAW_STD_BUF(kStdNull)));
 }
 
-void test_raw_std_value_as_int32() {
+void test_raw_std_value_as_int32(void) {
     // clang-format off
     alignas(16) uint8_t buffer[5] = {
         kStdInt32,
@@ -53,12 +57,12 @@ void test_raw_std_value_as_int32() {
     TEST_ASSERT_EQUAL_INT32(-2003205, raw_std_value_as_int32(AS_RAW_STD_VALUE(buffer)));
 }
 
-void test_raw_std_value_is_int64() {
+void test_raw_std_value_is_int64(void) {
     TEST_ASSERT_TRUE(raw_std_value_is_int64(RAW_STD_BUF(kStdInt64)));
     TEST_ASSERT_FALSE(raw_std_value_is_int64(RAW_STD_BUF(kStdNull)));
 }
 
-void test_raw_std_value_as_int64() {
+void test_raw_std_value_as_int64(void) {
     // clang-format off
     alignas(16) uint8_t buffer[9] = {
         kStdInt64,
@@ -74,12 +78,12 @@ void test_raw_std_value_as_int64() {
     TEST_ASSERT_EQUAL_INT64(-7998090352538419200, raw_std_value_as_int64(AS_RAW_STD_VALUE(buffer)));
 }
 
-void test_raw_std_value_is_float64() {
+void test_raw_std_value_is_float64(void) {
     TEST_ASSERT_TRUE(raw_std_value_is_float64(RAW_STD_BUF(kStdFloat64)));
     TEST_ASSERT_FALSE(raw_std_value_is_float64(RAW_STD_BUF(kStdNull)));
 }
 
-void test_raw_std_value_as_float64() {
+void test_raw_std_value_as_float64(void) {
     // clang-format off
     alignas(16) uint8_t buffer[] = {
         kStdFloat64,
@@ -93,18 +97,18 @@ void test_raw_std_value_as_float64() {
 
     TEST_ASSERT_EQUAL_DOUBLE(M_PI, raw_std_value_as_float64(AS_RAW_STD_VALUE(buffer)));
 
-    value = INFINITY;
+    value = DBL_INFINITY;
     memcpy(buffer + 8, &value, sizeof(value));
 
-    TEST_ASSERT_EQUAL_DOUBLE(INFINITY, raw_std_value_as_float64(AS_RAW_STD_VALUE(buffer)));
+    TEST_ASSERT_EQUAL_DOUBLE(DBL_INFINITY, raw_std_value_as_float64(AS_RAW_STD_VALUE(buffer)));
 }
 
-void test_raw_std_value_is_string() {
+void test_raw_std_value_is_string(void) {
     TEST_ASSERT_TRUE(raw_std_value_is_string(RAW_STD_BUF(kStdString)));
     TEST_ASSERT_FALSE(raw_std_value_is_string(RAW_STD_BUF(kStdNull)));
 }
 
-void test_raw_std_string_dup() {
+void test_raw_std_string_dup(void) {
     const char *str = "The quick brown fox jumps over the lazy dog.";
 
     // clang-format off
@@ -129,7 +133,7 @@ void test_raw_std_string_dup() {
     free(str_duped);
 }
 
-void test_raw_std_string_equals() {
+void test_raw_std_string_equals(void) {
     const char *str = "The quick brown fox jumps over the lazy dog.";
 
     alignas(16) uint8_t buffer[1 + 1 + strlen(str)];
@@ -151,12 +155,12 @@ void test_raw_std_string_equals() {
     TEST_ASSERT_FALSE(raw_std_string_equals(AS_RAW_STD_VALUE(buffer), "anything"));
 }
 
-void test_raw_std_value_is_uint8array() {
+void test_raw_std_value_is_uint8array(void) {
     TEST_ASSERT_TRUE(raw_std_value_is_uint8array(RAW_STD_BUF(kStdUInt8Array)));
     TEST_ASSERT_FALSE(raw_std_value_is_uint8array(RAW_STD_BUF(kStdNull)));
 }
 
-void test_raw_std_value_as_uint8array() {
+void test_raw_std_value_as_uint8array(void) {
     // clang-format off
     alignas(16) uint8_t buffer[] = {
         kStdUInt8Array,
@@ -179,12 +183,12 @@ void test_raw_std_value_as_uint8array() {
     TEST_ASSERT_EQUAL_UINT8_ARRAY(expected, raw_std_value_as_uint8array(AS_RAW_STD_VALUE(buffer)), 4);
 }
 
-void test_raw_std_value_is_int32array() {
+void test_raw_std_value_is_int32array(void) {
     TEST_ASSERT_TRUE(raw_std_value_is_int32array(RAW_STD_BUF(kStdInt32Array)));
     TEST_ASSERT_FALSE(raw_std_value_is_int32array(RAW_STD_BUF(kStdNull)));
 }
 
-void test_raw_std_value_as_int32array() {
+void test_raw_std_value_as_int32array(void) {
     // clang-format off
     alignas(16) uint8_t buffer[] = {
         // type
@@ -216,12 +220,12 @@ void test_raw_std_value_as_int32array() {
     TEST_ASSERT_EQUAL_INT32_ARRAY(expected, raw_std_value_as_int32array(AS_RAW_STD_VALUE(buffer)), 2);
 }
 
-void test_raw_std_value_is_int64array() {
+void test_raw_std_value_is_int64array(void) {
     TEST_ASSERT_TRUE(raw_std_value_is_int64array(RAW_STD_BUF(kStdInt64Array)));
     TEST_ASSERT_FALSE(raw_std_value_is_int64array(RAW_STD_BUF(kStdNull)));
 }
 
-void test_raw_std_value_as_int64array() {
+void test_raw_std_value_as_int64array(void) {
     // clang-format off
     alignas(16) uint8_t buffer[] = {
         // type
@@ -251,12 +255,12 @@ void test_raw_std_value_as_int64array() {
     TEST_ASSERT_EQUAL_INT64_ARRAY(expected, raw_std_value_as_int64array(AS_RAW_STD_VALUE(buffer)), 2);
 }
 
-void test_raw_std_value_is_float64array() {
+void test_raw_std_value_is_float64array(void) {
     TEST_ASSERT_TRUE(raw_std_value_is_float64array(RAW_STD_BUF(kStdFloat64Array)));
     TEST_ASSERT_FALSE(raw_std_value_is_float64array(RAW_STD_BUF(kStdNull)));
 }
 
-void test_raw_std_value_as_float64array() {
+void test_raw_std_value_as_float64array(void) {
     // clang-format off
     alignas(16) uint8_t buffer[] = {
         // type
@@ -274,7 +278,7 @@ void test_raw_std_value_as_float64array() {
     // clang-format off
     double expected[] = {
         M_PI,
-        INFINITY,
+        DBL_INFINITY,
     };
     // clang-format on
 
@@ -288,12 +292,12 @@ void test_raw_std_value_as_float64array() {
     TEST_ASSERT_EQUAL_DOUBLE_ARRAY(expected, raw_std_value_as_float64array(AS_RAW_STD_VALUE(buffer)), 2);
 }
 
-void test_raw_std_value_is_list() {
+void test_raw_std_value_is_list(void) {
     TEST_ASSERT_TRUE(raw_std_value_is_list(RAW_STD_BUF(kStdList)));
     TEST_ASSERT_FALSE(raw_std_value_is_list(RAW_STD_BUF(kStdNull)));
 }
 
-void test_raw_std_list_get_size() {
+void test_raw_std_list_get_size(void) {
     // clang-format off
     alignas(16) uint8_t buffer[] = {
         // type
@@ -325,12 +329,12 @@ void test_raw_std_list_get_size() {
     TEST_ASSERT_EQUAL_size_t(0xDEADBEEF, raw_std_list_get_size(AS_RAW_STD_VALUE(buffer)));
 }
 
-void test_raw_std_value_is_map() {
+void test_raw_std_value_is_map(void) {
     TEST_ASSERT_TRUE(raw_std_value_is_map(RAW_STD_BUF(kStdMap)));
     TEST_ASSERT_FALSE(raw_std_value_is_map(RAW_STD_BUF(kStdNull)));
 }
 
-void test_raw_std_map_get_size() {
+void test_raw_std_map_get_size(void) {
     // clang-format off
     alignas(16) uint8_t buffer[] = {
         // type
@@ -362,12 +366,12 @@ void test_raw_std_map_get_size() {
     TEST_ASSERT_EQUAL_size_t(0xDEADBEEF, raw_std_map_get_size(AS_RAW_STD_VALUE(buffer)));
 }
 
-void test_raw_std_value_is_float32array() {
+void test_raw_std_value_is_float32array(void) {
     TEST_ASSERT_TRUE(raw_std_value_is_float32array(RAW_STD_BUF(kStdFloat32Array)));
     TEST_ASSERT_FALSE(raw_std_value_is_float32array(RAW_STD_BUF(kStdNull)));
 }
 
-void test_raw_std_value_as_float32array() {
+void test_raw_std_value_as_float32array(void) {
     // clang-format off
     alignas(16) uint8_t buffer[] = {
         // type
@@ -385,7 +389,7 @@ void test_raw_std_value_as_float32array() {
     // clang-format off
     float expected[] = {
         M_PI,
-        INFINITY,
+        DBL_INFINITY,
     };
     // clang-format on
 
@@ -399,7 +403,7 @@ void test_raw_std_value_as_float32array() {
     TEST_ASSERT_EQUAL_FLOAT_ARRAY(expected, raw_std_value_as_float32array(AS_RAW_STD_VALUE(buffer)), 2);
 }
 
-void test_raw_std_value_equals() {
+void test_raw_std_value_equals(void) {
     TEST_ASSERT_TRUE(raw_std_value_equals(RAW_STD_BUF(kStdNull), RAW_STD_BUF(kStdNull)));
     TEST_ASSERT_FALSE(raw_std_value_equals(RAW_STD_BUF(kStdNull), RAW_STD_BUF(kStdTrue)));
     TEST_ASSERT_FALSE(raw_std_value_equals(RAW_STD_BUF(kStdTrue), RAW_STD_BUF(kStdFalse)));
@@ -479,7 +483,7 @@ void test_raw_std_value_equals() {
 
         TEST_ASSERT_TRUE(raw_std_value_equals(AS_RAW_STD_VALUE(lhs), AS_RAW_STD_VALUE(rhs)));
 
-        f = NAN;
+        f = DBL_NAN;
         memcpy(rhs + 8, &f, sizeof(f));
 
         TEST_ASSERT_FALSE(raw_std_value_equals(AS_RAW_STD_VALUE(lhs), AS_RAW_STD_VALUE(rhs)));
@@ -689,7 +693,7 @@ void test_raw_std_value_equals() {
 
         double array[] = {
             M_PI,
-            INFINITY,
+            DBL_INFINITY,
         };
         // clang-format on
 
@@ -705,7 +709,7 @@ void test_raw_std_value_equals() {
         rhs[1] = 2;
         double array2[] = {
             0.0,
-            INFINITY,
+            DBL_INFINITY,
         };
         memcpy(rhs + 8, array2, sizeof(array2));
 
@@ -783,7 +787,7 @@ void test_raw_std_value_equals() {
         int64_t int64 = (int64_t) INT64_MIN;
         float floats[] = {
             M_PI,
-            INFINITY,
+            DBL_INFINITY,
         };
         // clang-format on
 
@@ -835,7 +839,7 @@ void test_raw_std_value_equals() {
 
         float array[] = {
             M_PI,
-            INFINITY,
+            DBL_INFINITY,
         };
         // clang-format on
 
@@ -852,7 +856,7 @@ void test_raw_std_value_equals() {
         // clang-format off
         float array2[] = {
             0.0,
-            INFINITY,
+            DBL_INFINITY,
         };
         // clang-format on
         memcpy(rhs + 4, array2, sizeof(array2));
@@ -861,18 +865,18 @@ void test_raw_std_value_equals() {
     }
 }
 
-void test_raw_std_value_is_bool() {
+void test_raw_std_value_is_bool(void) {
     TEST_ASSERT_FALSE(raw_std_value_is_bool(RAW_STD_BUF(kStdNull)));
     TEST_ASSERT_TRUE(raw_std_value_is_bool(RAW_STD_BUF(kStdTrue)));
     TEST_ASSERT_TRUE(raw_std_value_is_bool(RAW_STD_BUF(kStdFalse)));
 }
 
-void test_raw_std_value_as_bool() {
+void test_raw_std_value_as_bool(void) {
     TEST_ASSERT_TRUE(raw_std_value_as_bool(RAW_STD_BUF(kStdTrue)));
     TEST_ASSERT_FALSE(raw_std_value_as_bool(RAW_STD_BUF(kStdFalse)));
 }
 
-void test_raw_std_value_is_int() {
+void test_raw_std_value_is_int(void) {
     TEST_ASSERT_FALSE(raw_std_value_is_int(RAW_STD_BUF(kStdNull)));
     TEST_ASSERT_FALSE(raw_std_value_is_int(RAW_STD_BUF(kStdTrue)));
     TEST_ASSERT_FALSE(raw_std_value_is_int(RAW_STD_BUF(kStdFalse)));
@@ -881,7 +885,7 @@ void test_raw_std_value_is_int() {
     TEST_ASSERT_FALSE(raw_std_value_is_int(RAW_STD_BUF(kStdFloat64)));
 }
 
-void test_raw_std_value_as_int() {
+void test_raw_std_value_as_int(void) {
     // clang-format off
     alignas(16) uint8_t buffer[9] = {
         kStdInt32,
@@ -905,7 +909,7 @@ void test_raw_std_value_as_int() {
     TEST_ASSERT_EQUAL_INT64(INT32_MIN, raw_std_value_as_int(AS_RAW_STD_VALUE(buffer)));
 }
 
-void test_raw_std_value_get_size() {
+void test_raw_std_value_get_size(void) {
     // clang-format off
     alignas(16) uint8_t buffer[] = {
         // type
@@ -938,7 +942,7 @@ void test_raw_std_value_get_size() {
     TEST_ASSERT_EQUAL_size_t(0xDEADBEEF, raw_std_value_get_size(AS_RAW_STD_VALUE(buffer)));
 }
 
-void test_raw_std_value_after() {
+void test_raw_std_value_after(void) {
     // null
     {
         // clang-format off
@@ -1263,7 +1267,7 @@ void test_raw_std_value_after() {
     }
 }
 
-void test_raw_std_list_get_first_element() {
+void test_raw_std_list_get_first_element(void) {
     // list
     const char *str = "The quick brown fox jumps over the lazy dog.";
 
@@ -1286,7 +1290,7 @@ void test_raw_std_list_get_first_element() {
     );
 }
 
-void test_raw_std_list_get_nth_element() {
+void test_raw_std_list_get_nth_element(void) {
     // list
     const char *str = "The quick brown fox jumps over the lazy dog.";
 
@@ -1309,7 +1313,7 @@ void test_raw_std_list_get_nth_element() {
     );
 }
 
-void test_raw_std_map_get_first_key() {
+void test_raw_std_map_get_first_key(void) {
     // map
     // clang-format off
     alignas(16) uint8_t buffer[] = {
@@ -1340,31 +1344,31 @@ void test_raw_std_map_get_first_key() {
     TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 4, raw_std_map_get_first_key(AS_RAW_STD_VALUE(buffer)));
 }
 
-void test_raw_std_map_find() {
+void test_raw_std_map_find(void) {
 }
 
-void test_raw_std_map_find_str() {
+void test_raw_std_map_find_str(void) {
 }
 
-void test_raw_std_value_check() {
+void test_raw_std_value_check(void) {
 }
 
-void test_raw_std_method_call_check() {
+void test_raw_std_method_call_check(void) {
 }
 
-void test_raw_std_method_call_response_check() {
+void test_raw_std_method_call_response_check(void) {
 }
 
-void test_raw_std_event_check() {
+void test_raw_std_event_check(void) {
 }
 
-void test_raw_std_method_call_get_method() {
+void test_raw_std_method_call_get_method(void) {
 }
 
-void test_raw_std_method_call_get_method_dup() {
+void test_raw_std_method_call_get_method_dup(void) {
 }
 
-void test_raw_std_method_call_get_arg() {
+void test_raw_std_method_call_get_arg(void) {
 }
 
 int main(void) {

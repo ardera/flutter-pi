@@ -89,6 +89,7 @@ static struct plugin_instance *get_plugin_by_name(struct plugin_registry *regist
     return instance;
 }
 
+// clang-format off
 static struct platch_obj_cb_data *get_cb_data_by_channel_locked(struct plugin_registry *registry, const char *channel) {
     list_for_each_entry(struct platch_obj_cb_data, data, &registry->callbacks, entry) {
         if (streq(data->channel, channel)) {
@@ -98,6 +99,7 @@ static struct platch_obj_cb_data *get_cb_data_by_channel_locked(struct plugin_re
 
     return NULL;
 }
+// clang-format on
 
 struct plugin_registry *plugin_registry_new(struct flutterpi *flutterpi) {
     struct plugin_registry *reg;
@@ -211,7 +213,7 @@ void plugin_registry_add_plugin(struct plugin_registry *registry, const struct f
     plugin_registry_unlock(registry);
 }
 
-static void static_plugin_registry_ensure_initialized();
+static void static_plugin_registry_ensure_initialized(void);
 
 int plugin_registry_add_plugins_from_static_registry(struct plugin_registry *registry) {
     ASSERTED int ok;
@@ -301,7 +303,7 @@ static int set_receiver_locked(
     char *channel_dup;
 
     ASSERT_MSG((!!callback) != (!!callback_v2), "Exactly one of callback or callback_v2 must be non-NULL.");
-    ASSERT_MUTEX_LOCKED(registry->lock);
+    assert_mutex_locked(&registry->lock);
 
     data_ptr = get_cb_data_by_channel_locked(registry, channel);
     if (data_ptr == NULL) {
@@ -398,6 +400,16 @@ int plugin_registry_remove_receiver_v2_locked(struct plugin_registry *registry, 
     }
 
     list_del(&data->entry);
+
+    // Analyzer thinks get_cb_data_by_channel might still return our data
+    // after list_del and emits a "use-after-free" warning.
+    // assert()s can change the assumptions of the analyzer, so we use them here.
+#ifdef DEBUG
+    list_for_each_entry(struct platch_obj_cb_data, data_iter, &registry->callbacks, entry) {
+        ASSUME(data_iter != data);
+    }
+#endif
+
     free(data->channel);
     free(data);
 
@@ -456,7 +468,7 @@ void *plugin_registry_get_plugin_userdata_locked(struct plugin_registry *registr
     return instance != NULL ? instance->userdata : NULL;
 }
 
-static void static_plugin_registry_initialize() {
+static void static_plugin_registry_initialize(void) {
     ASSERTED int ok;
 
     list_inithead(&static_plugins);
@@ -465,7 +477,7 @@ static void static_plugin_registry_initialize() {
     ASSERT_ZERO(ok);
 }
 
-static void static_plugin_registry_ensure_initialized() {
+static void static_plugin_registry_ensure_initialized(void) {
     pthread_once(&static_plugins_init_flag, static_plugin_registry_initialize);
 }
 
@@ -480,7 +492,7 @@ void static_plugin_registry_add_plugin(const struct flutterpi_plugin_v2 *plugin)
 
     entry = malloc(sizeof *entry);
     ASSERT_NOT_NULL(entry);
-    
+
     entry->plugin = plugin;
 
     list_addtail(&entry->entry, &static_plugins);
