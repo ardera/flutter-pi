@@ -115,7 +115,7 @@ static bool plane_qualifies(
     }
 
     if (has_modifier) {
-        if (drm_plane_supports_modified_formats(plane)) {
+        if (!drm_plane_supports_modified_formats(plane)) {
             // return false if we want a modified format but the plane doesn't support modified formats
             LOG_DRM_PLANE_ALLOCATION_DEBUG(
                 "    does not qualify: framebuffer has modifier %" PRIu64 " but plane does not support modified formats\n",
