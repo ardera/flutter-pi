@@ -2404,6 +2404,11 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
             goto fail_destroy_locales;
         }
 
+        resources = drmdev_query_resources(drmdev);
+        if (resources == NULL) {
+            goto fail_destroy_drmdev;
+        }
+
         udev_unref(udev);
 
         gbm_device = drmdev_get_gbm_device(drmdev);
