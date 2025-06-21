@@ -194,6 +194,7 @@ void frame_scheduler_on_scanout(struct frame_scheduler *scheduler, bool has_time
             memset(&scheduler->scheduled_frame, 0, sizeof scheduler->scheduled_frame);
 
             scheduler->has_scheduled_frame = false;
+            scheduler->waiting_for_scanout = true;
         }
     }
     
