@@ -359,7 +359,7 @@ extern const struct pixfmt_info pixfmt_infos[];
 extern const size_t n_pixfmt_infos;
 
 #ifdef DEBUG
-void assert_pixfmt_list_valid();
+void assert_pixfmt_list_valid(void);
 #endif
 
 /**

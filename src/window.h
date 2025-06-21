@@ -27,7 +27,7 @@ struct view_geometry {
     struct vec2f view_size, display_size;
     struct mat3f display_to_view_transform;
     struct mat3f view_to_display_transform;
-    double device_pixel_ratio;
+    float device_pixel_ratio;
 };
 
 enum renderer_type { kOpenGL_RendererType, kVulkan_RendererType };

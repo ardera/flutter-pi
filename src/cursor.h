@@ -56,7 +56,7 @@ enum pointer_kind {
 
 struct pointer_icon;
 
-const struct pointer_icon *pointer_icon_for_details(enum pointer_kind kind, double pixel_ratio);
+const struct pointer_icon *pointer_icon_for_details(enum pointer_kind kind, float pixel_ratio);
 
 enum pointer_kind pointer_icon_get_kind(const struct pointer_icon *icon);
 

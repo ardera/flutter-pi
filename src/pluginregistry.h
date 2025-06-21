@@ -20,16 +20,6 @@
 struct flutterpi;
 struct plugin_registry;
 
-typedef enum plugin_init_result (*plugin_init_t)(struct flutterpi *flutterpi, void **userdata_out);
-
-typedef void (*plugin_deinit_t)(struct flutterpi *flutterpi, void *userdata);
-
-struct flutterpi_plugin_v2 {
-    const char *name;
-    plugin_init_t init;
-    plugin_deinit_t deinit;
-};
-
 /// The return value of a plugin initializer function.
 enum plugin_init_result {
     PLUGIN_INIT_RESULT_INITIALIZED,  ///< The plugin was successfully initialized.
@@ -38,6 +28,16 @@ enum plugin_init_result {
     ///  This is not an error, and flutter-pi will continue initializing the other plugins.
     PLUGIN_INIT_RESULT_ERROR  ///< The plugin couldn't be initialized because an unexpected error ocurred.
     ///  Flutter-pi may decide to abort the startup phase of the whole flutter-pi instance at that point.
+};
+
+typedef enum plugin_init_result (*plugin_init_t)(struct flutterpi *flutterpi, void **userdata_out);
+
+typedef void (*plugin_deinit_t)(struct flutterpi *flutterpi, void *userdata);
+
+struct flutterpi_plugin_v2 {
+    const char *name;
+    plugin_init_t init;
+    plugin_deinit_t deinit;
 };
 
 struct _FlutterPlatformMessageResponseHandle;
@@ -162,16 +162,18 @@ void static_plugin_registry_add_plugin(const struct flutterpi_plugin_v2 *plugin)
 
 void static_plugin_registry_remove_plugin(const char *plugin_name);
 
-#define FLUTTERPI_PLUGIN(_name, _identifier_name, _init, _deinit)                \
-    __attribute__((constructor)) static void __reg_plugin_##_identifier_name() { \
-        static struct flutterpi_plugin_v2 plugin = {                             \
-            .name = (_name),                                                     \
-            .init = (_init),                                                     \
-            .deinit = (_deinit),                                                 \
-        };                                                                       \
-        static_plugin_registry_add_plugin(&plugin);                              \
-    }                                                                            \
-                                                                                 \
-    __attribute__((destructor)) static void __unreg_plugin_##_identifier_name() { static_plugin_registry_remove_plugin(_name); }
+#define FLUTTERPI_PLUGIN(_name, _identifier_name, _init, _deinit)                     \
+    __attribute__((constructor)) static void __reg_plugin_##_identifier_name(void) {  \
+        static struct flutterpi_plugin_v2 plugin = {                                  \
+            .name = (_name),                                                          \
+            .init = (_init),                                                          \
+            .deinit = (_deinit),                                                      \
+        };                                                                            \
+        static_plugin_registry_add_plugin(&plugin);                                   \
+    }                                                                                 \
+                                                                                      \
+    __attribute__((destructor)) static void __unreg_plugin_##_identifier_name(void) { \
+        static_plugin_registry_remove_plugin(_name);                                  \
+    }
 
 #endif  // _FLUTTERPI_SRC_PLUGINREGISTRY_H

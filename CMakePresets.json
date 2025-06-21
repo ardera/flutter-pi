@@ -7,13 +7,56 @@
             "description": "Sets Ninja generator, build and install directory",
             "generator": "Ninja",
             "binaryDir": "${sourceDir}/out/build/${presetName}",
+            "hidden": true,
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Debug",
                 "CMAKE_INSTALL_PREFIX": "${sourceDir}/out/install/${presetName}",
+                "TRY_ENABLE_OPENGL": false,
                 "ENABLE_OPENGL": true,
+                "TRY_ENABLE_VULKAN": false,
+                "ENABLE_VULKAN": true,
+                "BUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN": true,
+                "TRY_BUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN": false,
                 "BUILD_GSTREAMER_AUDIO_PLAYER_PLUGIN": true,
+                "TRY_BUILD_GSTREAMER_AUDIO_PLAYER_PLUGIN": false,
                 "BUILD_SENTRY_PLUGIN": true,
                 "ENABLE_TESTS": true
+            }
+        },
+        {
+            "name": "default-clang",
+            "displayName": "Default OpenGL host build (clang)",
+            "description": "Sets Ninja generator, build and install directory",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/out/build/${presetName}",
+            "inherits": "default",
+            "cacheVariables": {
+                "CMAKE_C_COMPILER": "clang",
+                "CMAKE_CXX_COMPILER": "clang++"
+            }
+        },
+        {
+            "name": "default-clang-20",
+            "displayName": "Default OpenGL host build (clang-20)",
+            "description": "Sets Ninja generator, build and install directory",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/out/build/${presetName}",
+            "inherits": "default",
+            "cacheVariables": {
+                "CMAKE_C_COMPILER": "clang-20",
+                "CMAKE_CXX_COMPILER": "clang++-20"
+            }
+        },
+        {
+            "name": "default-gcc",
+            "displayName": "Default OpenGL host build (gcc)",
+            "description": "Sets Ninja generator, build and install directory",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/out/build/${presetName}",
+            "inherits": "default",
+            "cacheVariables": {
+                "CMAKE_C_COMPILER": "gcc",
+                "CMAKE_CXX_COMPILER": "g++"
             }
         },
         {
