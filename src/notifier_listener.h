@@ -59,7 +59,7 @@ int value_notifier_init(struct notifier *notifier, void *initial_value, void_cal
  * For the behaviour of change notifiers, see @ref change_notifier_init.
  *
  */
-struct notifier *change_notifier_new();
+struct notifier *change_notifier_new(void);
 
 /**
  * @brief Create a new heap allocated value notifier.

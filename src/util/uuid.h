@@ -21,9 +21,9 @@ typedef struct {
     })
 
 #define CONST_UUID(_0, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15)   \
-    ((const uuid_t){                                                                       \
+    {                                                                                      \
         .bytes = { _0, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15 }, \
-    })
+    }
 
 static inline bool uuid_equals(const uuid_t a, const uuid_t b) {
     return memcmp(&a, &b, sizeof(uuid_t)) == 0;

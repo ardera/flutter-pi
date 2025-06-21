@@ -417,8 +417,10 @@ static int fetch_crtc(int drm_fd, int crtc_index, uint32_t crtc_id, struct drm_c
         prop_info = NULL;
     }
 
+    ASSUME(0 <= crtc_index && crtc_index < 32);
+
     crtc_out->id = crtc->crtc_id;
-    crtc_out->index = crtc_index;
+    crtc_out->index = (uint8_t) crtc_index;
     crtc_out->bitmask = 1u << crtc_index;
     crtc_out->ids = ids;
     crtc_out->committed_state.has_mode = crtc->mode_valid;
@@ -610,15 +612,16 @@ extern void drmModeFreeFB2(struct _drmModeFB2 *ptr) __attribute__((weak));
 static int fetch_plane(int drm_fd, uint32_t plane_id, struct drm_plane *plane_out) {
     struct drm_plane_prop_ids ids;
     drmModeObjectProperties *props;
-    drm_plane_transform_t hardcoded_rotation, supported_rotations, committed_rotation;
-    enum drm_blend_mode committed_blend_mode;
-    enum drm_plane_type type;
+    drm_plane_transform_t hardcoded_rotation = PLANE_TRANSFORM_NONE, supported_rotations = PLANE_TRANSFORM_NONE,
+                          committed_rotation = PLANE_TRANSFORM_NONE;
+    enum drm_blend_mode committed_blend_mode = kNone_DrmBlendMode;
+    enum drm_plane_type type = kPrimary_DrmPlaneType;
     drmModePropertyRes *info;
     drmModePlane *plane;
     uint32_t comitted_crtc_x, comitted_crtc_y, comitted_crtc_w, comitted_crtc_h;
     uint32_t comitted_src_x, comitted_src_y, comitted_src_w, comitted_src_h;
-    uint16_t committed_alpha;
-    int64_t min_zpos, max_zpos, hardcoded_zpos, committed_zpos;
+    uint16_t committed_alpha = 0;
+    int64_t min_zpos = 0, max_zpos = 0, hardcoded_zpos = 0, committed_zpos = 0;
     bool supported_blend_modes[kCount_DrmBlendMode] = { 0 };
     bool supported_formats[PIXFMT_COUNT] = { 0 };
     bool has_type, has_rotation, has_zpos, has_hardcoded_zpos, has_hardcoded_rotation, has_alpha, has_blend_mode;
@@ -848,12 +851,12 @@ static int fetch_plane(int drm_fd, uint32_t plane_id, struct drm_plane *plane_ou
     plane_out->id = plane->plane_id;
     plane_out->possible_crtcs = plane->possible_crtcs;
     plane_out->ids = ids;
-    plane_out->type = type;
+    plane_out->type = has_type ? type : kPrimary_DrmPlaneType;
     plane_out->has_zpos = has_zpos;
-    plane_out->min_zpos = min_zpos;
-    plane_out->max_zpos = max_zpos;
+    plane_out->min_zpos = has_zpos ? min_zpos : 0;
+    plane_out->max_zpos = has_zpos ? max_zpos : 0;
     plane_out->has_hardcoded_zpos = has_hardcoded_zpos;
-    plane_out->hardcoded_zpos = hardcoded_zpos;
+    plane_out->hardcoded_zpos = has_hardcoded_zpos ? hardcoded_zpos : 0;
     plane_out->has_rotation = has_rotation;
     plane_out->supported_rotations = supported_rotations;
     plane_out->has_hardcoded_rotation = has_hardcoded_rotation;
@@ -914,7 +917,7 @@ static int fetch_planes(struct drmdev *drmdev, struct drm_plane **planes_out, si
         ok = fetch_plane(drmdev->fd, drmdev->plane_res->planes[i], planes + i);
         if (ok != 0) {
             for (int j = 0; j < i; j++) {
-                free_plane(planes + i);
+                free_plane(planes + j);
             }
             free(planes);
             return ENOMEM;
@@ -936,7 +939,7 @@ static void free_planes(struct drm_plane *planes, size_t n_planes) {
     free(planes);
 }
 
-static void assert_rotations_work() {
+static void assert_rotations_work(void) {
     assert(PLANE_TRANSFORM_ROTATE_0.rotate_0 == true);
     assert(PLANE_TRANSFORM_ROTATE_0.rotate_90 == false);
     assert(PLANE_TRANSFORM_ROTATE_0.rotate_180 == false);
@@ -2270,7 +2273,7 @@ struct kms_req_builder *drmdev_create_request_builder(struct drmdev *drmdev, uin
     }
 
     if (crtc == NULL) {
-        LOG_ERROR("Invalid CRTC id: %" PRId32 "\n", crtc_id);
+        LOG_ERROR("Invalid CRTC id: %" PRIu32 "\n", crtc_id);
         goto fail_unlock;
     }
 
@@ -2630,15 +2633,15 @@ UNUSED struct kms_req *kms_req_ref(struct kms_req *req) {
 }
 
 UNUSED void kms_req_unref(struct kms_req *req) {
-    return kms_req_builder_unref((struct kms_req_builder *) req);
+    kms_req_builder_unref((struct kms_req_builder *) req);
 }
 
 UNUSED void kms_req_unrefp(struct kms_req **req) {
-    return kms_req_builder_unrefp((struct kms_req_builder **) req);
+    kms_req_builder_unrefp((struct kms_req_builder **) req);
 }
 
 UNUSED void kms_req_swap_ptrs(struct kms_req **oldp, struct kms_req *new) {
-    return kms_req_builder_swap_ptrs((struct kms_req_builder **) oldp, (struct kms_req_builder *) new);
+    kms_req_builder_swap_ptrs((struct kms_req_builder **) oldp, (struct kms_req_builder *) new);
 }
 
 static bool drm_plane_is_active(struct drm_plane *plane) {
@@ -2728,13 +2731,13 @@ kms_req_commit_common(struct kms_req *req, bool blocking, kms_scanout_cb_t scano
             struct drm_plane *plane = layer->plane;
             ASSERT_NOT_NULL(plane);
 
+#ifndef DEBUG
             if (plane->committed_state.has_format && plane->committed_state.format == layer->layer.format) {
                 needs_set_crtc = false;
             } else {
                 needs_set_crtc = true;
             }
-
-#ifdef DEBUG
+#else
             drmModeFBPtr committed_fb = drmModeGetFB(builder->drmdev->master_fd, plane->committed_state.fb_id);
             if (committed_fb == NULL) {
                 needs_set_crtc = true;
@@ -2915,6 +2918,8 @@ kms_req_commit_common(struct kms_req *req, bool blocking, kms_scanout_cb_t scano
             goto fail_unref_builder;
         }
 
+        struct drmdev *drmdev = builder->drmdev;
+
         drmdev_on_page_flip_locked(
             builder->drmdev->fd,
             (unsigned int) sequence,
@@ -2923,16 +2928,22 @@ kms_req_commit_common(struct kms_req *req, bool blocking, kms_scanout_cb_t scano
             builder->crtc->id,
             kms_req_ref(req)
         );
+
+        drmdev_unlock(drmdev);
     } else if (blocking) {
+        struct drmdev *drmdev = builder->drmdev;
+
         // handle the page-flip event here, rather than via the eventfd
         ok = drmdev_on_modesetting_fd_ready_locked(builder->drmdev);
         if (ok != 0) {
             LOG_ERROR("Couldn't synchronously handle pageflip event.\n");
             goto fail_unset_scanout_callback;
         }
-    }
 
-    drmdev_unlock(builder->drmdev);
+        drmdev_unlock(drmdev);
+    } else {
+        drmdev_unlock(builder->drmdev);
+    }
 
     return 0;
 
@@ -2942,8 +2953,15 @@ fail_unset_scanout_callback:
     builder->drmdev->per_crtc_state[builder->crtc->index].userdata = NULL;
     goto fail_unlock;
 
-fail_unref_builder:
+fail_unref_builder: {
+    struct drmdev *drmdev = builder->drmdev;
     kms_req_builder_unref(builder);
+    if (mode_blob != NULL) {
+        drm_mode_blob_destroy(mode_blob);
+    }
+    drmdev_unlock(drmdev);
+    return ok;
+}
 
 fail_maybe_destroy_mode_blob:
     if (mode_blob != NULL)

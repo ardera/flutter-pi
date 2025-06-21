@@ -50,7 +50,7 @@ fail_return_null:
     return NULL;
 }
 
-struct tracer *tracer_new_with_stubs() {
+struct tracer *tracer_new_with_stubs(void) {
     struct tracer *tracer;
 
     tracer = malloc(sizeof *tracer);

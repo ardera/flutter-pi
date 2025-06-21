@@ -899,6 +899,8 @@ static void start_async(struct gstplayer *player, struct async_completer complet
 }
 
 static void on_bus_message(struct gstplayer *player, GstMessage *msg) {
+    PRAGMA_DIAGNOSTIC_PUSH
+    PRAGMA_DIAGNOSTIC_IGNORED("-Wswitch-enum")
     switch (GST_MESSAGE_TYPE(msg)) {
         case GST_MESSAGE_EOS:
             on_eos_message(player, msg);
@@ -1027,6 +1029,7 @@ static void on_bus_message(struct gstplayer *player, GstMessage *msg) {
 
             break;
     }
+    PRAGMA_DIAGNOSTIC_POP
     return;
 }
 
@@ -1336,7 +1339,7 @@ struct gstplayer *gstplayer_new(struct flutterpi *flutterpi, const char *uri, vo
 
     TRACER_END(p->tracer, "gstplayer_new()");
 
-    LOG_PLAYER_DEBUG(p, "gstplayer_new(\"%s\", %s): %s\n", uri ?: "", play_audio ? "with audio" : "without audio", p->is_live ? "live" : "not live");
+    LOG_PLAYER_DEBUG(p, "gstplayer_new(\"%s\", %s): %s\n", uri ? uri : "", play_audio ? "with audio" : "without audio", p->is_live ? "live" : "not live");
 
     return p;
 
@@ -1684,7 +1687,7 @@ int gstplayer_step_backward(struct gstplayer *player) {
 
 void gstplayer_set_audio_balance(struct gstplayer *player, float balance) {
     if (player->audiopanorama) {
-        g_object_set(player->audiopanorama, "panorama", (gfloat) balance, NULL);
+        g_object_set(player->audiopanorama, "panorama", (double) balance, NULL);
     }
 }
 
