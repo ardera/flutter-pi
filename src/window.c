@@ -1074,42 +1074,61 @@ struct frame {
     struct tracer *tracer;
     struct drmdev *drmdev;
     struct kms_req *req;
+    struct frame_scheduler *scheduler;
     bool unset_should_apply_mode_on_commit;
 };
 
-UNUSED static void on_scanout(struct drmdev *drmdev, uint64_t vblank_ns, void *userdata) {
-    ASSERT_NOT_NULL(drmdev);
-    (void) drmdev;
-    (void) vblank_ns;
-    (void) userdata;
-
-    /// TODO: What should we do here?
-}
-
-static void on_present_frame(void *userdata) {
+UNUSED static void on_scanout(uint64_t vblank_ns, void *userdata) {
     ASSERT_NOT_NULL(userdata);
     struct frame *frame = userdata;
 
-    TRACER_BEGIN(frame->tracer, "kms_req_commit_nonblocking");
-    int ok = kms_req_commit_blocking(frame->req, frame->drmdev, NULL);
-    TRACER_END(frame->tracer, "kms_req_commit_nonblocking");
+    // This potentially presents a new frame.
+    frame_scheduler_on_scanout(frame->scheduler, true, vblank_ns);
 
-    if (ok != 0) {
-        LOG_ERROR("Could not commit frame request.\n");
-    }
-
+    frame_scheduler_unref(frame->scheduler);
     tracer_unref(frame->tracer);
     kms_req_unref(frame->req);
     drmdev_unref(frame->drmdev);
     free(frame);
 }
 
+static void on_present_frame(void *userdata) {
+    ASSERT_NOT_NULL(userdata);
+    struct frame *frame = userdata;
+
+    int ok;
+
+    {
+        // Keep our own reference on tracer, because the frame might be destroyed
+        // after kms_req_commit_nonblocking returns.
+        struct tracer *tracer = tracer_ref(frame->tracer);
+
+        // The pageflip events might be handled on a different thread, so on_scanout
+        // might already be executed and the frame instance already freed once
+        // kms_req_commit_nonblocking returns.
+        TRACER_BEGIN(tracer, "kms_req_commit_nonblocking");
+        ok = kms_req_commit_nonblocking(frame->req, frame->drmdev, on_scanout, frame, NULL);
+        TRACER_END(tracer, "kms_req_commit_nonblocking");
+
+        tracer_unref(tracer);
+    }
+
+    if (ok != 0) {
+        LOG_ERROR("Could not commit frame request.\n");
+        frame_scheduler_unref(frame->scheduler);
+        tracer_unref(frame->tracer);
+        kms_req_unref(frame->req);
+        drmdev_unref(frame->drmdev);
+        free(frame);
+    }
+}
+
 static void on_cancel_frame(void *userdata) {
-    struct frame *frame;
     ASSERT_NOT_NULL(userdata);
 
-    frame = userdata;
+    struct frame *frame = userdata;
 
+    frame_scheduler_unref(frame->scheduler);
     tracer_unref(frame->tracer);
     kms_req_unref(frame->req);
     drmdev_unref(frame->drmdev);
@@ -1226,6 +1245,7 @@ static int kms_window_push_composition_locked(struct window *window, struct fl_l
     frame->req = req;
     frame->tracer = tracer_ref(window->tracer);
     frame->drmdev = drmdev_ref(window->kms.drmdev);
+    frame->scheduler = frame_scheduler_ref(window->frame_scheduler);
     frame->unset_should_apply_mode_on_commit = window->kms.should_apply_mode;
 
     frame_scheduler_present_frame(window->frame_scheduler, on_present_frame, frame, on_cancel_frame);
