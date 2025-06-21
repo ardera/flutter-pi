@@ -20,13 +20,18 @@ def codeql_sarif_contain_error(filename):
                 rule_index = res['rule']['index']
             else:
                 continue
+
             try:
                 rule_level = rules_metadata[rule_index]['defaultConfiguration']['level']
-            except IndexError as e:
-                print(e, rule_index, len(rules_metadata))
-            else:
-                if rule_level == 'error':
-                    return True
+            except LookupError:
+                # According to the SARIF schema (https://www.schemastore.org/schemas/json/sarif-2.1.0-rtm.6.json),
+                # the defalt level is "warning" if not specified.
+                rule_level = 'warning'
+                
+            if rule_level == 'error':
+                return True
+            elif rule_level == 'warning':
+                return True
     return False
 
 if __name__ == "__main__":
