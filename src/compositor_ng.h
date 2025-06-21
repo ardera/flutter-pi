@@ -15,9 +15,6 @@
 #include "cursor.h"
 #include "flutter-pi.h"
 #include "frame_scheduler.h"
-#include "kms/drmdev.h"
-#include "kms/resources.h"
-#include "kms/req_builder.h"
 #include "pixel_format.h"
 #include "util/collection.h"
 #include "util/refcounting.h"
@@ -30,70 +27,6 @@
 
 struct compositor;
 
-struct drm_connector_config {
-    uint32_t connector_type;
-    uint32_t connector_type_id;
-
-    bool disable, primary;
-
-    bool has_mode_size;
-    int mode_width, mode_height;
-
-    bool has_mode_refreshrate;
-    int mode_refreshrate_n, mode_refreshrate_d;
-
-    bool has_framebuffer_size;
-    int framebuffer_width, framebuffer_height;
-
-    bool has_physical_dimensions;
-    int physical_width_mm, physical_height_mm;
-};
-
-struct drm_device_config {
-    bool has_path;
-    const char *path;
-
-    size_t n_connector_configs;
-    struct drm_connector_config *connector_configs;
-};
-
-struct fbdev_device_config {
-    const char *path;
-
-    bool has_physical_dimensions;
-    int physical_width_mm, physical_height_mm;
-};
-
-struct device_config {
-    bool is_drm, is_fbdev;
-    union {
-        struct drm_device_config drm_config;
-        struct fbdev_device_config fbdev_config;
-    };
-};
-
-struct compositor_config {
-    bool has_use_hardware_cursor, use_hardware_cursor;
-
-    bool has_forced_pixel_format;
-    enum pixfmt forced_pixel_format;
-
-    size_t n_device_configs;
-    struct device_config *device_configs;
-};
-
-struct clip_rect {
-    struct quad rect;
-    bool is_aa;
-
-    struct aa_rect aa_rect;
-
-    bool is_rounded;
-    struct vec2f upper_left_corner_radius;
-    struct vec2f upper_right_corner_radius;
-    struct vec2f lower_right_corner_radius;
-    struct vec2f lower_left_corner_radius;
-};
 
 struct fl_layer_props {
     /**
@@ -153,10 +86,11 @@ struct frame_scheduler;
 struct view_geometry;
 struct window;
 struct tracer;
+struct drm_resources;
 
 typedef void (*compositor_frame_begin_cb_t)(void *userdata, uint64_t vblank_ns, uint64_t next_vblank_ns);
 
-struct compositor *compositor_new(struct tracer *tracer, struct window *main_window);
+struct compositor *compositor_new(struct tracer *tracer, struct evloop *raster_loop, struct window *main_window, struct udev *udev, struct drmdev *drmdev, struct drm_resources *resources);
 
 void compositor_destroy(struct compositor *compositor);
 
@@ -168,9 +102,40 @@ ATTR_PURE double compositor_get_refresh_rate(struct compositor *compositor);
 
 int compositor_get_next_vblank(struct compositor *compositor, uint64_t *next_vblank_ns_out);
 
-int compositor_set_platform_view(struct compositor *compositor, int64_t id, struct surface *surface);
+/**
+ * @brief Adds a (non-implicit) view to the compositor, returning the view id.
+ */
+int64_t compositor_add_view(
+    struct compositor *compositor,
+    struct window *window
+);
 
-struct surface *compositor_get_view_by_id_locked(struct compositor *compositor, int64_t view_id);
+/**
+ * @brief Removes a view from the compositor.
+ */
+void compositor_remove_view(
+    struct compositor *compositor,
+    int64_t view_id
+);
+
+/**
+ * @brief Sets the implicit view (view with id 0) to the given window.
+ */
+int compositor_put_implicit_view(
+    struct compositor *compositor,
+    struct window *window
+);
+
+/**
+ * @brief Adds a platform view to the compositor, returning the platform view id.
+ */
+int compositor_add_platform_view(struct compositor *compositor, struct surface *surface);
+
+/**
+ * @brief Removes a platform view from the compositor.
+ */
+void compositor_remove_platform_view(struct compositor *compositor, int64_t view_id);
+
 
 const FlutterCompositor *compositor_get_flutter_compositor(struct compositor *compositor);
 
@@ -194,6 +159,124 @@ void compositor_set_cursor(
     enum pointer_kind kind,
     bool has_delta,
     struct vec2f delta
+);
+
+enum connector_type {
+    CONNECTOR_TYPE_VGA,
+    CONNECTOR_TYPE_DVI,
+    CONNECTOR_TYPE_LVDS,
+    CONNECTOR_TYPE_DISPLAY_PORT,
+    CONNECTOR_TYPE_HDMI,
+    CONNECTOR_TYPE_TV,
+    CONNECTOR_TYPE_EDP,
+    CONNECTOR_TYPE_DSI,
+    CONNECTOR_TYPE_DPI,
+    CONNECTOR_TYPE_OTHER,
+};
+
+struct connector {
+    /**
+     * @brief The ID of the connector.
+     * 
+     * e.g. `HDMI-A-1`, `DP-1`, `LVDS-1`, etc.
+     * 
+     * This string will only live till the end of the iteration, so make sure to copy it if you need it later.
+     */
+    const char *id;
+
+    /**
+     * @brief The type of the connector.
+     */
+    enum connector_type type;
+
+    /**
+     * @brief The name of the connector type, if @ref type is @ref CONNECTOR_TYPE_OTHER.
+     * 
+     * e.g. `Virtual`, `Composite`, etc.
+     * 
+     * This string will only live till the end of the iteration, so make sure to copy it if you need it later.
+     */
+    const char *other_type_name;
+};
+
+/**
+ * @brief Callback that will be called on each iteration of
+ * @ref compositor_for_each_connector.
+ *
+ * Should return true if looping should continue. False if iterating should be
+ * stopped.
+ *
+ * @param display The current iteration value.
+ * @param userdata Userdata that was passed to @ref compositor_for_each_connector.
+ */
+typedef bool (*connector_callback_t)(const struct connector *connector, void *userdata);
+
+/**
+ * @brief Iterates over every present connector.
+ *
+ * See @ref connector_callback_t for documentation on the callback.
+ */
+void compositor_for_each_connector(
+    struct compositor *compositor,
+    connector_callback_t callback,
+    void *userdata
+);
+
+struct display {
+    /**
+     * @brief The ID of the display, as reported to flutter.
+     */
+    uint64_t fl_display_id;
+
+    /**
+     * @brief The refresh rate of the display.
+     */
+    double refresh_rate;
+
+    /**
+     * @brief The width of the display in the selected mode, in physical pixels.
+     */
+    size_t width;
+
+    /**
+     * @brief The height of the display in the selected mode, in physical pixels.
+     */
+    size_t height;
+
+    /**
+     * @brief The device pixel ratio of the display, in the selected mode.
+     */
+    double device_pixel_ratio;
+
+    /**
+     * @brief The identifier of the connector this display is connected to.
+     * 
+     * This string will only live till the end of the iteration, so make sure to copy it if you need it later.
+     */
+    const char *connector_id;
+};
+
+/**
+ * @brief Callback that will be called on each iteration of
+ * @ref compositor_for_each_display.
+ *
+ * Should return true if looping should continue. False if iterating should be
+ * stopped.
+ *
+ * @param display The current iteration value.
+ * @param userdata Userdata that was passed to @ref compositor_for_each_display.
+ */
+typedef bool (*display_callback_t)(const struct display *display, void *userdata);
+
+/**
+ * @brief Iterates over every connected display.
+ *
+ * See @ref display_callback_t for documentation on the callback.
+ */
+void compositor_for_each_display(
+    struct compositor *compositor,
+    display_callback_t callback,
+    void *userdata
 );
 
 struct fl_layer_composition;

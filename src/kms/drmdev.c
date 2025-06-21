@@ -81,7 +81,7 @@ struct drmdev {
 
     struct gbm_device *gbm_device;
 
-    struct drmdev_file_interface interface;
+    struct file_interface interface;
     void *interface_userdata;
 
     struct list_head fbs;
@@ -102,7 +102,7 @@ static bool is_drm_master(int fd) {
 /**
  * @brief Check if the given path is a path to a KMS device.
  */
-static bool is_kms_device(const char *path, const struct drmdev_file_interface *interface, void *userdata) {
+static bool is_kms_device(const char *path, const struct file_interface *interface, void *userdata) {
     void *fd_metadata;
 
     int fd = interface->open(path, O_RDWR, &fd_metadata, userdata);
@@ -214,7 +214,7 @@ static int set_drm_client_caps(int fd, bool *supports_atomic_modesetting) {
 }
 
 
-static struct udev_device *find_udev_kms_device(struct udev *udev, const char *seat, const struct drmdev_file_interface *interface, void *interface_userdata) {
+static struct udev_device *find_udev_kms_device(struct udev *udev, const char *seat, const struct file_interface *interface, void *interface_userdata) {
     struct udev_enumerate *enumerator;
     
     enumerator = udev_enumerate_new(udev);
@@ -239,10 +239,7 @@ static struct udev_device *find_udev_kms_device(struct udev *udev, const char *s
         //     udev_enumerate_add_match_property(enumerator, "ID_SEAT", seat),
         //
         // if we didn't have to handle a NULL value for ID_SEAT.
-        const char *device_seat = udev_device_get_property_value(udev_device, "ID_SEAT");
-        if (device_seat == NULL) {
-            device_seat = "seat0";
-        }
+        const char *device_seat = udev_device_get_property_value(udev_device, "ID_SEAT") ?: "seat0";
         if (!streq(device_seat, seat)) {
             udev_device_unref(udev_device);
             continue;
@@ -284,15 +281,12 @@ static void drmdev_on_page_flip(
     struct pageflip_callbacks cbs_copy;
 
     {
-        ASSERTED int ok;
-        ok = pthread_mutex_lock(&drmdev->mutex);
-        ASSERT_ZERO(ok);
+        mutex_lock(&drmdev->mutex);
 
         khint_t cbs_bucket = kh_get(pageflip_callbacks, drmdev->pageflip_callbacks, crtc_id);
         if (cbs_bucket == kh_end(drmdev->pageflip_callbacks)) {
             // No callbacks for this CRTC.
-            ok = pthread_mutex_unlock(&drmdev->mutex);
-            ASSERT_ZERO(ok);
+            mutex_unlock(&drmdev->mutex);
             return;
         }
 
@@ -305,8 +299,7 @@ static void drmdev_on_page_flip(
         cbs->callbacks[cbs->index].void_callback_userdata = NULL;
         cbs->index = cbs->index ^ 1;
 
-        ok = pthread_mutex_unlock(&drmdev->mutex);
-        ASSERT_ZERO(ok);
+        mutex_unlock(&drmdev->mutex);
     }
 
     if (cbs_copy.callbacks[cbs_copy.index].void_callback != NULL) {
@@ -362,7 +355,7 @@ void drmdev_dispatch_modesetting(struct drmdev *drmdev) {
 /**
  * @brief Create a new drmdev from the primary drm device for the given udev & seat. 
  */
-struct drmdev *drmdev_new_from_udev_primary(struct udev *udev, const char *seat, const struct drmdev_file_interface *interface, void *interface_userdata) {
+struct drmdev *drmdev_new_from_udev_primary(struct udev *udev, const char *seat, const struct file_interface *interface, void *interface_userdata) {
     struct drmdev *d;
     uint64_t cap;
     int ok;
@@ -375,7 +368,7 @@ struct drmdev *drmdev_new_from_udev_primary(struct udev *udev, const char *seat,
     }
 
     d->n_refs = REFCOUNT_INIT_1;
-    pthread_mutex_init(&d->mutex, get_default_mutex_attrs());
+    mutex_init(&d->mutex);
     d->interface = *interface;
     d->interface_userdata = interface_userdata;
 
@@ -863,23 +856,19 @@ static int commit_atomic_common(
     bool pageflip_event = !sync;
 
     if (on_scanout != NULL || on_release != NULL) {
-        ok = pthread_mutex_lock(&drmdev->mutex);
-        ASSERT_ZERO(ok);
+        mutex_lock(&drmdev->mutex);
 
         khint_t cbs_it = kh_put(pageflip_callbacks, drmdev->pageflip_callbacks, crtc_id, &bucket_status);
         if (bucket_status == -1) {
-            ok = pthread_mutex_unlock(&drmdev->mutex);
-            ASSERT_ZERO(ok);
+            mutex_unlock(&drmdev->mutex);
             return ENOMEM;
         }
 
         ok = drmModeAtomicCommit(drmdev->fd, req, flags, pageflip_event ? drmdev_ref(drmdev) : NULL);
         if (ok != 0) {
+            mutex_unlock(&drmdev->mutex);
+
             ok = -errno;
-
-            ASSERTED int mutex_ok = pthread_mutex_unlock(&drmdev->mutex);
-            ASSERT_ZERO(mutex_ok);
-
             LOG_ERROR("Could not commit atomic request. drmModeAtomicCommit: %s\n", strerror(-ok));
             return ok;
         }
@@ -896,8 +885,7 @@ static int commit_atomic_common(
         cbs->callbacks[cbs->index ^ 1].void_callback = on_release;
         cbs->callbacks[cbs->index ^ 1].void_callback_userdata = release_cb_userdata;
 
-        ok = pthread_mutex_unlock(&drmdev->mutex);
-        ASSERT_ZERO(ok);
+        mutex_unlock(&drmdev->mutex);
     } else {
         ok = drmModeAtomicCommit(drmdev->fd, req, flags, pageflip_event ? drmdev_ref(drmdev) : NULL);
         if (ok != 0) {

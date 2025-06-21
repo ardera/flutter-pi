@@ -6,7 +6,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <limits.h>
 
 #include <fcntl.h>
 #include <sys/mman.h>
@@ -208,7 +207,7 @@ UNUSED static struct drm_plane *allocate_plane(
     for (unsigned int i = 0; i < builder->res->n_planes; i++) {
         struct drm_plane *plane = builder->res->planes + i;
 
-        if (builder->available_planes & (1 << i)) {
+        if (builder->available_planes & BIT(i)) {
             // find out if the plane matches our criteria
             bool qualifies = plane_qualifies(
                 plane,
@@ -233,7 +232,7 @@ UNUSED static struct drm_plane *allocate_plane(
             }
 
             // we found one, mark it as used and return it
-            builder->available_planes &= ~(1 << i);
+            builder->available_planes &= ~BIT(i);
             return plane;
         }
     }
@@ -249,8 +248,8 @@ UNUSED static void release_plane(struct kms_req_builder *builder, uint32_t plane
         return;
     }
 
-    assert(!(builder->available_planes & (1 << index)));
-    builder->available_planes |= (1 << index);
+    assert(!(builder->available_planes & BIT(index)));
+    builder->available_planes |= BIT(index);
 }
 
 struct kms_req_builder *kms_req_builder_new_atomic(struct drmdev *drmdev, struct drm_resources *resources, uint32_t crtc_id) {
@@ -348,7 +347,6 @@ static void kms_req_builder_destroy(struct kms_req_builder *builder) {
         builder->req = NULL;
     }
     drm_resources_unref(builder->res);
-    drmdev_unref(builder->drmdev);
     free(builder);
 }
 
@@ -650,15 +648,15 @@ UNUSED struct kms_req *kms_req_ref(struct kms_req *req) {
 }
 
 UNUSED void kms_req_unref(struct kms_req *req) {
-    kms_req_builder_unref((struct kms_req_builder *) req);
+    return kms_req_builder_unref((struct kms_req_builder *) req);
 }
 
 UNUSED void kms_req_unrefp(struct kms_req **req) {
-    kms_req_builder_unrefp((struct kms_req_builder **) req);
+    return kms_req_builder_unrefp((struct kms_req_builder **) req);
 }
 
 UNUSED void kms_req_swap_ptrs(struct kms_req **oldp, struct kms_req *new) {
-    kms_req_builder_swap_ptrs((struct kms_req_builder **) oldp, (struct kms_req_builder *) new);
+    return kms_req_builder_swap_ptrs((struct kms_req_builder **) oldp, (struct kms_req_builder *) new);
 }
 
 UNUSED static bool drm_plane_is_active(struct drm_plane *plane) {
@@ -754,7 +752,7 @@ static int kms_req_commit_common(
         // For every plane that was previously active with our CRTC, but is not used by us anymore,
         // disable it.
         for (unsigned int i = 0; i < builder->res->n_planes; i++) {
-            if (!(builder->available_planes & (1 << i))) {
+            if (!(builder->available_planes & BIT(i))) {
                 continue;
             }
 

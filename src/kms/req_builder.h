@@ -36,7 +36,7 @@ struct kms_req_builder *kms_req_builder_new_atomic(struct drmdev *drmdev, struct
 
 struct kms_req_builder *kms_req_builder_new_legacy(struct drmdev *drmdev, struct drm_resources *resources, uint32_t crtc_id);
 
-DECLARE_REF_OPS(kms_req_builder)
+DECLARE_REF_OPS(kms_req_builder);
 
 struct drmdev *kms_req_builder_get_drmdev(struct kms_req_builder *builder);
 
@@ -185,7 +185,7 @@ int kms_req_builder_push_zpos_placeholder_layer(struct kms_req_builder *builder,
  */
 struct kms_req;
 
-DECLARE_REF_OPS(kms_req)
+DECLARE_REF_OPS(kms_req);
 
 /**
  * @brief Build the KMS request builder into an actual, immutable KMS request

@@ -27,7 +27,7 @@
 /**
  * @brief Interface that will be used to open and close files.
  */
-struct drmdev_file_interface {
+struct file_interface {
     int (*open)(const char *path, int flags, void **fd_metadata_out, void *userdata);
     void (*close)(int fd, void *fd_metadata, void *userdata);
 };
@@ -39,7 +39,11 @@ typedef void (*drmdev_scanout_cb_t)(uint64_t vblank_ns, void *userdata);
 struct drmdev;
 struct udev;
 
-struct drmdev *drmdev_new_from_udev_primary(struct udev *udev, const char *seat, const struct drmdev_file_interface *interface, void *interface_userdata);
+struct drmdev *drmdev_new_from_interface_fd(int fd, void *fd_metadata, const struct file_interface *interface, void *userdata);
+
+struct drmdev *drmdev_new_from_path(const char *path, const struct file_interface *interface, void *userdata);
+
+struct drmdev *drmdev_new_from_udev_primary(struct udev *udev, const char *seat, const struct file_interface *interface, void *interface_userdata);
 
 DECLARE_REF_OPS(drmdev)
 
@@ -129,6 +133,8 @@ uint32_t drmdev_add_fb_from_dmabuf_multiplanar(
 );
 
 uint32_t drmdev_add_fb_from_gbm_bo(struct drmdev *drmdev, struct gbm_bo *bo, bool cast_opaque);
+
+int drmdev_rm_fb_locked(struct drmdev *drmdev, uint32_t fb_id);
 
 int drmdev_rm_fb(struct drmdev *drmdev, uint32_t fb_id);
 

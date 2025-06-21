@@ -6,7 +6,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <limits.h>
 
 #include <fcntl.h>
 #include <sys/mman.h>
@@ -19,6 +18,7 @@
 #include <libudev.h>
 
 #include "pixel_format.h"
+#include "monitor.h"
 #include "util/bitset.h"
 #include "util/list.h"
 #include "util/lock_ops.h"
@@ -190,13 +190,24 @@ static int drm_connector_copy(struct drm_connector *dst, const struct drm_connec
     return 0;
 }
 
+static int drm_connector_update(struct drm_connector *connector, int drm_fd, bool have_property_id, uint32_t property_id) {
+    uint32_t connector_id = connector->id;
+
+    (void) have_property_id;
+    (void) property_id;
+    
+    // for now, just reinit the whole connector.
+    drm_connector_fini(connector);
+    return drm_connector_init(drm_fd, connector_id, connector);
+}
+
+
+
 
 static int drm_encoder_init(int drm_fd, uint32_t encoder_id, struct drm_encoder *out) {
     drmModeEncoder *encoder = drmModeGetEncoder(drm_fd, encoder_id);
     if (encoder == NULL) {
-        int ok = errno;
-        if (ok == 0) ok = ENOMEM;
-        return ok;
+        return errno ?: ENOMEM;
     }
 
     out->id = encoder->encoder_id;
@@ -232,9 +243,7 @@ static int drm_crtc_init(int drm_fd, int crtc_index, uint32_t crtc_id, struct dr
     {
         drmModeCrtc *crtc = drmModeGetCrtc(drm_fd, crtc_id);
         if (crtc == NULL) {
-            int ok = errno;
-            if (ok == 0) ok = ENOMEM;
-            return ok;
+            return errno ?: ENOMEM;
         }
 
         out->id = crtc->crtc_id;
@@ -250,18 +259,14 @@ static int drm_crtc_init(int drm_fd, int crtc_index, uint32_t crtc_id, struct dr
     {
         drmModeObjectProperties *props = drmModeObjectGetProperties(drm_fd, crtc_id, DRM_MODE_OBJECT_CRTC);
         if (props == NULL) {
-            int ok = errno;
-            if (ok == 0) ok = ENOMEM;
-            return ok;
+            return errno ?: ENOMEM;
         }
 
         for (int i = 0; i < props->count_props; i++) {
             drmModePropertyRes *prop_info = drmModeGetProperty(drm_fd, props->props[i]);
             if (prop_info == NULL) {
                 drmModeFreeObjectProperties(props);
-                int ok = errno;
-                if (ok == 0) ok = ENOMEM;
-                return ok;
+                return errno ?: ENOMEM;
             }
 
     #define CHECK_ASSIGN_PROPERTY_ID(_name_str, _name)                               \
@@ -387,9 +392,7 @@ static int drm_plane_init_in_formats(int drm_fd, drmModePropertyRes *info, uint6
 
     blob = drmModeGetPropertyBlob(drm_fd, value);
     if (blob == NULL) {
-        int ok = errno;
-        if (ok == 0) ok = ENOMEM;
-        return ok;
+        return errno ?: ENOMEM;
     }
 
     out->supports_modifiers = true;
@@ -452,9 +455,7 @@ static int drm_plane_init(int drm_fd, uint32_t plane_id, struct drm_plane *out) 
     {
         drmModePlane *plane = drmModeGetPlane(drm_fd, plane_id);
         if (plane == NULL) {
-            ok = errno;
-            if (ok == 0) ok = ENOMEM;
-            return ok;
+            return errno ?: ENOMEM;
         }
 
         out->id = plane->plane_id;
@@ -476,9 +477,7 @@ static int drm_plane_init(int drm_fd, uint32_t plane_id, struct drm_plane *out) 
 
     drmModeObjectProperties *props = drmModeObjectGetProperties(drm_fd, plane_id, DRM_MODE_OBJECT_PLANE);
     if (props == NULL) {
-        ok = errno;
-        if (ok == 0) ok = ENOMEM;
-        return ok;
+        return errno ?: ENOMEM;
     }
 
     has_type = false;
@@ -488,8 +487,7 @@ static int drm_plane_init(int drm_fd, uint32_t plane_id, struct drm_plane *out) 
         
         drmModePropertyRes *info = drmModeGetProperty(drm_fd, id);
         if (info == NULL) {
-            ok = errno;
-            if (ok == 0) ok = ENOMEM;
+            ok = errno ?: ENOMEM;
             goto fail_maybe_free_supported_modified_formats_blob;
         }
 
@@ -686,8 +684,7 @@ struct drm_resources *drm_resources_new(int drm_fd) {
 
     drmModeRes *res = drmModeGetResources(drm_fd);
     if (res == NULL) {
-        ok = errno;
-        if (ok == 0) ok = EINVAL;
+        ok = errno ?: EINVAL;
         LOG_ERROR("Could not get DRM device resources. drmModeGetResources: %s\n", strerror(ok));
         return NULL;
     }
@@ -750,8 +747,7 @@ struct drm_resources *drm_resources_new(int drm_fd) {
 
     drmModePlaneRes *plane_res = drmModeGetPlaneResources(drm_fd);
     if (plane_res == NULL) {
-        ok = errno;
-        if (ok == 0) ok = EINVAL;
+        ok = errno ?: EINVAL;
         LOG_ERROR("Could not get DRM device planes resources. drmModeGetPlaneResources: %s\n", strerror(ok));
         goto fail_free_crtcs;
     }
@@ -828,8 +824,7 @@ struct drm_resources *drm_resources_new_filtered(int drm_fd, uint32_t connector_
     {
         drmModeRes *res = drmModeGetResources(drm_fd);
         if (res == NULL) {
-            ok = errno;
-            if (ok == 0) ok = EINVAL;
+            ok = errno ?: EINVAL;
             LOG_ERROR("Could not get DRM device resources. drmModeGetResources: %s\n", strerror(ok));
             goto fail_free_r;
         }
@@ -1153,6 +1148,64 @@ void drm_resources_destroy(struct drm_resources *r) {
 
 DEFINE_REF_OPS(drm_resources, n_refs)
 
+
+int drm_resources_update(struct drm_resources *r, int drm_fd, const struct drm_uevent *event) {
+    int ok;
+    
+    enum {
+        CHANGE,
+        ADD,
+        REMOVE,
+    } action_type;
+
+    if (streq(event->action, "change")) {
+        action_type = CHANGE;
+    } else if (streq(event->action, "add")) {
+        action_type = ADD;
+    } else if (streq(event->action, "remove")) {
+        action_type = REMOVE;
+    } else {
+        // We don't care about this action for now.
+        return 0;
+    }
+
+    /// TODO: Hotplug is set for every CHANGE event, but it's not really clear what it means.
+    (void) event->hotplug;
+
+    switch (action_type) {
+        case ADD:
+        case REMOVE:
+            /// TODO: Implement
+            UNIMPLEMENTED();
+            break;
+        case CHANGE:
+            if (event->have_connector) {
+                // If we don't care about this connector, skip it.
+                if (r->have_filter && r->filter.connector_id != event->connector_id) {
+                    return 0;
+                }
+
+                struct drm_connector *connector = drm_resources_get_connector(r, event->connector_id);
+                if (connector == NULL) {
+                    // should not be possible with a CHANGE event.
+                    assert(false);
+                    return 0;
+                }
+
+                ok = drm_connector_update(connector, drm_fd, event->have_property, event->property_id);
+                if (ok != 0) {
+                    return ok;
+                }
+            } else {
+                // Everything could have changed.
+                /// TODO: Implement
+                UNIMPLEMENTED();
+            }
+            break;
+    } 
+
+    return 0;
+}
 
 void drm_resources_apply_rockchip_workaround(struct drm_resources *r) {
     // Rockchip driver always wants the N-th primary/cursor plane to be associated with the N-th CRTC.

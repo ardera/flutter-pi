@@ -11,6 +11,8 @@
 #define _FLUTTERPI_SRC_WINDOW_H
 
 #include "compositor_ng.h"
+#include "kms/drmdev.h"
+#include "kms/req_builder.h"
 #include "kms/resources.h"
 #include "pixel_format.h"
 #include "util/refcounting.h"
@@ -50,6 +52,7 @@ DECLARE_REF_OPS(window)
  * @param has_forced_pixel_format
  * @param forced_pixel_format
  * @param drmdev
+ * @param resources
  * @param desired_videomode
  * @return struct window* The new KMS window.
  */

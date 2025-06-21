@@ -20,6 +20,7 @@
 #include <libudev.h>
 
 #include "pixel_format.h"
+#include "monitor.h"
 #include "util/bitset.h"
 #include "util/list.h"
 #include "util/lock_ops.h"
@@ -688,6 +689,16 @@ struct drm_resources *drm_resources_dup_filtered(struct drm_resources *res, uint
 void drm_resources_destroy(struct drm_resources *r);
 
 DECLARE_REF_OPS(drm_resources)
+
+/**
+ * @brief Update the resources with the current state of the DRM device.
+ * 
+ * @param r The resources to update.
+ * @param drm_fd The file descriptor of the DRM device.
+ * @param event The event that triggered the update, or NULL if the update was not triggered by an event.
+ * @returns 0 on success, negative error code on failure.
+ */
+int drm_resources_update(struct drm_resources *r, int drm_fd, const struct drm_uevent *event);
 
 /**
  * @brief Apply a workaround for the Rockchip DRM driver.

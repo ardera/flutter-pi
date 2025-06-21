@@ -9,15 +9,18 @@
 #include <sys/time.h>
 #include <systemd/sd-event.h>
 
+#include <flutter_embedder.h>
+
+#include "util/lock_ops.h"
 #include "util/collection.h"
 #include "util/refcounting.h"
+#include "util/logging.h"
 
 struct evloop {
     refcount_t n_refs;
-    pthread_mutex_t mutex;
+    mutex_t mutex;
     sd_event *sdloop;
     int wakeup_fd;
-    pthread_t owning_thread;
 };
 
 DEFINE_STATIC_LOCK_OPS(evloop, mutex)
@@ -69,10 +72,13 @@ struct evloop *evloop_new() {
     }
 
     loop->n_refs = REFCOUNT_INIT_1;
-    pthread_mutex_init(&loop->mutex, get_default_mutex_attrs());
+
+    // PTHREAD_MUTEX_RECURSIVE_NP is a hack and was only introduced to
+    // make old, single-thread oriented code work with multithreading,
+    // but that's pretty much what we're dealing with here (with sd-event).
+    mutex_init_recursive(&loop->mutex);
     loop->sdloop = sdloop;
     loop->wakeup_fd = wakeup_fd;
-    loop->owning_thread = pthread_self();
     return loop;
 
 fail_unref_sdloop:
@@ -83,7 +89,7 @@ fail_free_loop:
     return NULL;
 }
 
-void evloop_destroy(struct evloop *loop) {
+static void evloop_destroy(struct evloop *loop) {
     sd_event_unref(loop->sdloop);
     close(loop->wakeup_fd);
     pthread_mutex_destroy(&loop->mutex);
@@ -92,9 +98,8 @@ void evloop_destroy(struct evloop *loop) {
 
 DEFINE_REF_OPS(evloop, n_refs)
 
-int evloop_get_fd_locked(struct evloop *loop) {
+static int evloop_get_fd_locked(struct evloop *loop) {
     ASSERT_NOT_NULL(loop);
-    ASSERT_MUTEX_LOCKED(loop->mutex);
     return sd_event_get_fd(loop->sdloop);
 }
 
@@ -208,11 +213,10 @@ static int wakeup_sdloop(struct evloop *loop) {
     return 0;
 }
 
-int evloop_schedule_exit_locked(struct evloop *loop) {
+static int evloop_schedule_exit_locked(struct evloop *loop) {
     int ok;
 
     ASSERT_NOT_NULL(loop);
-    ASSERT_MUTEX_LOCKED(loop->mutex);
 
     ok = sd_event_exit(loop->sdloop, 0);
     if (ok != 0) {
@@ -244,7 +248,6 @@ struct task {
 
 static int on_execute_task(sd_event_source *s, void *userdata) {
     struct task *task;
-    int ok;
 
     ASSERT_NOT_NULL(userdata);
     task = userdata;
@@ -257,14 +260,13 @@ static int on_execute_task(sd_event_source *s, void *userdata) {
     return 0;
 }
 
-int evloop_post_task_locked(struct evloop *loop, void_callback_t callback, void *userdata) {
+static int evloop_post_task_locked(struct evloop *loop, void_callback_t callback, void *userdata) {
     sd_event_source *src;
     struct task *task;
     int ok;
 
     ASSERT_NOT_NULL(loop);
     ASSERT_NOT_NULL(callback);
-    ASSERT_MUTEX_LOCKED(loop->mutex);
 
     task = malloc(sizeof *task);
     if (task == NULL) {
@@ -282,9 +284,6 @@ int evloop_post_task_locked(struct evloop *loop, void_callback_t callback, void 
     }
 
     return 0;
-
-fail_remove_src:
-    sd_event_source_disable_unref(src);
 
 fail_free_task:
     free(task);
@@ -306,7 +305,7 @@ int evloop_post_task(struct evloop *loop, void_callback_t callback, void *userda
     return ok;
 }
 
-static int on_execute_delayed_task(sd_event_source *s, uint64_t usec, void *userdata) {
+static int on_run_delayed_task(sd_event_source *s, uint64_t usec, void *userdata) {
     struct task *task;
 
     ASSERT_NOT_NULL(userdata);
@@ -320,14 +319,13 @@ static int on_execute_delayed_task(sd_event_source *s, uint64_t usec, void *user
     return 0;
 }
 
-int evloop_post_delayed_task_locked(struct evloop *loop, void_callback_t callback, void *userdata, uint64_t target_time_usec) {
+static int evloop_post_delayed_task_locked(struct evloop *loop, void_callback_t callback, void *userdata, uint64_t target_time_usec) {
     sd_event_source *src;
     struct task *task;
     int ok;
 
     ASSERT_NOT_NULL(loop);
     ASSERT_NOT_NULL(callback);
-    ASSERT_MUTEX_LOCKED(loop->mutex);
 
     task = malloc(sizeof *task);
     if (task == NULL) {
@@ -337,7 +335,7 @@ int evloop_post_delayed_task_locked(struct evloop *loop, void_callback_t callbac
     task->callback = callback;
     task->userdata = userdata;
 
-    ok = sd_event_add_time(loop->sdloop, &src, CLOCK_MONOTONIC, target_time_usec, 1, on_execute_delayed_task, task);
+    ok = sd_event_add_time(loop->sdloop, &src, CLOCK_MONOTONIC, target_time_usec, 1, on_run_delayed_task, task);
     if (ok < 0) {
         LOG_ERROR("Error posting platform task to main loop. sd_event_add_time: %s\n", strerror(-ok));
         ok = -ok;
@@ -346,8 +344,6 @@ int evloop_post_delayed_task_locked(struct evloop *loop, void_callback_t callbac
 
     return 0;
 
-fail_remove_src:
-    sd_event_source_disable_unref(src);
 
 fail_free_task:
     free(task);
@@ -377,8 +373,7 @@ struct evsrc {
     void *userdata;
 };
 
-void evsrc_destroy_locked(struct evsrc *src) {
-    ASSERT_MUTEX_LOCKED(src->loop->mutex);
+static void evsrc_destroy_locked(struct evsrc *src) {
     sd_event_source_disable_unref(src->sdsrc);
     evloop_unref(src->loop);
     free(src);
@@ -393,7 +388,7 @@ void evsrc_destroy(struct evsrc *src) {
     free(src);
 }
 
-int on_io_src_ready(sd_event_source *s, int fd, uint32_t revents, void *userdata) {
+int on_io_src_ready(ASSERTED sd_event_source *s, int fd, uint32_t revents, void *userdata) {
     enum event_handler_return handler_return;
     struct evsrc *evsrc;
 
@@ -402,7 +397,7 @@ int on_io_src_ready(sd_event_source *s, int fd, uint32_t revents, void *userdata
     evsrc = userdata;
 
     handler_return = evsrc->io_callback(fd, revents, evsrc->userdata);
-    if (handler_return == kRemoveSrc_EventHandlerReturn) {
+    if (handler_return == EVENT_HANDLER_CANCEL) {
         evsrc_destroy_locked(evsrc);
         return -1;
     }
@@ -410,7 +405,7 @@ int on_io_src_ready(sd_event_source *s, int fd, uint32_t revents, void *userdata
     return 0;
 }
 
-struct evsrc *evloop_add_io_locked(struct evloop *loop, int fd, uint32_t events, evloop_io_handler_t callback, void *userdata) {
+static struct evsrc *evloop_add_io_locked(struct evloop *loop, int fd, uint32_t events, evloop_io_handler_t callback, void *userdata) {
     sd_event_source *src;
     struct evsrc *evsrc;
     int ok;
@@ -421,7 +416,6 @@ struct evsrc *evloop_add_io_locked(struct evloop *loop, int fd, uint32_t events,
     }
 
     ASSERT_NOT_NULL(loop);
-    ASSERT_MUTEX_LOCKED(loop->mutex);
 
     evsrc->io_callback = callback;
     evsrc->userdata = userdata;
@@ -434,7 +428,7 @@ struct evsrc *evloop_add_io_locked(struct evloop *loop, int fd, uint32_t events,
     }
 
     evsrc->loop = evloop_ref(loop);
-    evsrc->sdsrc = sd_event_source_ref(src);
+    evsrc->sdsrc = src;
     return evsrc;
 }
 
@@ -459,6 +453,7 @@ struct evthread {
 };
 
 struct evthread_startup_args {
+    struct evloop *loop;
     struct evthread *evthread;
     sem_t initialization_done;
     bool initialization_success;
@@ -467,7 +462,6 @@ struct evthread_startup_args {
 static void *evthread_entry(void *userdata) {
     struct evthread *evthread;
     struct evloop *evloop;
-    int ok;
 
     // initialization.
     {
@@ -480,21 +474,15 @@ static void *evthread_entry(void *userdata) {
             goto fail_post_semaphore;
         }
 
-        evloop = evloop_new();
-        if (evloop == NULL) {
-            goto fail_free_evthread;
-        }
+        evloop = evloop_ref(args->loop);
 
         evthread->loop = evloop;
         evthread->thread = pthread_self();
-
+        
+        args->evthread = evthread;
         args->initialization_success = true;
         sem_post(&args->initialization_done);
         goto init_done;
-
-// error handling
-fail_free_evthread:
-        free(evthread);
 
 fail_post_semaphore:
         args->initialization_success = false;
@@ -504,11 +492,10 @@ fail_post_semaphore:
 
 init_done:
     evloop_run(evloop);
-    sd_event_unrefp(&evthread->loop);
     return NULL;
 }
 
-struct evthread *evthread_start() {
+struct evthread *evthread_start_with_loop(struct evloop *loop) {
     struct evthread_startup_args *args;
     struct evthread *evthread;
     pthread_t tid;
@@ -519,6 +506,7 @@ struct evthread *evthread_start() {
         return NULL;
     }
 
+    args->loop = loop;
     args->evthread = NULL;
     args->initialization_success = false;
 
@@ -570,12 +558,14 @@ fail_free_args:
     return NULL;
 }
 
-struct evloop *evthread_get_evloop(struct evthread *thread) {
-    return thread->loop;
-}
-
 void evthread_stop(struct evthread *thread) {
     evloop_schedule_exit(thread->loop);
     pthread_join(thread->thread, NULL);
+    evloop_unref(thread->loop);
     free(thread);
+}
+
+pthread_t evthread_get_pthread(struct evthread *thread) {
+    ASSERT_NOT_NULL(thread);
+    return thread->thread;
 }

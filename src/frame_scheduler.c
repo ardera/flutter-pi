@@ -18,7 +18,7 @@
 
 struct frame_scheduler {
     refcount_t n_refs;
-    pthread_mutex_t mutex;
+    mutex_t mutex;
 
     bool uses_frame_requests;
     enum present_mode present_mode;
@@ -51,8 +51,7 @@ frame_scheduler_new(bool uses_frame_requests, enum present_mode present_mode, fl
     }
 
     scheduler->n_refs = REFCOUNT_INIT_1;
-    ASSERTED int ok = pthread_mutex_init(&scheduler->mutex, get_default_mutex_attrs());
-    ASSERT_ZERO(ok);
+    mutex_init(&scheduler->mutex);
 
     scheduler->uses_frame_requests = uses_frame_requests;
     scheduler->present_mode = present_mode;

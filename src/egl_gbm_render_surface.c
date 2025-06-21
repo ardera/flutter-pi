@@ -16,6 +16,7 @@
 #include "egl.h"
 #include "gl_renderer.h"
 #include "gles.h"
+#include "kms/drmdev.h"
 #include "kms/req_builder.h"
 #include "kms/resources.h"
 #include "pixel_format.h"
@@ -456,8 +457,9 @@ static int egl_gbm_render_surface_present_kms(struct surface *s, const struct fl
         if (!get_pixfmt_info(egl_surface->pixel_format)->is_opaque &&
             pixfmt_opaque(egl_surface->pixel_format) != egl_surface->pixel_format &&
             drm_resources_any_crtc_plane_supports_format(kms_req_builder_peek_resources(builder), crtc->id, pixfmt_opaque(egl_surface->pixel_format))) {
-            uint32_t opaque_fb_id = drmdev_add_fb_from_gbm_bo(
-                meta->drmdev,
+
+            opaque_fb_id = drmdev_add_fb_from_gbm_bo(
+                drmdev,
                 bo,
                 /* cast_opaque */ true
             );

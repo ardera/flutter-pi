@@ -21,7 +21,7 @@
 #include "cursor.h"
 #include "flutter-pi.h"
 #include "frame_scheduler.h"
-#include "kms/drmdev.h"
+#include "kms/req_builder.h"
 #include "kms/resources.h"
 #include "render_surface.h"
 #include "surface.h"
@@ -164,7 +164,6 @@ struct window {
     struct {
         struct drmdev *drmdev;
         struct drm_resources *resources;
-        
         struct drm_connector *connector;
         struct drm_encoder *encoder;
         struct drm_crtc *crtc;
@@ -174,7 +173,8 @@ struct window {
 
         const struct pointer_icon *pointer_icon;
         struct cursor_buffer *cursor;
-
+        
+        bool cursor_works;
     } kms;
 
     /**
@@ -494,6 +494,8 @@ EGLSurface window_get_egl_surface(struct window *window) {
 }
 #endif
 
+/// TODO: Once we enable the backing store cache, we can actually sanely manage lifetimes and
+///       rename this to window_create_render_surface.
 struct render_surface *window_get_render_surface(struct window *window, struct vec2i size) {
     ASSERT_NOT_NULL(window);
     ASSERT_NOT_NULL(window->get_render_surface);
@@ -715,10 +717,13 @@ static int select_mode(
     drmModeModeInfo **mode_out,
     const char *desired_videomode
 ) {
+    struct drm_connector *connector;
+    struct drm_encoder *encoder;
+    struct drm_crtc *crtc;
+    drmModeModeInfo *mode;
     int ok;
 
     // find any connected connector
-    struct drm_connector *connector = NULL;
     drm_resources_for_each_connector(resources, connector_it) {
         if (connector_it->variable_state.connection_state == DRM_CONNSTATE_CONNECTED) {
             connector = connector_it;
@@ -731,7 +736,7 @@ static int select_mode(
         return EINVAL;
     }
 
-    drmModeModeInfo *mode = NULL;
+    mode = NULL;
     if (desired_videomode != NULL) {
         drm_connector_for_each_mode(connector, mode_iter) {
             char *modeline = NULL, *modeline_nohz = NULL;
@@ -796,7 +801,6 @@ static int select_mode(
     ASSERT_NOT_NULL(mode);
 
     // Find the encoder that's linked to the connector right now
-    struct drm_encoder *encoder = NULL;
     drm_resources_for_each_encoder(resources, encoder_it) {
         if (encoder_it->id == connector->committed_state.encoder_id) {
             encoder = encoder_it;
@@ -809,12 +813,11 @@ static int select_mode(
         for (int i = 0; i < connector->n_encoders; i++, encoder = NULL) {
             drm_resources_for_each_encoder(resources, encoder_it) {
                 if (encoder_it->id == connector->encoders[i]) {
-                    encoder = encoder_it;
                     break;
                 }
             }
 
-            if (encoder && encoder->possible_crtcs) {
+            if (encoder->possible_crtcs) {
                 // only use this encoder if there's a crtc we can use with it
                 break;
             }
@@ -827,7 +830,6 @@ static int select_mode(
     }
 
     // Find the CRTC that's currently linked to this encoder
-    struct drm_crtc *crtc = NULL;
     drm_resources_for_each_crtc(resources, crtc_it) {
         if (crtc_it->id == encoder->variable_state.crtc_id) {
             crtc = crtc_it;
@@ -989,6 +991,7 @@ MUST_CHECK struct window *kms_window_new(
     window->kms.should_apply_mode = true;
     window->kms.cursor = NULL;
     window->kms.pointer_icon = NULL;
+    window->kms.cursor_works = true;
     window->renderer_type = renderer_type;
     if (gl_renderer != NULL) {
 #ifdef HAVE_EGL_GLES2
@@ -1072,9 +1075,7 @@ void kms_window_deinit(struct window *window) {
 
 struct frame {
     struct tracer *tracer;
-    struct drmdev *drmdev;
     struct kms_req *req;
-    struct frame_scheduler *scheduler;
     bool unset_should_apply_mode_on_commit;
 };
 
@@ -1093,8 +1094,12 @@ UNUSED static void on_scanout(uint64_t vblank_ns, void *userdata) {
 }
 
 static void on_present_frame(void *userdata) {
+    struct frame *frame;
+    int ok;
+
     ASSERT_NOT_NULL(userdata);
-    struct frame *frame = userdata;
+
+    frame = userdata;
 
     int ok;
 
@@ -1221,7 +1226,11 @@ static int kms_window_push_composition_locked(struct window *window, struct fl_l
             window->kms.cursor
         );
         if (ok != 0) {
-            LOG_ERROR("Couldn't present cursor.\n");
+            LOG_ERROR("Couldn't present cursor. Hardware cursor will be disabled.\n");
+
+            window->kms.cursor_works = false;
+            window->cursor_enabled = false;
+            cursor_buffer_unrefp(&window->kms.cursor);
         } else {
             cursor_buffer_ref(window->kms.cursor);
         }
@@ -1249,6 +1258,58 @@ static int kms_window_push_composition_locked(struct window *window, struct fl_l
     frame->unset_should_apply_mode_on_commit = window->kms.should_apply_mode;
 
     frame_scheduler_present_frame(window->frame_scheduler, on_present_frame, frame, on_cancel_frame);
+
+    // if (window->present_mode == kDoubleBufferedVsync_PresentMode) {
+    //     TRACER_BEGIN(window->tracer, "kms_req_builder_commit");
+    //     ok = kms_req_commit(req, /* blocking: */ false);
+    //     TRACER_END(window->tracer, "kms_req_builder_commit");
+    //
+    //     if (ok != 0) {
+    //         LOG_ERROR("Could not commit frame request.\n");
+    //         goto fail_unref_window2;
+    //     }
+    //
+    //     if (window->set_set_mode) {
+    //         window->set_mode = false;
+    //         window->set_set_mode = false;
+    //     }
+    // } else {
+    //     ASSERT_EQUALS(window->present_mode, kTripleBufferedVsync_PresentMode);
+    //
+    //     if (window->present_immediately) {
+    //         TRACER_BEGIN(window->tracer, "kms_req_builder_commit");
+    //         ok = kms_req_commit(req, /* blocking: */ false);
+    //         TRACER_END(window->tracer, "kms_req_builder_commit");
+    //
+    //         if (ok != 0) {
+    //             LOG_ERROR("Could not commit frame request.\n");
+    //             goto fail_unref_window2;
+    //         }
+    //
+    //         if (window->set_set_mode) {
+    //             window->set_mode = false;
+    //             window->set_set_mode = false;
+    //         }
+    //
+    //         window->present_immediately = false;
+    //     } else {
+    //         if (window->next_frame != NULL) {
+    //             /// FIXME: Call the release callbacks when the kms_req is destroyed, not when it's unrefed.
+    //             /// Not sure this here will lead to the release callbacks being called multiple times.
+    //             kms_req_call_release_callbacks(window->next_frame);
+    //             kms_req_unref(window->next_frame);
+    //         }
+    //
+    //         window->next_frame = kms_req_ref(req);
+    //         window->set_set_mode = window->set_mode;
+    //     }
+    // }
+
+    // KMS Req is committed now and drmdev keeps a ref
+    // on it internally, so we don't need to keep this one.
+    // kms_req_unref(req);
+
+    // window_on_rendering_complete(window);
 
     return 0;
 
@@ -1353,53 +1414,47 @@ static struct render_surface *kms_window_get_render_surface_internal(struct wind
     // For now just set the supported modifiers for the first plane that supports this pixel format
     // as the allowed modifiers.
     /// TODO: Find a way to rank pixel formats, maybe by number of planes that support them for scanout.
-    {
-        drm_resources_for_each_plane(window->kms.resources, plane) {
-            if (!(plane->possible_crtcs & window->kms.crtc->bitmask)) {
-                // Only query planes that are possible to connect to the CRTC we're using.
-                continue;
-            }
-
-            if (plane->type != DRM_PRIMARY_PLANE && plane->type != DRM_OVERLAY_PLANE) {
-                // We explicitly only look for primary and overlay planes.
-                continue;
-            }
-
-            if (!plane->supports_modifiers) {
-                // The plane does not have an IN_FORMATS property and does not support
-                // explicit modifiers.
-                //
-                // Calling drm_plane_for_each_modified_format below will segfault.
-                continue;
-            }
-
-            struct {
-                enum pixfmt format;
-                uint64_t *modifiers;
-                size_t n_modifiers;
-                int index;
-            } context = {
-                .format = pixel_format,
-                .modifiers = NULL,
-                .n_modifiers = 0,
-                .index = 0,
-            };
-
-            // First, count the allowed modifiers for this pixel format.
-            drm_plane_for_each_modified_format(plane, count_modifiers_for_pixel_format, &context);
-
-            n_allowed_modifiers = context.n_modifiers;
-            if (n_allowed_modifiers) {
-                allowed_modifiers = calloc(n_allowed_modifiers, sizeof(*context.modifiers));
-                context.modifiers = allowed_modifiers;
-
-                // Next, fill context.modifiers with the allowed modifiers.
-                drm_plane_for_each_modified_format(plane, extract_modifiers_for_pixel_format, &context);
-            } else {
-                allowed_modifiers = NULL;
-            }
-            break;
+    drm_resources_for_each_plane(window->kms.resources, plane_it) {
+        if (!(plane_it->possible_crtcs & window->kms.crtc->bitmask)) {
+            // Only query planes that are possible to connect to the CRTC we're using.
+            continue;
         }
+
+        if (plane_it->type != DRM_PRIMARY_PLANE && plane_it->type != DRM_OVERLAY_PLANE) {
+            // We explicitly only look for primary and overlay planes.
+            continue;
+        }
+
+        if (!plane_it->supports_modifiers) {
+            // The plane does not have an IN_FORMATS property and does not support
+            // explicit modifiers.
+            //
+            // Calling drm_plane_for_each_modified_format below will segfault.
+            continue;
+        }
+
+        struct {
+            enum pixfmt format;
+            uint64_t *modifiers;
+            size_t n_modifiers;
+            int index;
+        } context = {
+            .format = pixel_format,
+            .modifiers = NULL,
+            .n_modifiers = 0,
+            .index = 0,
+        };
+
+        // First, count the allowed modifiers for this pixel format.
+        drm_plane_for_each_modified_format(plane_it, count_modifiers_for_pixel_format, &context);
+
+        n_allowed_modifiers = context.n_modifiers;
+        allowed_modifiers = calloc(n_allowed_modifiers, sizeof(*context.modifiers));
+        context.modifiers = allowed_modifiers;
+
+        // Next, fill context.modifiers with the allowed modifiers.
+        drm_plane_for_each_modified_format(plane_it, extract_modifiers_for_pixel_format, &context);
+        break;
     }
 
     if (window->renderer_type == kOpenGL_RendererType) {
@@ -1502,6 +1557,11 @@ static int kms_window_set_cursor_locked(
     icon = has_kind ? pointer_icon_for_details(kind, window->pixel_ratio) : window->kms.pointer_icon;
     pos = has_pos ? pos : window->cursor_pos;
     cursor = window->kms.cursor;
+
+    if (enabled && !window->kms.cursor_works) {
+        // hardware cursor is disabled, so we can't enable it.
+        return EIO;
+    }
 
     if (enabled && icon == NULL) {
         // default to the arrow icon.
