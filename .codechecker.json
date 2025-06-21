@@ -1,0 +1,22 @@
+{
+    "analyze": [
+        "-d",
+        "clang-diagnostic-reserved-macro-identifier",
+        "-d",
+        "clang-diagnostic-reserved-identifier",
+        "-d",
+        "cert-err33-c",
+        "-d",
+        "clang-diagnostic-sign-compare",
+        "-d",
+        "clang-diagnostic-implicit-int-float-conversion",
+        "-d",
+        "clang-diagnostic-switch-enum",
+        "--analyzers",
+        "clangsa",
+        "clang-tidy",
+        "gcc",
+        "-i",
+        ".codechecker.skipfile"
+    ]
+}
