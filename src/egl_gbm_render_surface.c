@@ -150,13 +150,14 @@ static int egl_gbm_render_surface_init(
     int with_modifiers_errno = 0;
     gbm_surface = NULL;
     if (allowed_modifiers != NULL) {
-        gbm_surface = gbm_surface_create_with_modifiers(
+        gbm_surface = gbm_surface_create_with_modifiers2(
             gbm_device,
             size.x,
             size.y,
             get_pixfmt_info(pixel_format)->gbm_format,
             allowed_modifiers,
-            n_allowed_modifiers
+            n_allowed_modifiers,
+            GBM_BO_USE_SCANOUT | GBM_BO_USE_RENDERING
         );
         if (gbm_surface == NULL) {
             with_modifiers_errno = errno;
