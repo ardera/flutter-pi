@@ -317,13 +317,15 @@ struct locales *locales_new(void) {
     }
 
     int i = 0;
-    for_each_locale_in_locales(locale, locales) {
-        fl_locales[i] = locale_get_fl_locale(locale);
-        i++;
-    }
-
-    // If we have no locales, add a default "C" locale.
-    if (i == 0) {
+    if (n_locales > 0) {
+        for_each_locale_in_locales(locale, locales) {
+            // To silence clangsa complaining about an out of bounds access below.
+            ASSUME(i <= n_locales);
+            fl_locales[i] = locale_get_fl_locale(locale);
+            i++;
+        }
+    } else {
+        // Add a default "C" locale if no locales were found.
         static const FlutterLocale c_locale = {
             .struct_size = sizeof(FlutterLocale),
             .language_code = "C",
