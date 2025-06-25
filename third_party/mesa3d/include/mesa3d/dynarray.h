@@ -154,7 +154,10 @@ static inline void util_dynarray_trim(struct util_dynarray *buf) {
 
     if (buf->size != buf->capacity) {
         if (buf->size) {
-            buf->data = realloc(buf->data, buf->size);
+            void *new_data = realloc(buf->data, buf->size);
+            ASSERT_NOT_NULL(new_data);
+
+            buf->data = new_data;
             buf->capacity = buf->size;
         } else {
             free(buf->data);
