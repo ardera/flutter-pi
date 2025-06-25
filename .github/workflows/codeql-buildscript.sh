@@ -4,6 +4,7 @@
 # We explicitly install the version that gstreamer wants so
 # we don't get install errors.
 
+sudo apt-get update
 sudo apt-get install -y --no-install-recommends \
     git cmake pkg-config ninja-build clang clang-tools \
     libgl-dev libgles-dev libegl-dev libvulkan-dev libdrm-dev libgbm-dev libsystemd-dev libinput-dev libudev-dev libxkbcommon-dev \
