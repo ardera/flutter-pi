@@ -324,13 +324,15 @@ struct locales *locales_new(void) {
 
     // If we have no locales, add a default "C" locale.
     if (i == 0) {
-        fl_locales[0] = &(const FlutterLocale){
+        static const FlutterLocale c_locale = {
             .struct_size = sizeof(FlutterLocale),
             .language_code = "C",
             .country_code = NULL,
             .script_code = NULL,
             .variant_code = NULL,
         };
+
+        fl_locales[0] = &c_locale;
         i++;
     }
 
