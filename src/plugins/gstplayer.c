@@ -80,7 +80,7 @@ enum playback_direction { kForward, kBackward };
 
 
 #ifdef DEBUG
-static int64_t allocate_id() {
+static int64_t allocate_id(void) {
     static atomic_int_fast64_t next_id = 1;
 
     return atomic_fetch_add_explicit(&next_id, 1, memory_order_relaxed);
@@ -874,7 +874,8 @@ static void on_application_message(struct gstplayer *player, GstMessage *msg) {
         const GstStructure *structure = gst_message_get_structure(msg);
 
         const GValue *value = gst_structure_get_value(structure, "info");
-        assert(G_VALUE_HOLDS_POINTER(value));
+
+        assert(G_VALUE_HOLDS_POINTER(value)); // NOLINT(bugprone-assert-side-effect)
 
         GstVideoInfo *info = g_value_get_pointer(value);
 
@@ -1704,6 +1705,11 @@ float gstplayer_get_audio_balance(struct gstplayer *player) {
 bool gstplayer_set_source_with_completer(struct gstplayer *p, const char *uri, struct async_completer completer) {
     GstStateChangeReturn result;
     const char *current_uri = NULL;
+
+    if (!uri) {
+        LOG_PLAYER_ERROR(p, "Can't set source to NULL.\n");
+        return false;
+    }
 
     if (!p->playbin) {
         LOG_PLAYER_ERROR(p, "Can't set source for a pipeline video player.\n");

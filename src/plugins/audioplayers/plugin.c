@@ -281,6 +281,7 @@ static void on_create(struct plugin *p, const struct raw_std_value *arg, const F
 
     meta->id = raw_std_string_dup(player_id);
     if (meta->id == NULL) {
+        free(meta);
         platch_respond_native_error_std(responsehandle, ENOMEM);
         return;
     }
