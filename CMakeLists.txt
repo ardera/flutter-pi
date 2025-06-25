@@ -162,13 +162,14 @@ target_link_libraries(flutterpi_module PUBLIC
 )
 
 target_include_directories(flutterpi_module PUBLIC
-  ${CMAKE_SOURCE_DIR}/third_party/flutter_embedder_header/include
   ${CMAKE_SOURCE_DIR}/src
   ${CMAKE_BINARY_DIR}
+  ${CMAKE_SOURCE_DIR}/third_party/mesa3d/include
+  ${CMAKE_SOURCE_DIR}/third_party/flutter_embedder_header/include
 )
 
 target_compile_options(flutterpi_module PUBLIC
-  $<$<CONFIG:Debug>:-O0 -Wall -Wextra -Wno-sign-compare -Werror -ggdb -U_FORTIFY_SOURCE -DDEBUG>
+  $<$<CONFIG:Debug>:-O0 -Wall -Wextra -Wno-sign-compare -Wswitch-enum -Wformat -Wdouble-promotion -Wno-overlength-strings -Wno-gnu-zero-variadic-macro-arguments -pedantic -Werror -ggdb -U_FORTIFY_SOURCE -DDEBUG>
   $<$<CONFIG:RelWithDebInfo>:-O3 -Wall -Wextra -Wno-sign-compare -ggdb -DNDEBUG>
   $<$<CONFIG:Release>:-O3 -Wall -Wextra -Wno-sign-compare -DNDEBUG>
 )
@@ -237,6 +238,7 @@ if (ENABLE_VULKAN)
     target_sources(flutterpi_module PRIVATE
       src/vk_gbm_render_surface.c
       src/vk_renderer.c
+      src/vulkan.c
     )
     target_link_libraries(flutterpi_module PUBLIC
       PkgConfig::VULKAN
@@ -305,73 +307,65 @@ endif()
 if (BUILD_TEST_PLUGIN)
   target_sources(flutterpi_module PRIVATE src/plugins/testplugin.c)
 endif()
-if (BUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN)
-  if (NOT HAVE_EGL_GLES2)
-    message(NOTICE "EGL and OpenGL ES2 are required for gstreamer video player. Gstreamer video player plugin won't be build.")
-  else()
+
+set(HAVE_GSTREAMER_VIDEO_PLAYER OFF)
+if (BUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN OR BUILD_GSTREAMER_AUDIO_PLAYER_PLUGIN)#
+  pkg_check_modules(LIBGSTREAMER IMPORTED_TARGET
+    gstreamer-1.0
+    gstreamer-plugins-base-1.0
+    gstreamer-app-1.0
+    gstreamer-allocators-1.0
+    gstreamer-video-1.0
+    gstreamer-audio-1.0
+  )
+
+  if (LIBGSTREAMER_FOUND)
+    string(REPLACE "." ";" LIBGSTREAMER_VERSION_AS_LIST ${LIBGSTREAMER_gstreamer-1.0_VERSION})
+    list(GET LIBGSTREAMER_VERSION_AS_LIST 0 LIBGSTREAMER_VERSION_MAJOR)
+    list(GET LIBGSTREAMER_VERSION_AS_LIST 1 LIBGSTREAMER_VERSION_MINOR)
+    list(GET LIBGSTREAMER_VERSION_AS_LIST 2 LIBGSTREAMER_VERSION_PATCH)
+
+    target_sources(flutterpi_module PRIVATE src/plugins/gstplayer.c)
+    target_link_libraries(flutterpi_module PUBLIC PkgConfig::LIBGSTREAMER)
+  endif()
+
+  if (BUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN AND NOT LIBGSTREAMER_FOUND)
     if (TRY_BUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN)
-      pkg_check_modules(LIBGSTREAMER IMPORTED_TARGET gstreamer-1.0)
-      pkg_check_modules(LIBGSTREAMER_PLUGINS_BASE IMPORTED_TARGET gstreamer-plugins-base-1.0)
-      pkg_check_modules(LIBGSTREAMER_APP IMPORTED_TARGET gstreamer-app-1.0)
-      pkg_check_modules(LIBGSTREAMER_ALLOCATORS IMPORTED_TARGET gstreamer-allocators-1.0)
-      pkg_check_modules(LIBGSTREAMER_VIDEO IMPORTED_TARGET gstreamer-video-1.0)
+      message(NOTICE "Some required gstreamer dependencies were not found. Gstreamer video player plugin won't be built.")
     else()
-      pkg_check_modules(LIBGSTREAMER REQUIRED IMPORTED_TARGET gstreamer-1.0)
-      pkg_check_modules(LIBGSTREAMER_PLUGINS_BASE REQUIRED IMPORTED_TARGET gstreamer-plugins-base-1.0)
-      pkg_check_modules(LIBGSTREAMER_APP REQUIRED IMPORTED_TARGET gstreamer-app-1.0)
-      pkg_check_modules(LIBGSTREAMER_ALLOCATORS REQUIRED IMPORTED_TARGET gstreamer-allocators-1.0)
-      pkg_check_modules(LIBGSTREAMER_VIDEO REQUIRED IMPORTED_TARGET gstreamer-video-1.0)
-    endif()
-
-    if (LIBGSTREAMER_FOUND AND LIBGSTREAMER_PLUGINS_BASE_FOUND AND LIBGSTREAMER_APP_FOUND AND LIBGSTREAMER_ALLOCATORS_FOUND AND LIBGSTREAMER_VIDEO_FOUND)
-      # There's no other way to query the libinput version (in code) somehow.
-      # So we need to roll our own libinput version macro
-      string(REPLACE "." ";" LIBGSTREAMER_VERSION_AS_LIST ${LIBGSTREAMER_VERSION})
-      list(GET LIBGSTREAMER_VERSION_AS_LIST 0 LIBGSTREAMER_VERSION_MAJOR)
-      list(GET LIBGSTREAMER_VERSION_AS_LIST 1 LIBGSTREAMER_VERSION_MINOR)
-      list(GET LIBGSTREAMER_VERSION_AS_LIST 2 LIBGSTREAMER_VERSION_PATCH)
-
-      target_sources(flutterpi_module PRIVATE
-        src/plugins/gstreamer_video_player/plugin.c
-        src/plugins/gstreamer_video_player/player.c
-        src/plugins/gstreamer_video_player/frame.c
-      )
-      target_link_libraries(flutterpi_module PUBLIC
-        PkgConfig::LIBGSTREAMER
-        PkgConfig::LIBGSTREAMER_PLUGINS_BASE
-        PkgConfig::LIBGSTREAMER_APP
-        PkgConfig::LIBGSTREAMER_ALLOCATORS
-        PkgConfig::LIBGSTREAMER_VIDEO
-      )
-    else()
-      message(NOTICE "Couldn't find gstreamer libraries. Gstreamer video player plugin won't be build.")
+      message(ERROR "Some required gstreamer dependencies were not found. Can't build gstreamer video player plugin.")
     endif()
   endif()
-endif()
 
-if (BUILD_GSTREAMER_AUDIO_PLAYER_PLUGIN)
-  if (TRY_BUILD_GSTREAMER_AUDIO_PLAYER_PLUGIN)
-    pkg_check_modules(LIBGSTREAMER IMPORTED_TARGET gstreamer-1.0)
-    pkg_check_modules(LIBGSTREAMER_APP IMPORTED_TARGET gstreamer-app-1.0)
-    pkg_check_modules(LIBGSTREAMER_AUDIO IMPORTED_TARGET gstreamer-audio-1.0)
-  else()
-    pkg_check_modules(LIBGSTREAMER REQUIRED IMPORTED_TARGET gstreamer-1.0)
-    pkg_check_modules(LIBGSTREAMER_APP REQUIRED IMPORTED_TARGET gstreamer-app-1.0)
-    pkg_check_modules(LIBGSTREAMER_AUDIO REQUIRED IMPORTED_TARGET gstreamer-audio-1.0)
+  if (BUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN AND NOT HAVE_EGL_GLES2)
+    if (TRY_BUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN)
+      message(NOTICE "EGL and OpenGL ES2 are required for gstreamer video player. Gstreamer video player plugin won't be built.")
+    else()
+      message(ERROR "EGL and OpenGL ES2 are required for gstreamer video player. Can't build gstreamer video player plugin.")
+    endif()
   endif()
 
-  if (LIBGSTREAMER_FOUND AND LIBGSTREAMER_APP_FOUND AND LIBGSTREAMER_AUDIO_FOUND)
+  if (BUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN AND LIBGSTREAMER_FOUND AND HAVE_EGL_GLES2)
+    set(HAVE_GSTREAMER_VIDEO_PLAYER ON)
+    target_sources(flutterpi_module PRIVATE
+      src/plugins/gstreamer_video_player/frame.c
+      src/plugins/gstreamer_video_player/flutter_texture_sink.c
+      src/plugins/gstreamer_video_player/plugin.c
+    )
+  endif()
+
+  if (BUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN AND NOT LIBGSTREAMER_FOUND)
+    if (TRY_BUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN)
+      message(NOTICE "Some required gstreamer dependencies were not found. Gstreamer audio player plugin won't be built.")
+    else()
+      message(ERROR "Some required gstreamer dependencies were not found. Can't build gstreamer audio player plugin.")
+    endif()
+  endif()
+
+  if (BUILD_GSTREAMER_AUDIO_PLAYER_PLUGIN AND LIBGSTREAMER_FOUND)
     target_sources(flutterpi_module PRIVATE
       src/plugins/audioplayers/plugin.c
-      src/plugins/audioplayers/player.c
     )
-    target_link_libraries(flutterpi_module PUBLIC
-      PkgConfig::LIBGSTREAMER
-      PkgConfig::LIBGSTREAMER_APP
-      PkgConfig::LIBGSTREAMER_AUDIO
-    )
-  else()
-    message(NOTICE "Couldn't find gstreamer libraries. Gstreamer audio player plugin won't be build.")
   endif()
 endif()
 
@@ -390,10 +384,10 @@ if (BUILD_SENTRY_PLUGIN)
 
   if (SENTRY_BACKEND STREQUAL "crashpad" AND SENTRY_PLUGIN_BUNDLE_CRASHPAD_HANDLER)
     set(HAVE_BUNDLED_CRASHPAD_HANDLER ON)
-  
+
     target_sources(flutter-pi PRIVATE src/crashpad_handler_trampoline.cc)
     # link against the same libraries the crashpad_handler uses
-    
+
     get_target_property(handler_deps crashpad_handler INTERFACE_LINK_LIBRARIES)
     target_link_libraries(flutter-pi PUBLIC ${handler_deps})
   endif()

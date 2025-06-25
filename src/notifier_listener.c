@@ -48,7 +48,7 @@ int value_notifier_init(struct notifier *notifier, void *initial_value, void_cal
     return 0;
 }
 
-struct notifier *change_notifier_new() {
+struct notifier *change_notifier_new(void) {
     struct notifier *n;
     int ok;
 
@@ -112,10 +112,12 @@ struct listener *notifier_listen(struct notifier *notifier, listener_cb_t notify
         return NULL;
     }
 
-    r = listener_notify(l, notifier->state);
-    if (r == kUnlisten) {
-        listener_destroy(l);
-        return NULL;
+    if (notifier->is_value_notifier) {
+        r = listener_notify(l, notifier->state);
+        if (r == kUnlisten) {
+            listener_destroy(l);
+            return NULL;
+        }
     }
 
     notifier_lock(notifier);

@@ -135,16 +135,14 @@ static struct flutter_paths *resolve(
     // We still haven't found it. Fail because we need it to run flutter.
     if (path_exists(icudtl_path) == false) {
         LOG_DEBUG("icudtl file not found at %s.\n", icudtl_path);
-        free(icudtl_path);
-
         LOG_ERROR("icudtl file not found!\n");
-        goto fail_free_asset_bundle_path;
+        goto fail_free_icudtl_path;
     }
 
     // Find the kernel_blob.bin file. Only necessary for JIT (debug) mode.
     ok = asprintf(&kernel_blob_path, "%s/%s", app_bundle_path_real, kernel_blob_subpath);
     if (ok == -1) {
-        goto fail_free_asset_bundle_path;
+        goto fail_free_icudtl_path;
     }
 
     if (FLUTTER_RUNTIME_MODE_IS_JIT(runtime_mode) && !path_exists(kernel_blob_path)) {
@@ -221,6 +219,9 @@ fail_free_app_elf_path:
 
 fail_free_kernel_blob_path:
     free(kernel_blob_path);
+
+fail_free_icudtl_path:
+    free(icudtl_path);
 
 fail_free_asset_bundle_path:
     free(asset_bundle_path);

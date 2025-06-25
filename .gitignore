@@ -1,6 +1,7 @@
 /.vscode
 /build
 /out
+/.codechecker
 
 # CMake docs says it should not be checked in.
 CMakeUserPresets.json
@@ -99,3 +100,6 @@ Icon
 Network Trash Folder
 Temporary Items
 .apdisk
+
+# Used by zed to store clangd cache
+.cache

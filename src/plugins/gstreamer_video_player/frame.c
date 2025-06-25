@@ -16,16 +16,15 @@
 // This will error if we don't have EGL / OpenGL ES support.
 #include "gl_renderer.h"
 #include "plugins/gstreamer_video_player.h"
+#include "plugins/gstplayer.h"
 #include "util/logging.h"
 #include "util/refcounting.h"
 
 #define MAX_N_PLANES 4
 
-#define GSTREAMER_VER(major, minor, patch) ((((major) &0xFF) << 16) | (((minor) &0xFF) << 8) | ((patch) &0xFF))
-#define THIS_GSTREAMER_VER GSTREAMER_VER(LIBGSTREAMER_VERSION_MAJOR, LIBGSTREAMER_VERSION_MINOR, LIBGSTREAMER_VERSION_PATCH)
-
 #define DRM_FOURCC_FORMAT "c%c%c%c"
-#define DRM_FOURCC_ARGS(format) (format) & 0xFF, ((format) >> 8) & 0xFF, ((format) >> 16) & 0xFF, ((format) >> 24) & 0xFF
+#define DRM_FOURCC_ARGS(format) \
+    (char) ((format) & 0xFF), (char) (((format) >> 8) & 0xFF), (char) (((format) >> 16) & 0xFF), (char) (((format) >> 24) & 0xFF)
 
 struct video_frame {
     GstSample *sample;
@@ -38,7 +37,6 @@ struct video_frame {
     int dmabuf_fds[MAX_N_PLANES];
 
     EGLImageKHR image;
-    size_t width, height;
 
     struct gl_texture_frame gl_frame;
 };
@@ -122,6 +120,10 @@ static bool query_formats(
         }
     }
 
+    if (n_modified_formats == 0 || max_n_modifiers == 0) {
+        goto fail_free_formats;
+    }
+
     modified_formats = malloc(n_modified_formats * sizeof *modified_formats);
     if (modified_formats == NULL) {
         goto fail_free_formats;
@@ -142,7 +144,7 @@ static bool query_formats(
         egl_ok = egl_query_dmabuf_modifiers(display, formats[i], max_n_modifiers, modifiers, external_only, &n_modifiers);
         if (egl_ok != EGL_TRUE) {
             LOG_ERROR("Could not query dmabuf formats supported by EGL.\n");
-            goto fail_free_formats;
+            goto fail_free_external_only;
         }
 
         LOG_DEBUG_UNPREFIXED("%" DRM_FOURCC_FORMAT ", ", DRM_FOURCC_ARGS(formats[i]));
@@ -163,6 +165,9 @@ static bool query_formats(
     *n_formats_out = n_modified_formats;
     *formats_out = modified_formats;
     return true;
+
+fail_free_external_only:
+    free(external_only);
 
 fail_free_modifiers:
     free(modifiers);
@@ -359,14 +364,18 @@ UNUSED int dup_gst_buffer_range_as_dmabuf(struct gbm_device *gbm_device, GstBuff
         return -1;
     }
 
-    bo = gbm_bo_create(gbm_device, map_info.size, 1, GBM_FORMAT_R8, GBM_BO_USE_LINEAR);
+    // Create a square texture large enough to fit our bytes instead of one with only one huge row,
+    // because some drivers have limitations on the row length. (Intel)
+    uint32_t dim = (uint32_t) ceil(sqrt(map_info.size));
+
+    bo = gbm_bo_create(gbm_device, dim, dim, GBM_FORMAT_R8, GBM_BO_USE_LINEAR);
     if (bo == NULL) {
         LOG_ERROR("Couldn't create GBM BO to copy video frame into.\n");
         goto fail_unmap_buffer;
     }
 
     map_data = NULL;
-    map = gbm_bo_map(bo, 0, 0, map_info.size, 1, GBM_BO_TRANSFER_WRITE, &stride, &map_data);
+    map = gbm_bo_map(bo, 0, 0, dim, dim, GBM_BO_TRANSFER_WRITE, &stride, &map_data);
     if (map == NULL) {
         LOG_ERROR("Couldn't mmap GBM BO to copy video frame into it.\n");
         goto fail_destroy_bo;
@@ -415,14 +424,18 @@ UNUSED int dup_gst_memory_as_dmabuf(struct gbm_device *gbm_device, GstMemory *me
         return -1;
     }
 
-    bo = gbm_bo_create(gbm_device, map_info.size, 1, GBM_FORMAT_R8, GBM_BO_USE_LINEAR);
+    // Create a square texture large enough to fit our bytes instead of one with only one huge row,
+    // because some drivers have limitations on the row length. (Intel)
+    uint32_t dim = (uint32_t) ceil(sqrt(map_info.size));
+
+    bo = gbm_bo_create(gbm_device, dim, dim, GBM_FORMAT_R8, GBM_BO_USE_LINEAR);
     if (bo == NULL) {
         LOG_ERROR("Couldn't create GBM BO to copy video frame into.\n");
         goto fail_unmap_buffer;
     }
 
     map_data = NULL;
-    map = gbm_bo_map(bo, 0, 0, map_info.size, 1, GBM_BO_TRANSFER_WRITE, &stride, &map_data);
+    map = gbm_bo_map(bo, 0, 0, dim, dim, GBM_BO_TRANSFER_WRITE, &stride, &map_data);
     if (map == NULL) {
         LOG_ERROR("Couldn't mmap GBM BO to copy video frame into it.\n");
         goto fail_destroy_bo;
@@ -558,6 +571,11 @@ get_plane_infos(GstBuffer *buffer, const GstVideoInfo *info, struct gbm_device *
 
     n_planes = GST_VIDEO_INFO_N_PLANES(info);
 
+    if (n_planes <= 0 || n_planes > MAX_N_PLANES) {
+        LOG_ERROR("Unsupported number of planes in video frame.\n");
+        return EINVAL;
+    }
+
     // There's so many ways to get the plane sizes.
     // 1. Preferably we should use the video meta.
     // 2. If that doesn't work, we'll use gst_video_info_align_full() with the video info.
@@ -597,6 +615,8 @@ get_plane_infos(GstBuffer *buffer, const GstVideoInfo *info, struct gbm_device *
         has_plane_sizes = true;
     }
 
+    ASSERT_MSG(has_plane_sizes, "Couldn't determine video frame plane sizes.\n");
+
     for (int i = 0; i < n_planes; i++) {
         size_t offset_in_memory = 0;
         size_t offset_in_buffer = 0;
@@ -619,13 +639,21 @@ get_plane_infos(GstBuffer *buffer, const GstVideoInfo *info, struct gbm_device *
             goto fail_close_fds;
         }
 
+        static bool logged_dmabuf_feedback = false;
+
         if (n_memories != 1) {
+            if (!logged_dmabuf_feedback) {
+                LOG_DEBUG("INFO: Flutter-Pi is using manual dmabuf uploads to show video frames. This can result in poor performance.\n");
+                logged_dmabuf_feedback = true;
+            }
+
             ok = dup_gst_buffer_range_as_dmabuf(gbm_device, buffer, memory_index, n_memories);
             if (ok < 0) {
-                LOG_ERROR("Could not duplicate gstreamer buffer range as dmabuf.\n");
+                LOG_ERROR("Could not upload gstreamer buffer range into dmabufs.\n");
                 ok = EIO;
                 goto fail_close_fds;
             }
+
 
             plane_infos[i].fd = ok;
         } else {
@@ -640,18 +668,23 @@ get_plane_infos(GstBuffer *buffer, const GstVideoInfo *info, struct gbm_device *
 
                 ok = dup(ok);
                 if (ok < 0) {
-                    ok = errno;
+                    ok = errno ? errno : EIO;
                     LOG_ERROR("Could not dup fd. dup: %s\n", strerror(ok));
                     goto fail_close_fds;
                 }
 
                 plane_infos[i].fd = ok;
             } else {
+                if (!logged_dmabuf_feedback) {
+                    LOG_DEBUG("INFO: Flutter-Pi is using manual dmabuf uploads to show video frames. This can result in poor performance.\n");
+                    logged_dmabuf_feedback = true;
+                }
+
                 /// TODO: When duping, duplicate all non-dmabuf memories into one
                 /// gbm buffer instead.
                 ok = dup_gst_memory_as_dmabuf(gbm_device, memory);
                 if (ok < 0) {
-                    LOG_ERROR("Could not duplicate gstreamer memory as dmabuf.\n");
+                    LOG_ERROR("Could not upload gstreamer memory into dmabuf.\n");
                     ok = EIO;
                     goto fail_close_fds;
                 }
@@ -674,7 +707,7 @@ get_plane_infos(GstBuffer *buffer, const GstVideoInfo *info, struct gbm_device *
 
 fail_close_fds:
         for (int j = i - 1; j > 0; j--) {
-            close(plane_infos[i].fd);
+            close(plane_infos[j].fd);
         }
         return ok;
     }
@@ -683,6 +716,8 @@ fail_close_fds:
 }
 
 static uint32_t drm_format_from_gst_info(const GstVideoInfo *info) {
+    PRAGMA_DIAGNOSTIC_PUSH
+    PRAGMA_DIAGNOSTIC_IGNORED("-Wswitch-enum")
     switch (GST_VIDEO_INFO_FORMAT(info)) {
         case GST_VIDEO_FORMAT_YUY2: return DRM_FORMAT_YUYV;
         case GST_VIDEO_FORMAT_YVYU: return DRM_FORMAT_YVYU;
@@ -716,6 +751,7 @@ static uint32_t drm_format_from_gst_info(const GstVideoInfo *info) {
         case GST_VIDEO_FORMAT_xBGR: return DRM_FORMAT_RGBX8888;
         default: return DRM_FORMAT_INVALID;
     }
+    PRAGMA_DIAGNOSTIC_POP
 }
 
 ATTR_CONST GstVideoFormat gst_video_format_from_drm_format(uint32_t drm_format) {
@@ -802,7 +838,7 @@ static EGLint egl_vertical_chroma_siting_from_gst_info(const GstVideoInfo *info)
     }
 }
 
-struct video_frame *frame_new(struct frame_interface *interface, GstSample *sample, const GstVideoInfo *info) {
+static struct video_frame *frame_new_egl_imported(struct frame_interface *interface, GstSample *sample, const GstVideoInfo *info) {
 #define PUT_ATTR(_key, _value)                            \
     do {                                                  \
         assert(attr_index + 2 <= ARRAY_SIZE(attributes)); \
@@ -811,12 +847,11 @@ struct video_frame *frame_new(struct frame_interface *interface, GstSample *samp
     } while (false)
     struct video_frame *frame;
     struct plane_info planes[MAX_N_PLANES];
-    GstVideoInfo _info;
+    GstVideoInfo video_info;
     EGLBoolean egl_ok;
     GstBuffer *buffer;
     EGLImageKHR egl_image;
     gboolean gst_ok;
-    uint32_t drm_format;
     GstCaps *caps;
     GLuint texture;
     GLenum gl_error;
@@ -838,13 +873,13 @@ struct video_frame *frame_new(struct frame_interface *interface, GstSample *samp
             return NULL;
         }
 
-        info = &_info;
-
-        gst_ok = gst_video_info_from_caps(&_info, caps);
+        gst_ok = gst_video_info_from_caps(&video_info, caps);
         if (gst_ok == FALSE) {
-            LOG_ERROR("Could not get video info from video sample caps.\n");
+            LOG_ERROR("Could not get video info from caps.\n");
             return NULL;
         }
+
+        info = &video_info;
     } else {
         caps = NULL;
     }
@@ -854,16 +889,17 @@ struct video_frame *frame_new(struct frame_interface *interface, GstSample *samp
     height = GST_VIDEO_INFO_HEIGHT(info);
     n_planes = GST_VIDEO_INFO_N_PLANES(info);
 
-    // query the drm format for this sample
-    drm_format = drm_format_from_gst_info(info);
+    uint64_t drm_modifier = DRM_FORMAT_MOD_LINEAR;
+    uint32_t drm_format = drm_format_from_gst_info(info);
     if (drm_format == DRM_FORMAT_INVALID) {
         LOG_ERROR("Video format has no EGL equivalent.\n");
         return NULL;
     }
 
+
     bool external_only;
     for_each_format_in_frame_interface(i, format, interface) {
-        if (format->format == drm_format && format->modifier == DRM_FORMAT_MOD_LINEAR) {
+        if (format->format == drm_format && format->modifier == drm_modifier) {
             external_only = format->external_only;
             goto format_supported;
         }
@@ -872,7 +908,7 @@ struct video_frame *frame_new(struct frame_interface *interface, GstSample *samp
     LOG_ERROR(
         "Video format is not supported by EGL: %" DRM_FOURCC_FORMAT " (modifier: %" PRIu64 ").\n",
         DRM_FOURCC_ARGS(drm_format),
-        (uint64_t) DRM_FORMAT_MOD_LINEAR
+        (uint64_t) drm_modifier
     );
     return NULL;
 
@@ -1096,9 +1132,9 @@ format_supported:
     frame->drm_format = drm_format;
     frame->n_dmabuf_fds = n_planes;
     frame->dmabuf_fds[0] = planes[0].fd;
-    frame->dmabuf_fds[1] = planes[1].fd;
-    frame->dmabuf_fds[2] = planes[2].fd;
-    frame->dmabuf_fds[3] = planes[3].fd;
+    frame->dmabuf_fds[1] = n_planes >= 2 ? planes[1].fd : -1;
+    frame->dmabuf_fds[2] = n_planes >= 3 ? planes[2].fd : -1;
+    frame->dmabuf_fds[3] = n_planes >= 4 ? planes[3].fd : -1;
     frame->image = egl_image;
     frame->gl_frame.target = target;
     frame->gl_frame.name = texture;
@@ -1126,6 +1162,29 @@ fail_release_planes:
 
 fail_free_frame:
     free(frame);
+    return NULL;
+}
+
+static struct video_frame *frame_new_egl_duped(struct frame_interface *interface, GstSample *sample, const GstVideoInfo *info) {
+    (void) interface;
+    (void) sample;
+    (void) info;
+    return NULL;
+}
+
+struct video_frame *frame_new(struct frame_interface *interface, GstSample *sample, const GstVideoInfo *info) {
+    struct video_frame *frame;
+
+    frame = frame_new_egl_imported(interface, sample, info);
+    if (frame != NULL) {
+        return frame;
+    }
+
+    frame = frame_new_egl_duped(interface, sample, info);
+    if (frame != NULL) {
+        return frame;
+    }
+
     return NULL;
 }
 

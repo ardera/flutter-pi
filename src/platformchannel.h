@@ -3,7 +3,7 @@
  * Platform Channels
  *
  * Encoding/Decoding of flutter platform messages, with different
- * 
+ *
  * Supported codecs:
  *  - standard message & method codec,
  *  - json message & method codec
@@ -89,6 +89,7 @@ struct std_value {
                 const uint8_t *uint8array;
                 int32_t *int32array;
                 int64_t *int64array;
+                float *float32array;
                 double *float64array;
                 struct std_value *list;
                 struct {
@@ -1491,6 +1492,8 @@ int platch_respond_illegal_arg_ext_std(const FlutterPlatformMessageResponseHandl
 
 int platch_respond_native_error_std(const FlutterPlatformMessageResponseHandle *handle, int _errno);
 
+int platch_respond_malformed_message_std(const FlutterPlatformMessage *message);
+
 int platch_respond_success_json(const FlutterPlatformMessageResponseHandle *handle, struct json_value *return_value);
 
 int platch_respond_error_json(
@@ -1538,9 +1541,7 @@ int platch_send_error_event_json(char *channel, char *error_code, char *error_ms
 
 /// frees a ChannelObject that was decoded using PlatformChannel_decode.
 /// not freeing ChannelObjects may result in a memory leak.
-int platch_free_obj(struct platch_obj *object);
-
-int platch_free_json_value(struct json_value *value, bool shallow);
+void platch_free_obj(struct platch_obj *object);
 
 /// returns true if values a and b are equal.
 /// for JS arrays, the order of the values is relevant
@@ -1614,6 +1615,7 @@ ATTR_PURE bool raw_std_method_call_check(const struct raw_std_value *value, size
 ATTR_PURE bool raw_std_method_call_response_check(const struct raw_std_value *value, size_t buffer_size);
 ATTR_PURE bool raw_std_event_check(const struct raw_std_value *value, size_t buffer_size);
 
+ATTR_PURE const struct raw_std_value *raw_std_method_call_from_buffer(const void *buffer, size_t buffer_size);
 ATTR_PURE const struct raw_std_value *raw_std_method_call_get_method(const struct raw_std_value *value);
 ATTR_PURE bool raw_std_method_call_is_method(const struct raw_std_value *value, const char *method_name);
 MALLOCLIKE MUST_CHECK char *raw_std_method_call_get_method_dup(const struct raw_std_value *value);

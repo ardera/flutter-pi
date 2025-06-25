@@ -59,4 +59,18 @@
         (void) ok;                                                      \
     }
 
+#ifdef DEBUG
+static inline void assert_mutex_locked(pthread_mutex_t *mutex) {
+    int result = pthread_mutex_trylock(mutex);
+    if (result == 0) {
+        pthread_mutex_unlock(mutex);
+        ASSERT_MSG(false, "Mutex is not locked.");
+    }
+}
+#else
+static inline void assert_mutex_locked(pthread_mutex_t *mutex) {
+    (void) mutex;
+}
+#endif
+
 #endif  // _FLUTTERPI_SRC_UTIL_LOCK_OPS_H

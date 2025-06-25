@@ -475,7 +475,8 @@ static inline const char *egl_strerror(EGLenum result) {
     }
 }
 
-    #define LOG_EGL_ERROR(result, fmt, ...) LOG_ERROR(fmt ": %s\n", __VA_ARGS__ egl_strerror(result))
+    #define LOG_EGL_ERROR_FMT(result, fmt, ...) LOG_ERROR(fmt ": %s\n", __VA_ARGS__ egl_strerror(result))
+    #define LOG_EGL_ERROR(result, fmt) LOG_ERROR(fmt ": %s\n", egl_strerror(result))
 #endif
 
 #endif  // _FLUTTERPI_SRC_EGL_H

@@ -122,6 +122,9 @@
 #if __has_attribute(noreturn)
     #define HAVE_FUNC_ATTRIBUTE_NORETURN
 #endif
+#if __has_attribute(suppress)
+    #define HAVE_STMT_ATTRIBUTE_SUPPRESS
+#endif
 
 /**
  * __builtin_expect macros
@@ -405,6 +408,12 @@
     #define ATTR_NOINLINE
 #endif
 
+#ifdef HAVE_STMT_ATTRIBUTE_SUPPRESS
+    #define ANALYZER_SUPPRESS(stmt) __attribute__((suppress)) stmt
+#else
+    #define ANALYZER_SUPPRESS(stmt) stmt
+#endif
+
 /**
  * Check that STRUCT::FIELD can hold MAXVAL.  We use a lot of bitfields
  * in Mesa/gallium.  We have to be sure they're of sufficient size to
@@ -421,7 +430,7 @@
     } while (0)
 
 /** Compute ceiling of integer quotient of A divided by B. */
-#define DIV_ROUND_UP(A, B) (((A) + (B) -1) / (B))
+#define DIV_ROUND_UP(A, B) (((A) + (B) - 1) / (B))
 
 /**
  * Clamp X to [MIN,MAX].  Turn NaN into MIN, arbitrarily.
@@ -450,10 +459,10 @@
 #define MAX4(A, B, C, D) ((A) > (B) ? MAX3(A, C, D) : MAX3(B, C, D))
 
 /** Align a value to a power of two */
-#define ALIGN_POT(x, pot_align) (((x) + (pot_align) -1) & ~((pot_align) -1))
+#define ALIGN_POT(x, pot_align) (((x) + (pot_align) - 1) & ~((pot_align) - 1))
 
 /** Checks is a value is a power of two. Does not handle zero. */
-#define IS_POT(v) (((v) & ((v) -1)) == 0)
+#define IS_POT(v) (((v) & ((v) - 1)) == 0)
 
 /** Set a single bit */
 #define BITFIELD_BIT(b) (1u << (b))
@@ -547,21 +556,27 @@ typedef int lock_cap_t;
 #if defined(__clang__)
     #define PRAGMA_DIAGNOSTIC_PUSH _Pragma("clang diagnostic push")
     #define PRAGMA_DIAGNOSTIC_POP _Pragma("clang diagnostic pop")
-    #define PRAGMA_DIAGNOSTIC_ERROR(X) DO_PRAGMA(clang diagnostic error #X)
-    #define PRAGMA_DIAGNOSTIC_WARNING(X) DO_PRAGMA(clang diagnostic warning #X)
-    #define PRAGMA_DIAGNOSTIC_IGNORED(X) DO_PRAGMA(clang diagnostic ignored #X)
+    #define PRAGMA_DIAGNOSTIC_ERROR(X) DO_PRAGMA(clang diagnostic error X)
+    #define PRAGMA_DIAGNOSTIC_WARNING(X) DO_PRAGMA(clang diagnostic warning X)
+    #define PRAGMA_DIAGNOSTIC_IGNORED(X) DO_PRAGMA(clang diagnostic ignored X)
+    #define PRAGMA_GCC_DIAGNOSTIC_IGNORED(X)
+    #define PRAGMA_CLANG_DIAGNOSTIC_IGNORED(X) DO_PRAGMA(clang diagnostic ignored X)
 #elif defined(__GNUC__)
     #define PRAGMA_DIAGNOSTIC_PUSH _Pragma("GCC diagnostic push")
     #define PRAGMA_DIAGNOSTIC_POP _Pragma("GCC diagnostic pop")
-    #define PRAGMA_DIAGNOSTIC_ERROR(X) DO_PRAGMA(GCC diagnostic error #X)
-    #define PRAGMA_DIAGNOSTIC_WARNING(X) DO_PRAGMA(GCC diagnostic warning #X)
-    #define PRAGMA_DIAGNOSTIC_IGNORED(X) DO_PRAGMA(GCC diagnostic ignored #X)
+    #define PRAGMA_DIAGNOSTIC_ERROR(X) DO_PRAGMA(GCC diagnostic error X)
+    #define PRAGMA_DIAGNOSTIC_WARNING(X) DO_PRAGMA(GCC diagnostic warning X)
+    #define PRAGMA_DIAGNOSTIC_IGNORED(X) DO_PRAGMA(GCC diagnostic ignored X)
+    #define PRAGMA_GCC_DIAGNOSTIC_IGNORED(X) DO_PRAGMA(GCC diagnostic ignored X)
+    #define PRAGMA_CLANG_DIAGNOSTIC_IGNORED(X)
 #else
     #define PRAGMA_DIAGNOSTIC_PUSH
     #define PRAGMA_DIAGNOSTIC_POP
     #define PRAGMA_DIAGNOSTIC_ERROR(X)
     #define PRAGMA_DIAGNOSTIC_WARNING(X)
     #define PRAGMA_DIAGNOSTIC_IGNORED(X)
+    #define PRAGMA_GCC_DIAGNOSTIC_IGNORED(X)
+    #define PRAGMA_CLANG_DIAGNOSTIC_IGNORED(X)
 #endif
 
 #define PASTE2(a, b) a##b
@@ -588,7 +603,7 @@ typedef int lock_cap_t;
 
 #define UNIMPLEMENTED()                                                            \
     do {                                                                           \
-        fprintf(stderr, "%s%s:%u: Unimplemented\n", __FILE__, __func__, __LINE__); \
+        fprintf(stderr, "%s%s:%d: Unimplemented\n", __FILE__, __func__, __LINE__); \
         TRAP();                                                                    \
     } while (0)
 
