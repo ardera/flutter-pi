@@ -35,9 +35,8 @@ option(TRY_BUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN "Don't throw an error if the gstr
 
 option(BUILD_GSTREAMER_AUDIO_PLAYER_PLUGIN "Include the gstreamer based audio plugins in the finished binary." ON)
 option(TRY_BUILD_GSTREAMER_AUDIO_PLAYER_PLUGIN "Don't throw an error if the gstreamer libs aren't found, instead just don't build gstreamer audio plugin." ON)
-
+option(BUILD_PRINTING_PLUGIN "Include the printing plugin in the finished binary." OFF)
 option(BUILD_SENTRY_PLUGIN "Include the sentry plugin in the finished binary. Allows for crash reporting to sentry.io." OFF)
-
 option(BUILD_CHARSET_CONVERTER_PLUGIN "Include the charset converter plugin in the finished binary." OFF)
 option(ENABLE_OPENGL "Build with EGL/OpenGL rendering support." ON)
 option(TRY_ENABLE_OPENGL "Don't throw an error if EGL/OpenGL aren't found, instead just build without EGL/OpenGL support in that case." ON)
@@ -373,6 +372,12 @@ if (BUILD_GSTREAMER_AUDIO_PLAYER_PLUGIN)
   else()
     message(NOTICE "Couldn't find gstreamer libraries. Gstreamer audio player plugin won't be build.")
   endif()
+endif()
+
+if (BUILD_PRINTING_PLUGIN)
+  pkg_check_modules(IMAGEMAGICK IMPORTED_TARGET MagickWand)
+  target_sources(flutterpi_module PRIVATE src/plugins/printing.c)
+  target_link_libraries(flutterpi_module PUBLIC PkgConfig::IMAGEMAGICK)
 endif()
 
 if (BUILD_CHARSET_CONVERTER_PLUGIN)

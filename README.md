@@ -78,6 +78,11 @@ If you encounter issues running flutter-pi on any of the supported platforms lis
     ```shell
     sudo apt install libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libgstreamer-plugins-bad1.0-dev gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-ugly gstreamer1.0-plugins-bad gstreamer1.0-libav gstreamer1.0-alsa
     ```
+
+    If you want to use the [printing](#printing), install these too:
+    ```shell
+    $ sudo apt install imagemagick
+    ```
     <details>
       <summary>More Info</summary>
       
@@ -416,6 +421,13 @@ To use the gstreamer video player, just rebuild flutter-pi (delete your build fo
 
 And then, just use the stuff in the official [video_player](https://pub.dev/packages/video_player) package. (`VideoPlayer`, `VideoPlayerController`, etc, there's nothing specific you need to do on the dart-side)
 
+### printing
+Printing is a plugin that allows Flutter apps to generate and print documents to android or ios compatible printers.
+
+To use the printing plugin, just rebuild flutter-pi (delete your build folder and reconfigure) and make sure the necessary printing packages are installed. (See [dependencies](#dependencies))
+
+And then, just use the stuff in the official [printing](https://pub.dev/packages/printing) package.
+
 ### audioplayers
 As of current moment flutter-pi implements plugin for `audioplayers: ^5.0.0`.
 There are several things you need to keep in mind:
@@ -447,6 +459,7 @@ This is why I created my own (userspace) touchscreen driver, for improved latenc
 | linux_spidev ([package](https://pub.dev/packages/linux_spidev/)) ([repo](https://github.com/ardera/flutter_packages/tree/main/packages/linux_spidev)) | 🖨 peripherals | Hannes Winkler | SPI bus support for dart/flutter, uses kernel interfaces directly for more performance. |
 | dart_periphery ([package](https://pub.dev/packages/dart_periphery)) ([repo](https://github.com/pezi/dart_periphery)) | 🖨 peripherals | [Peter Sauer](https://github.com/pezi/) | All-in-one package GPIO, I2C, SPI, Serial, PWM, Led, MMIO support using c-periphery. |
 | flutterpi_gstreamer_video_player ([package](https://pub.dev/packages/flutterpi_gstreamer_video_player)) ([repo](https://github.com/ardera/flutter_packages/tree/main/packages/flutterpi_gstreamer_video_player)) | ⏯️ multimedia | Hannes Winkler | Official video player implementation for flutter-pi. See [GStreamer video player](#gstreamer-video-player) section above. |
+| printing ([package](https://pub.dev/packages/printing)) ([repo](https://github.com/DavBfr/dart_pdf)) | 🖨 peripherals | David PHAM-VAN | Generate and print documents to android or ios compatible printers. See [printing](#printing) section above. |
 | charset_converter ([package](https://pub.dev/packages/charset_converter)) ([repo](https://github.com/pr0gramista/charset_converter)) | 🗚 encoding | Bartosz Wiśniewski | Encode and decode charsets using platform built-in converter. |
 | sentry_flutter ([package](https://pub.dev/packages/sentry_flutter)) ([repo](https://github.com/getsentry/sentry-dart))|  📊 Monitoring | sentry.io | See https://github.com/ardera/flutter-pi/wiki/Sentry-Support for instructions. |
 
