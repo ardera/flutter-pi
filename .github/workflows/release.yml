@@ -18,7 +18,7 @@ jobs:
     name: Build
     runs-on: ubuntu-latest
     container:
-      image: debian:bullseye
+      image: ${{ matrix.container }}
       env:
         DEBIAN_FRONTEND: noninteractive
     strategy:
@@ -27,6 +27,7 @@ jobs:
           - arm-linux-gnueabihf
           - aarch64-linux-gnu
           - x86_64-linux-gnu
+          - riscv64-linux-gnu
         buildtype:
           - debug
           - release
@@ -34,14 +35,22 @@ jobs:
           - target: 'x86_64-linux-gnu'
             is-cross: false
             debian-arch: 'amd64'
+            container: 'debian:bullseye'
 
           - target: 'aarch64-linux-gnu'
             is-cross: true
             debian-arch: 'arm64'
+            container: 'debian:bullseye'
 
           - target: 'arm-linux-gnueabihf'
             is-cross: true
             debian-arch: 'armhf'
+            container: 'debian:bullseye'
+
+          - target: 'riscv64-linux-gnu'
+            is-cross: true
+            debian-arch: 'riscv64'
+            container: 'debian:trixie'
 
     steps:
       - name: Add debian multiarch
@@ -55,7 +64,7 @@ jobs:
           ARCH: ${{ matrix.debian-arch }}
         run: |
           apt-get update && apt-get install -y \
-            git cmake ninja-build clang lld \
+            git cmake ninja-build clang lld xz-utils \
             libdrm-dev:$ARCH libgbm-dev:$ARCH libsystemd-dev:$ARCH libinput-dev:$ARCH libudev-dev:$ARCH libxkbcommon-dev:$ARCH \
             libgstreamer-plugins-base1.0-dev:$ARCH \
             libvulkan-dev:$ARCH \

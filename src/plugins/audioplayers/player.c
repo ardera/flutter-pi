@@ -82,6 +82,7 @@ static void audio_player_source_setup(GstElement *playbin, GstElement *source, G
 struct audio_player *audio_player_new(char *player_id, char *channel) {
     GPollFD fd;
     sd_event_source *busfd_event_source;
+    int ok;
 
     struct audio_player *self = malloc(sizeof(struct audio_player));
     if (self == NULL) {
@@ -144,10 +145,10 @@ struct audio_player *audio_player_new(char *player_id, char *channel) {
 
     // audioplayers player event channel clang:
     // <local>/events/<player_id>
-    asprintf(&self->event_channel_name, "%s/events/%s", channel, player_id);
-    ASSERT_MSG(self->event_channel_name != NULL, "event channel name OEM");
+    ok = asprintf(&self->event_channel_name, "%s/events/%s", channel, player_id);
+    ASSERT_MSG(ok, "event channel name OEM");
 
-    if (self->event_channel_name == NULL) {
+    if (ok < 0) {
         goto deinit_player_id;
     }
 
