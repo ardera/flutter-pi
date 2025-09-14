@@ -40,8 +40,12 @@ struct frame_scheduler {
 DEFINE_REF_OPS(frame_scheduler, n_refs)
 DEFINE_STATIC_LOCK_OPS(frame_scheduler, mutex)
 
-struct frame_scheduler *
-frame_scheduler_new(bool uses_frame_requests, enum present_mode present_mode, fl_vsync_callback_t vsync_cb, void *userdata) {
+struct frame_scheduler *frame_scheduler_new(
+    bool uses_frame_requests, 
+    enum present_mode present_mode,
+    fl_vsync_callback_t vsync_cb,
+    void *userdata
+) {
     // uses_frame_requests? => vsync_cb != NULL
     assert(!uses_frame_requests || vsync_cb != NULL);
 
@@ -99,11 +103,11 @@ void frame_scheduler_on_fl_vsync_request(struct frame_scheduler *scheduler, intp
     //    as well if we draw too many frames at once. (Especially considering one framebuffer is probably busy with scanout right now)
     //
 
+    bool begin_now = false;
+
     if (scheduler->present_mode == kTripleBufferedVsync_PresentMode) {
         /// TODO: Query actual frame interval and vblank timestamp here
-        uint64_t now = get_monotonic_time();
-        uint64_t now_plus_frame_interval = now + 1000000000/60;
-        scheduler->vsync_cb(scheduler->userdata, vsync_baton, now, now_plus_frame_interval);
+        begin_now = true;
     } else if (scheduler->present_mode == kDoubleBufferedVsync_PresentMode) {
         frame_scheduler_lock(scheduler);
 
@@ -113,14 +117,18 @@ void frame_scheduler_on_fl_vsync_request(struct frame_scheduler *scheduler, intp
             scheduler->pending_frame_timings_request = vsync_baton;
         } else {
             /// TODO: Query actual frame interval and vblank timestamp here
-            uint64_t now = get_monotonic_time();
-            uint64_t now_plus_frame_interval = now + 1000000000/60;
-            scheduler->vsync_cb(scheduler->userdata, vsync_baton, now, now_plus_frame_interval);
+            begin_now = true;
         }
 
         frame_scheduler_unlock(scheduler);
     } else {
         UNREACHABLE();
+    }
+
+    if (begin_now) {
+        uint64_t now = get_monotonic_time();
+        uint64_t now_plus_frame_interval = now + 1000000000/60;
+        scheduler->vsync_cb(scheduler->userdata, vsync_baton, now, now_plus_frame_interval);
     }
 }
 

@@ -796,4 +796,3 @@ static inline double mode_get_vrefresh(const drmModeModeInfo *mode) {
 }
 
 #endif
- 
