@@ -18,35 +18,56 @@
 
 struct frame_scheduler {
     refcount_t n_refs;
+    pthread_mutex_t mutex;
 
     bool uses_frame_requests;
     enum present_mode present_mode;
     fl_vsync_callback_t vsync_cb;
     void *userdata;
 
-    pthread_mutex_t mutex;
+    bool waiting_for_scanout;
+
+    bool has_scheduled_frame;
+    struct {
+        void_callback_t present_cb;
+        void_callback_t cancel_cb;
+        void *userdata;
+    } scheduled_frame;
+
+    intptr_t pending_frame_timings_request;
 };
 
 DEFINE_REF_OPS(frame_scheduler, n_refs)
 DEFINE_STATIC_LOCK_OPS(frame_scheduler, mutex)
 
-struct frame_scheduler *
-frame_scheduler_new(bool uses_frame_requests, enum present_mode present_mode, fl_vsync_callback_t vsync_cb, void *userdata) {
-    struct frame_scheduler *scheduler;
-
+struct frame_scheduler *frame_scheduler_new(
+    bool uses_frame_requests, 
+    enum present_mode present_mode,
+    fl_vsync_callback_t vsync_cb,
+    void *userdata
+) {
     // uses_frame_requests? => vsync_cb != NULL
     assert(!uses_frame_requests || vsync_cb != NULL);
 
-    scheduler = malloc(sizeof *scheduler);
+    struct frame_scheduler *scheduler = calloc(1, sizeof *scheduler);
     if (scheduler == NULL) {
         return NULL;
     }
 
     scheduler->n_refs = REFCOUNT_INIT_1;
+    ASSERTED int ok = pthread_mutex_init(&scheduler->mutex, get_default_mutex_attrs());
+    ASSERT_ZERO(ok);
+
     scheduler->uses_frame_requests = uses_frame_requests;
     scheduler->present_mode = present_mode;
     scheduler->vsync_cb = vsync_cb;
     scheduler->userdata = userdata;
+
+    scheduler->waiting_for_scanout = false;
+    scheduler->has_scheduled_frame = false;
+
+    scheduler->pending_frame_timings_request = 0;
+
     return scheduler;
 }
 
@@ -82,12 +103,32 @@ void frame_scheduler_on_fl_vsync_request(struct frame_scheduler *scheduler, intp
     //    as well if we draw too many frames at once. (Especially considering one framebuffer is probably busy with scanout right now)
     //
 
-    /// TODO: Implement
-    /// For now, just unconditionally reply
+    bool begin_now = false;
+
     if (scheduler->present_mode == kTripleBufferedVsync_PresentMode) {
-        scheduler->vsync_cb(scheduler->userdata, vsync_baton, 0, 0);
+        /// TODO: Query actual frame interval and vblank timestamp here
+        begin_now = true;
     } else if (scheduler->present_mode == kDoubleBufferedVsync_PresentMode) {
-        scheduler->vsync_cb(scheduler->userdata, vsync_baton, 0, 0);
+        frame_scheduler_lock(scheduler);
+
+        if (scheduler->waiting_for_scanout) {
+            // Reply to the frame timings request once the current frame has been scanned out.
+            ASSERT_ZERO(scheduler->pending_frame_timings_request);
+            scheduler->pending_frame_timings_request = vsync_baton;
+        } else {
+            /// TODO: Query actual frame interval and vblank timestamp here
+            begin_now = true;
+        }
+
+        frame_scheduler_unlock(scheduler);
+    } else {
+        UNREACHABLE();
+    }
+
+    if (begin_now) {
+        uint64_t now = get_monotonic_time();
+        uint64_t now_plus_frame_interval = now + 1000000000/60;
+        scheduler->vsync_cb(scheduler->userdata, vsync_baton, now, now_plus_frame_interval);
     }
 }
 
@@ -118,14 +159,44 @@ void frame_scheduler_request_fb(struct frame_scheduler *scheduler, uint64_t scan
     UNIMPLEMENTED();
 }
 
-void frame_scheduler_present_frame(struct frame_scheduler *scheduler, void_callback_t present_cb, void *userdata, void_callback_t cancel_cb) {
+void frame_scheduler_present_frame(struct frame_scheduler *scheduler, void_callback_t present_cb, void *userdata, void_callback_t cancel_cb) {   
     ASSERT_NOT_NULL(scheduler);
     ASSERT_NOT_NULL(present_cb);
-    (void) scheduler;
-    (void) cancel_cb;
+    
+    frame_scheduler_lock(scheduler);
 
-    /// TODO: Implement
-    present_cb(userdata);
+    if (scheduler->waiting_for_scanout) {
+        void_callback_t cancel_prev_sched_frame = NULL;
+        void *prev_sched_frame_userdata = NULL;
+
+        // We're already waiting for a scanout, so we can't present a frame right now.
+        // Wait till the previous frame is scanned out, and then present.
+
+        if (scheduler->has_scheduled_frame) {
+            // If we already have a frame scheduled, cancel it.
+            cancel_prev_sched_frame = scheduler->scheduled_frame.cancel_cb;
+            prev_sched_frame_userdata = scheduler->scheduled_frame.userdata;
+
+            memset(&scheduler->scheduled_frame, 0, sizeof scheduler->scheduled_frame);
+        }
+
+        scheduler->has_scheduled_frame = true;
+        scheduler->scheduled_frame.present_cb = present_cb;
+        scheduler->scheduled_frame.cancel_cb = cancel_cb;
+        scheduler->scheduled_frame.userdata = userdata;
+
+        frame_scheduler_unlock(scheduler);
+
+        if (cancel_prev_sched_frame != NULL) {
+            cancel_prev_sched_frame(prev_sched_frame_userdata);
+        }
+    } else {
+        // We're not waiting for a scanout right now.
+        scheduler->waiting_for_scanout = true;
+        frame_scheduler_unlock(scheduler);
+
+        present_cb(userdata);
+    }
 }
 
 void frame_scheduler_on_scanout(struct frame_scheduler *scheduler, bool has_timestamp, uint64_t timestamp_ns) {
@@ -135,6 +206,46 @@ void frame_scheduler_on_scanout(struct frame_scheduler *scheduler, bool has_time
     (void) has_timestamp;
     (void) timestamp_ns;
 
-    /// TODO: Implement
-    UNIMPLEMENTED();
+    void_callback_t present_cb = NULL;
+    void *userdata = NULL;
+    intptr_t pending_frame_timings_request = 0;
+
+    frame_scheduler_lock(scheduler);
+
+    if (scheduler->waiting_for_scanout) {
+        scheduler->waiting_for_scanout = false;
+
+        if (scheduler->has_scheduled_frame) {
+            present_cb = scheduler->scheduled_frame.present_cb;
+            userdata = scheduler->scheduled_frame.userdata;
+
+            memset(&scheduler->scheduled_frame, 0, sizeof scheduler->scheduled_frame);
+
+            scheduler->has_scheduled_frame = false;
+            scheduler->waiting_for_scanout = true;
+        } else if (scheduler->pending_frame_timings_request) {
+            // only reply to the frame timings request if we don't have another frame already
+            // pending. We only want to start a new frame once the previous frame has been scanned out
+            /// TODO: Maybe do start it before the previous one has been scanned out?
+            pending_frame_timings_request = scheduler->pending_frame_timings_request;
+            scheduler->pending_frame_timings_request = 0;
+        }
+    }
+    
+    frame_scheduler_unlock(scheduler);
+
+    if (pending_frame_timings_request) {
+        if (!has_timestamp) {
+            timestamp_ns = get_monotonic_time();
+        }
+
+        /// TODO: Use actual frame interval here
+        uint64_t now_plus_frame_interval = timestamp_ns + 1000000000 / 60;
+
+        scheduler->vsync_cb(scheduler->userdata, pending_frame_timings_request, timestamp_ns, now_plus_frame_interval);
+    }
+
+    if (present_cb != NULL) {
+        present_cb(userdata);
+    }
 }

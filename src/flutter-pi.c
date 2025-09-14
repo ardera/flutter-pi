@@ -45,7 +45,7 @@
 #include "frame_scheduler.h"
 #include "keyboard.h"
 #include "locales.h"
-#include "modesetting.h"
+#include "kms/drmdev.h"
 #include "pixel_format.h"
 #include "platformchannel.h"
 #include "pluginregistry.h"
@@ -262,6 +262,8 @@ struct flutterpi {
     bool session_active;
 
     char *desired_videomode;
+
+    struct frame_scheduler *scheduler;
 };
 
 struct device_id_and_fd {
@@ -394,7 +396,8 @@ static void *proc_resolver(void *userdata, const char *name) {
     flutterpi = userdata;
     ASSERT_NOT_NULL(flutterpi->gl_renderer);
 
-    return gl_renderer_get_proc_address(flutterpi->gl_renderer, name);
+    fn_ptr_t fn = gl_renderer_get_proc_address(flutterpi->gl_renderer, name);
+    return *((void **) &fn);
 }
 #endif
 
@@ -408,7 +411,8 @@ UNUSED static void *on_get_vulkan_proc_address(void *userdata, FlutterVulkanInst
         name = "vkGetInstanceProcAddr";
     }
 
-    return (void *) vkGetInstanceProcAddr((VkInstance) instance, name);
+    PFN_vkVoidFunction fn = vkGetInstanceProcAddr((VkInstance) instance, name);
+    return *(void **) (&fn);
 #else
     (void) userdata;
     (void) instance;
@@ -468,16 +472,13 @@ struct frame_req {
 };
 
 static int on_deferred_begin_frame(void *userdata) {
-    FlutterEngineResult engine_result;
-    struct frame_req *req;
-
     ASSERT_NOT_NULL(userdata);
-    req = userdata;
+    struct frame_req *req = userdata;
 
     assert(flutterpi_runs_platform_tasks_on_current_thread(req->flutterpi));
 
     TRACER_INSTANT(req->flutterpi->tracer, "FlutterEngineOnVsync");
-    engine_result = req->flutterpi->flutter.procs.OnVsync(req->flutterpi->flutter.engine, req->baton, req->vblank_ns, req->next_vblank_ns);
+    FlutterEngineResult engine_result = req->flutterpi->flutter.procs.OnVsync(req->flutterpi->flutter.engine, req->baton, req->vblank_ns, req->next_vblank_ns);
 
     free(req);
 
@@ -489,88 +490,39 @@ static int on_deferred_begin_frame(void *userdata) {
     return 0;
 }
 
-UNUSED static void on_begin_frame(void *userdata, uint64_t vblank_ns, uint64_t next_vblank_ns) {
-    FlutterEngineResult engine_result;
-    struct frame_req *req;
-    int ok;
-
+static void on_begin_frame(void *userdata, intptr_t baton, uint64_t vblank_ns, uint64_t next_vblank_ns) {
     ASSERT_NOT_NULL(userdata);
-    req = userdata;
+    struct flutterpi *flutterpi = userdata;
 
-    if (flutterpi_runs_platform_tasks_on_current_thread(req->flutterpi)) {
-        TRACER_INSTANT(req->flutterpi->tracer, "FlutterEngineOnVsync");
+    if (flutterpi_runs_platform_tasks_on_current_thread(flutterpi)) {
+        TRACER_INSTANT(flutterpi->tracer, "FlutterEngineOnVsync");
 
-        engine_result = req->flutterpi->flutter.procs.OnVsync(req->flutterpi->flutter.engine, req->baton, vblank_ns, next_vblank_ns);
+        FlutterEngineResult engine_result = flutterpi->flutter.procs.OnVsync(flutterpi->flutter.engine, baton, vblank_ns, next_vblank_ns);
         if (engine_result != kSuccess) {
             LOG_ERROR("Couldn't signal frame begin to flutter engine. FlutterEngineOnVsync: %s\n", FLUTTER_RESULT_TO_STRING(engine_result));
-            goto fail_free_req;
         }
-
-        free(req);
     } else {
+        struct frame_req *req = malloc(sizeof(struct frame_req));
+        req->flutterpi = flutterpi;
+        req->baton = baton;
         req->vblank_ns = vblank_ns;
         req->next_vblank_ns = next_vblank_ns;
-        ok = flutterpi_post_platform_task(on_deferred_begin_frame, req);
+
+        int ok = flutterpi_post_platform_task(on_deferred_begin_frame, req);
         if (ok != 0) {
             LOG_ERROR("Couldn't defer signalling frame begin.\n");
-            goto fail_free_req;
+            free(req);
         }
     }
-
-    return;
-
-fail_free_req:
-    free(req);
-    return;
 }
 
-/// Called on some flutter internal thread to request a frame,
-/// and also get the vblank timestamp of the pageflip preceding that frame.
-UNUSED static void on_frame_request(void *userdata, intptr_t baton) {
-    FlutterEngineResult engine_result;
-    struct flutterpi *flutterpi;
-    struct frame_req *req;
-    int ok;
-
+static void on_frame_timings_request(void *userdata, intptr_t baton) {
     ASSERT_NOT_NULL(userdata);
-    flutterpi = userdata;
+    struct flutterpi *flutterpi = userdata;
 
-    TRACER_INSTANT(flutterpi->tracer, "on_frame_request");
+    TRACER_INSTANT(flutterpi->tracer, "on_frame_timings_request");
 
-    req = malloc(sizeof *req);
-    if (req == NULL) {
-        LOG_ERROR("Out of memory\n");
-        return;
-    }
-
-    req->flutterpi = flutterpi;
-    req->baton = baton;
-    req->vblank_ns = get_monotonic_time();
-    req->next_vblank_ns = req->vblank_ns + (1000000000.0 / compositor_get_refresh_rate(flutterpi->compositor));
-
-    if (flutterpi_runs_platform_tasks_on_current_thread(req->flutterpi)) {
-        TRACER_INSTANT(req->flutterpi->tracer, "FlutterEngineOnVsync");
-
-        engine_result =
-            req->flutterpi->flutter.procs.OnVsync(req->flutterpi->flutter.engine, req->baton, req->vblank_ns, req->next_vblank_ns);
-        if (engine_result != kSuccess) {
-            LOG_ERROR("Couldn't signal frame begin to flutter engine. FlutterEngineOnVsync: %s\n", FLUTTER_RESULT_TO_STRING(engine_result));
-            goto fail_free_req;
-        }
-
-        free(req);
-    } else {
-        ok = flutterpi_post_platform_task(on_deferred_begin_frame, req);
-        if (ok != 0) {
-            LOG_ERROR("Couldn't defer signalling frame begin.\n");
-            goto fail_free_req;
-        }
-    }
-
-    return;
-
-fail_free_req:
-    free(req);
+    frame_scheduler_on_fl_vsync_request(flutterpi->scheduler, baton);
 }
 
 UNUSED static FlutterTransformation on_get_transformation(void *userdata) {
@@ -768,7 +720,7 @@ static int on_execute_flutter_task(void *userdata) {
 
     result = flutterpi->flutter.procs.RunTask(flutterpi->flutter.engine, task);
     if (result != kSuccess) {
-        LOG_ERROR("Error running platform task. FlutterEngineRunTask: %d\n", result);
+        LOG_ERROR("Error running platform task. FlutterEngineRunTask: %u\n", result);
         free(task);
         return EINVAL;
     }
@@ -1045,7 +997,7 @@ struct tracer *flutterpi_get_tracer(struct flutterpi *flutterpi) {
 }
 
 void flutterpi_set_pointer_kind(struct flutterpi *flutterpi, enum pointer_kind kind) {
-    return compositor_set_cursor(flutterpi->compositor, false, false, true, kind, false, VEC2F(0, 0));
+    compositor_set_cursor(flutterpi->compositor, false, false, true, kind, false, VEC2F(0, 0));
 }
 
 void flutterpi_trace_event_instant(struct flutterpi *flutterpi, const char *name) {
@@ -1095,7 +1047,8 @@ static int on_drmdev_ready(sd_event_source *s, int fd, uint32_t revents, void *u
     ASSERT_NOT_NULL(userdata);
     drmdev = userdata;
 
-    return drmdev_on_event_fd_ready(drmdev);
+    drmdev_dispatch_modesetting(drmdev);
+    return 0;
 }
 
 static const FlutterLocale *on_compute_platform_resolved_locales(const FlutterLocale **locales, size_t n_locales) {
@@ -1171,18 +1124,19 @@ static void unload_flutter_engine_lib(void *handle) {
     dlclose(handle);
 }
 
-static int get_flutter_engine_procs(void *engine_handle, FlutterEngineProcTable *procs_out) {
-    // clang-format off
-    FlutterEngineResult (*get_proc_addresses)(FlutterEngineProcTable *table);
-    // clang-format on
+typedef FlutterEngineResult (*flutter_engine_get_proc_addresses_t)(FlutterEngineProcTable *table);
 
+static int get_flutter_engine_procs(void *engine_handle, FlutterEngineProcTable *procs_out) {
     FlutterEngineResult engine_result;
 
-    get_proc_addresses = dlsym(engine_handle, "FlutterEngineGetProcAddresses");
-    if (get_proc_addresses == NULL) {
+    void *fn = dlsym(engine_handle, "FlutterEngineGetProcAddresses");
+    if (fn == NULL) {
         LOG_ERROR("Could not resolve flutter engine function FlutterEngineGetProcAddresses.\n");
         return EINVAL;
     }
+
+    flutter_engine_get_proc_addresses_t get_proc_addresses;
+    *((void **) &get_proc_addresses) = fn;
 
     procs_out->struct_size = sizeof(FlutterEngineProcTable);
     engine_result = get_proc_addresses(procs_out);
@@ -1352,7 +1306,7 @@ static FlutterEngine create_flutter_engine(
     project_args.update_semantics_custom_action_callback = NULL;
     project_args.persistent_cache_path = paths->asset_bundle_path;
     project_args.is_persistent_cache_read_only = false;
-    project_args.vsync_callback = NULL;  // on_frame_request, /* broken since 2.2, kinda *
+    project_args.vsync_callback = on_frame_timings_request;
     project_args.custom_dart_entrypoint = NULL;
     project_args.custom_task_runners = &custom_task_runners;
     project_args.shutdown_dart_vm_when_done = true;
@@ -1456,9 +1410,9 @@ static int flutterpi_run(struct flutterpi *flutterpi) {
     memset(&window_metrics_event, 0, sizeof(window_metrics_event));
 
     window_metrics_event.struct_size = sizeof(FlutterWindowMetricsEvent);
-    window_metrics_event.width = geometry.view_size.x;
-    window_metrics_event.height = geometry.view_size.y;
-    window_metrics_event.pixel_ratio = geometry.device_pixel_ratio;
+    window_metrics_event.width = (size_t) geometry.view_size.x;
+    window_metrics_event.height = (size_t) geometry.view_size.y;
+    window_metrics_event.pixel_ratio = (double) geometry.device_pixel_ratio;
     window_metrics_event.left = 0;
     window_metrics_event.top = 0;
     window_metrics_event.physical_view_inset_top = 0;
@@ -1925,7 +1879,7 @@ bool flutterpi_parse_cmdline_args(int argc, char **argv, struct flutterpi_cmdlin
                         "%s",
                         usage
                     );
-                    return false;
+                    goto fail;
                 }
                 break;
 
@@ -1939,7 +1893,7 @@ bool flutterpi_parse_cmdline_args(int argc, char **argv, struct flutterpi_cmdlin
                         "%s",
                         usage
                     );
-                    return false;
+                    goto fail;
                 }
 
                 result_out->rotation = rotation;
@@ -1950,13 +1904,13 @@ bool flutterpi_parse_cmdline_args(int argc, char **argv, struct flutterpi_cmdlin
                 ok = parse_vec2i(optarg, &result_out->physical_dimensions);
                 if (!ok) {
                     LOG_ERROR("ERROR: Invalid argument for --dimensions passed.\n");
-                    return false;
+                    goto fail;
                 }
 
                 if (result_out->physical_dimensions.x < 0 || result_out->physical_dimensions.y < 0) {
                     LOG_ERROR("ERROR: Invalid argument for --dimensions passed.\n");
                     result_out->physical_dimensions = VEC2I(0, 0);
-                    return false;
+                    goto fail;
                 }
 
                 result_out->has_physical_dimensions = true;
@@ -1979,7 +1933,7 @@ bool flutterpi_parse_cmdline_args(int argc, char **argv, struct flutterpi_cmdlin
                       "%s",
                     usage
                 );
-                return false;
+                goto fail;
 
 valid_format:
                 break;
@@ -1987,7 +1941,11 @@ valid_format:
             case 'v':;
                 char *vmode_dup = strdup(optarg);
                 if (vmode_dup == NULL) {
-                    return false;
+                    goto fail;
+                }
+
+                if (result_out->desired_videomode != NULL) {
+                    free(result_out->desired_videomode);
                 }
 
                 result_out->desired_videomode = vmode_dup;
@@ -1997,15 +1955,15 @@ valid_format:
                 ok = parse_vec2i(optarg, &result_out->dummy_display_size);
                 if (!ok) {
                     LOG_ERROR("ERROR: Invalid argument for --dummy-display-size passed.\n");
-                    return false;
+                    goto fail;
                 }
 
                 break;
 
-            case 'h': printf("%s", usage); return false;
+            case 'h': printf("%s", usage); goto fail;
 
             case '?':
-            case ':': LOG_ERROR("Invalid option specified.\n%s", usage); return false;
+            case ':': LOG_ERROR("Invalid option specified.\n%s", usage); goto fail;
 
             case -1: finished_parsing_options = true; break;
 
@@ -2016,7 +1974,7 @@ valid_format:
     if (optind >= argc) {
         LOG_ERROR("ERROR: Expected asset bundle path after options.\n");
         printf("%s", usage);
-        return false;
+        goto fail;
     }
 
     result_out->bundle_path = strdup(argv[optind]);
@@ -2032,6 +1990,17 @@ valid_format:
     result_out->dummy_display = !!dummy_display_int;
 
     return true;
+
+fail:
+    if (result_out->bundle_path != NULL) {
+        free(result_out->bundle_path);
+    }
+
+    if (result_out->desired_videomode != NULL) {
+        free(result_out->desired_videomode);
+    }
+
+    return false;
 }
 
 static int on_drmdev_open(const char *path, int flags, void **fd_metadata_out, void *userdata) {
@@ -2102,81 +2071,14 @@ static void on_drmdev_close(int fd, void *fd_metadata, void *userdata) {
     }
 }
 
-static const struct drmdev_interface drmdev_interface = { .open = on_drmdev_open, .close = on_drmdev_close };
+static const struct drmdev_file_interface drmdev_interface = { .open = on_drmdev_open, .close = on_drmdev_close };
 
-static struct drmdev *find_drmdev(struct libseat *libseat) {
-    struct drm_connector *connector;
-    struct drmdev *drmdev;
-    drmDevicePtr devices[64];
-    int ok, n_devices;
-
-#ifndef HAVE_LIBSEAT
-    ASSERT_EQUALS(libseat, NULL);
-#endif
-
-    ok = drmGetDevices2(0, devices, sizeof(devices) / sizeof(*devices));
-    if (ok < 0) {
-        LOG_ERROR("Could not query DRM device list: %s\n", strerror(-ok));
-        return NULL;
-    }
-
-    n_devices = ok;
-
-    // find a GPU that has a primary node
-    drmdev = NULL;
-    for (int i = 0; i < n_devices; i++) {
-        drmDevicePtr device;
-
-        device = devices[i];
-
-        if (!(device->available_nodes & (1 << DRM_NODE_PRIMARY))) {
-            // We need a primary node.
-            continue;
-        }
-
-        drmdev = drmdev_new_from_path(device->nodes[DRM_NODE_PRIMARY], &drmdev_interface, libseat);
-        if (drmdev == NULL) {
-            LOG_ERROR("Could not create drmdev from device at \"%s\". Continuing.\n", device->nodes[DRM_NODE_PRIMARY]);
-            continue;
-        }
-
-        for_each_connector_in_drmdev(drmdev, connector) {
-            if (connector->variable_state.connection_state == kConnected_DrmConnectionState) {
-                goto found_connected_connector;
-            }
-        }
-        LOG_ERROR("Device \"%s\" doesn't have a display connected. Skipping.\n", device->nodes[DRM_NODE_PRIMARY]);
-        drmdev_unref(drmdev);
-        continue;
-
-found_connected_connector:
-        break;
-    }
-
-    drmFreeDevices(devices, n_devices);
-
-    if (drmdev == NULL) {
-        LOG_ERROR(
-            "flutter-pi couldn't find a usable DRM device.\n"
-            "Please make sure you've enabled the Fake-KMS driver in raspi-config.\n"
-            "If you're not using a Raspberry Pi, please make sure there's KMS support for your graphics chip.\n"
-        );
-        goto fail_free_devices;
-    }
-
-    return drmdev;
-
-fail_free_devices:
-    drmFreeDevices(devices, n_devices);
-    return NULL;
-}
-
-static struct gbm_device *open_rendernode_as_gbm_device() {
+static struct gbm_device *open_rendernode_as_gbm_device(void) {
     struct gbm_device *gbm;
     drmDevicePtr devices[64];
     int ok, n_devices;
 
-    ok = drmGetDevices2(0, devices, sizeof(devices) / sizeof(*devices));
+    ok = drmGetDevices2(0, devices, ARRAY_SIZE(devices));
     if (ok < 0) {
         LOG_ERROR("Could not query DRM device list: %s\n", strerror(-ok));
         return NULL;
@@ -2305,7 +2207,6 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
     enum renderer_type renderer_type;
     struct texture_registry *texture_registry;
     struct plugin_registry *plugin_registry;
-    struct frame_scheduler *scheduler;
     struct flutter_paths *paths;
     struct view_geometry geometry;
     FlutterEngineAOTData aot_data;
@@ -2320,14 +2221,13 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
     struct flutterpi_cmdline_args cmd_args;
     struct libseat *libseat;
     struct locales *locales;
-    struct drmdev *drmdev;
     struct tracer *tracer;
     struct window *window;
     void *engine_handle;
-    char *bundle_path, **engine_argv, *desired_videomode;
+    char **engine_argv, *desired_videomode;
     int ok, engine_argc, wakeup_fd;
 
-    fpi = malloc(sizeof *fpi);
+    fpi = calloc(1, sizeof *fpi);
     if (fpi == NULL) {
         return NULL;
     }
@@ -2344,15 +2244,14 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
     if (cmd_args.use_vulkan == true) {
         LOG_ERROR("ERROR: --vulkan was specified, but flutter-pi was built without vulkan support.\n");
         printf("%s", usage);
-        return NULL;
+        goto fail_free_cmd_args;
     }
 #endif
 
     runtime_mode = cmd_args.has_runtime_mode ? cmd_args.runtime_mode : FLUTTER_RUNTIME_MODE_DEBUG;
-    bundle_path = cmd_args.bundle_path;
+
     engine_argc = cmd_args.engine_argc;
     engine_argv = cmd_args.engine_argv;
-
 #if defined(HAVE_EGL_GLES2) && defined(HAVE_VULKAN)
     renderer_type = cmd_args.use_vulkan ? kVulkan_RendererType : kOpenGL_RendererType;
 #elif defined(HAVE_EGL_GLES2) && !defined(HAVE_VULKAN)
@@ -2366,15 +2265,12 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
 
     desired_videomode = cmd_args.desired_videomode;
 
-    if (bundle_path == NULL) {
-        LOG_ERROR("ERROR: Bundle path does not exist.\n");
-        goto fail_free_cmd_args;
-    }
-
-    paths = setup_paths(runtime_mode, bundle_path);
+    paths = setup_paths(runtime_mode, cmd_args.bundle_path);
     if (paths == NULL) {
         goto fail_free_cmd_args;
     }
+
+    fpi->flutter.bundle_path = realpath(cmd_args.bundle_path, NULL);
 
     wakeup_fd = eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK);
     if (wakeup_fd < 0) {
@@ -2441,6 +2337,8 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
 
     locales_print(locales);
 
+    struct drmdev *drmdev = NULL;
+    struct drm_resources *resources = NULL;
     if (cmd_args.dummy_display) {
         drmdev = NULL;
 
@@ -2453,10 +2351,20 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
             goto fail_destroy_locales;
         }
     } else {
-        drmdev = find_drmdev(libseat);
+        // TODO: Share this udev instance with the one the user input uses.
+        struct udev *udev = udev_new();
+
+        drmdev = drmdev_new_from_udev_primary(udev, "seat0", &drmdev_interface, NULL);
         if (drmdev == NULL) {
             goto fail_destroy_locales;
         }
+
+        resources = drmdev_query_resources(drmdev);
+        if (resources == NULL) {
+            goto fail_destroy_drmdev;
+        }
+
+        udev_unref(udev);
 
         gbm_device = drmdev_get_gbm_device(drmdev);
         if (gbm_device == NULL) {
@@ -2471,8 +2379,8 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
         goto fail_destroy_drmdev;
     }
 
-    scheduler = frame_scheduler_new(false, kDoubleBufferedVsync_PresentMode, NULL, NULL);
-    if (scheduler == NULL) {
+    fpi->scheduler = frame_scheduler_new(true, kDoubleBufferedVsync_PresentMode, on_begin_frame, fpi);
+    if (fpi->scheduler == NULL) {
         LOG_ERROR("Couldn't create frame scheduler.\n");
         goto fail_unref_tracer;
     }
@@ -2483,7 +2391,6 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
         vk_renderer = vk_renderer_new();
         if (vk_renderer == NULL) {
             LOG_ERROR("Couldn't create vulkan renderer.\n");
-            ok = EIO;
             goto fail_unref_scheduler;
         }
 #else
@@ -2495,7 +2402,6 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
         gl_renderer = gl_renderer_new_from_gbm_device(tracer, gbm_device, cmd_args.has_pixel_format, cmd_args.pixel_format);
         if (gl_renderer == NULL) {
             LOG_ERROR("Couldn't create EGL/OpenGL renderer.\n");
-            ok = EIO;
             goto fail_unref_scheduler;
         }
 
@@ -2523,7 +2429,7 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
     if (cmd_args.dummy_display) {
         window = dummy_window_new(
             tracer,
-            scheduler,
+            fpi->scheduler,
             renderer_type,
             gl_renderer,
             vk_renderer,
@@ -2537,7 +2443,7 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
         window = kms_window_new(
             // clang-format off
             tracer,
-            scheduler,
+            fpi->scheduler,
             renderer_type,
             gl_renderer,
             vk_renderer,
@@ -2551,6 +2457,7 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
             cmd_args.has_physical_dimensions, cmd_args.physical_dimensions.x, cmd_args.physical_dimensions.y,
             cmd_args.has_pixel_format, cmd_args.pixel_format,
             drmdev,
+            resources,
             desired_videomode
             // clang-format on
         );
@@ -2560,6 +2467,8 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
         }
     }
 
+    drm_resources_unrefp(&resources);
+
     compositor = compositor_new(tracer, window);
     if (compositor == NULL) {
         LOG_ERROR("Couldn't create compositor.\n");
@@ -2568,7 +2477,7 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
 
     /// TODO: Do we really need the window after this?
     if (drmdev != NULL) {
-        ok = sd_event_add_io(event_loop, NULL, drmdev_get_event_fd(drmdev), EPOLLIN | EPOLLHUP | EPOLLPRI, on_drmdev_ready, drmdev);
+        ok = sd_event_add_io(event_loop, NULL, drmdev_get_modesetting_fd(drmdev), EPOLLIN | EPOLLHUP | EPOLLPRI, on_drmdev_ready, drmdev);
         if (ok < 0) {
             LOG_ERROR("Could not add DRM pageflip event listener. sd_event_add_io: %s\n", strerror(-ok));
             goto fail_unref_compositor;
@@ -2598,8 +2507,8 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
         fpi,
         &geometry.display_to_view_transform,
         &geometry.view_to_display_transform,
-        geometry.display_size.x,
-        geometry.display_size.y
+        (unsigned int) geometry.display_size.x,
+        (unsigned int) geometry.display_size.y
     );
     if (input == NULL) {
         LOG_ERROR("Couldn't initialize user input. flutter-pi will run without user input.\n");
@@ -2698,8 +2607,9 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
     }
 
     // We don't need these anymore.
-    frame_scheduler_unref(scheduler);
     window_unref(window);
+
+    free(cmd_args.bundle_path);
 
     pthread_mutex_init(&fpi->event_loop_mutex, get_default_mutex_attrs());
     fpi->event_loop_thread = pthread_self();
@@ -2712,7 +2622,6 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
     fpi->vk_renderer = vk_renderer;
     fpi->user_input = input;
     fpi->flutter.runtime_mode = runtime_mode;
-    fpi->flutter.bundle_path = realpath(bundle_path, NULL);
     fpi->flutter.engine_argc = engine_argc;
     fpi->flutter.engine_argv = engine_argv;
     fpi->flutter.paths = paths;
@@ -2759,12 +2668,15 @@ fail_unref_renderer:
     }
 
 fail_unref_scheduler:
-    frame_scheduler_unref(scheduler);
+    frame_scheduler_unref(fpi->scheduler);
 
 fail_unref_tracer:
     tracer_unref(tracer);
 
 fail_destroy_drmdev:
+    if (resources != NULL) {
+        drm_resources_unref(resources);
+    }
     drmdev_unref(drmdev);
 
 fail_destroy_locales:
@@ -2790,6 +2702,7 @@ fail_free_paths:
 
 fail_free_cmd_args:
     free(cmd_args.bundle_path);
+    free(cmd_args.desired_videomode);
 
 fail_free_fpi:
     free(fpi);

@@ -21,7 +21,8 @@
 #include "cursor.h"
 #include "flutter-pi.h"
 #include "frame_scheduler.h"
-#include "modesetting.h"
+#include "kms/drmdev.h"
+#include "kms/resources.h"
 #include "render_surface.h"
 #include "surface.h"
 #include "tracer.h"
@@ -73,7 +74,7 @@ struct window {
      * To calculate this, the physical dimensions of the display are required. If there are no physical dimensions,
      * this will default to 1.0.
      */
-    double pixel_ratio;
+    float pixel_ratio;
 
     /**
      * @brief Whether we have physical screen dimensions and @ref width_mm and @ref height_mm contain usable values.
@@ -162,6 +163,8 @@ struct window {
      */
     struct {
         struct drmdev *drmdev;
+        struct drm_resources *resources;
+        
         struct drm_connector *connector;
         struct drm_encoder *encoder;
         struct drm_crtc *crtc;
@@ -171,6 +174,7 @@ struct window {
 
         const struct pointer_icon *pointer_icon;
         struct cursor_buffer *cursor;
+
     } kms;
 
     /**
@@ -300,7 +304,7 @@ static int window_init(
     // clang-format on
 ) {
     enum device_orientation original_orientation;
-    double pixel_ratio;
+    float pixel_ratio;
 
     ASSERT_NOT_NULL(window);
     ASSERT_NOT_NULL(tracer);
@@ -317,7 +321,7 @@ static int window_init(
         );
         pixel_ratio = 1.0;
     } else {
-        pixel_ratio = (10.0 * width) / (width_mm * 38.0);
+        pixel_ratio = (10.0f * width) / (width_mm * 38.0f);
 
         int horizontal_dpi = (int) (width / (width_mm / 25.4));
         int vertical_dpi = (int) (height / (height_mm / 25.4));
@@ -701,43 +705,23 @@ static void cursor_buffer_destroy(struct cursor_buffer *buffer) {
     free(buffer);
 }
 
-static void cursor_buffer_destroy_with_locked_drmdev(struct cursor_buffer *buffer) {
-    drmdev_rm_fb_locked(buffer->drmdev, buffer->drm_fb_id);
-    gbm_bo_destroy(buffer->bo);
-    drmdev_unref(buffer->drmdev);
-    free(buffer);
-}
-
 DEFINE_STATIC_REF_OPS(cursor_buffer, n_refs)
 
-static void cursor_buffer_unref_with_locked_drmdev(void *userdata) {
-    struct cursor_buffer *cursor;
-
-    ASSERT_NOT_NULL(userdata);
-    cursor = userdata;
-
-    if (refcount_dec(&cursor->n_refs) == false) {
-        cursor_buffer_destroy_with_locked_drmdev(cursor);
-    }
-}
-
 static int select_mode(
-    struct drmdev *drmdev,
+    struct drm_resources *resources,
     struct drm_connector **connector_out,
     struct drm_encoder **encoder_out,
     struct drm_crtc **crtc_out,
     drmModeModeInfo **mode_out,
     const char *desired_videomode
 ) {
-    struct drm_connector *connector;
-    struct drm_encoder *encoder;
-    struct drm_crtc *crtc;
-    drmModeModeInfo *mode, *mode_iter;
     int ok;
 
     // find any connected connector
-    for_each_connector_in_drmdev(drmdev, connector) {
-        if (connector->variable_state.connection_state == kConnected_DrmConnectionState) {
+    struct drm_connector *connector = NULL;
+    drm_resources_for_each_connector(resources, connector_it) {
+        if (connector_it->variable_state.connection_state == DRM_CONNSTATE_CONNECTED) {
+            connector = connector_it;
             break;
         }
     }
@@ -747,9 +731,9 @@ static int select_mode(
         return EINVAL;
     }
 
-    mode = NULL;
+    drmModeModeInfo *mode = NULL;
     if (desired_videomode != NULL) {
-        for_each_mode_in_connector(connector, mode_iter) {
+        drm_connector_for_each_mode(connector, mode_iter) {
             char *modeline = NULL, *modeline_nohz = NULL;
 
             ok = asprintf(&modeline, "%" PRIu16 "x%" PRIu16 "@%" PRIu32, mode_iter->hdisplay, mode_iter->vdisplay, mode_iter->vrefresh);
@@ -786,7 +770,7 @@ static int select_mode(
     // Alternatively, find the mode with the highest width*height. If there are multiple modes with the same w*h,
     // prefer higher refresh rates. After that, prefer progressive scanout modes.
     if (mode == NULL) {
-        for_each_mode_in_connector(connector, mode_iter) {
+        drm_connector_for_each_mode(connector, mode_iter) {
             if (mode_iter->type & DRM_MODE_TYPE_PREFERRED) {
                 mode = mode_iter;
                 break;
@@ -812,8 +796,10 @@ static int select_mode(
     ASSERT_NOT_NULL(mode);
 
     // Find the encoder that's linked to the connector right now
-    for_each_encoder_in_drmdev(drmdev, encoder) {
-        if (encoder->encoder->encoder_id == connector->committed_state.encoder_id) {
+    struct drm_encoder *encoder = NULL;
+    drm_resources_for_each_encoder(resources, encoder_it) {
+        if (encoder_it->id == connector->committed_state.encoder_id) {
+            encoder = encoder_it;
             break;
         }
     }
@@ -821,13 +807,14 @@ static int select_mode(
     // Otherwise use use any encoder that the connector supports linking to
     if (encoder == NULL) {
         for (int i = 0; i < connector->n_encoders; i++, encoder = NULL) {
-            for_each_encoder_in_drmdev(drmdev, encoder) {
-                if (encoder->encoder->encoder_id == connector->encoders[i]) {
+            drm_resources_for_each_encoder(resources, encoder_it) {
+                if (encoder_it->id == connector->encoders[i]) {
+                    encoder = encoder_it;
                     break;
                 }
             }
 
-            if (encoder->encoder->possible_crtcs) {
+            if (encoder && encoder->possible_crtcs) {
                 // only use this encoder if there's a crtc we can use with it
                 break;
             }
@@ -840,17 +827,20 @@ static int select_mode(
     }
 
     // Find the CRTC that's currently linked to this encoder
-    for_each_crtc_in_drmdev(drmdev, crtc) {
-        if (crtc->id == encoder->encoder->crtc_id) {
+    struct drm_crtc *crtc = NULL;
+    drm_resources_for_each_crtc(resources, crtc_it) {
+        if (crtc_it->id == encoder->variable_state.crtc_id) {
+            crtc = crtc_it;
             break;
         }
     }
 
     // Otherwise use any CRTC that this encoder supports linking to
     if (crtc == NULL) {
-        for_each_crtc_in_drmdev(drmdev, crtc) {
-            if (encoder->encoder->possible_crtcs & crtc->bitmask) {
+        drm_resources_for_each_crtc(resources, crtc_it) {
+            if (encoder->possible_crtcs & crtc_it->bitmask) {
                 // find a CRTC that is possible to use with this encoder
+                crtc = crtc_it;
                 break;
             }
         }
@@ -898,6 +888,7 @@ MUST_CHECK struct window *kms_window_new(
     bool has_explicit_dimensions, int width_mm, int height_mm,
     bool has_forced_pixel_format, enum pixfmt forced_pixel_format,
     struct drmdev *drmdev,
+    struct drm_resources *resources,
     const char *desired_videomode
     // clang-format on
 ) {
@@ -910,6 +901,7 @@ MUST_CHECK struct window *kms_window_new(
     int ok;
 
     ASSERT_NOT_NULL(drmdev);
+    ASSERT_NOT_NULL(resources);
 
 #if !defined(HAVE_VULKAN)
     ASSUME(renderer_type != kVulkan_RendererType);
@@ -930,7 +922,7 @@ MUST_CHECK struct window *kms_window_new(
         return NULL;
     }
 
-    ok = select_mode(drmdev, &selected_connector, &selected_encoder, &selected_crtc, &selected_mode, desired_videomode);
+    ok = select_mode(resources, &selected_connector, &selected_encoder, &selected_crtc, &selected_mode, desired_videomode);
     if (ok != 0) {
         goto fail_free_window;
     }
@@ -943,9 +935,8 @@ MUST_CHECK struct window *kms_window_new(
         has_dimensions = true;
         width_mm = selected_connector->variable_state.width_mm;
         height_mm = selected_connector->variable_state.height_mm;
-    } else if (selected_connector->type == DRM_MODE_CONNECTOR_DSI
-        && selected_connector->variable_state.width_mm == 0
-        && selected_connector->variable_state.height_mm == 0) {
+    } else if (selected_connector->type == DRM_MODE_CONNECTOR_DSI && selected_connector->variable_state.width_mm == 0 &&
+               selected_connector->variable_state.height_mm == 0) {
         // assume this is the official Raspberry Pi DSI display.
         has_dimensions = true;
         width_mm = 155;
@@ -985,11 +976,12 @@ MUST_CHECK struct window *kms_window_new(
         mode_get_vrefresh(selected_mode),
         width_mm,
         height_mm,
-        window->pixel_ratio,
+        (double) (window->pixel_ratio),
         has_forced_pixel_format ? get_pixfmt_info(forced_pixel_format)->name : "(any)"
     );
 
     window->kms.drmdev = drmdev_ref(drmdev);
+    window->kms.resources = drm_resources_ref(resources);
     window->kms.connector = selected_connector;
     window->kms.encoder = selected_encoder;
     window->kms.crtc = selected_crtc;
@@ -1080,48 +1072,66 @@ void kms_window_deinit(struct window *window) {
 
 struct frame {
     struct tracer *tracer;
+    struct drmdev *drmdev;
     struct kms_req *req;
+    struct frame_scheduler *scheduler;
     bool unset_should_apply_mode_on_commit;
 };
 
-UNUSED static void on_scanout(struct drmdev *drmdev, uint64_t vblank_ns, void *userdata) {
-    ASSERT_NOT_NULL(drmdev);
-    (void) drmdev;
-    (void) vblank_ns;
-    (void) userdata;
-
-    /// TODO: What should we do here?
-}
-
-static void on_present_frame(void *userdata) {
-    struct frame *frame;
-    int ok;
-
+UNUSED static void on_scanout(uint64_t vblank_ns, void *userdata) {
     ASSERT_NOT_NULL(userdata);
+    struct frame *frame = userdata;
 
-    frame = userdata;
+    // This potentially presents a new frame.
+    frame_scheduler_on_scanout(frame->scheduler, true, vblank_ns);
 
-    TRACER_BEGIN(frame->tracer, "kms_req_commit_nonblocking");
-    ok = kms_req_commit_blocking(frame->req, NULL);
-    TRACER_END(frame->tracer, "kms_req_commit_nonblocking");
-
-    if (ok != 0) {
-        LOG_ERROR("Could not commit frame request.\n");
-    }
-
+    frame_scheduler_unref(frame->scheduler);
     tracer_unref(frame->tracer);
     kms_req_unref(frame->req);
+    drmdev_unref(frame->drmdev);
     free(frame);
 }
 
+static void on_present_frame(void *userdata) {
+    ASSERT_NOT_NULL(userdata);
+    struct frame *frame = userdata;
+
+    int ok;
+
+    {
+        // Keep our own reference on tracer, because the frame might be destroyed
+        // after kms_req_commit_nonblocking returns.
+        struct tracer *tracer = tracer_ref(frame->tracer);
+
+        // The pageflip events might be handled on a different thread, so on_scanout
+        // might already be executed and the frame instance already freed once
+        // kms_req_commit_nonblocking returns.
+        TRACER_BEGIN(tracer, "kms_req_commit_nonblocking");
+        ok = kms_req_commit_nonblocking(frame->req, frame->drmdev, on_scanout, frame, NULL);
+        TRACER_END(tracer, "kms_req_commit_nonblocking");
+
+        tracer_unref(tracer);
+    }
+
+    if (ok != 0) {
+        LOG_ERROR("Could not commit frame request.\n");
+        frame_scheduler_unref(frame->scheduler);
+        tracer_unref(frame->tracer);
+        kms_req_unref(frame->req);
+        drmdev_unref(frame->drmdev);
+        free(frame);
+    }
+}
+
 static void on_cancel_frame(void *userdata) {
-    struct frame *frame;
     ASSERT_NOT_NULL(userdata);
 
-    frame = userdata;
+    struct frame *frame = userdata;
 
+    frame_scheduler_unref(frame->scheduler);
     tracer_unref(frame->tracer);
     kms_req_unref(frame->req);
+    drmdev_unref(frame->drmdev);
     free(frame);
 }
 
@@ -1152,7 +1162,7 @@ static int kms_window_push_composition_locked(struct window *window, struct fl_l
     /// TODO: If we don't have new revisions, we don't need to scanout anything.
     fl_layer_composition_swap_ptrs(&window->composition, composition);
 
-    builder = drmdev_create_request_builder(window->kms.drmdev, window->kms.crtc->id);
+    builder = kms_req_builder_new_atomic(window->kms.drmdev, window->kms.resources, window->kms.crtc->id);
     if (builder == NULL) {
         ok = ENOMEM;
         goto fail_unref_builder;
@@ -1206,7 +1216,7 @@ static int kms_window_push_composition_locked(struct window *window, struct fl_l
                 .in_fence_fd = 0,
                 .prefer_cursor = true,
             },
-            cursor_buffer_unref_with_locked_drmdev,
+            cursor_buffer_unref_void,
             NULL,
             window->kms.cursor
         );
@@ -1219,6 +1229,7 @@ static int kms_window_push_composition_locked(struct window *window, struct fl_l
 
     req = kms_req_builder_build(builder);
     if (req == NULL) {
+        ok = EIO;
         goto fail_unref_builder;
     }
 
@@ -1227,66 +1238,17 @@ static int kms_window_push_composition_locked(struct window *window, struct fl_l
 
     frame = malloc(sizeof *frame);
     if (frame == NULL) {
+        ok = ENOMEM;
         goto fail_unref_req;
     }
 
     frame->req = req;
     frame->tracer = tracer_ref(window->tracer);
+    frame->drmdev = drmdev_ref(window->kms.drmdev);
+    frame->scheduler = frame_scheduler_ref(window->frame_scheduler);
     frame->unset_should_apply_mode_on_commit = window->kms.should_apply_mode;
 
     frame_scheduler_present_frame(window->frame_scheduler, on_present_frame, frame, on_cancel_frame);
-
-    // if (window->present_mode == kDoubleBufferedVsync_PresentMode) {
-    //     TRACER_BEGIN(window->tracer, "kms_req_builder_commit");
-    //     ok = kms_req_commit(req, /* blocking: */ false);
-    //     TRACER_END(window->tracer, "kms_req_builder_commit");
-    //
-    //     if (ok != 0) {
-    //         LOG_ERROR("Could not commit frame request.\n");
-    //         goto fail_unref_window2;
-    //     }
-    //
-    //     if (window->set_set_mode) {
-    //         window->set_mode = false;
-    //         window->set_set_mode = false;
-    //     }
-    // } else {
-    //     ASSERT_EQUALS(window->present_mode, kTripleBufferedVsync_PresentMode);
-    //
-    //     if (window->present_immediately) {
-    //         TRACER_BEGIN(window->tracer, "kms_req_builder_commit");
-    //         ok = kms_req_commit(req, /* blocking: */ false);
-    //         TRACER_END(window->tracer, "kms_req_builder_commit");
-    //
-    //         if (ok != 0) {
-    //             LOG_ERROR("Could not commit frame request.\n");
-    //             goto fail_unref_window2;
-    //         }
-    //
-    //         if (window->set_set_mode) {
-    //             window->set_mode = false;
-    //             window->set_set_mode = false;
-    //         }
-    //
-    //         window->present_immediately = false;
-    //     } else {
-    //         if (window->next_frame != NULL) {
-    //             /// FIXME: Call the release callbacks when the kms_req is destroyed, not when it's unrefed.
-    //             /// Not sure this here will lead to the release callbacks being called multiple times.
-    //             kms_req_call_release_callbacks(window->next_frame);
-    //             kms_req_unref(window->next_frame);
-    //         }
-    //
-    //         window->next_frame = kms_req_ref(req);
-    //         window->set_set_mode = window->set_mode;
-    //     }
-    // }
-
-    // KMS Req is committed now and drmdev keeps a ref
-    // on it internally, so we don't need to keep this one.
-    // kms_req_unref(req);
-
-    // window_on_rendering_complete(window);
 
     return 0;
 
@@ -1392,14 +1354,13 @@ static struct render_surface *kms_window_get_render_surface_internal(struct wind
     // as the allowed modifiers.
     /// TODO: Find a way to rank pixel formats, maybe by number of planes that support them for scanout.
     {
-        struct drm_plane *plane;
-        for_each_plane_in_drmdev(window->kms.drmdev, plane) {
+        drm_resources_for_each_plane(window->kms.resources, plane) {
             if (!(plane->possible_crtcs & window->kms.crtc->bitmask)) {
                 // Only query planes that are possible to connect to the CRTC we're using.
                 continue;
             }
 
-            if (plane->type != kPrimary_DrmPlaneType && plane->type != kOverlay_DrmPlaneType) {
+            if (plane->type != DRM_PRIMARY_PLANE && plane->type != DRM_OVERLAY_PLANE) {
                 // We explicitly only look for primary and overlay planes.
                 continue;
             }
@@ -1428,11 +1389,15 @@ static struct render_surface *kms_window_get_render_surface_internal(struct wind
             drm_plane_for_each_modified_format(plane, count_modifiers_for_pixel_format, &context);
 
             n_allowed_modifiers = context.n_modifiers;
-            allowed_modifiers = calloc(n_allowed_modifiers, sizeof(*context.modifiers));
-            context.modifiers = allowed_modifiers;
+            if (n_allowed_modifiers) {
+                allowed_modifiers = calloc(n_allowed_modifiers, sizeof(*context.modifiers));
+                context.modifiers = allowed_modifiers;
 
-            // Next, fill context.modifiers with the allowed modifiers.
-            drm_plane_for_each_modified_format(plane, extract_modifiers_for_pixel_format, &context);
+                // Next, fill context.modifiers with the allowed modifiers.
+                drm_plane_for_each_modified_format(plane, extract_modifiers_for_pixel_format, &context);
+            } else {
+                allowed_modifiers = NULL;
+            }
             break;
         }
     }
@@ -1750,6 +1715,10 @@ static EGLSurface dummy_window_get_egl_surface(struct window *window) {
 
     if (window->renderer_type == kOpenGL_RendererType) {
         struct render_surface *render_surface = dummy_window_get_render_surface_internal(window, false, VEC2I(0, 0));
+        if (render_surface == NULL) {
+            return EGL_NO_SURFACE;
+        }
+
         return egl_gbm_render_surface_get_egl_surface(CAST_EGL_GBM_RENDER_SURFACE(render_surface));
     } else {
         return EGL_NO_SURFACE;

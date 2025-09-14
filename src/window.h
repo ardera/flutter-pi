@@ -11,7 +11,7 @@
 #define _FLUTTERPI_SRC_WINDOW_H
 
 #include "compositor_ng.h"
-#include "modesetting.h"
+#include "kms/resources.h"
 #include "pixel_format.h"
 #include "util/refcounting.h"
 
@@ -27,7 +27,7 @@ struct view_geometry {
     struct vec2f view_size, display_size;
     struct mat3f display_to_view_transform;
     struct mat3f view_to_display_transform;
-    double device_pixel_ratio;
+    float device_pixel_ratio;
 };
 
 enum renderer_type { kOpenGL_RendererType, kVulkan_RendererType };
@@ -65,6 +65,7 @@ struct window *kms_window_new(
     bool has_explicit_dimensions, int width_mm, int height_mm,
     bool has_forced_pixel_format, enum pixfmt forced_pixel_format,
     struct drmdev *drmdev,
+    struct drm_resources *resources,
     const char *desired_videomode
     // clang-format on
 );
