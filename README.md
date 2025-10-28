@@ -381,6 +381,7 @@ OPTIONS:
                              without a display attached.
   --dummy-display-size "width,height" The width & height of the dummy display
                              in pixels.
+  --drm-fd <fd>              An opened and valid DRM file descriptor
 
   -h, --help                 Show this help and exit.
 
