@@ -2463,10 +2463,9 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
             goto fail_destroy_locales;
         }
     } else {
-        void* fd_metadata;
         if(cmd_args.has_drm_fd){
             /* --drm-fd is passed, we don't want flutter-pi to handle the DRM choice */
-            drmdev = drmdev_new_from_interface_fd(cmd_args.drm_fd, fd_metadata, &drmdev_interface, libseat);
+            drmdev = drmdev_new_from_interface_fd(cmd_args.drm_fd, NULL, &drmdev_interface, libseat);
         }
         else{
             drmdev = find_drmdev(libseat);
