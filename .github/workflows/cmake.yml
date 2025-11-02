@@ -110,7 +110,7 @@ jobs:
           - 'off'
           - 'on-inproc'
           - 'on-crashpad-bundled'
-          - 'on-crashped-unbundled'
+          - 'on-crashpad-unbundled'
         include:
           - graphics-backends: 'vulkan-only'
             enable-vulkan: 'on'
@@ -153,7 +153,7 @@ jobs:
             sentry-bundled-crashpad-handler: 'on'
             sentry-deps: 'libcurl4-openssl-dev'
 
-          - senty-plugin: 'on-crashped-unbundled'
+          - senty-plugin: 'on-crashpad-unbundled'
             sentry-plugin-enable: 'on'
             sentry-backend: 'crashpad'
             sentry-bundled-crashpad-handler: 'off'
