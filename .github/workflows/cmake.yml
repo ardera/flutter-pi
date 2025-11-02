@@ -94,8 +94,9 @@ jobs:
     strategy:
       matrix:
         container:
+          - "debian:trixie"
+          - "debian:bookworm"
           - "debian:bullseye"
-          - "debian:buster"
         graphics-backends:
           - vulkan-only
           - opengl-only
