@@ -142,6 +142,8 @@ OPTIONS:\n\
   --dummy-display-size \"width,height\" The width & height of the dummy display\n\
                              in pixels.\n\
 \n\
+  --drm-fd                   An opened and valid DRM file descriptor\n\
+\n\
   -h, --help                 Show this help and exit.\n\
 \n\
 EXAMPLES:\n\
@@ -1876,9 +1878,9 @@ bool flutterpi_parse_cmdline_args(int argc, char **argv, struct flutterpi_cmdlin
         { "videomode", required_argument, NULL, 'v' },
         { "dummy-display", no_argument, &dummy_display_int, 1 },
         { "dummy-display-size", required_argument, NULL, 's' },
+        { "drm-fd", required_argument, NULL, 'f' },
         { 0, 0, 0, 0 },
     };
-
     memset(result_out, 0, sizeof *result_out);
 
     result_out->has_orientation = false;
@@ -1886,14 +1888,16 @@ bool flutterpi_parse_cmdline_args(int argc, char **argv, struct flutterpi_cmdlin
     result_out->has_physical_dimensions = false;
     result_out->has_pixel_format = false;
     result_out->has_runtime_mode = false;
+    result_out->has_drm_fd = false;
     result_out->bundle_path = NULL;
     result_out->engine_argc = 0;
     result_out->engine_argv = NULL;
+    result_out->drm_fd = -1;
 
     finished_parsing_options = false;
     while (!finished_parsing_options) {
         longopt_index = 0;
-        opt = getopt_long(argc, argv, "+i:o:r:d:h", long_options, &longopt_index);
+        opt = getopt_long(argc, argv, "+i:o:r:d:h:f", long_options, &longopt_index);
 
         switch (opt) {
             case 0:
@@ -1995,6 +1999,17 @@ valid_format:
                     return false;
                 }
 
+                break;
+
+            case 'f':;  // --drm-fd
+                char *drm_fd = strdup(optarg);
+                int fd = atoi(drm_fd);
+                if(fd <= 0){
+                    LOG_ERROR("ERROR: Invalid argument for --drm-fd passed.\n");
+                    return false;
+                }
+                result_out->has_drm_fd = true;
+                result_out->drm_fd = fd;
                 break;
 
             case 'h': printf("%s", usage); return false;
@@ -2448,7 +2463,13 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
             goto fail_destroy_locales;
         }
     } else {
-        drmdev = find_drmdev(libseat);
+        if(cmd_args.has_drm_fd){
+            /* --drm-fd is passed, we don't want flutter-pi to handle the DRM choice */
+            drmdev = drmdev_new_from_interface_fd(cmd_args.drm_fd, NULL, &drmdev_interface, libseat);
+        }
+        else{
+            drmdev = find_drmdev(libseat);
+        }
         if (drmdev == NULL) {
             goto fail_destroy_locales;
         }
