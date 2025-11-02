@@ -2,9 +2,9 @@ name: CMake
 
 on:
   push:
-    branches: [ master, feature/gh-actions, feature/compositor-ng ]
+    branches: [master, feature/gh-actions, feature/compositor-ng]
   pull_request:
-    branches: [ master, feature/gh-actions, feature/compositor-ng ]
+    branches: [master, feature/gh-actions, feature/compositor-ng]
   workflow_dispatch:
 
 jobs:
@@ -27,26 +27,26 @@ jobs:
           - Debug
           - Release
         include:
-          - graphics-backends: 'vulkan-only'
-            enable-vulkan: 'on'
-            enable-opengl: 'off'
-          
-          - graphics-backends: 'opengl-only'
-            enable-vulkan: 'off'
-            enable-opengl: 'on'
+          - graphics-backends: "vulkan-only"
+            enable-vulkan: "on"
+            enable-opengl: "off"
 
-          - graphics-backends: 'vulkan-and-opengl'
-            enable-vulkan: 'on'
-            enable-opengl: 'on'
-          
-          - enable-opengl: 'on'
-            opengl-deps: 'libgl1-mesa-dev libgles2-mesa-dev libegl1-mesa-dev'
+          - graphics-backends: "opengl-only"
+            enable-vulkan: "off"
+            enable-opengl: "on"
 
-          - enable-vulkan: 'on'
-            vulkan-deps: 'libvulkan-dev'
+          - graphics-backends: "vulkan-and-opengl"
+            enable-vulkan: "on"
+            enable-opengl: "on"
 
-          - compiler: 'clang'
-            clang-deps: 'clang'
+          - enable-opengl: "on"
+            opengl-deps: "libgl1-mesa-dev libgles2-mesa-dev libegl1-mesa-dev"
+
+          - enable-vulkan: "on"
+            vulkan-deps: "libvulkan-dev"
+
+          - compiler: "clang"
+            clang-deps: "clang"
     steps:
       # On the self-hosted runners, we assume those are already installed.
       # - name: Install dependencies
@@ -61,7 +61,7 @@ jobs:
 
       - uses: actions/checkout@v3
         with:
-          submodules: 'recursive'
+          submodules: "recursive"
 
       - name: Configure CMake
         run: |
@@ -94,8 +94,8 @@ jobs:
     strategy:
       matrix:
         container:
-          - 'debian:bullseye'
-          - 'debian:buster'
+          - "debian:bullseye"
+          - "debian:buster"
         graphics-backends:
           - vulkan-only
           - opengl-only
@@ -107,57 +107,57 @@ jobs:
           - Debug
           - Release
         sentry-plugin:
-          - 'off'
-          - 'on-inproc'
-          - 'on-crashpad-bundled'
-          - 'on-crashpad-unbundled'
+          - "off"
+          - "on-inproc"
+          - "on-crashpad-bundled"
+          - "on-crashpad-unbundled"
         include:
-          - graphics-backends: 'vulkan-only'
-            enable-vulkan: 'on'
-            enable-opengl: 'off'
-          
-          - graphics-backends: 'opengl-only'
-            enable-vulkan: 'off'
-            enable-opengl: 'on'
+          - graphics-backends: "vulkan-only"
+            enable-vulkan: "on"
+            enable-opengl: "off"
 
-          - graphics-backends: 'vulkan-and-opengl'
-            enable-vulkan: 'on'
-            enable-opengl: 'on'
-          
-          - enable-opengl: 'on'
-            opengl-deps: 'libgl1-mesa-dev libgles2-mesa-dev libegl1-mesa-dev'
+          - graphics-backends: "opengl-only"
+            enable-vulkan: "off"
+            enable-opengl: "on"
 
-          - enable-vulkan: 'on'
-            vulkan-deps: 'libvulkan-dev'
-          
-          - compiler: 'gcc'
-            cxx-compiler: 'g++'
-            gcc-deps: 'gcc g++'
+          - graphics-backends: "vulkan-and-opengl"
+            enable-vulkan: "on"
+            enable-opengl: "on"
 
-          - compiler: 'clang'
-            cxx-compiler: 'clang++'
-            clang-deps: 'clang'
-          
-          - sentry-plugin: 'off'
-            sentry-plugin-enable: 'off'
-            sentry-deps: ''
-          
-          - sentry-plugin: 'on-inproc'
-            sentry-plugin-enable: 'on'
-            sentry-backend: 'inproc'
-            sentry-deps: 'libcurl4-openssl-dev'
+          - enable-opengl: "on"
+            opengl-deps: "libgl1-mesa-dev libgles2-mesa-dev libegl1-mesa-dev"
 
-          - sentry-plugin: 'on-crashpad-bundled'
-            sentry-plugin-enable: 'on'
-            sentry-backend: 'crashpad'
-            sentry-bundled-crashpad-handler: 'on'
-            sentry-deps: 'libcurl4-openssl-dev'
+          - enable-vulkan: "on"
+            vulkan-deps: "libvulkan-dev"
 
-          - senty-plugin: 'on-crashpad-unbundled'
-            sentry-plugin-enable: 'on'
-            sentry-backend: 'crashpad'
-            sentry-bundled-crashpad-handler: 'off'
-            sentry-deps: 'libcurl4-openssl-dev'
+          - compiler: "gcc"
+            cxx-compiler: "g++"
+            gcc-deps: "gcc g++"
+
+          - compiler: "clang"
+            cxx-compiler: "clang++"
+            clang-deps: "clang"
+
+          - sentry-plugin: "off"
+            sentry-plugin-enable: "off"
+            sentry-deps: ""
+
+          - sentry-plugin: "on-inproc"
+            sentry-plugin-enable: "on"
+            sentry-backend: "inproc"
+            sentry-deps: "libcurl4-openssl-dev"
+
+          - sentry-plugin: "on-crashpad-bundled"
+            sentry-plugin-enable: "on"
+            sentry-backend: "crashpad"
+            sentry-bundled-crashpad-handler: "on"
+            sentry-deps: "libcurl4-openssl-dev"
+
+          - senty-plugin: "on-crashpad-unbundled"
+            sentry-plugin-enable: "on"
+            sentry-backend: "crashpad"
+            sentry-bundled-crashpad-handler: "off"
+            sentry-deps: "libcurl4-openssl-dev"
     steps:
       # git needs to be installed before checking out, otherwise the checkout will fallback to the REST API,
       # and the submodule download won't work.
@@ -175,7 +175,7 @@ jobs:
 
       - uses: actions/checkout@v3
         with:
-          submodules: 'recursive'
+          submodules: "recursive"
 
       - name: Configure CMake
         run: |
