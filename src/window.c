@@ -171,6 +171,8 @@ struct window {
 
         const struct pointer_icon *pointer_icon;
         struct cursor_buffer *cursor;
+
+        bool logged_cursor_plane_allocation_failed;
     } kms;
 
     /**
@@ -1211,7 +1213,10 @@ static int kms_window_push_composition_locked(struct window *window, struct fl_l
             window->kms.cursor
         );
         if (ok != 0) {
-            LOG_ERROR("Couldn't present cursor.\n");
+            if (!window->kms.logged_cursor_plane_allocation_failed) {
+                window->kms.logged_cursor_plane_allocation_failed = true;
+                LOG_ERROR("Couldn't present cursor.\n");
+            }
         } else {
             cursor_buffer_ref(window->kms.cursor);
         }
