@@ -687,7 +687,8 @@ static int vk_gbm_render_surface_present_kms(struct surface *s, const struct fl_
             .src_w = DOUBLE_TO_FP1616_ROUNDED(vk_surface->render_surface.size.x),
             .src_h = DOUBLE_TO_FP1616_ROUNDED(vk_surface->render_surface.size.y),
 
-            .has_rotation = false,
+            // see egl_gbm_render_surface_present_kms
+            .has_rotation = true,
             .rotation = PLANE_TRANSFORM_ROTATE_0,
 
             .has_in_fence_fd = false,
@@ -695,7 +696,8 @@ static int vk_gbm_render_surface_present_kms(struct surface *s, const struct fl_
         },
         on_release_layer,
         NULL,
-        locked_fb_ref(vk_surface->front_fb)
+        locked_fb_ref(vk_surface->front_fb),
+        NULL
     );
     TRACER_END(vk_surface->surface.tracer, "kms_req_builder_push_fb_layer");
     if (ok != 0) {

@@ -2,6 +2,7 @@
 
 #include <errno.h>
 #include <inttypes.h>
+#include <stdatomic.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -2400,7 +2401,8 @@ int kms_req_builder_push_fb_layer(
     const struct kms_fb_layer *layer,
     kms_fb_release_cb_t release_callback,
     kms_deferred_fb_release_cb_t deferred_release_callback,
-    void *userdata
+    void *userdata,
+    bool *allocated_cursor_plane
 ) {
     struct drm_plane *plane;
     int64_t zpos;
@@ -2449,7 +2451,10 @@ int kms_req_builder_push_fb_layer(
             // clang-format on
         );
         if (plane == NULL) {
+            if (allocated_cursor_plane) *allocated_cursor_plane = false;
             LOG_DEBUG("Couldn't find a fitting cursor plane.\n");
+        } else  {
+            if (allocated_cursor_plane) *allocated_cursor_plane = true;
         }
     }
 
