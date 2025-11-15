@@ -70,7 +70,7 @@ struct kms_req_builder {
     struct drm_connector *connector;
     struct drm_crtc *crtc;
 
-    BITSET_DECLARE(available_planes, 32);
+    BITSET_DECLARE(available_planes, 128);
     drmModeAtomicReq *req;
     int64_t next_zpos;
 
@@ -82,7 +82,7 @@ struct kms_req_builder {
     drmModeModeInfo mode;
 };
 
-COMPILE_ASSERT(BITSET_SIZE(((struct kms_req_builder *) 0)->available_planes) == 32);
+COMPILE_ASSERT(BITSET_SIZE(((struct kms_req_builder *) 0)->available_planes) == 128);
 
 struct drmdev {
     int fd;
