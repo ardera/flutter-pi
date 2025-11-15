@@ -2527,7 +2527,7 @@ int kms_req_builder_push_fb_layer(
     }
 
     if (plane == NULL) {
-        LOG_ERROR("Could not find a suitable unused DRM plane for pushing the framebuffer.\n");
+        LOG_DEBUG("Could not find a suitable unused DRM plane for pushing the framebuffer.\n");
         return EIO;
     }
 
