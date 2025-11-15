@@ -2,6 +2,7 @@
 
 #include <errno.h>
 #include <inttypes.h>
+#include <stdatomic.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -70,7 +71,7 @@ struct kms_req_builder {
     struct drm_connector *connector;
     struct drm_crtc *crtc;
 
-    BITSET_DECLARE(available_planes, 32);
+    BITSET_DECLARE(available_planes, 128);
     drmModeAtomicReq *req;
     int64_t next_zpos;
 
@@ -82,7 +83,7 @@ struct kms_req_builder {
     drmModeModeInfo mode;
 };
 
-COMPILE_ASSERT(BITSET_SIZE(((struct kms_req_builder *) 0)->available_planes) == 32);
+COMPILE_ASSERT(BITSET_SIZE(((struct kms_req_builder *) 0)->available_planes) == 128);
 
 struct drmdev {
     int fd;
@@ -2400,7 +2401,8 @@ int kms_req_builder_push_fb_layer(
     const struct kms_fb_layer *layer,
     kms_fb_release_cb_t release_callback,
     kms_deferred_fb_release_cb_t deferred_release_callback,
-    void *userdata
+    void *userdata,
+    bool *allocated_cursor_plane
 ) {
     struct drm_plane *plane;
     int64_t zpos;
@@ -2449,7 +2451,10 @@ int kms_req_builder_push_fb_layer(
             // clang-format on
         );
         if (plane == NULL) {
+            if (allocated_cursor_plane) *allocated_cursor_plane = false;
             LOG_DEBUG("Couldn't find a fitting cursor plane.\n");
+        } else  {
+            if (allocated_cursor_plane) *allocated_cursor_plane = true;
         }
     }
 
@@ -2527,7 +2532,7 @@ int kms_req_builder_push_fb_layer(
     }
 
     if (plane == NULL) {
-        LOG_ERROR("Could not find a suitable unused DRM plane for pushing the framebuffer.\n");
+        LOG_DEBUG("Could not find a suitable unused DRM plane for pushing the framebuffer.\n");
         return EIO;
     }
 

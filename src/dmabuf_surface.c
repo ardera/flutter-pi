@@ -310,7 +310,8 @@ static int dmabuf_surface_present_kms(struct surface *_s, const struct fl_layer_
         },
         refcounted_dmabuf_unref_void,
         NULL,
-        refcounted_dmabuf_ref(s->next_buf)
+        refcounted_dmabuf_ref(s->next_buf),
+        NULL
     );
     if (ok != 0) {
         LOG_ERROR("Couldn't push KMS fb layer. kms_req_builder_push_fb_layer: %s\n", strerror(ok));
