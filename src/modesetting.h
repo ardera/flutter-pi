@@ -861,6 +861,10 @@ bool kms_req_builder_prefer_next_layer_opaque(struct kms_req_builder *builder);
  *                                  instead.
  * @param userdata Userdata pointer that's passed to the release_callback or
  *                 deferred_release_callback as-is.
+ * @param allocated_cursor_plane    When layer->prefer_cursor is set, this will
+ *                                  be set to true if a cursor layer was
+ *                                  successfully allocated. Otherwise, it will
+ *                                  be set to false.
  * @returns Zero on success, otherwise:
  *            - EINVAL: if attempting to push a second framebuffer layer, if
  *                driver supports atomic modesetting but legacy modesetting is
@@ -877,7 +881,8 @@ int kms_req_builder_push_fb_layer(
     const struct kms_fb_layer *layer,
     kms_fb_release_cb_t release_callback,
     kms_deferred_fb_release_cb_t deferred_release_callback,
-    void *userdata
+    void *userdata,
+    bool *allocated_cursor_plane
 );
 
 /**

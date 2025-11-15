@@ -173,6 +173,7 @@ struct window {
         struct cursor_buffer *cursor;
 
         bool logged_cursor_plane_allocation_failed;
+        bool has_cursor_plane;
     } kms;
 
     /**
@@ -1202,17 +1203,19 @@ static int kms_window_push_composition_locked(struct window *window, struct fl_l
                 .dst_y = window->cursor_pos.y - window->kms.cursor->hotspot.y,
                 .dst_w = window->kms.cursor->width,
                 .dst_h = window->kms.cursor->height,
-                .has_rotation = false,
-                .rotation = PLANE_TRANSFORM_NONE,
+                .has_rotation = true,
+                .rotation = PLANE_TRANSFORM_ROTATE_0,
                 .has_in_fence_fd = false,
                 .in_fence_fd = 0,
                 .prefer_cursor = true,
             },
             cursor_buffer_unref_with_locked_drmdev,
             NULL,
-            window->kms.cursor
+            window->kms.cursor,
+            &window->kms.has_cursor_plane
         );
         if (ok != 0) {
+            window->kms.has_cursor_plane = false;
             if (!window->kms.logged_cursor_plane_allocation_failed) {
                 window->kms.logged_cursor_plane_allocation_failed = true;
                 LOG_ERROR("Couldn't present cursor.\n");
@@ -1575,7 +1578,21 @@ static int kms_window_set_cursor_locked(
         } else if (has_pos) {
             // apply the new cursor position using drmModeMoveCursor
             window->cursor_pos = pos;
-            drmdev_move_cursor(window->kms.drmdev, window->kms.crtc->id, vec2i_sub(pos, window->kms.cursor->hotspot));
+
+            // if we have a hardware cursor plane, just move the cursor.
+            // this is very fast and we can do that a lot of times per frame.
+            //
+            // if we don't have a hardware cursor plane, we need to do a full commit.
+            // However, we can only do one commit per vsync, so if flutter also later
+            // wants to present a frame, we wouldn't be able to present it. Even later
+            // cursor movements in the same vsync interval we couldn't show on screen anymore.
+            //
+            // Mutter (GNOME's compositor) has an extra KMS cursor thread with high priority for that purpose.
+            if (window->kms.has_cursor_plane) {
+                drmdev_move_cursor(window->kms.drmdev, window->kms.crtc->id, vec2i_sub(pos, window->kms.cursor->hotspot));
+            } else {
+                // for now just don't do anything.
+            }
         }
     } else {
         if (window->kms.cursor != NULL) {
