@@ -923,6 +923,10 @@ int kms_req_commit_blocking(struct kms_req *req, uint64_t *vblank_ns_out);
 
 int kms_req_commit_nonblocking(struct kms_req *req, kms_scanout_cb_t scanout_cb, void *userdata, void_callback_t destroy_cb);
 
+uint64_t kms_dpms_getValue(struct drmdev *drmdev);
+
+void kms_dpms_setValue(struct drmdev *drmdev, uint64_t value);
+
 struct drm_connector *__next_connector(const struct drmdev *drmdev, const struct drm_connector *connector);
 
 struct drm_encoder *__next_encoder(const struct drmdev *drmdev, const struct drm_encoder *encoder);

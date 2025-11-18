@@ -199,4 +199,10 @@ void flutterpi_trace_event_begin(struct flutterpi *flutterpi, const char *name);
 
 void flutterpi_trace_event_end(struct flutterpi *flutterpi, const char *name);
 
+uint32_t dpms_isAvailable();
+
+void dpms_setProperty(uint64_t value) ;
+
+uint64_t dpms_getProperty();
+
 #endif  // _FLUTTERPI_SRC_FLUTTERPI_H

@@ -2995,3 +2995,104 @@ int kms_req_commit_blocking(struct kms_req *req, uint64_t *vblank_ns_out) {
 int kms_req_commit_nonblocking(struct kms_req *req, kms_scanout_cb_t scanout_cb, void *userdata, void_callback_t destroy_cb) {
     return kms_req_commit_common(req, false, scanout_cb, userdata, destroy_cb);
 }
+
+#define DPMS_PROPERTY_NAME "DPMS"
+#define DPMS_ERROR_PROPERTY_ID 0
+// FIXME: Is 0 error value?
+#define DPMS_ERROR_PROPERTY_VALUE 0
+
+
+uint32_t kms_drm_getDPMSPropertyId(struct drmdev *drmdev, uint32_t connector_id){
+    ASSERT_NOT_NULL(drmdev);
+    ASSERT_NOT_NULL(drmdev->fd);
+    drmModeObjectProperties *props = drmModeObjectGetProperties(drmdev->fd, connector_id, DRM_MODE_OBJECT_CONNECTOR);
+    if (props == NULL){
+       int ok = errno;
+        LOG_ERROR("Could not get connector properties. drmModeObjectGetProperties: %s\n", strerror(ok));
+        return DPMS_ERROR_PROPERTY_ID;
+    }
+
+    uint32_t result_prop_id = DPMS_ERROR_PROPERTY_ID;
+	for (unsigned i = 0; i < props->count_props; ++i) {
+		uint32_t prop_id = props->props[i];
+        drmModePropertyRes *drm_prop = drmModeGetProperty(drmdev->fd, prop_id);
+        if (drm_prop != NULL) {
+            if (streq(drm_prop->name, DPMS_PROPERTY_NAME)){
+                result_prop_id = prop_id;
+            }
+        }
+        drmModeFreeProperty(drm_prop);
+	}
+
+	drmModeFreeObjectProperties(props);
+    return result_prop_id;
+}
+
+uint32_t kms_drm_getDPMSPropertyValue(struct drmdev *drmdev, uint32_t connector_id){
+    ASSERT_NOT_NULL(drmdev);
+    ASSERT_NOT_NULL(drmdev->fd);
+    drmModeObjectProperties *props = drmModeObjectGetProperties(drmdev->fd, connector_id, DRM_MODE_OBJECT_CONNECTOR);
+    if (props == NULL){
+       int ok = errno;
+        LOG_ERROR("Could not get connector properties. drmModeObjectGetProperties: %s\n", strerror(ok));
+        return DPMS_ERROR_PROPERTY_ID;
+    }
+
+    uint32_t result_prop_value = DPMS_ERROR_PROPERTY_VALUE;
+	for (unsigned i = 0; i < props->count_props; ++i) {
+		uint32_t prop_id = props->props[i];
+        drmModePropertyRes *drm_prop = drmModeGetProperty(drmdev->fd, prop_id);
+        if (drm_prop != NULL) {
+            if (streq(drm_prop->name, DPMS_PROPERTY_NAME)){
+                result_prop_value = props->prop_values[i];
+            }
+        }
+        drmModeFreeProperty(drm_prop);
+	}
+
+	drmModeFreeObjectProperties(props);
+    return result_prop_value;
+}
+
+
+uint64_t kms_dpms_getValue(struct drmdev *drmdev){
+    ASSERT_NOT_NULL(drmdev);
+
+    struct drm_connector *connectors =  drmdev->connectors;
+    size_t n_connectors = drmdev->n_connectors;
+    uint64_t result = DPMS_ERROR_PROPERTY_VALUE;
+
+    for (int i = 0; i < n_connectors; i++) {
+        if (
+        connectors->variable_state.connection_state == kConnected_DrmConnectionState ||
+        connectors->variable_state.connection_state == kUnknown_DrmConnectionState ){
+            uint32_t property_id = kms_drm_getDPMSPropertyId(drmdev, connectors->id);
+            if (property_id != DPMS_ERROR_PROPERTY_ID){
+                // Return only first value
+                result = kms_drm_getDPMSPropertyValue(drmdev, connectors->id);
+                break;
+            }
+        }
+    }
+
+    return result;
+}
+
+
+void kms_dpms_setValue(struct drmdev *drmdev, uint64_t value){
+    ASSERT_NOT_NULL(drmdev);
+
+    struct drm_connector *connectors =  drmdev->connectors;
+    size_t n_connectors = drmdev->n_connectors;
+
+    for (int i = 0; i < n_connectors; i++) {
+        if (
+        connectors->variable_state.connection_state == kConnected_DrmConnectionState ||
+        connectors->variable_state.connection_state == kUnknown_DrmConnectionState ){
+            uint32_t property_id = kms_drm_getDPMSPropertyId(drmdev, connectors->id);
+            if (property_id != DPMS_ERROR_PROPERTY_ID){
+                drmModeObjectSetProperty(drmdev->fd, connectors->id, DRM_MODE_OBJECT_CONNECTOR, property_id, value);
+            }
+        }
+    }
+}
