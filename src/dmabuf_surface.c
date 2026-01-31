@@ -305,6 +305,8 @@ static int dmabuf_surface_present_kms(struct surface *_s, const struct fl_layer_
 
             .has_rotation = false,
             .rotation = PLANE_TRANSFORM_ROTATE_0,
+            .enforce_rotation = false,
+
             .has_in_fence_fd = false,
             .in_fence_fd = 0,
         },

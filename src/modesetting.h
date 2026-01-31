@@ -736,6 +736,7 @@ struct kms_fb_layer {
 
     bool has_rotation;
     drm_plane_transform_t rotation;
+    bool enforce_rotation;
 
     bool has_in_fence_fd;
     int in_fence_fd;
@@ -750,6 +751,15 @@ typedef void (*kms_deferred_fb_release_cb_t)(void *userdata, int syncfile_fd);
 struct kms_req_builder;
 
 struct kms_req_builder *drmdev_create_request_builder(struct drmdev *drmdev, uint32_t crtc_id);
+
+
+//DPMS (2) = 0 (On) [On=0|Standby=1|Suspend=2|Off=3]
+#define DRM_MODE_DPMS_OFF 3
+#define DRM_MODE_DPMS_ON 0
+
+struct kms_req *drmdev_create_dpms_off_req(struct drmdev *drmdev, uint32_t crtc_id);
+struct kms_req *drmdev_create_dpms_on_req(struct drmdev *drmdev, uint32_t crtc_id);
+
 
 DECLARE_REF_OPS(kms_req_builder);
 

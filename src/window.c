@@ -228,6 +228,7 @@ struct window {
 
     int (*push_composition)(struct window *window, struct fl_layer_composition *composition);
     struct render_surface *(*get_render_surface)(struct window *window, struct vec2i size);
+    int set_dpms(struct window *window, bool dpms);
 
 #ifdef HAVE_EGL_GLES2
     bool (*has_egl_surface)(struct window *window);
@@ -411,6 +412,7 @@ static int window_init(
     window->cursor_enabled = false;
     window->cursor_pos = VEC2I(0, 0);
     window->push_composition = NULL;
+    window->set_dpms = NULL;
     window->get_render_surface = NULL;
 #ifdef HAVE_EGL_GLES2
     window->has_egl_surface = NULL;
@@ -1019,6 +1021,7 @@ MUST_CHECK struct window *kms_window_new(
     }
     window->push_composition = kms_window_push_composition;
     window->get_render_surface = kms_window_get_render_surface;
+    window->set_dpms = kms_window_set_dpms;
 #ifdef HAVE_EGL_GLES2
     window->has_egl_surface = kms_window_has_egl_surface;
     window->get_egl_surface = kms_window_get_egl_surface;
@@ -1203,8 +1206,11 @@ static int kms_window_push_composition_locked(struct window *window, struct fl_l
                 .dst_y = window->cursor_pos.y - window->kms.cursor->hotspot.y,
                 .dst_w = window->kms.cursor->width,
                 .dst_h = window->kms.cursor->height,
+
                 .has_rotation = true,
                 .rotation = PLANE_TRANSFORM_ROTATE_0,
+                .enforce_rotation = false,
+
                 .has_in_fence_fd = false,
                 .in_fence_fd = 0,
                 .prefer_cursor = true,
@@ -1675,6 +1681,7 @@ MUST_CHECK struct window *dummy_window_new(
     }
     window->push_composition = dummy_window_push_composition;
     window->get_render_surface = dummy_window_get_render_surface;
+    window->set_dpms = dummy_window_set_dpms;
 #ifdef HAVE_EGL_GLES2
     window->has_egl_surface = dummy_window_has_egl_surface;
     window->get_egl_surface = dummy_window_get_egl_surface;
@@ -1682,6 +1689,17 @@ MUST_CHECK struct window *dummy_window_new(
     window->deinit = dummy_window_deinit;
     window->set_cursor_locked = dummy_window_set_cursor_locked;
     return window;
+}
+
+
+static int dummy_window_set_dpms(struct window *window, bool dpms) {
+    window_lock(window);
+
+    //????
+
+    window_unlock(window);
+
+    return 0;
 }
 
 static int dummy_window_push_composition(struct window *window, struct fl_layer_composition *composition) {
@@ -1824,4 +1842,18 @@ static int dummy_window_set_cursor_locked(
     (void) pos;
 
     return 0;
+}
+
+static int kms_window_set_dpms(struct window *window, bool dpms) {
+  if (!dpms) {
+    window->active = false;
+    struct kms_req *r = drmdev_create_dpms_off_req( window->kms.drmdev, window->kms.crtc->id );
+    return kms_req_commit_blocking(r, NULL); 
+  } else {
+    window->active = true;
+    // present the last frame
+    if (window->composition != NULL) {
+        kms_window_push_composition_locked(window, window->composition);
+    }
+  }
 }
