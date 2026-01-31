@@ -1203,8 +1203,11 @@ static int kms_window_push_composition_locked(struct window *window, struct fl_l
                 .dst_y = window->cursor_pos.y - window->kms.cursor->hotspot.y,
                 .dst_w = window->kms.cursor->width,
                 .dst_h = window->kms.cursor->height,
+
                 .has_rotation = true,
                 .rotation = PLANE_TRANSFORM_ROTATE_0,
+                .enforce_rotation = false,
+
                 .has_in_fence_fd = false,
                 .in_fence_fd = 0,
                 .prefer_cursor = true,

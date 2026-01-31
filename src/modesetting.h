@@ -736,6 +736,7 @@ struct kms_fb_layer {
 
     bool has_rotation;
     drm_plane_transform_t rotation;
+    bool enforce_rotation;
 
     bool has_in_fence_fd;
     int in_fence_fd;

@@ -690,6 +690,7 @@ static int vk_gbm_render_surface_present_kms(struct surface *s, const struct fl_
             // see egl_gbm_render_surface_present_kms
             .has_rotation = true,
             .rotation = PLANE_TRANSFORM_ROTATE_0,
+            .enforce_rotation = false,
 
             .has_in_fence_fd = false,
             .in_fence_fd = 0,
