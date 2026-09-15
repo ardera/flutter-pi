@@ -127,6 +127,9 @@ OPTIONS:\n\
                              to calculate the flutter device-pixel-ratio, which\n\
                              in turn basically \"scales\" the UI.\n\
 \n\
+  --pixel-ratio <ratio>     Override the Flutter device-pixel-ratio. The ratio\n\
+                            must be a finite number greater than zero.\n\
+\n\
   --pixelformat <format>     Selects the pixel format to use for the framebuffers.\n\
                              If this is not specified, a good pixel format will\n\
                              be selected automatically.\n\
@@ -1872,6 +1875,7 @@ bool flutterpi_parse_cmdline_args(int argc, char **argv, struct flutterpi_cmdlin
         { "orientation", required_argument, NULL, 'o' },
         { "rotation", required_argument, NULL, 'r' },
         { "dimensions", required_argument, NULL, 'd' },
+        { "pixel-ratio", required_argument, NULL, 'P' },
         { "help", no_argument, 0, 'h' },
         { "pixelformat", required_argument, NULL, 'p' },
         { "vulkan", no_argument, &vulkan_int, true },
@@ -1886,6 +1890,7 @@ bool flutterpi_parse_cmdline_args(int argc, char **argv, struct flutterpi_cmdlin
     result_out->has_orientation = false;
     result_out->has_rotation = false;
     result_out->has_physical_dimensions = false;
+    result_out->has_pixel_ratio = false;
     result_out->has_pixel_format = false;
     result_out->has_runtime_mode = false;
     result_out->has_drm_fd = false;
@@ -1961,6 +1966,21 @@ bool flutterpi_parse_cmdline_args(int argc, char **argv, struct flutterpi_cmdlin
                 result_out->has_physical_dimensions = true;
 
                 break;
+
+            case 'P': {
+                char *end;
+
+                errno = 0;
+                result_out->pixel_ratio = strtod(optarg, &end);
+                if (errno != 0 || end == optarg || *end != '\0' || !isfinite(result_out->pixel_ratio)
+                    || result_out->pixel_ratio <= 0.0) {
+                    LOG_ERROR("ERROR: Invalid argument for --pixel-ratio passed. Expected a finite number greater than zero.\n");
+                    return false;
+                }
+
+                result_out->has_pixel_ratio = true;
+                break;
+            }
 
             case 'p':
                 for (unsigned i = 0; i < n_pixfmt_infos; i++) {
@@ -2547,6 +2567,8 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
             cmd_args.has_physical_dimensions,
             cmd_args.physical_dimensions.x,
             cmd_args.physical_dimensions.y,
+            cmd_args.has_pixel_ratio,
+            cmd_args.pixel_ratio,
             60.0
         );
     } else {
@@ -2565,6 +2587,7 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
                 (assert(0 && "invalid rotation"), PLANE_TRANSFORM_ROTATE_0),
             cmd_args.has_orientation, cmd_args.orientation,
             cmd_args.has_physical_dimensions, cmd_args.physical_dimensions.x, cmd_args.physical_dimensions.y,
+            cmd_args.has_pixel_ratio, cmd_args.pixel_ratio,
             cmd_args.has_pixel_format, cmd_args.pixel_format,
             drmdev,
             desired_videomode

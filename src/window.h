@@ -63,6 +63,7 @@ struct window *kms_window_new(
     bool has_rotation, drm_plane_transform_t rotation,
     bool has_orientation, enum device_orientation orientation,
     bool has_explicit_dimensions, int width_mm, int height_mm,
+    bool has_explicit_pixel_ratio, double pixel_ratio,
     bool has_forced_pixel_format, enum pixfmt forced_pixel_format,
     struct drmdev *drmdev,
     const char *desired_videomode
@@ -94,6 +95,8 @@ MUST_CHECK struct window *dummy_window_new(
     bool has_explicit_dimensions,
     int width_mm,
     int height_mm,
+    bool has_explicit_pixel_ratio,
+    double pixel_ratio,
     double refresh_rate
 );
 
