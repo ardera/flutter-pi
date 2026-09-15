@@ -368,6 +368,9 @@ OPTIONS:
                              to calculate the flutter device-pixel-ratio, which
                              in turn basically "scales" the UI.
 
+  --pixel-ratio <ratio>     Override the Flutter device-pixel-ratio. The ratio
+                             must be a finite number greater than zero.
+
   --pixelformat <format>     Selects the pixel format to use for the framebuffers.
                              If this is not specified, a good pixel format will
                              be selected automatically.
