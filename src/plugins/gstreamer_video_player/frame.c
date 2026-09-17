@@ -27,6 +27,15 @@
 #define DRM_FOURCC_FORMAT "c%c%c%c"
 #define DRM_FOURCC_ARGS(format) (format) & 0xFF, ((format) >> 8) & 0xFF, ((format) >> 16) & 0xFF, ((format) >> 24) & 0xFF
 
+// Serializes access to gbm_bo_create/gbm_bo_map/gbm_bo_get_fd.
+// Mesa's Gallium GBM/DRI backend is not safe against concurrent calls
+// into the same gbm_device from multiple threads -- without this lock,
+// concurrent video zones each running their own GStreamer pipeline thread
+// can segfault inside libgallium when calling dup_gst_memory_as_dmabuf()
+// simultaneously (observed via gdb, SIGSEGV in libgallium.so called from
+// frame.c, thread = a GStreamer "multiqueueN:src" worker thread).
+static pthread_mutex_t gbm_lock = PTHREAD_MUTEX_INITIALIZER;
+
 struct video_frame {
     GstSample *sample;
 
@@ -415,10 +424,12 @@ UNUSED int dup_gst_memory_as_dmabuf(struct gbm_device *gbm_device, GstMemory *me
         return -1;
     }
 
+    pthread_mutex_lock(&gbm_lock);
+
     bo = gbm_bo_create(gbm_device, map_info.size, 1, GBM_FORMAT_R8, GBM_BO_USE_LINEAR);
     if (bo == NULL) {
         LOG_ERROR("Couldn't create GBM BO to copy video frame into.\n");
-        goto fail_unmap_buffer;
+        goto fail_unlock_gbm;
     }
 
     map_data = NULL;
@@ -440,13 +451,15 @@ UNUSED int dup_gst_memory_as_dmabuf(struct gbm_device *gbm_device, GstMemory *me
 
     /// TODO: Should we dup the fd before we destroy the bo?
     gbm_bo_destroy(bo);
+    pthread_mutex_unlock(&gbm_lock);
     gst_memory_unmap(memory, &map_info);
     return fd;
 
 fail_destroy_bo:
     gbm_bo_destroy(bo);
 
-fail_unmap_buffer:
+fail_unlock_gbm:
+    pthread_mutex_unlock(&gbm_lock);
     gst_memory_unmap(memory, &map_info);
     return -1;
 }
