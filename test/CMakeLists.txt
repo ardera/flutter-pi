@@ -21,3 +21,10 @@ target_link_libraries(
 )
 
 add_test(flutterpi_test flutterpi_test)
+
+if (BUILD_WEBVIEW_CEF_PLUGIN)
+    # flutterpi_module carries C++ objects (the CEF bridge) then, and both test
+    # binaries are C, so CMake would pick the C driver to link them and leave out
+    # the C++ runtime.
+    set_target_properties(platformchannel_test flutterpi_test PROPERTIES LINKER_LANGUAGE CXX)
+endif()

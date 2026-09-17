@@ -59,6 +59,7 @@ option(LTO "Check for IPO/LTO support and enable, if supported. May require gold
 option(LINT_EGL_HEADERS "Set an define that'll make the egl.h only export the extension definitions, prototypes that are explicitly marked as required." OFF)
 option(DEBUG_DRM_PLANE_ALLOCATIONS "Add logging in modesetting.c for debugging the process of choosing a fitting DRM plane for a framebuffer layer." OFF)
 option(USE_LEGACY_KMS "Force the use of legacy KMS." OFF)
+option(BUILD_WEBVIEW_CEF_PLUGIN "Include Chromium Embedded Framework powered webview_cef plugin." OFF)
 
 # This is a CMake recognized variable, but we set it to off by default here.
 option(CMAKE_POSITION_INDEPENDENT_CODE "Enable/Disable Position Independent Code" OFF)
@@ -401,6 +402,81 @@ endif()
 message(STATUS "Sentry plugin .......... ${BUILD_SENTRY_PLUGIN}")
 message(STATUS "Bundle crashpad_handler  ${HAVE_BUNDLED_CRASHPAD_HANDLER}")
 
+if (BUILD_WEBVIEW_CEF_PLUGIN)
+  # CEF only ships a C++ API worth using; the rest of flutter-pi stays C.
+  enable_language(CXX)
+
+  # Where the CEF runtime files live *on the target*: libcef.so, icudtl.dat, the
+  # *.pak resource bundles, the v8 snapshot *.bin files and locales/.
+  # Chromium loads its bundled libEGL/libGLESv2 (ANGLE) and its resources from
+  # next to libcef.so, so it has to keep its own directory rather than being
+  # scattered into ${libdir}.
+  set(WEBVIEW_CEF_RUNTIME_DIR "/usr/lib/cef" CACHE PATH "Directory containing libcef.so and the CEF resources on the target.")
+  set(WEBVIEW_CEF_HELPER_PATH "/usr/bin/flutter-pi-cef-helper" CACHE FILEPATH "Path of the CEF subprocess helper on the target.")
+
+  # A CEF binary distribution, laid out so that ${CEF_ROOT}/include/cef_version.h,
+  # ${CEF_ROOT}/libcef.so and ${CEF_ROOT}/libcef_dll_wrapper.a exist.
+  # Leave empty to let CMake search the (cross) sysroot, which is what the yocto
+  # `cef` recipe populates.
+  set(CEF_ROOT "" CACHE PATH "Root of a CEF binary distribution.")
+
+  find_path(CEF_INCLUDE_DIR
+    NAMES include/cef_version.h
+    HINTS ${CEF_ROOT}
+    PATH_SUFFIXES cef
+  )
+  find_library(CEF_LIBRARY
+    NAMES cef
+    HINTS ${CEF_ROOT}
+    PATH_SUFFIXES cef
+  )
+  find_library(CEF_DLL_WRAPPER_LIBRARY
+    NAMES cef_dll_wrapper
+    HINTS ${CEF_ROOT}
+    PATH_SUFFIXES cef
+  )
+
+  if (NOT CEF_INCLUDE_DIR OR NOT CEF_LIBRARY OR NOT CEF_DLL_WRAPPER_LIBRARY)
+    message(FATAL_ERROR
+      "BUILD_WEBVIEW_CEF_PLUGIN is ON, but CEF wasn't found:\n"
+      "  headers (include/cef_version.h): ${CEF_INCLUDE_DIR}\n"
+      "  libcef:                          ${CEF_LIBRARY}\n"
+      "  libcef_dll_wrapper:              ${CEF_DLL_WRAPPER_LIBRARY}\n"
+      "Build the `cef` recipe, or point -DCEF_ROOT=<path> at a CEF binary distribution."
+    )
+  endif()
+
+  message(STATUS "CEF .................... ${CEF_LIBRARY}")
+
+  target_sources(flutterpi_module PRIVATE
+    src/plugins/webview_cef/plugin.c
+    src/plugins/webview_cef/cef_bridge.cpp
+  )
+  target_include_directories(flutterpi_module PRIVATE ${CEF_INCLUDE_DIR})
+  target_compile_definitions(flutterpi_module PRIVATE
+    WEBVIEW_CEF_RUNTIME_DIR="${WEBVIEW_CEF_RUNTIME_DIR}"
+    WEBVIEW_CEF_HELPER_PATH="${WEBVIEW_CEF_HELPER_PATH}"
+  )
+  set_target_properties(flutterpi_module PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
+
+  # libcef_dll_wrapper is static and resolves against libcef, so it goes first.
+  target_link_libraries(flutterpi_module PUBLIC ${CEF_DLL_WRAPPER_LIBRARY} ${CEF_LIBRARY})
+  target_link_options(flutterpi_module PUBLIC "-Wl,-rpath,${WEBVIEW_CEF_RUNTIME_DIR}")
+
+  # Chromium's subprocesses (zygote, gpu, renderer) are started by re-executing
+  # a binary. They get their own executable so a renderer never re-enters
+  # flutter-pi's main().
+  add_executable(flutter-pi-cef-helper
+    src/plugins/webview_cef/helper_main.cpp
+    src/plugins/webview_cef/cef_bridge.cpp
+  )
+  target_include_directories(flutter-pi-cef-helper PRIVATE ${CEF_INCLUDE_DIR})
+  target_link_libraries(flutter-pi-cef-helper PRIVATE ${CEF_DLL_WRAPPER_LIBRARY} ${CEF_LIBRARY})
+  target_link_options(flutter-pi-cef-helper PRIVATE "-Wl,-rpath,${WEBVIEW_CEF_RUNTIME_DIR}")
+  set_target_properties(flutter-pi-cef-helper PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
+  install(TARGETS flutter-pi-cef-helper RUNTIME DESTINATION bin)
+endif()
+
 # Needed so dart VM can actually resolve symbols in the same
 # executable. (For dart:ffi DynamicLibrary.executable / DynamicLibrary.process)
 target_link_options(flutterpi_module PUBLIC -rdynamic)
@@ -458,6 +534,14 @@ target_link_libraries(
   flutter-pi PUBLIC
   flutterpi_module
 )
+
+if (BUILD_WEBVIEW_CEF_PLUGIN)
+  # flutterpi_module contains C++ objects (the CEF bridge) now, but flutter-pi's
+  # own source is C, so CMake would pick the C driver to link and leave out the
+  # C++ runtime.
+  set_target_properties(flutter-pi PROPERTIES LINKER_LANGUAGE CXX)
+endif()
+
 install(TARGETS flutter-pi RUNTIME DESTINATION bin)
 
 # Enable lto if supported.

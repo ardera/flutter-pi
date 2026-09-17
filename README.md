@@ -432,6 +432,19 @@ There are several things you need to keep in mind:
         - One of the common reasons is outdated ALSA config in which case you should delete existing config and replace it with up to date one
 - Finally, if you want to verify your audio setup is good, you can use `gst-launch` command to invoke `playbin` on audio file directly.
 
+### webview
+The webview plugin embeds web pages into your app using the [Chromium Embedded Framework](https://bitbucket.org/chromiumembedded/cef). It implements the platform side of the [webview_cef](https://pub.dev/packages/webview_cef) package, so the dart code is the same one you'd write for desktop.
+
+It's off by default, because it needs a CEF binary distribution:
+
+1. Download one for your architecture from [CEF Automated Builds](https://cef-builds.spotifycdn.com) (the "Minimal Distribution" is enough) and unpack it. CEF 126 or newer.
+2. Build `libcef_dll_wrapper` from the sources in that distribution — CEF is meant to be wrapped with your own compiler.
+3. Configure flutter-pi with `-DBUILD_WEBVIEW_CEF_PLUGIN=ON -DCEF_ROOT=<path to the distribution>`.
+
+Pages are rendered off-screen and shown as flutter external textures, since flutter-pi has no platform views. Chromium runs on the headless ozone platform, and gets the GPU through a render node (`/dev/dri/renderD128`), which needs no DRM master and so doesn't collide with flutter-pi holding the card. Page compositing itself is on the CPU — CEF forces that for off-screen rendering — but WebGL and canvas are hardware accelerated. Falls back to software rasterisation if no GL driver is available, which for a WebGL page is the difference between full speed and single-digit fps.
+
+See [src/plugins/webview_cef/README.md](src/plugins/webview_cef/README.md) for the runtime configuration, the implemented channel methods and the known limitations.
+
 ## 📊 Performance
 ### Graphics Performance
 Graphics performance is actually pretty good. With most of the apps inside the `flutter SDK -> examples -> catalog` directory I get smooth 50-60fps on the Pi 4 2GB and Pi 3 A+.
@@ -453,6 +466,7 @@ This is why I created my own (userspace) touchscreen driver, for improved latenc
 | flutterpi_gstreamer_video_player ([package](https://pub.dev/packages/flutterpi_gstreamer_video_player)) ([repo](https://github.com/ardera/flutter_packages/tree/main/packages/flutterpi_gstreamer_video_player)) | ⏯️ multimedia | Hannes Winkler | Official video player implementation for flutter-pi. See [GStreamer video player](#gstreamer-video-player) section above. |
 | charset_converter ([package](https://pub.dev/packages/charset_converter)) ([repo](https://github.com/pr0gramista/charset_converter)) | 🗚 encoding | Bartosz Wiśniewski | Encode and decode charsets using platform built-in converter. |
 | sentry_flutter ([package](https://pub.dev/packages/sentry_flutter)) ([repo](https://github.com/getsentry/sentry-dart))|  📊 Monitoring | sentry.io | See https://github.com/ardera/flutter-pi/wiki/Sentry-Support for instructions. |
+| webview_cef ([package](https://pub.dev/packages/webview_cef)) ([repo](https://github.com/hlwhl/webview_cef)) | 🌐 web | [hlwhl](https://github.com/hlwhl) | Embed web pages using the Chromium Embedded Framework. See [webview](#webview) section above. |
 
 ## 💬 Discord
 There a `#custom-embedders` channel on the [flutter discord](https://github.com/flutter/flutter/wiki/Chat) which you can use if you have any questions regarding flutter-pi or generally, anything related to embedding the engine for which you don't want to open issue about or write an email.
