@@ -1104,9 +1104,9 @@ static void on_present_frame(void *userdata) {
 
     frame = userdata;
 
-    TRACER_BEGIN(frame->tracer, "kms_req_commit_nonblocking");
-    ok = kms_req_commit_blocking(frame->req, NULL);
-    TRACER_END(frame->tracer, "kms_req_commit_nonblocking");
+    TRACER_BEGIN(frame->tracer, "kms_req_present");
+    ok = kms_req_present(frame->req);
+    TRACER_END(frame->tracer, "kms_req_present");
 
     if (ok != 0) {
         LOG_ERROR("Could not commit frame request.\n");
