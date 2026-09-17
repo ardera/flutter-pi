@@ -238,7 +238,7 @@ struct keyboard_config *keyboard_config_new(void) {
 
     compose_table = load_default_compose_table(ctx);
     if (compose_table == NULL) {
-        goto fail_free_context;
+        LOG_ERROR("Compose table not available. Compose key sequences will be disabled.\n");
     }
 
     keymap = load_default_keymap(ctx);
@@ -253,9 +253,9 @@ struct keyboard_config *keyboard_config_new(void) {
     return cfg;
 
 fail_free_compose_table:
-    xkb_compose_table_unref(compose_table);
+    if (compose_table != NULL)
+        xkb_compose_table_unref(compose_table);
 
-fail_free_context:
     xkb_context_unref(ctx);
 
 fail_free_cfg:
@@ -267,7 +267,8 @@ fail_return_null:
 
 void keyboard_config_destroy(struct keyboard_config *config) {
     xkb_keymap_unref(config->default_keymap);
-    xkb_compose_table_unref(config->default_compose_table);
+    if (config->default_compose_table != NULL)
+        xkb_compose_table_unref(config->default_compose_table);
     xkb_context_unref(config->context);
     free(config);
 }
@@ -296,13 +297,16 @@ keyboard_state_new(struct keyboard_config *config, struct xkb_keymap *keymap_ove
         goto fail_free_xkb_state;
     }
 
-    compose_state = xkb_compose_state_new(
-        compose_table_override != NULL ? compose_table_override : config->default_compose_table,
-        XKB_COMPOSE_STATE_NO_FLAGS
-    );
-    if (compose_state == NULL) {
-        LOG_ERROR("Could not create new XKB compose state.\n");
-        goto fail_free_plain_xkb_state;
+    {
+        struct xkb_compose_table *ct = compose_table_override != NULL ? compose_table_override : config->default_compose_table;
+        if (ct != NULL) {
+            compose_state = xkb_compose_state_new(ct, XKB_COMPOSE_STATE_NO_FLAGS);
+            if (compose_state == NULL) {
+                LOG_ERROR("Could not create new XKB compose state. Compose will be disabled.\n");
+            }
+        } else {
+            compose_state = NULL;
+        }
     }
 
     state->config = config;
@@ -311,9 +315,6 @@ keyboard_state_new(struct keyboard_config *config, struct xkb_keymap *keymap_ove
     state->compose_state = compose_state;
 
     return state;
-
-fail_free_plain_xkb_state:
-    xkb_state_unref(plain_xkb_state);
 
 fail_free_xkb_state:
     xkb_state_unref(xkb_state);
@@ -326,7 +327,8 @@ fail_return_null:
 }
 
 void keyboard_state_destroy(struct keyboard_state *state) {
-    xkb_compose_state_unref(state->compose_state);
+    if (state->compose_state != NULL)
+        xkb_compose_state_unref(state->compose_state);
     xkb_state_unref(state->plain_state);
     xkb_state_unref(state->state);
     free(state);
@@ -358,17 +360,19 @@ int keyboard_state_process_key_event(
     if (evdev_value) {
         keysym = xkb_state_key_get_one_sym(state->state, xkb_keycode);
 
-        feed_result = xkb_compose_state_feed(state->compose_state, keysym);
-        compose_status = xkb_compose_state_get_status(state->compose_state);
-        if (feed_result == XKB_COMPOSE_FEED_ACCEPTED && compose_status == XKB_COMPOSE_COMPOSING) {
-            keysym = XKB_KEY_NoSymbol;
-        }
+        if (state->compose_state != NULL) {
+            feed_result = xkb_compose_state_feed(state->compose_state, keysym);
+            compose_status = xkb_compose_state_get_status(state->compose_state);
+            if (feed_result == XKB_COMPOSE_FEED_ACCEPTED && compose_status == XKB_COMPOSE_COMPOSING) {
+                keysym = XKB_KEY_NoSymbol;
+            }
 
-        if (compose_status == XKB_COMPOSE_COMPOSED) {
-            keysym = xkb_compose_state_get_one_sym(state->compose_state);
-            xkb_compose_state_reset(state->compose_state);
-        } else if (compose_status == XKB_COMPOSE_CANCELLED) {
-            xkb_compose_state_reset(state->compose_state);
+            if (compose_status == XKB_COMPOSE_COMPOSED) {
+                keysym = xkb_compose_state_get_one_sym(state->compose_state);
+                xkb_compose_state_reset(state->compose_state);
+            } else if (compose_status == XKB_COMPOSE_CANCELLED) {
+                xkb_compose_state_reset(state->compose_state);
+            }
         }
 
         codepoint = xkb_state_key_get_utf32(state->state, xkb_keycode);
