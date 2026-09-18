@@ -124,6 +124,9 @@ struct flutterpi_cmdline_args {
     bool has_physical_dimensions;
     struct vec2i physical_dimensions;
 
+    bool has_pixel_ratio;
+    double pixel_ratio;
+
     bool has_pixel_format;
     enum pixfmt pixel_format;
 

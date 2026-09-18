@@ -298,6 +298,7 @@ static int window_init(
     bool has_orientation, enum device_orientation orientation,
     int width, int height,
     bool has_dimensions, int width_mm, int height_mm,
+    bool has_explicit_pixel_ratio, double explicit_pixel_ratio,
     double refresh_rate,
     bool has_forced_pixel_format, enum pixfmt forced_pixel_format
     // clang-format on
@@ -312,7 +313,9 @@ static int window_init(
     assert(!has_orientation || ORIENTATION_IS_VALID(orientation));
     assert(!has_dimensions || (width_mm > 0 && height_mm > 0));
 
-    if (has_dimensions == false) {
+    if (has_explicit_pixel_ratio) {
+        pixel_ratio = explicit_pixel_ratio;
+    } else if (has_dimensions == false) {
         LOG_DEBUG(
             "WARNING: display didn't provide valid physical dimensions. The device-pixel ratio will default "
             "to 1.0, which may not be the fitting device-pixel ratio for your display. \n"
@@ -899,6 +902,7 @@ MUST_CHECK struct window *kms_window_new(
     bool has_rotation, drm_plane_transform_t rotation,
     bool has_orientation, enum device_orientation orientation,
     bool has_explicit_dimensions, int width_mm, int height_mm,
+    bool has_explicit_pixel_ratio, double pixel_ratio,
     bool has_forced_pixel_format, enum pixfmt forced_pixel_format,
     struct drmdev *drmdev,
     const char *desired_videomode
@@ -966,6 +970,7 @@ MUST_CHECK struct window *kms_window_new(
         has_orientation, orientation,
         selected_mode->hdisplay, selected_mode->vdisplay,
         has_dimensions, width_mm, height_mm,
+        has_explicit_pixel_ratio, pixel_ratio,
         mode_get_vrefresh(selected_mode),
         has_forced_pixel_format, forced_pixel_format
         // clang-format on
@@ -1635,6 +1640,7 @@ MUST_CHECK struct window *dummy_window_new(
     struct vk_renderer *vk_renderer,
     struct vec2i size,
     bool has_explicit_dimensions, int width_mm, int height_mm,
+    bool has_explicit_pixel_ratio, double pixel_ratio,
     double refresh_rate
     // clang-format on
 ) {
@@ -1654,6 +1660,7 @@ MUST_CHECK struct window *dummy_window_new(
         false, kLandscapeLeft,
         size.x, size.y,
         has_explicit_dimensions, width_mm, height_mm,
+        has_explicit_pixel_ratio, pixel_ratio,
         refresh_rate,
         false, PIXFMT_RGB565
         // clang-format on
