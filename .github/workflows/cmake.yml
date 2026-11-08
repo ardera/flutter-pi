@@ -10,6 +10,7 @@ on:
 jobs:
   pi4:
     name: Build and Test on Raspberry Pi 4
+    if: vars.ENABLE_PI4_RUNNERS == 'true'
     runs-on: ${{ matrix.runner }}
     strategy:
       matrix:
