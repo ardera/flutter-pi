@@ -2057,42 +2057,40 @@ ATTR_CONST UNUSED static const void *get_after_ptr(const struct raw_std_value *v
 }
 
 ATTR_CONST static const void *get_array_value_ptr(const struct raw_std_value *value, int alignment, size_t size) {
-    uintptr_t addr = (uintptr_t) value;
+    const uint8_t *ptr = (const uint8_t *) value;
 
     // skip type byte
-    addr++;
+    ptr++;
 
     // skip initial size byte
-    addr++;
+    ptr++;
     if (size >= 254 && size < 0x00010000) {
         // skip two additional size bytes
-        addr += 2;
+        ptr += 2;
     } else if (size >= 0x00010000) {
         // skip four additional size bytes
-        addr += 4;
+        ptr += 4;
     }
+
+    uintptr_t addr = (uintptr_t) ptr;
 
     // make sure we're aligned
     if (alignment == 4) {
-        if (addr & 3) {
-            addr = (addr | 3) + 1;
-        }
+        ptr += (4 - (addr & 3)) & 3;
     } else if (alignment == 8) {
-        if (addr & 7) {
-            addr = (addr | 7) + 1;
-        }
+        ptr += (8 - (addr & 7)) & 7;
     }
 
-    return (const void *) addr;
+    return ptr;
 }
 
 ATTR_CONST static const void *get_array_after_ptr(const struct raw_std_value *value, int alignment, size_t size, int element_size) {
-    uintptr_t addr = (uintptr_t) get_array_value_ptr(value, alignment, size);
+    const uint8_t *ptr = get_array_value_ptr(value, alignment, size);
 
     // skip all the array elements
-    addr += size * element_size;
+    ptr += size * element_size;
 
-    return (const void *) addr;
+    return ptr;
 }
 
 ATTR_PURE bool raw_std_value_is_null(const struct raw_std_value *value) {
