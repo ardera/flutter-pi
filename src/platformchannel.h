@@ -1403,7 +1403,7 @@ struct platch_obj {
 #define PLATCH_OBJ_JSON_CALL_SUCCESS_RESPONSE(result) \
     ((struct platch_obj){ .codec = kJSONMethodCallResponse, .success = true, .json_result = (result) })
 #define PLATCH_OBJ_JSON_CALL_ERROR_RESPONSE(code, msg, details) \
-    ((struct platch_obj){ .codec = kStandardMethodCallResponse, \
+    ((struct platch_obj){ .codec = kJSONMethodCallResponse,     \
                           .success = false,                     \
                           .error_code = (char *) (code),        \
                           .error_msg = (char *) (msg),          \
