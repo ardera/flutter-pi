@@ -1642,15 +1642,16 @@ static void on_flutter_pointer_event(void *userdata, const FlutterPointerEvent *
     }
 }
 
-static void on_utf8_character(void *userdata, uint8_t *character) {
+static void on_utf8_character(void *userdata, UNUSED uint8_t *character) {
     struct flutterpi *flutterpi;
-    int ok;
 
     flutterpi = userdata;
 
     (void) flutterpi;
 
 #ifdef BUILD_TEXT_INPUT_PLUGIN
+    int ok;
+
     ok = textin_on_utf8_char(character);
     if (ok != 0) {
         LOG_ERROR("Error handling keyboard event. textin_on_utf8_char: %s\n", strerror(ok));
@@ -1659,14 +1660,15 @@ static void on_utf8_character(void *userdata, uint8_t *character) {
 #endif
 }
 
-static void on_xkb_keysym(void *userdata, xkb_keysym_t keysym) {
+static void on_xkb_keysym(void *userdata, UNUSED xkb_keysym_t keysym) {
     struct flutterpi *flutterpi;
-    int ok;
 
     flutterpi = userdata;
     (void) flutterpi;
 
 #ifdef BUILD_TEXT_INPUT_PLUGIN
+    int ok;
+
     ok = textin_on_xkb_keysym(keysym);
     if (ok != 0) {
         LOG_ERROR("Error handling keyboard event. textin_on_xkb_keysym: %s\n", strerror(ok));
@@ -1675,15 +1677,22 @@ static void on_xkb_keysym(void *userdata, xkb_keysym_t keysym) {
 #endif
 }
 
-static void
-on_gtk_keyevent(void *userdata, uint32_t unicode_scalar_values, uint32_t key_code, uint32_t scan_code, uint32_t modifiers, bool is_down) {
+static void on_gtk_keyevent(
+    void *userdata,
+    UNUSED uint32_t unicode_scalar_values,
+    UNUSED uint32_t key_code,
+    UNUSED uint32_t scan_code,
+    UNUSED uint32_t modifiers,
+    UNUSED bool is_down
+) {
     struct flutterpi *flutterpi;
-    int ok;
 
     flutterpi = userdata;
     (void) flutterpi;
 
 #ifdef BUILD_RAW_KEYBOARD_PLUGIN
+    int ok;
+
     ok = rawkb_send_gtk_keyevent(unicode_scalar_values, key_code, scan_code, modifiers, is_down);
     if (ok != 0) {
         LOG_ERROR("Error handling keyboard event. rawkb_send_gtk_keyevent: %s\n", strerror(ok));
