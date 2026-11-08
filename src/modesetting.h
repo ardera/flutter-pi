@@ -216,9 +216,9 @@
 #define DECLARE_PROP_ID_AS_UINT32(prop_name, prop_var_name) uint32_t prop_var_name;
 
 enum drm_blend_mode {
-    kPremultiplied_DrmBlendMode,
-    kCoverage_DrmBlendMode,
-    kNone_DrmBlendMode,
+    kPremultiplied_DrmBlendMode = 0,
+    kCoverage_DrmBlendMode = 1,
+    kNone_DrmBlendMode = 2,
 
     kMax_DrmBlendMode = kNone_DrmBlendMode,
     kCount_DrmBlendMode = kMax_DrmBlendMode + 1
