@@ -125,7 +125,10 @@ static char *load_file(const char *path) {
     int result = read(fd, buffer, s.st_size);
     if (result < 0) {
         goto fail_close;
-    } else if (result == 0 || result < s.st_size) {
+    } else if (result == 0) {
+        errno = EINVAL;
+        goto fail_close;
+    } else if (result < s.st_size) {
         errno = EINVAL;
         goto fail_close;
     }
