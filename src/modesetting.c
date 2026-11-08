@@ -1038,7 +1038,7 @@ struct drmdev *drmdev_new_from_interface_fd(int fd, void *fd_metadata, const str
     struct gbm_device *gbm_device;
     struct drmdev *drmdev;
     uint64_t cap;
-    bool supports_atomic_modesetting;
+    bool supports_atomic_modesetting = false;
     bool supports_dumb_buffers;
     int ok, master_fd, event_fd;
 
