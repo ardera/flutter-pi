@@ -615,7 +615,7 @@ static struct cursor_buffer *cursor_buffer_new(struct drmdev *drmdev, const stru
     }
 
     if (rotation.rotate_0) {
-        ok = gbm_bo_write(bo, pixel_data, gbm_bo_get_stride(bo) * size.y);
+        ok = gbm_bo_write(bo, pixel_data, (size_t) gbm_bo_get_stride(bo) * size.y);
         if (ok != 0) {
             LOG_ERROR("Couldn't write cursor icon to GBM BO. gbm_bo_write: %s\n", strerror(errno));
             goto fail_free_duped_pixel_data;
@@ -623,7 +623,7 @@ static struct cursor_buffer *cursor_buffer_new(struct drmdev *drmdev, const stru
     } else {
         ASSUME(rotation.rotate_90 || rotation.rotate_180 || rotation.rotate_270);
 
-        uint32_t *rotated = malloc(size.x * size.y * 4);
+        uint32_t *rotated = malloc((size_t) size.x * size.y * 4);
         if (rotated == NULL) {
             goto fail_free_duped_pixel_data;
         }
@@ -650,7 +650,7 @@ static struct cursor_buffer *cursor_buffer_new(struct drmdev *drmdev, const stru
             }
         }
 
-        ok = gbm_bo_write(bo, rotated, gbm_bo_get_stride(bo) * rotated_size.y);
+        ok = gbm_bo_write(bo, rotated, (size_t) gbm_bo_get_stride(bo) * rotated_size.y);
 
         free(rotated);
 
