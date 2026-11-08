@@ -174,15 +174,15 @@ UNUSED static inline void unlock(struct gstplayer *player) {
 }
 
 UNUSED static inline void trace_instant(struct gstplayer *player, const char *name) {
-    return flutterpi_trace_event_instant(player->flutterpi, name);
+    flutterpi_trace_event_instant(player->flutterpi, name);
 }
 
 UNUSED static inline void trace_begin(struct gstplayer *player, const char *name) {
-    return flutterpi_trace_event_begin(player->flutterpi, name);
+    flutterpi_trace_event_begin(player->flutterpi, name);
 }
 
 UNUSED static inline void trace_end(struct gstplayer *player, const char *name) {
-    return flutterpi_trace_event_end(player->flutterpi, name);
+    flutterpi_trace_event_end(player->flutterpi, name);
 }
 
 static int maybe_send_info(struct gstplayer *player) {
@@ -1168,7 +1168,7 @@ struct gstplayer *gstplayer_new_from_pipeline(struct flutterpi *flutterpi, const
 }
 
 void gstplayer_destroy(struct gstplayer *player) {
-    LOG_DEBUG("gstplayer_destroy(%p)\n", player);
+    LOG_DEBUG("gstplayer_destroy(%p)\n", (void *) player);
     notifier_deinit(&player->video_info_notifier);
     notifier_deinit(&player->buffering_state_notifier);
     notifier_deinit(&player->error_notifier);
