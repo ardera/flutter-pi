@@ -154,7 +154,7 @@ jobs:
             sentry-bundled-crashpad-handler: "on"
             sentry-deps: "libcurl4-openssl-dev"
 
-          - senty-plugin: "on-crashpad-unbundled"
+          - sentry-plugin: "on-crashpad-unbundled"
             sentry-plugin-enable: "on"
             sentry-backend: "crashpad"
             sentry-bundled-crashpad-handler: "off"
