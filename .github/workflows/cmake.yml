@@ -7,6 +7,10 @@ on:
     branches: [master, feature/gh-actions, feature/compositor-ng]
   workflow_dispatch:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   pi4:
     name: Build and Test on Raspberry Pi 4
