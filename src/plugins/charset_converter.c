@@ -149,19 +149,12 @@ static int on_decode(struct platch_obj *object, FlutterPlatformMessageResponseHa
         return platch_respond_illegal_arg_std(response_handle, "Expected `arg['data'] to be a uint8_t list.");
     }
 
-    int ok = convert("UTF-8", charset, (const char *) tmp->uint8array, tmp->size, &output, &output_size);
+    int ok = convert(charset, "UTF-8", (const char *) tmp->uint8array, tmp->size, &output, &output_size);
     if (ok != 0) {
         return respond_conversion_error(response_handle, ok);
     }
 
-    ok = platch_respond_success_std(
-        response_handle,
-        &(struct std_value) {
-            .type = kStdUInt8Array,
-            .size = output_size,
-            .uint8array = (uint8_t *) output,
-        }
-    );
+    ok = platch_respond_success_std(response_handle, &STDSTRING(output));
 
     free(output);
 
