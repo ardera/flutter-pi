@@ -2045,23 +2045,21 @@ ATTR_PURE enum std_value_type raw_std_value_get_type(const struct raw_std_value 
 }
 
 ATTR_CONST static const void *get_value_ptr(const struct raw_std_value *value, int alignment) {
+    const uint8_t *ptr = (const uint8_t *) value;
     uintptr_t addr = (uintptr_t) value;
 
     // skip type byte
+    ptr++;
     addr++;
 
     // make sure we're aligned
     if (alignment == 4) {
-        if (addr & 3) {
-            addr = (addr | 3) + 1;
-        }
+        ptr += (4 - (addr & 3)) & 3;
     } else if (alignment == 8) {
-        if (addr & 7) {
-            addr = (addr | 7) + 1;
-        }
+        ptr += (8 - (addr & 7)) & 7;
     }
 
-    return (const void *) addr;
+    return ptr;
 }
 
 ATTR_CONST UNUSED static const void *get_after_ptr(const struct raw_std_value *value, int alignment, int value_size) {
@@ -2758,7 +2756,7 @@ ATTR_PURE bool raw_std_method_call_response_check(const struct raw_std_value *va
 
     bool successful = (*(const uint8_t *) (value)) != 0;
 
-    value = (void *) ((intptr_t) value + (intptr_t) 1);
+    value = (const struct raw_std_value *) ((const uint8_t *) value + 1);
     buffer_size -= 1;
 
     if (successful) {
