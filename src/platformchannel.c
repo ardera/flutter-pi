@@ -1301,7 +1301,7 @@ int platch_encode(struct platch_obj *object, uint8_t **buffer_out, size_t *size_
         }
         case kStandardMethodCall: {
             struct std_value stdmethod;
-            size_t size;
+            size_t size = 0;
 
             stdmethod.type = kStdString;
             stdmethod.string_value = object->method;

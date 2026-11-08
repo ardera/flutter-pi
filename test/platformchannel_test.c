@@ -1560,6 +1560,17 @@ void test_platch_encode_json_decode_round_trip(void) {
     free(second);
 }
 
+static void test_platch_encode_std_method_call(void) {
+    struct platch_obj call = PLATCH_OBJ_STD_CALL("test", STDNULL);
+    uint8_t *buffer = NULL;
+    size_t size = 0;
+    const uint8_t expected[] = { kStdString, 4, 't', 'e', 's', 't', kStdNull };
+    TEST_ASSERT_EQUAL_INT(0, platch_encode(&call, &buffer, &size));
+    TEST_ASSERT_EQUAL_size_t(sizeof(expected), size);
+    TEST_ASSERT_EQUAL_MEMORY(expected, buffer, sizeof(expected));
+    free(buffer);
+}
+
 int main(void) {
     UNITY_BEGIN();
 
@@ -1621,6 +1632,7 @@ int main(void) {
     RUN_TEST(test_platch_encode_json_method_call_response);
     RUN_TEST(test_platch_encode_json_method_call_error_response);
     RUN_TEST(test_platch_encode_json_decode_round_trip);
+    RUN_TEST(test_platch_encode_std_method_call);
 
     return UNITY_END();
 }
