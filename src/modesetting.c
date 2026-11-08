@@ -405,9 +405,9 @@ static int fetch_crtc(int drm_fd, int crtc_index, uint32_t crtc_id, struct drm_c
             goto fail_free_props;
         }
 
-#define CHECK_ASSIGN_PROPERTY_ID(_name_str, _name)                               \
-    if (strncmp(prop_info->name, _name_str, ARRAY_SIZE(prop_info->name)) == 0) { \
-        ids._name = prop_info->prop_id;                                          \
+#define CHECK_ASSIGN_PROPERTY_ID(_name_str, _name)                           \
+    if (strncmp(prop_info->name, _name_str, sizeof(prop_info->name)) == 0) { \
+        ids._name = prop_info->prop_id;                                      \
     } else
 
         DRM_CRTC_PROPERTIES(CHECK_ASSIGN_PROPERTY_ID) {
@@ -802,9 +802,9 @@ static int fetch_plane(int drm_fd, uint32_t plane_id, struct drm_plane *plane_ou
             assert(supported_blend_modes[committed_blend_mode]);
         }
 
-#define CHECK_ASSIGN_PROPERTY_ID(_name_str, _name)                     \
-    if (strncmp(info->name, _name_str, ARRAY_SIZE(info->name)) == 0) { \
-        ids._name = info->prop_id;                                     \
+#define CHECK_ASSIGN_PROPERTY_ID(_name_str, _name)                 \
+    if (strncmp(info->name, _name_str, sizeof(info->name)) == 0) { \
+        ids._name = info->prop_id;                                 \
     } else
 
         DRM_PLANE_PROPERTIES(CHECK_ASSIGN_PROPERTY_ID) {
