@@ -2365,7 +2365,8 @@ memcmp_arrays:
                 free(key_from_b_found_in_a);
                 return false;
 
-found:;
+found:
+                continue;
             }
 
             // each key, value pair in a was found in b.
