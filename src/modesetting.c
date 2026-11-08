@@ -2010,6 +2010,7 @@ static void drmdev_set_scanout_callback_locked(
 }
 
 UNUSED static struct drm_plane *get_plane_by_id(struct drmdev *drmdev, uint32_t plane_id) {
+    ASSUME(drmdev->n_planes == 0 || drmdev->planes != NULL);
     struct drm_plane *plane;
 
     plane = NULL;
@@ -2024,6 +2025,7 @@ UNUSED static struct drm_plane *get_plane_by_id(struct drmdev *drmdev, uint32_t 
 }
 
 struct drm_connector *__next_connector(const struct drmdev *drmdev, const struct drm_connector *connector) {
+    ASSUME(drmdev->n_connectors == 0 || drmdev->connectors != NULL);
     bool found = connector == NULL;
     for (size_t i = 0; i < drmdev->n_connectors; i++) {
         if (drmdev->connectors + i == connector) {
@@ -2037,6 +2039,7 @@ struct drm_connector *__next_connector(const struct drmdev *drmdev, const struct
 }
 
 struct drm_encoder *__next_encoder(const struct drmdev *drmdev, const struct drm_encoder *encoder) {
+    ASSUME(drmdev->n_encoders == 0 || drmdev->encoders != NULL);
     bool found = encoder == NULL;
     for (size_t i = 0; i < drmdev->n_encoders; i++) {
         if (drmdev->encoders + i == encoder) {
@@ -2050,6 +2053,7 @@ struct drm_encoder *__next_encoder(const struct drmdev *drmdev, const struct drm
 }
 
 struct drm_crtc *__next_crtc(const struct drmdev *drmdev, const struct drm_crtc *crtc) {
+    ASSUME(drmdev->n_crtcs == 0 || drmdev->crtcs != NULL);
     bool found = crtc == NULL;
     for (size_t i = 0; i < drmdev->n_crtcs; i++) {
         if (drmdev->crtcs + i == crtc) {
@@ -2063,6 +2067,7 @@ struct drm_crtc *__next_crtc(const struct drmdev *drmdev, const struct drm_crtc 
 }
 
 struct drm_plane *__next_plane(const struct drmdev *drmdev, const struct drm_plane *plane) {
+    ASSUME(drmdev->n_planes == 0 || drmdev->planes != NULL);
     bool found = plane == NULL;
     for (size_t i = 0; i < drmdev->n_planes; i++) {
         if (drmdev->planes + i == plane) {
@@ -2076,6 +2081,7 @@ struct drm_plane *__next_plane(const struct drmdev *drmdev, const struct drm_pla
 }
 
 drmModeModeInfo *__next_mode(const struct drm_connector *connector, const drmModeModeInfo *mode) {
+    ASSUME(connector->variable_state.n_modes == 0 || connector->variable_state.modes != NULL);
     bool found = mode == NULL;
     for (int i = 0; i < connector->variable_state.n_modes; i++) {
         if (connector->variable_state.modes + i == mode) {
@@ -2234,9 +2240,10 @@ static struct drm_plane *allocate_plane(
     // clang-format on
 ) {
     for (int i = 0; i < BITSET_SIZE(builder->available_planes); i++) {
-        struct drm_plane *plane = builder->drmdev->planes + i;
-
         if (BITSET_TEST(builder->available_planes, i)) {
+            ASSUME((size_t) i < builder->drmdev->n_planes && builder->drmdev->planes != NULL);
+            struct drm_plane *plane = builder->drmdev->planes + i;
+
             // find out if the plane matches our criteria
             bool qualifies = plane_qualifies(
                 plane,
