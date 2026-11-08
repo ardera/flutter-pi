@@ -1191,6 +1191,10 @@ invalid_headers:
             pipeline = NULL;
         } else if (raw_std_value_is_string(arg)) {
             pipeline = raw_std_string_dup(arg);
+            if (pipeline == NULL) {
+                ok = platch_respond_native_error_std(responsehandle, ENOMEM);
+                goto fail_free_uri;
+            }
         } else {
             ok = platch_respond_illegal_arg_std(responsehandle, "Expected `arg[5]` to be a string or null.");
             goto fail_free_headers;
@@ -1251,7 +1255,7 @@ invalid_headers:
     if (player == NULL) {
         LOG_ERROR("Couldn't create gstreamer video player.\n");
         ok = platch_respond_native_error_std(responsehandle, EIO);
-        goto fail_destroy_player;
+        goto fail_free_pipeline;
     }
  
     // create a meta object so we can store the event channel name
@@ -1268,7 +1272,16 @@ invalid_headers:
     if (headers != NULL) {
         for_each_entry_in_raw_std_map(header_name, header_value, headers) {
             char *header_name_duped = raw_std_string_dup(header_name);
+            if (header_name_duped == NULL) {
+                ok = platch_respond_native_error_std(responsehandle, ENOMEM);
+                goto fail_destroy_meta;
+            }
             char *header_value_duped = raw_std_string_dup(header_value);
+            if (header_value_duped == NULL) {
+                free(header_name_duped);
+                ok = platch_respond_native_error_std(responsehandle, ENOMEM);
+                goto fail_destroy_meta;
+            }
 
             gstplayer_put_http_header(player, header_name_duped, header_value_duped);
 
@@ -1299,6 +1312,8 @@ fail_remove_receiver:
 
 fail_remove_player:
     remove_player(meta);
+
+fail_destroy_meta:
     destroy_meta(meta);
 
 fail_destroy_player:
@@ -1313,10 +1328,12 @@ fail_free_uri:
         free(uri);
     }
 
+fail_free_package_name:
     if (package_name != NULL) {
         free(package_name);
     }
 
+fail_free_asset:
     if (asset != NULL) {
         free(asset);
     }
