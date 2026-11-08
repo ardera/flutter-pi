@@ -493,11 +493,11 @@ void test_raw_std_value_equals(void) {
     {
         const char str[] = "The quick brown fox jumps over the lazy dog.";
 
-        alignas(16) uint8_t lhs[1 + 1 + strlen(str)];
+        alignas(16) uint8_t lhs[1 + 1 + (sizeof(str) - 1)];
         lhs[0] = kStdString;
         lhs[1] = strlen(str);
 
-        alignas(16) uint8_t rhs[1 + 1 + strlen(str)];
+        alignas(16) uint8_t rhs[1 + 1 + (sizeof(str) - 1)];
         rhs[0] = kStdString;
         rhs[1] = strlen(str);
 
@@ -720,14 +720,14 @@ void test_raw_std_value_equals(void) {
     {
         const char str[] = "The quick brown fox jumps over the lazy dog.";
 
-        alignas(16) uint8_t lhs[1 + 1 + 1 + 1 + strlen(str) + 1];
+        alignas(16) uint8_t lhs[1 + 1 + 1 + 1 + (sizeof(str) - 1) + 1];
         lhs[0] = kStdList;
         lhs[1] = 2;
         lhs[2] = kStdString;
         lhs[3] = strlen(str);
         lhs[4 + strlen(str)] = kStdTrue;
 
-        alignas(16) uint8_t rhs[1 + 1 + 1 + 1 + strlen(str) + 1];
+        alignas(16) uint8_t rhs[1 + 1 + 1 + 1 + (sizeof(str) - 1) + 1];
         rhs[0] = kStdList;
         rhs[1] = 2;
         rhs[2] = kStdString;
