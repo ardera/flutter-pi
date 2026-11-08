@@ -173,7 +173,36 @@ static int on_decode(struct platch_obj *object, FlutterPlatformMessageResponseHa
         return respond_conversion_error(response_handle, ok);
     }
 
-    ok = platch_respond_success_std(response_handle, &STDSTRING(output));
+    if (output_size > UINT32_MAX || output_size > SIZE_MAX - 7) {
+        free(output);
+        return respond_conversion_error(response_handle, EOVERFLOW);
+    }
+
+    size_t prefix_size = output_size < 254 ? 3 : output_size <= UINT16_MAX ? 5 : 7;
+    uint8_t *response = malloc(prefix_size + output_size);
+    if (response == NULL) {
+        free(output);
+        return respond_conversion_error(response_handle, ENOMEM);
+    }
+
+    response[0] = 0;
+    response[1] = kStdString;
+    if (output_size < 254) {
+        response[2] = output_size;
+    } else if (output_size <= UINT16_MAX) {
+        uint16_t size = output_size;
+        response[2] = 254;
+        memcpy(response + 3, &size, sizeof(size));
+    } else {
+        uint32_t size = output_size;
+        response[2] = 255;
+        memcpy(response + 3, &size, sizeof(size));
+    }
+    memcpy(response + prefix_size, output, output_size);
+
+    ok = platch_respond(response_handle, &PLATCH_OBJ_BINARY_DATA(response, prefix_size + output_size));
+
+    free(response);
 
     free(output);
 

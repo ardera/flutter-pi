@@ -33,3 +33,9 @@ target_compile_options(kms_present_test PRIVATE -UNDEBUG -ffunction-sections -fd
 target_link_options(kms_present_test PRIVATE -Wl,--gc-sections)
 target_link_libraries(kms_present_test PRIVATE PkgConfig::DRM PkgConfig::GBM Threads::Threads m)
 add_test(kms_present_test kms_present_test)
+
+if (BUILD_CHARSET_CONVERTER_PLUGIN)
+    add_executable(charset_converter_test charset_converter_test.c)
+    target_link_libraries(charset_converter_test flutterpi_module Unity)
+    add_test(charset_converter_test charset_converter_test)
+endif()
