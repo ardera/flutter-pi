@@ -174,6 +174,9 @@ static int on_response_json(struct platch_obj *object, void *userdata) {
 }
 static int send_json(void) {
     uint64_t *time = malloc(sizeof(uint64_t));
+    if (time == NULL) {
+        return ENOMEM;
+    }
     *time = get_monotonic_time();
 
     char *method = "test";
@@ -193,9 +196,10 @@ static int send_json(void) {
 
     int ok = platch_call_json(TESTPLUGIN_CHANNEL_JSON, method, &argument, on_response_json, time);
     if (ok != 0) {
+        free(time);
         printf("Could not MethodCall JSON: %s\n", strerror(ok));
     }
-    return 0;
+    return ok;
 }
 static int on_response_std(struct platch_obj *object, void *userdata) {
     uint64_t dt = get_monotonic_time() - *((uint64_t *) userdata);
@@ -231,6 +235,9 @@ static int on_response_std(struct platch_obj *object, void *userdata) {
 }
 static int send_std(void) {
     uint64_t *time = malloc(sizeof(uint64_t));
+    if (time == NULL) {
+        return ENOMEM;
+    }
     *time = get_monotonic_time();
 
     char *method = "test";
@@ -256,8 +263,12 @@ static int send_std(void) {
              .list = (struct std_value[]){ { .type = kStdString, .string_value = "array1" }, { .type = kStdInt32, .int32_value = 2 } } } },
     };
 
-    platch_call_std(TESTPLUGIN_CHANNEL_STD, method, &argument, on_response_std, time);
-    return 0;
+    int ok = platch_call_std(TESTPLUGIN_CHANNEL_STD, method, &argument, on_response_std, time);
+    if (ok != 0) {
+        free(time);
+        printf("Could not MethodCall STD: %s\n", strerror(ok));
+    }
+    return ok;
 }
 
 static int on_receive_json(char *channel, struct platch_obj *object, FlutterPlatformMessageResponseHandle *responsehandle) {
