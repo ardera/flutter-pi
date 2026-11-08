@@ -491,7 +491,7 @@ void test_raw_std_value_equals(void) {
 
     // string
     {
-        const char *str = "The quick brown fox jumps over the lazy dog.";
+        const char str[] = "The quick brown fox jumps over the lazy dog.";
 
         alignas(16) uint8_t lhs[1 + 1 + strlen(str)];
         lhs[0] = kStdString;
@@ -505,8 +505,8 @@ void test_raw_std_value_equals(void) {
         // the standard message codec encoding.
         TEST_ASSERT_LESS_OR_EQUAL_size_t(253, strlen(str));
 
-        memcpy(lhs + 2, str, strlen(str));
-        memcpy(rhs + 2, str, strlen(str));
+        memcpy(lhs + 2, str, sizeof(str) - 1);
+        memcpy(rhs + 2, str, sizeof(str) - 1);
 
         TEST_ASSERT_TRUE(raw_std_value_equals(AS_RAW_STD_VALUE(lhs), AS_RAW_STD_VALUE(rhs)));
 
@@ -514,10 +514,10 @@ void test_raw_std_value_equals(void) {
 
         TEST_ASSERT_FALSE(raw_std_value_equals(AS_RAW_STD_VALUE(lhs), AS_RAW_STD_VALUE(rhs)));
 
-        const char *str2 = "The quick brown fox jumps over the lazy DOG ";
+        const char str2[] = "The quick brown fox jumps over the lazy DOG ";
         TEST_ASSERT_EQUAL_size_t(strlen(str), strlen(str2));
         rhs[1] = strlen(str2);
-        memcpy(rhs + 2, str2, strlen(str2));
+        memcpy(rhs + 2, str2, sizeof(str2) - 1);
 
         TEST_ASSERT_FALSE(raw_std_value_equals(AS_RAW_STD_VALUE(lhs), AS_RAW_STD_VALUE(rhs)));
     }
@@ -718,7 +718,7 @@ void test_raw_std_value_equals(void) {
 
     // list
     {
-        const char *str = "The quick brown fox jumps over the lazy dog.";
+        const char str[] = "The quick brown fox jumps over the lazy dog.";
 
         alignas(16) uint8_t lhs[1 + 1 + 1 + 1 + strlen(str) + 1];
         lhs[0] = kStdList;
@@ -738,8 +738,8 @@ void test_raw_std_value_equals(void) {
         // the standard message codec encoding.
         TEST_ASSERT_LESS_OR_EQUAL_size_t(253, strlen(str));
 
-        memcpy(lhs + 4, str, strlen(str));
-        memcpy(rhs + 4, str, strlen(str));
+        memcpy(lhs + 4, str, sizeof(str) - 1);
+        memcpy(rhs + 4, str, sizeof(str) - 1);
 
         TEST_ASSERT_TRUE(raw_std_value_equals(AS_RAW_STD_VALUE(lhs), AS_RAW_STD_VALUE(rhs)));
 
