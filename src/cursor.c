@@ -1458,8 +1458,12 @@ const struct pointer_icon *pointer_icon_for_details(enum pointer_kind kind, floa
         const struct pointer_icon *icon = pointer_icons[i];
 
         if (icon->kind == kind) {
-            if (best == NULL || fabsf(pixel_ratio - icon->pixel_ratio) < fabsf(pixel_ratio - best->pixel_ratio)) {
+            if (best == NULL) {
                 best = icon;
+                continue;
+            } else if (fabsf(pixel_ratio - icon->pixel_ratio) < fabsf(pixel_ratio - best->pixel_ratio)) {
+                best = icon;
+                continue;
             }
         }
     }
