@@ -1367,7 +1367,7 @@ static bool extract_modifiers_for_pixel_format(
 }
 
 static struct render_surface *kms_window_get_render_surface_internal(struct window *window, bool has_size, UNUSED struct vec2i size) {
-    struct render_surface *render_surface;
+    struct render_surface *render_surface = NULL;
 
     ASSERT_NOT_NULL(window);
 
@@ -1707,7 +1707,7 @@ static int dummy_window_push_composition(struct window *window, struct fl_layer_
 }
 
 static struct render_surface *dummy_window_get_render_surface_internal(struct window *window, bool has_size, UNUSED struct vec2i size) {
-    struct render_surface *render_surface;
+    struct render_surface *render_surface = NULL;
 
     ASSERT_NOT_NULL(window);
 
