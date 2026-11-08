@@ -152,6 +152,11 @@ static int on_available_charsets(struct platch_obj *object, FlutterPlatformMessa
 
     pclose(fp);
 
+    if (count == 0) {
+        free(output);
+        return platch_respond_error_std(response_handle, "error_id", "charsets_not_available", NULL);
+    }
+
     fp = popen("iconv --list", "r");
     if(!fp) {
         free(output);
