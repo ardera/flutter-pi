@@ -442,7 +442,7 @@ ATTR_CONST static char eascii_to_lower(unsigned char n) {
 ATTR_CONST static uint32_t logical_key_for_xkb_keysym(xkb_keysym_t keysym) {
     // clang-format off
     static const uint64_t logical_keys_1[] = {
-        [0] =  0x00100000405,  // 3270_EraseEOF
+        [0x0000fd06 - 0xfd06] =  0x00100000405,  // 3270_EraseEOF
         [0x0000fd0e - 0xfd06] =  0x00100000503,  // 3270_Attn
         [0x0000fd15 - 0xfd06] =  0x00100000402,  // 3270_Copy
         [0x0000fd16 - 0xfd06] =  0x00100000d2f,  // 3270_Play
@@ -571,7 +571,7 @@ ATTR_CONST static uint32_t logical_key_for_xkb_keysym(xkb_keysym_t keysym) {
     };
 
     static const uint64_t logical_keys_2[] = {
-        [0] = 0x00100000602,  // MonBrightnessUp
+        [0x1008ff02 - 0x1008ff02] = 0x00100000602,  // MonBrightnessUp
         [0x1008ff03 - 0x1008ff02] = 0x00100000601,  // MonBrightnessDown
         [0x1008ff10 - 0x1008ff02] = 0x0010000060a,  // Standby
         [0x1008ff11 - 0x1008ff02] = 0x00100000a0f,  // AudioLowerVolume
