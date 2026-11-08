@@ -2186,7 +2186,7 @@ ATTR_PURE const char *raw_std_string_get_nonzero_terminated(const struct raw_std
 ATTR_PURE bool raw_std_string_equals(const struct raw_std_value *value, const char *str) {
     size_t length = raw_std_value_get_size(value);
     const char *as_unterminated_string = get_array_value_ptr(value, 0, length);
-    return strncmp(as_unterminated_string, str, length) == 0 && str[length] == '\0';
+    return strlen(str) == length && memcmp(as_unterminated_string, str, length) == 0;
 }
 
 ATTR_PURE bool raw_std_value_is_uint8array(const struct raw_std_value *value) {
