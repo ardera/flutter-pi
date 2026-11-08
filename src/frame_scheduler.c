@@ -84,7 +84,9 @@ void frame_scheduler_on_fl_vsync_request(struct frame_scheduler *scheduler, intp
 
     /// TODO: Implement
     /// For now, just unconditionally reply
-    if (scheduler->present_mode == kTripleBufferedVsync_PresentMode || scheduler->present_mode == kDoubleBufferedVsync_PresentMode) {
+    if (scheduler->present_mode == kTripleBufferedVsync_PresentMode) {
+        scheduler->vsync_cb(scheduler->userdata, vsync_baton, 0, 0);
+    } else if (scheduler->present_mode == kDoubleBufferedVsync_PresentMode) {
         scheduler->vsync_cb(scheduler->userdata, vsync_baton, 0, 0);
     }
 }
