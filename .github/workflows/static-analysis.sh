@@ -59,7 +59,7 @@ configure vulkan-only "${minimal[@]}" \
     -DTRY_ENABLE_OPENGL=OFF \
     -DENABLE_VULKAN=ON
 
-rm -rf "$out/reports" "$out/html"
+rm -rf "$out/reports" "$out/html" "$out/current.baseline"
 
 reports=()
 for config in full opengl-only vulkan-only; do
@@ -90,15 +90,34 @@ jq 'walk(if type == "object" and has("uri") then .uri |= sub("^file://"; "") els
     .locations[0].physicalLocation.region.startColumn
 ])' "$out/results.raw.sarif" > "$out/results.sarif"
 
+allow_reports CodeChecker parse "${reports[@]}" \
+    --config .codechecker.json \
+    --export baseline \
+    --output "$out/current.baseline" > /dev/null
+
 if [ "$mode" = update-baseline ]; then
-    allow_reports CodeChecker parse "${reports[@]}" \
-        --config .codechecker.json \
-        --export baseline \
-        --output .codechecker.baseline > /dev/null
+    cp "$out/current.baseline" .codechecker.baseline
     exit 0
 fi
 
-CodeChecker cmd diff \
-    --basename .codechecker.baseline \
-    --newname "${reports[@]}" \
-    --new
+allow_reports CodeChecker parse "${reports[@]}" \
+    --config .codechecker.json \
+    --trim-path-prefix "$PWD/" \
+    --export json \
+    --output "$out/results.json" > /dev/null
+
+new_hashes="$(comm -13 <(sort -u .codechecker.baseline) <(sort -u "$out/current.baseline"))"
+if [ -z "$new_hashes" ]; then
+    echo "No new reports."
+    exit 0
+fi
+
+jq -r --arg hashes "$new_hashes" '
+    ($hashes | split("\n")) as $new
+    | [.reports[] | select(.report_hash as $h | $new | index($h))]
+    | unique_by(.report_hash)[]
+    | "[\(.severity)] \(.file.path):\(.line):\(.column): \(.message) [\(.checker_name)]"
+' "$out/results.json"
+
+echo "Found $(wc -l <<< "$new_hashes") new reports."
+exit 2
