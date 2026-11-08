@@ -46,7 +46,7 @@ jobs:
         run: ctest --output-on-failure
 
   container:
-    name: Build & Test (${{ matrix.os }}, ${{ matrix.cc }}, ${{ matrix.build-type }}, ${{ matrix.variant }})
+    name: Build & Test (${{ matrix.os }}, ${{ matrix.compiler.cc }}, ${{ matrix.build-type }}, ${{ matrix.preset }})
     runs-on: ubuntu-latest
     timeout-minutes: 60
     container:
@@ -56,71 +56,83 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        os: [bookworm, trixie]
+        compiler:
+          - { cc: gcc, cxx: g++, packages: "gcc g++" }
+          - { cc: clang, cxx: clang++, packages: clang }
+        build-type: [Debug, Release]
+        preset: [ci-common]
         include:
-          - { os: bookworm, cc: gcc, build-type: Debug, variant: common }
-          - { os: bookworm, cc: gcc, build-type: Release, variant: common }
-          - { os: bookworm, cc: clang, build-type: Debug, variant: common }
-          - { os: bookworm, cc: clang, build-type: Release, variant: common }
-          - { os: trixie, cc: gcc, build-type: Debug, variant: common }
-          - { os: trixie, cc: gcc, build-type: Release, variant: common }
-          - { os: trixie, cc: clang, build-type: Debug, variant: common }
-          - { os: trixie, cc: clang, build-type: Release, variant: common }
+          - packages: >-
+              libegl1-mesa-dev libgles2-mesa-dev libvulkan-dev
+              libgstreamer-plugins-base1.0-dev libseat-dev
 
-          - { os: trixie, cc: gcc, build-type: Debug, variant: opengl-only }
-          - { os: trixie, cc: gcc, build-type: Debug, variant: vulkan-only }
-          - { os: trixie, cc: gcc, build-type: Debug, variant: minimal }
-          - { os: trixie, cc: gcc, build-type: Debug, variant: charset-converter }
-          - { os: trixie, cc: gcc, build-type: Debug, variant: sentry-inproc }
-          - { os: trixie, cc: gcc, build-type: Debug, variant: sentry-crashpad-bundled }
-          - { os: trixie, cc: gcc, build-type: Debug, variant: sentry-crashpad-unbundled }
-          - { os: trixie, cc: gcc, build-type: Debug, variant: asan-ubsan }
+          - os: trixie
+            compiler: { cc: gcc, cxx: g++, packages: "gcc g++" }
+            build-type: Debug
+            preset: ci-opengl-only
+            packages: >-
+              libegl1-mesa-dev libgles2-mesa-dev
+              libgstreamer-plugins-base1.0-dev libseat-dev
+
+          - os: trixie
+            compiler: { cc: gcc, cxx: g++, packages: "gcc g++" }
+            build-type: Debug
+            preset: ci-vulkan-only
+            packages: >-
+              libvulkan-dev libgstreamer-plugins-base1.0-dev libseat-dev
+
+          - os: trixie
+            compiler: { cc: gcc, cxx: g++, packages: "gcc g++" }
+            build-type: Debug
+            preset: ci-minimal
+            packages: libegl1-mesa-dev libgles2-mesa-dev
+
+          - os: trixie
+            compiler: { cc: gcc, cxx: g++, packages: "gcc g++" }
+            build-type: Debug
+            preset: ci-charset-converter
+            packages: >-
+              libegl1-mesa-dev libgles2-mesa-dev libvulkan-dev
+              libgstreamer-plugins-base1.0-dev libseat-dev
+
+          - os: trixie
+            compiler: { cc: gcc, cxx: g++, packages: "gcc g++" }
+            build-type: Debug
+            preset: ci-sentry-inproc
+            packages: >-
+              libegl1-mesa-dev libgles2-mesa-dev libvulkan-dev
+              libgstreamer-plugins-base1.0-dev libseat-dev libcurl4-openssl-dev
+
+          - os: trixie
+            compiler: { cc: gcc, cxx: g++, packages: "gcc g++" }
+            build-type: Debug
+            preset: ci-sentry-crashpad-bundled
+            packages: >-
+              libegl1-mesa-dev libgles2-mesa-dev libvulkan-dev
+              libgstreamer-plugins-base1.0-dev libseat-dev libcurl4-openssl-dev
+
+          - os: trixie
+            compiler: { cc: gcc, cxx: g++, packages: "gcc g++" }
+            build-type: Debug
+            preset: ci-sentry-crashpad-unbundled
+            packages: >-
+              libegl1-mesa-dev libgles2-mesa-dev libvulkan-dev
+              libgstreamer-plugins-base1.0-dev libseat-dev libcurl4-openssl-dev
+
+          - os: trixie
+            compiler: { cc: gcc, cxx: g++, packages: "gcc g++" }
+            build-type: Debug
+            preset: ci-asan-ubsan
+            packages: >-
+              libegl1-mesa-dev libgles2-mesa-dev libvulkan-dev
+              libgstreamer-plugins-base1.0-dev libseat-dev
+    env:
+      CC: ${{ matrix.compiler.cc }}
+      CXX: ${{ matrix.compiler.cxx }}
+      COMPILER_PACKAGES: ${{ matrix.compiler.packages }}
+      PACKAGES: ${{ matrix.packages }}
     steps:
-      - name: Select variant
-        env:
-          CC_NAME: ${{ matrix.cc }}
-          VARIANT: ${{ matrix.variant }}
-        run: |
-          case "$CC_NAME" in
-            gcc) packages="gcc g++"; args="-DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++" ;;
-            clang) packages="clang"; args="-DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++" ;;
-          esac
-
-          common_packages="libegl1-mesa-dev libgles2-mesa-dev libvulkan-dev libgstreamer-plugins-base1.0-dev libseat-dev"
-          common_args="-DENABLE_OPENGL=ON -DTRY_ENABLE_OPENGL=OFF
-            -DENABLE_VULKAN=ON -DTRY_ENABLE_VULKAN=OFF
-            -DENABLE_SESSION_SWITCHING=ON -DTRY_ENABLE_SESSION_SWITCHING=OFF
-            -DBUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN=ON -DTRY_BUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN=OFF
-            -DBUILD_GSTREAMER_AUDIO_PLAYER_PLUGIN=ON -DTRY_BUILD_GSTREAMER_AUDIO_PLAYER_PLUGIN=OFF"
-
-          case "$VARIANT" in
-            common)
-              packages="$packages $common_packages"; args="$args $common_args" ;;
-            opengl-only)
-              packages="$packages $common_packages"; args="$args $common_args -DENABLE_VULKAN=OFF" ;;
-            vulkan-only)
-              packages="$packages $common_packages"; args="$args $common_args -DENABLE_OPENGL=OFF -DBUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN=OFF" ;;
-            minimal)
-              packages="$packages libegl1-mesa-dev libgles2-mesa-dev" ;;
-            charset-converter)
-              packages="$packages $common_packages"; args="$args $common_args -DBUILD_CHARSET_CONVERTER_PLUGIN=ON" ;;
-            sentry-inproc)
-              packages="$packages $common_packages libcurl4-openssl-dev"
-              args="$args $common_args -DBUILD_SENTRY_PLUGIN=ON -DSENTRY_BACKEND=inproc" ;;
-            sentry-crashpad-bundled)
-              packages="$packages $common_packages libcurl4-openssl-dev"
-              args="$args $common_args -DBUILD_SENTRY_PLUGIN=ON -DSENTRY_BACKEND=crashpad -DSENTRY_PLUGIN_BUNDLE_CRASHPAD_HANDLER=ON" ;;
-            sentry-crashpad-unbundled)
-              packages="$packages $common_packages libcurl4-openssl-dev"
-              args="$args $common_args -DBUILD_SENTRY_PLUGIN=ON -DSENTRY_BACKEND=crashpad -DSENTRY_PLUGIN_BUNDLE_CRASHPAD_HANDLER=OFF" ;;
-            asan-ubsan)
-              packages="$packages $common_packages"; args="$args $common_args -DENABLE_ASAN=ON -DENABLE_UBSAN=ON" ;;
-            *)
-              echo "unknown variant: $VARIANT"; exit 1 ;;
-          esac
-
-          echo "PACKAGES=$(echo $packages)" >> "$GITHUB_ENV"
-          echo "CMAKE_ARGS=$(echo $args)" >> "$GITHUB_ENV"
-
       # git needs to be installed before checking out, otherwise the checkout will fallback to the REST API,
       # and the submodule download won't work.
       - name: Install dependencies
@@ -128,7 +140,7 @@ jobs:
           apt-get update && apt-get install -y --no-install-recommends \
             ca-certificates git cmake ninja-build pkg-config \
             libdrm-dev libgbm-dev libsystemd-dev libinput-dev libudev-dev libxkbcommon-dev \
-            $PACKAGES
+            $COMPILER_PACKAGES $PACKAGES
 
       - uses: actions/checkout@v7
         with:
@@ -137,18 +149,14 @@ jobs:
       - name: Configure CMake
         run: |
           cmake \
-            -B ./build \
-            -S . \
-            -GNinja \
-            -DCMAKE_BUILD_TYPE=${{ matrix.build-type }} \
-            -DENABLE_TESTS=ON \
-            $CMAKE_ARGS
+            --preset ${{ matrix.preset }} \
+            -DCMAKE_BUILD_TYPE=${{ matrix.build-type }}
 
       - name: Build
-        run: cmake --build ./build
+        run: cmake --build ./build/${{ matrix.preset }}
 
       - name: Test
-        working-directory: build
+        working-directory: build/${{ matrix.preset }}
         env:
           ASAN_OPTIONS: detect_leaks=0
           UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
