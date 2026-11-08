@@ -3,6 +3,10 @@
 #include "pluginregistry.h"
 #include "util/logging.h"
 #include <iconv.h>
+#include <spawn.h>
+#include <sys/wait.h>
+
+extern char **environ;
 
 static int convert(const char *from, const char *to, const char *input, size_t input_size, char **output_out, size_t *output_size_out) {
     if (input_size > SIZE_MAX - 17) {
@@ -212,61 +216,89 @@ static int on_decode(struct platch_obj *object, FlutterPlatformMessageResponseHa
 static int on_available_charsets(struct platch_obj *object, FlutterPlatformMessageResponseHandle *response_handle) {
     (void) object;
 
+    FILE *fp = tmpfile();
+    if (fp == NULL) {
+        return platch_respond_native_error_std(response_handle, errno);
+    }
+
+    posix_spawn_file_actions_t actions;
+    int error = posix_spawn_file_actions_init(&actions);
+    if (error != 0) {
+        fclose(fp);
+        return platch_respond_native_error_std(response_handle, error);
+    }
+
+    error = posix_spawn_file_actions_adddup2(&actions, fileno(fp), STDOUT_FILENO);
+    if (error == 0 && fileno(fp) != STDOUT_FILENO) {
+        error = posix_spawn_file_actions_addclose(&actions, fileno(fp));
+    }
+    pid_t pid;
+    char *argv[] = { "iconv", "--list", NULL };
+    if (error == 0) {
+        error = posix_spawnp(&pid, "iconv", &actions, NULL, argv, environ);
+    }
+    posix_spawn_file_actions_destroy(&actions);
+    if (error != 0) {
+        fclose(fp);
+        return platch_respond_native_error_std(response_handle, error);
+    }
+
+    int status;
+    pid_t waited;
+    do {
+        waited = waitpid(pid, &status, 0);
+    } while (waited < 0 && errno == EINTR);
+    if (waited < 0 || !WIFEXITED(status) || WEXITSTATUS(status) != 0 || fseek(fp, 0, SEEK_SET) != 0) {
+        fclose(fp);
+        return platch_respond_error_std(response_handle, "error_id", "charsets_not_available", NULL);
+    }
+
+    struct std_value values = { .type = kStdList };
     char *output = NULL;
-    size_t length = 0, count = 0;
-    FILE *fp;
-
-    // Count the available charsets
-    fp = popen("iconv --list | wc -w", "r");
-    if(!fp) {
-        return platch_respond_error_std(response_handle, "error_id", "charsets_not_available", NULL);
-    }
-
+    size_t length = 0;
     while (getline(&output, &length, fp) >= 0) {
-        count = strtoul(output, NULL, 10);
-    }
-
-    pclose(fp);
-
-    if (count == 0) {
-        free(output);
-        return platch_respond_error_std(response_handle, "error_id", "charsets_not_available", NULL);
-    }
-
-    fp = popen("iconv --list", "r");
-    if(!fp) {
-        free(output);
-        return platch_respond_error_std(response_handle, "error_id", "charsets_not_available", NULL);
-    }
-
-    struct std_value values;
-
-    values.type = kStdList;
-    values.size = count;
-    values.list = alloca(sizeof(struct std_value) * count);
-
-    size_t index;
-    for (index = 0; index < count; index++) {
-        if(getline(&output, &length, fp) < 0) {
+        char *saveptr;
+        for (char *name = strtok_r(output, " /\t\r\n", &saveptr); name != NULL; name = strtok_r(NULL, " /\t\r\n", &saveptr)) {
+            if (values.size >= SIZE_MAX / sizeof(*values.list)) {
+                error = EOVERFLOW;
+                break;
+            }
+            struct std_value *list = realloc(values.list, (values.size + 1) * sizeof(*values.list));
+            if (list == NULL) {
+                error = ENOMEM;
+                break;
+            }
+            values.list = list;
+            char *copy = strdup(name);
+            if (copy == NULL) {
+                error = ENOMEM;
+                break;
+            }
+            values.list[values.size++] = STDSTRING(copy);
+        }
+        if (error != 0) {
             break;
         }
+    }
+    if (ferror(fp)) {
+        error = errno != 0 ? errno : EIO;
+    }
+    free(output);
+    fclose(fp);
 
-        strtok(output, "/");
-
-        values.list[index].type = kStdString;
-        values.list[index].string_value = strdup(output);
+    int ok;
+    if (error != 0) {
+        ok = platch_respond_native_error_std(response_handle, error);
+    } else if (values.size == 0) {
+        ok = platch_respond_error_std(response_handle, "error_id", "charsets_not_available", NULL);
+    } else {
+        ok = platch_respond_success_std(response_handle, &values);
     }
 
-    pclose(fp);
-    free(output);
-
-    values.size = index;
-
-    int ok = platch_respond_success_std(response_handle, &values);
-
-    for (size_t i = 0; i < index; i++) {
+    for (size_t i = 0; i < values.size; i++) {
         free(values.list[i].string_value);
     }
+    free(values.list);
 
     return ok;
 }

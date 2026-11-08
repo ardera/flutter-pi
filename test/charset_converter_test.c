@@ -26,6 +26,21 @@ static int capture_response(const FlutterPlatformMessageResponseHandle *handle, 
 
 static int capture_success(FlutterPlatformMessageResponseHandle *handle, struct std_value *value) {
     (void) handle;
+    if (value->type == kStdList) {
+        response_size = value->size;
+        TEST_ASSERT_GREATER_THAN(0, response_size);
+        bool found_utf8 = false;
+        for (size_t i = 0; i < value->size; i++) {
+            TEST_ASSERT_EQUAL(kStdString, value->list[i].type);
+            const char *name = value->list[i].string_value;
+            TEST_ASSERT_NOT_NULL(name);
+            TEST_ASSERT_GREATER_THAN(0, strlen(name));
+            TEST_ASSERT_NULL(strpbrk(name, " /\t\r\n"));
+            found_utf8 |= strcmp(name, "UTF-8") == 0;
+        }
+        TEST_ASSERT_TRUE(found_utf8);
+        return 0;
+    }
     TEST_ASSERT_EQUAL(kStdUInt8Array, value->type);
     response_size = value->size;
     response_data = malloc(response_size + 1);
@@ -150,6 +165,11 @@ static void test_decode_size_prefixes(void) {
     }
 }
 
+static void test_available_charsets(void) {
+    TEST_ASSERT_EQUAL_INT(0, on_available_charsets(NULL, NULL));
+    TEST_ASSERT_GREATER_THAN(0, response_size);
+}
+
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_conversion);
@@ -158,5 +178,6 @@ int main(void) {
     RUN_TEST(test_linux_encode);
     RUN_TEST(test_decode_response);
     RUN_TEST(test_decode_size_prefixes);
+    RUN_TEST(test_available_charsets);
     return UNITY_END();
 }
