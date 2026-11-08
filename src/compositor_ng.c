@@ -431,12 +431,14 @@ int compositor_set_platform_view(struct compositor *compositor, int64_t id, stru
 
     if (view == NULL) {
         if (surface != NULL) {
-            struct platform_view_with_id v = {
-                .id = id,
-                .surface = surface_ref(surface),
-            };
+            struct platform_view_with_id *slot = util_dynarray_grow(&compositor->views, struct platform_view_with_id, 1);
+            if (slot == NULL) {
+                compositor_unlock(compositor);
+                return ENOMEM;
+            }
 
-            util_dynarray_append(&compositor->views, struct platform_view_with_id, v);
+            slot->id = id;
+            slot->surface = surface_ref(surface);
         }
     } else {
         ASSERT_NOT_NULL(view->surface);
