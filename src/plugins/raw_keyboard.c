@@ -623,10 +623,10 @@ ATTR_CONST static uint32_t logical_key_for_xkb_keysym(xkb_keysym_t keysym) {
         return apply_flutter_key_plane(0x00022);
     } else if (keysym < 256) {
         return apply_unicode_key_plane(eascii_to_lower((int8_t) keysym));
-    } else if (keysym >= 0xfd06 && keysym - 0xfd06 < ARRAY_SIZE(logical_keys_1)) {
-        logical = logical_keys_1[keysym];
-    } else if (keysym >= 0x1008ff02 && keysym - 0x1008ff02 < ARRAY_SIZE(logical_keys_2)) {
-        logical = logical_keys_2[keysym];
+    } else if (keysym >= 0xfd06 && keysym < 0xfd06 + ARRAY_SIZE(logical_keys_1)) {
+        logical = logical_keys_1[(size_t) keysym - 0xfd06];
+    } else if (keysym >= 0x1008ff02 && keysym < 0x1008ff02 + ARRAY_SIZE(logical_keys_2)) {
+        logical = logical_keys_2[(size_t) keysym - 0x1008ff02];
     }
 
     if (logical == 0) {
