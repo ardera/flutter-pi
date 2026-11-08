@@ -2773,6 +2773,7 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
     window_unref(window);
 
     free(cmd_args.bundle_path);
+    free(cmd_args.desired_videomode);
 
     pthread_mutex_init(&fpi->event_loop_mutex, get_default_mutex_attrs());
     fpi->event_loop_thread = pthread_self();
