@@ -1,0 +1,26 @@
+{
+    "analyze": [
+        "--analyzers",
+        "clangsa",
+        "clang-tidy",
+        "cppcheck",
+        "gcc",
+        "--enable",
+        "sensitive",
+        "--enable",
+        "gcc-analyzer",
+        "--disable",
+        "gcc-analyzer-too-complex",
+        "--disable",
+        "gcc-analyzer-symbol-too-complex",
+        "--analyzer-config",
+        "clang-tidy:take-config-from-directory=true",
+        "--ctu",
+        "--ignore",
+        ".codechecker.skipfile"
+    ],
+    "parse": [
+        "--ignore",
+        ".codechecker.skipfile"
+    ]
+}

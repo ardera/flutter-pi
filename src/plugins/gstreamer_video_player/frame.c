@@ -25,7 +25,8 @@
 #define THIS_GSTREAMER_VER GSTREAMER_VER(LIBGSTREAMER_VERSION_MAJOR, LIBGSTREAMER_VERSION_MINOR, LIBGSTREAMER_VERSION_PATCH)
 
 #define DRM_FOURCC_FORMAT "c%c%c%c"
-#define DRM_FOURCC_ARGS(format) (format) & 0xFF, ((format) >> 8) & 0xFF, ((format) >> 16) & 0xFF, ((format) >> 24) & 0xFF
+#define DRM_FOURCC_ARGS(format) \
+    (char) ((format) & 0xFF), (char) (((format) >> 8) & 0xFF), (char) (((format) >> 16) & 0xFF), (char) (((format) >> 24) & 0xFF)
 
 struct video_frame {
     GstSample *sample;
@@ -122,6 +123,10 @@ static bool query_formats(
         }
     }
 
+    if (n_modified_formats == 0 || max_n_modifiers == 0) {
+        goto fail_free_formats;
+    }
+
     modified_formats = malloc(n_modified_formats * sizeof *modified_formats);
     if (modified_formats == NULL) {
         goto fail_free_formats;
@@ -142,7 +147,7 @@ static bool query_formats(
         egl_ok = egl_query_dmabuf_modifiers(display, formats[i], max_n_modifiers, modifiers, external_only, &n_modifiers);
         if (egl_ok != EGL_TRUE) {
             LOG_ERROR("Could not query dmabuf formats supported by EGL.\n");
-            goto fail_free_formats;
+            goto fail_free_external_only;
         }
 
         LOG_DEBUG_UNPREFIXED("%" DRM_FOURCC_FORMAT ", ", DRM_FOURCC_ARGS(formats[i]));
@@ -163,6 +168,9 @@ static bool query_formats(
     *n_formats_out = n_modified_formats;
     *formats_out = modified_formats;
     return true;
+
+fail_free_external_only:
+    free(external_only);
 
 fail_free_modifiers:
     free(modifiers);
@@ -519,7 +527,7 @@ static bool calculate_plane_size(const GstVideoInfo *info, int plane_index, size
     if (GST_VIDEO_FORMAT_INFO_IS_TILED(info->finfo)) {
         guint x_tiles = GST_VIDEO_TILE_X_TILES(info->stride[plane_index]);
         guint y_tiles = GST_VIDEO_TILE_Y_TILES(info->stride[plane_index]);
-        *plane_size_out = x_tiles * y_tiles * GST_VIDEO_FORMAT_INFO_TILE_SIZE(info->finfo, plane_index);
+        *plane_size_out = (size_t) x_tiles * y_tiles * GST_VIDEO_FORMAT_INFO_TILE_SIZE(info->finfo, plane_index);
         return true;
     }
     #endif
@@ -531,7 +539,7 @@ static bool calculate_plane_size(const GstVideoInfo *info, int plane_index, size
     gst_video_format_info_component(info->finfo, plane_index, comp);
     plane_height = GST_VIDEO_FORMAT_INFO_SCALE_HEIGHT(info->finfo, comp[0], GST_VIDEO_INFO_FIELD_HEIGHT(info));
 
-    *plane_size_out = plane_height * GST_VIDEO_INFO_PLANE_STRIDE(info, plane_index);
+    *plane_size_out = (size_t) plane_height * GST_VIDEO_INFO_PLANE_STRIDE(info, plane_index);
     return true;
 }
 
@@ -557,6 +565,11 @@ get_plane_infos(GstBuffer *buffer, const GstVideoInfo *info, struct gbm_device *
     int n_planes;
 
     n_planes = GST_VIDEO_INFO_N_PLANES(info);
+
+    if (n_planes <= 0 || n_planes > MAX_N_PLANES) {
+        LOG_ERROR("Unsupported number of planes in video frame.\n");
+        return EINVAL;
+    }
 
     // There's so many ways to get the plane sizes.
     // 1. Preferably we should use the video meta.
@@ -596,6 +609,8 @@ get_plane_infos(GstBuffer *buffer, const GstVideoInfo *info, struct gbm_device *
         plane_sizes[0] = gst_buffer_get_size(buffer);
         has_plane_sizes = true;
     }
+
+    ASSERT_MSG(has_plane_sizes, "Couldn't determine video frame plane sizes.\n");
 
     for (int i = 0; i < n_planes; i++) {
         size_t offset_in_memory = 0;
@@ -640,7 +655,7 @@ get_plane_infos(GstBuffer *buffer, const GstVideoInfo *info, struct gbm_device *
 
                 ok = dup(ok);
                 if (ok < 0) {
-                    ok = errno;
+                    ok = errno ? errno : EIO;
                     LOG_ERROR("Could not dup fd. dup: %s\n", strerror(ok));
                     goto fail_close_fds;
                 }
@@ -674,7 +689,7 @@ get_plane_infos(GstBuffer *buffer, const GstVideoInfo *info, struct gbm_device *
 
 fail_close_fds:
         for (int j = i - 1; j > 0; j--) {
-            close(plane_infos[i].fd);
+            close(plane_infos[j].fd);
         }
         return ok;
     }
@@ -683,6 +698,8 @@ fail_close_fds:
 }
 
 static uint32_t drm_format_from_gst_info(const GstVideoInfo *info) {
+    PRAGMA_DIAGNOSTIC_PUSH
+    PRAGMA_DIAGNOSTIC_IGNORED("-Wswitch-enum")
     switch (GST_VIDEO_INFO_FORMAT(info)) {
         case GST_VIDEO_FORMAT_YUY2: return DRM_FORMAT_YUYV;
         case GST_VIDEO_FORMAT_YVYU: return DRM_FORMAT_YVYU;
@@ -716,6 +733,7 @@ static uint32_t drm_format_from_gst_info(const GstVideoInfo *info) {
         case GST_VIDEO_FORMAT_xBGR: return DRM_FORMAT_RGBX8888;
         default: return DRM_FORMAT_INVALID;
     }
+    PRAGMA_DIAGNOSTIC_POP
 }
 
 ATTR_CONST GstVideoFormat gst_video_format_from_drm_format(uint32_t drm_format) {
@@ -938,7 +956,7 @@ format_supported:
     if (planes[0].has_modifier) {
         if (interface->supports_extended_imports) {
 #ifdef EGL_EXT_image_dma_buf_import_modifiers
-            PUT_ATTR(EGL_DMA_BUF_PLANE0_MODIFIER_LO_EXT, uint32_to_int32(planes[0].modifier & 0xFFFFFFFFlu));
+            PUT_ATTR(EGL_DMA_BUF_PLANE0_MODIFIER_LO_EXT, uint32_to_int32(planes[0].modifier & 0xFFFFFFFFLU));
             PUT_ATTR(EGL_DMA_BUF_PLANE0_MODIFIER_HI_EXT, uint32_to_int32(planes[0].modifier >> 32));
 #else
             UNREACHABLE();
@@ -959,7 +977,7 @@ format_supported:
         if (planes[1].has_modifier) {
             if (interface->supports_extended_imports) {
 #ifdef EGL_EXT_image_dma_buf_import_modifiers
-                PUT_ATTR(EGL_DMA_BUF_PLANE1_MODIFIER_LO_EXT, uint32_to_int32(planes[1].modifier & 0xFFFFFFFFlu));
+                PUT_ATTR(EGL_DMA_BUF_PLANE1_MODIFIER_LO_EXT, uint32_to_int32(planes[1].modifier & 0xFFFFFFFFLU));
                 PUT_ATTR(EGL_DMA_BUF_PLANE1_MODIFIER_HI_EXT, uint32_to_int32(planes[1].modifier >> 32));
 #else
                 UNREACHABLE();
@@ -982,7 +1000,7 @@ format_supported:
         if (planes[2].has_modifier) {
             if (interface->supports_extended_imports) {
 #ifdef EGL_EXT_image_dma_buf_import_modifiers
-                PUT_ATTR(EGL_DMA_BUF_PLANE2_MODIFIER_LO_EXT, uint32_to_int32(planes[2].modifier & 0xFFFFFFFFlu));
+                PUT_ATTR(EGL_DMA_BUF_PLANE2_MODIFIER_LO_EXT, uint32_to_int32(planes[2].modifier & 0xFFFFFFFFLU));
                 PUT_ATTR(EGL_DMA_BUF_PLANE2_MODIFIER_HI_EXT, uint32_to_int32(planes[2].modifier >> 32));
 #else
                 UNREACHABLE();
@@ -1012,7 +1030,7 @@ format_supported:
         PUT_ATTR(EGL_DMA_BUF_PLANE3_OFFSET_EXT, planes[3].offset);
         PUT_ATTR(EGL_DMA_BUF_PLANE3_PITCH_EXT, planes[3].pitch);
         if (planes[3].has_modifier) {
-            PUT_ATTR(EGL_DMA_BUF_PLANE3_MODIFIER_LO_EXT, uint32_to_int32(planes[3].modifier & 0xFFFFFFFFlu));
+            PUT_ATTR(EGL_DMA_BUF_PLANE3_MODIFIER_LO_EXT, uint32_to_int32(planes[3].modifier & 0xFFFFFFFFLU));
             PUT_ATTR(EGL_DMA_BUF_PLANE3_MODIFIER_HI_EXT, uint32_to_int32(planes[3].modifier >> 32));
         }
 #else
@@ -1096,9 +1114,9 @@ format_supported:
     frame->drm_format = drm_format;
     frame->n_dmabuf_fds = n_planes;
     frame->dmabuf_fds[0] = planes[0].fd;
-    frame->dmabuf_fds[1] = planes[1].fd;
-    frame->dmabuf_fds[2] = planes[2].fd;
-    frame->dmabuf_fds[3] = planes[3].fd;
+    frame->dmabuf_fds[1] = n_planes >= 2 ? planes[1].fd : -1;
+    frame->dmabuf_fds[2] = n_planes >= 3 ? planes[2].fd : -1;
+    frame->dmabuf_fds[3] = n_planes >= 4 ? planes[3].fd : -1;
     frame->image = egl_image;
     frame->gl_frame.target = target;
     frame->gl_frame.name = texture;

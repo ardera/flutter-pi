@@ -184,6 +184,8 @@ deinit_self:
 
 gboolean audio_player_on_bus_message(GstBus *bus, GstMessage *message, struct audio_player *data) {
     (void) bus;
+    PRAGMA_DIAGNOSTIC_PUSH
+    PRAGMA_DIAGNOSTIC_IGNORED("-Wswitch-enum")
     switch (GST_MESSAGE_TYPE(message)) {
         case GST_MESSAGE_ERROR: {
             GError *err;
@@ -220,6 +222,7 @@ gboolean audio_player_on_bus_message(GstBus *bus, GstMessage *message, struct au
             break;
     }
 
+    PRAGMA_DIAGNOSTIC_POP
     // Continue watching for messages
     return TRUE;
 }
@@ -525,10 +528,10 @@ void audio_player_set_balance(struct audio_player *self, double balance) {
         return;
     }
 
-    if (balance > 1.0l) {
-        balance = 1.0l;
-    } else if (balance < -1.0l) {
-        balance = -1.0l;
+    if (balance > 1.0) {
+        balance = 1.0;
+    } else if (balance < -1.0) {
+        balance = -1.0;
     }
     g_object_set(G_OBJECT(self->panorama), "panorama", balance, NULL);
 }

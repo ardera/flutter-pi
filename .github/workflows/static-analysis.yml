@@ -1,0 +1,69 @@
+name: Static Analysis
+
+on:
+  push:
+    branches: [ "master" ]
+  pull_request:
+  schedule:
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  codechecker:
+    name: CodeChecker
+    runs-on: ubuntu-26.04
+
+    permissions:
+      contents: read
+      security-events: write
+
+    env:
+      CLANG_VERSION: 23
+      CODECHECKER_VERSION: 6.29.3
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Checkout submodules
+        run: git submodule update --init --depth 1 third_party/Unity
+
+      - name: Install dependencies
+        run: |
+          codename="$(. /etc/os-release && echo "$VERSION_CODENAME")"
+          sudo install -d /etc/apt/keyrings
+          curl -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/keyrings/apt.llvm.org.asc > /dev/null
+          echo "deb [signed-by=/etc/apt/keyrings/apt.llvm.org.asc] https://apt.llvm.org/$codename/ llvm-toolchain-$codename-$CLANG_VERSION main" \
+            | sudo tee /etc/apt/sources.list.d/llvm.list
+
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake ninja-build pkg-config gcc cppcheck jq python3-venv \
+            clang-$CLANG_VERSION clang-tidy-$CLANG_VERSION clang-tools-$CLANG_VERSION \
+            libgl-dev libgles-dev libegl-dev libvulkan-dev libdrm-dev libgbm-dev libsystemd-dev libinput-dev libudev-dev libxkbcommon-dev libseat-dev \
+            libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libunwind-dev
+
+          python3 -m venv "$RUNNER_TEMP/codechecker"
+          "$RUNNER_TEMP/codechecker/bin/pip" install "codechecker==$CODECHECKER_VERSION"
+          echo "$RUNNER_TEMP/codechecker/bin" >> "$GITHUB_PATH"
+
+      - name: Run CodeChecker
+        run: ./.github/workflows/static-analysis.sh check
+
+      - name: Upload HTML report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: codechecker-report
+          path: build/static-analysis/html
+          if-no-files-found: ignore
+
+      - name: Upload SARIF to code scanning
+        if: ${{ !cancelled() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: build/static-analysis/results.sarif
+          category: codechecker

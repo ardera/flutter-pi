@@ -3,42 +3,104 @@
 #include "pluginregistry.h"
 #include "util/logging.h"
 #include <iconv.h>
+#include <spawn.h>
+#include <sys/wait.h>
 
-static bool convert(char *inbuf, char *outbuf, size_t len, const char *from, const char *to)
-{
-    iconv_t iconv_cd = iconv_open(to, from);
-    if (iconv_cd == (iconv_t) -1) {
-        LOG_ERROR("Conversion from charset \"%s\" to charset \"%s\" is not supported. iconv_open: %s\n", from, to, strerror(errno));
-        return false;
+extern char **environ;
+
+static int convert(const char *from, const char *to, const char *input, size_t input_size, char **output_out, size_t *output_size_out) {
+    if (input_size > SIZE_MAX - 17) {
+        return EOVERFLOW;
     }
 
-    size_t inlen = len;
-    size_t outlen = len;
-    size_t res = 0;
+    iconv_t iconv_cd = iconv_open(to, from);
+    if (iconv_cd == (iconv_t) -1) {
+        int error = errno != 0 ? errno : EIO;
+        LOG_ERROR("Conversion from charset \"%s\" to charset \"%s\" is not supported. iconv_open: %s\n", from, to, strerror(error));
+        return error == EINVAL ? ENOENT : error;
+    }
 
-    while (inlen > 0 && outlen > 0) {
-        res = iconv(iconv_cd, &inbuf, &inlen, &outbuf, &outlen);
-        if (res == 0) {
-            break;
+    size_t capacity = input_size + 16;
+    char *output = malloc(capacity + 1);
+    if (output == NULL) {
+        iconv_close(iconv_cd);
+        return ENOMEM;
+    }
+
+    char *inbuf = (char *) input;
+    size_t inleft = input_size;
+    size_t used = 0;
+
+    while (true) {
+        char *outbuf = output + used;
+        size_t outleft = capacity - used;
+        bool flush = inleft == 0;
+
+        size_t res;
+        if (flush) {
+            res = iconv(iconv_cd, NULL, NULL, &outbuf, &outleft);
+        } else {
+            res = iconv(iconv_cd, &inbuf, &inleft, &outbuf, &outleft);
         }
 
-        if (res == (size_t) (-1)) {
+        used = capacity - outleft;
+
+        if (res != (size_t) -1) {
+            if (flush) {
+                break;
+            }
+            continue;
+        }
+
+        if (errno != E2BIG) {
+            int error = errno != 0 ? errno : EIO;
+            LOG_ERROR("Could not convert from charset \"%s\" to charset \"%s\". iconv: %s\n", from, to, strerror(error));
+            free(output);
             iconv_close(iconv_cd);
-            *outbuf = '\0';
-
-            return false;
+            return error;
         }
+
+        if (capacity > (SIZE_MAX - 1) / 2) {
+            free(output);
+            iconv_close(iconv_cd);
+            return EOVERFLOW;
+        }
+
+        size_t new_capacity = capacity * 2;
+        char *new_output = realloc(output, new_capacity + 1);
+        if (new_output == NULL) {
+            free(output);
+            iconv_close(iconv_cd);
+            return ENOMEM;
+        }
+
+        output = new_output;
+        capacity = new_capacity;
     }
 
     iconv_close(iconv_cd);
-    *outbuf = '\0';
 
-    return true;
+    output[used] = '\0';
+
+    *output_out = output;
+    *output_size_out = used;
+    return 0;
+}
+
+static int respond_conversion_error(FlutterPlatformMessageResponseHandle *response_handle, int error) {
+    if (error == ENOENT) {
+        return platch_respond_error_std(response_handle, "error_id", "Charset not found.", NULL);
+    } else if (error == ENOMEM) {
+        return platch_respond_native_error_std(response_handle, ENOMEM);
+    } else {
+        return platch_respond_error_std(response_handle, "error_id", strerror(error), NULL);
+    }
 }
 
 static int on_encode(struct platch_obj *object, FlutterPlatformMessageResponseHandle *response_handle) {
     struct std_value *args, *tmp;
     char *charset, *input, *output;
+    size_t input_size, output_size;
 
     args = &object->std_arg;
 
@@ -54,25 +116,31 @@ static int on_encode(struct platch_obj *object, FlutterPlatformMessageResponseHa
     charset = STDVALUE_AS_STRING(*tmp);
 
     tmp = stdmap_get_str(&object->std_arg, "data");
-    if (tmp == NULL || !STDVALUE_IS_STRING(*tmp)) {
-        return platch_respond_illegal_arg_std(response_handle, "Expected `arg['data'] to be a string.");
+    if (tmp == NULL) {
+        return platch_respond_illegal_arg_std(response_handle, "Expected `arg['data'] to be a string or uint8_t list.");
     }
 
-    input = STDVALUE_AS_STRING(*tmp);
-    output = malloc(strlen(input) + 1);
-
-    bool res = convert(input, output, strlen(input) + 1, "UTF-8", charset);
-    if(!res) {
-        free(output);
-        return platch_respond_error_std(response_handle, "error_id", "charset_name_unrecognized", NULL);
+    if (STDVALUE_IS_STRING(*tmp)) {
+        input = STDVALUE_AS_STRING(*tmp);
+        input_size = strlen(input);
+    } else if (tmp->type == kStdUInt8Array && tmp->size > 0 && tmp->uint8array[tmp->size - 1] == 0) {
+        input = (char *) tmp->uint8array;
+        input_size = tmp->size - 1;
+    } else {
+        return platch_respond_illegal_arg_std(response_handle, "Expected `arg['data'] to be a string or NUL-terminated uint8_t list.");
     }
 
-    int ok = platch_respond_success_std(
+    int ok = convert("UTF-8", charset, input, input_size, &output, &output_size);
+    if (ok != 0) {
+        return respond_conversion_error(response_handle, ok);
+    }
+
+    ok = platch_respond_success_std(
         response_handle,
         &(struct std_value) {
             .type = kStdUInt8Array,
-            .size = strlen(output),
-            .uint8array = (uint8_t*) output,
+            .size = output_size,
+            .uint8array = (uint8_t *) output,
         }
     );
 
@@ -84,7 +152,7 @@ static int on_encode(struct platch_obj *object, FlutterPlatformMessageResponseHa
 static int on_decode(struct platch_obj *object, FlutterPlatformMessageResponseHandle *response_handle) {
     struct std_value *args, *tmp;
     char *charset, *output;
-    const uint8_t *input;
+    size_t output_size;
 
     args = &object->std_arg;
 
@@ -100,27 +168,45 @@ static int on_decode(struct platch_obj *object, FlutterPlatformMessageResponseHa
     charset = STDVALUE_AS_STRING(*tmp);
 
     tmp = stdmap_get_str(&object->std_arg, "data");
-    if (tmp == NULL || (*tmp).type != kStdUInt8Array ) {
+    if (tmp == NULL || (*tmp).type != kStdUInt8Array) {
         return platch_respond_illegal_arg_std(response_handle, "Expected `arg['data'] to be a uint8_t list.");
     }
 
-    input = tmp->uint8array;
-    output = malloc(strlen((char*) input) + 1);
-
-    bool res = convert((char*) input, output, strlen((char*) input) + 1, "UTF-8", charset);
-    if(!res) {
-        free(output);
-        return platch_respond_error_std(response_handle, "error_id", "charset_name_unrecognized", NULL);
+    int ok = convert(charset, "UTF-8", (const char *) tmp->uint8array, tmp->size, &output, &output_size);
+    if (ok != 0) {
+        return respond_conversion_error(response_handle, ok);
     }
 
-    int ok = platch_respond_success_std(
-        response_handle,
-        &(struct std_value) {
-            .type = kStdUInt8Array,
-            .size = strlen(output),
-            .uint8array = (uint8_t*) output,
-        }
-    );
+    if (output_size > UINT32_MAX || output_size > SIZE_MAX - 7) {
+        free(output);
+        return respond_conversion_error(response_handle, EOVERFLOW);
+    }
+
+    size_t prefix_size = output_size < 254 ? 3 : output_size <= UINT16_MAX ? 5 : 7;
+    uint8_t *response = malloc(prefix_size + output_size);
+    if (response == NULL) {
+        free(output);
+        return respond_conversion_error(response_handle, ENOMEM);
+    }
+
+    response[0] = 0;
+    response[1] = kStdString;
+    if (output_size < 254) {
+        response[2] = output_size;
+    } else if (output_size <= UINT16_MAX) {
+        uint16_t size = output_size;
+        response[2] = 254;
+        memcpy(response + 3, &size, sizeof(size));
+    } else {
+        uint32_t size = output_size;
+        response[2] = 255;
+        memcpy(response + 3, &size, sizeof(size));
+    }
+    memcpy(response + prefix_size, output, output_size);
+
+    ok = platch_respond(response_handle, &PLATCH_OBJ_BINARY_DATA(response, prefix_size + output_size));
+
+    free(response);
 
     free(output);
 
@@ -130,47 +216,91 @@ static int on_decode(struct platch_obj *object, FlutterPlatformMessageResponseHa
 static int on_available_charsets(struct platch_obj *object, FlutterPlatformMessageResponseHandle *response_handle) {
     (void) object;
 
-    char* output;
-    size_t length, count;
-    FILE *fp;
+    FILE *fp = tmpfile();
+    if (fp == NULL) {
+        return platch_respond_native_error_std(response_handle, errno);
+    }
 
-    // Count the available charsets
-    fp = popen("iconv --list | wc -w", "r");
-    if(!fp) {
+    posix_spawn_file_actions_t actions;
+    int error = posix_spawn_file_actions_init(&actions);
+    if (error != 0) {
+        fclose(fp);
+        return platch_respond_native_error_std(response_handle, error);
+    }
+
+    error = posix_spawn_file_actions_adddup2(&actions, fileno(fp), STDOUT_FILENO);
+    if (error == 0 && fileno(fp) != STDOUT_FILENO) {
+        error = posix_spawn_file_actions_addclose(&actions, fileno(fp));
+    }
+    pid_t pid = -1;
+    char *argv[] = { "iconv", "--list", NULL };
+    if (error == 0) {
+        error = posix_spawnp(&pid, "iconv", &actions, NULL, argv, environ);
+    }
+    posix_spawn_file_actions_destroy(&actions);
+    if (error != 0) {
+        fclose(fp);
+        return platch_respond_native_error_std(response_handle, error);
+    }
+
+    int status;
+    pid_t waited;
+    do {
+        waited = waitpid(pid, &status, 0);
+    } while (waited < 0 && errno == EINTR);
+    if (waited < 0 || !WIFEXITED(status) || WEXITSTATUS(status) != 0 || fseek(fp, 0, SEEK_SET) != 0) {
+        fclose(fp);
         return platch_respond_error_std(response_handle, "error_id", "charsets_not_available", NULL);
     }
 
+    struct std_value values = { .type = kStdList };
+    char *output = NULL;
+    size_t length = 0;
     while (getline(&output, &length, fp) >= 0) {
-        count = atoi(output);
-    }
-
-    pclose(fp);
-
-    fp = popen("iconv --list", "r");
-    if(!fp) {
-        return platch_respond_error_std(response_handle, "error_id", "charsets_not_available", NULL);
-    }
-
-    struct std_value values;
-
-    values.type = kStdList;
-    values.size = count;
-    values.list = alloca(sizeof(struct std_value) * count);
-
-    for (int index = 0; index < count; index++) {
-        if(getline(&output, &length, fp) < 0) {
+        char *saveptr;
+        for (char *name = strtok_r(output, " /\t\r\n", &saveptr); name != NULL; name = strtok_r(NULL, " /\t\r\n", &saveptr)) {
+            if (values.size >= SIZE_MAX / sizeof(*values.list)) {
+                error = EOVERFLOW;
+                break;
+            }
+            struct std_value *list = realloc(values.list, (values.size + 1) * sizeof(*values.list));
+            if (list == NULL) {
+                error = ENOMEM;
+                break;
+            }
+            values.list = list;
+            char *copy = strdup(name);
+            if (copy == NULL) {
+                error = ENOMEM;
+                break;
+            }
+            values.list[values.size++] = STDSTRING(copy);
+        }
+        if (error != 0) {
             break;
         }
+    }
+    if (ferror(fp)) {
+        error = errno != 0 ? errno : EIO;
+    }
+    free(output);
+    fclose(fp);
 
-        strtok(output, "/");
-
-        values.list[index].type = kStdString;
-        values.list[index].string_value = strdup(output);
+    int ok;
+    if (error != 0) {
+        ok = platch_respond_native_error_std(response_handle, error);
+    } else if (values.size == 0) {
+        ok = platch_respond_error_std(response_handle, "error_id", "charsets_not_available", NULL);
+    } else {
+        ok = platch_respond_success_std(response_handle, &values);
     }
 
-    pclose(fp);
+    for (size_t i = 0; i < values.size; i++) {
+        free(values.list[i].string_value);
+    }
+    free(values.list);
 
-    return platch_respond_success_std(response_handle, &values);
+    return ok;
 }
 
 static int on_check(struct platch_obj *object, FlutterPlatformMessageResponseHandle *response_handle) {

@@ -7,6 +7,8 @@
 
 #include "flutter-pi.h"
 #include "pluginregistry.h"
+#include "util/collection.h"
+#include "util/macros.h"
 
 #define INDENT_STRING "                    "
 
@@ -85,6 +87,15 @@ int __printStd(struct std_value *value, int indent) {
             }
             printf("]");
             break;
+        case kStdFloat32Array:
+            printf("(float) [");
+            for (int i = 0; i < value->size; i++) {
+                printf("%f", (double) value->float32array[i]);
+                if (i + 1 != value->size)
+                    printf(", ");
+            }
+            printf("]");
+            break;
         case kStdFloat64Array:
             printf("(double) [");
             for (int i = 0; i < value->size; i++) {
@@ -129,10 +140,8 @@ int printStd(struct std_value *value, int indent) {
 
 #undef INDENT_STRING
 
-static uint64_t testplugin_time_offset;
-
 static int on_response_json(struct platch_obj *object, void *userdata) {
-    uint64_t dt = flutterpi.flutter.libflutter_engine.FlutterEngineGetCurrentTime() - *((uint64_t *) userdata);
+    uint64_t dt = get_monotonic_time() - *((uint64_t *) userdata);
     free(userdata);
 
     if (object->codec == kNotImplemented) {
@@ -142,14 +151,14 @@ static int on_response_json(struct platch_obj *object, void *userdata) {
 
     if (object->success) {
         printf(
-            "on_response_json(dt: %lu)\n"
+            "on_response_json(dt: %" PRIu64 ")\n"
             "  success\n"
             "  result:\n",
             dt
         );
         printJSON(&object->json_result, 4);
     } else {
-        printf("testp_on_response_json(dt: %lu)\n", dt);
+        printf("testp_on_response_json(dt: %" PRIu64 ")\n", dt);
         printf(
             "  failure\n"
             "  error code: %s\n"
@@ -165,7 +174,10 @@ static int on_response_json(struct platch_obj *object, void *userdata) {
 }
 static int send_json(void) {
     uint64_t *time = malloc(sizeof(uint64_t));
-    *time = flutterpi.flutter.libflutter_engine.FlutterEngineGetCurrentTime();
+    if (time == NULL) {
+        return ENOMEM;
+    }
+    *time = get_monotonic_time();
 
     char *method = "test";
     struct json_value argument = {
@@ -184,12 +196,13 @@ static int send_json(void) {
 
     int ok = platch_call_json(TESTPLUGIN_CHANNEL_JSON, method, &argument, on_response_json, time);
     if (ok != 0) {
+        free(time);
         printf("Could not MethodCall JSON: %s\n", strerror(ok));
     }
-    return 0;
+    return ok;
 }
 static int on_response_std(struct platch_obj *object, void *userdata) {
-    uint64_t dt = flutterpi.flutter.libflutter_engine.FlutterEngineGetCurrentTime() - *((uint64_t *) userdata);
+    uint64_t dt = get_monotonic_time() - *((uint64_t *) userdata);
     free(userdata);
 
     if (object->codec == kNotImplemented) {
@@ -199,14 +212,14 @@ static int on_response_std(struct platch_obj *object, void *userdata) {
 
     if (object->success) {
         printf(
-            "testp_on_response_std(dt: %lu)\n"
+            "testp_on_response_std(dt: %" PRIu64 ")\n"
             "  success\n"
             "  result:\n",
             dt
         );
         printStd(&object->std_result, 4);
     } else {
-        printf("testp_on_response_std(dt: %lu)\n", dt);
+        printf("testp_on_response_std(dt: %" PRIu64 ")\n", dt);
         printf(
             "  failure\n"
             "  error code: %s\n"
@@ -220,9 +233,12 @@ static int on_response_std(struct platch_obj *object, void *userdata) {
 
     return 0;
 }
-static int send_std() {
+static int send_std(void) {
     uint64_t *time = malloc(sizeof(uint64_t));
-    *time = flutterpi.flutter.libflutter_engine.FlutterEngineGetCurrentTime();
+    if (time == NULL) {
+        return ENOMEM;
+    }
+    *time = get_monotonic_time();
 
     char *method = "test";
     struct std_value argument = {
@@ -247,8 +263,12 @@ static int send_std() {
              .list = (struct std_value[]){ { .type = kStdString, .string_value = "array1" }, { .type = kStdInt32, .int32_value = 2 } } } },
     };
 
-    platch_call_std(TESTPLUGIN_CHANNEL_STD, method, &argument, on_response_std, time);
-    return 0;
+    int ok = platch_call_std(TESTPLUGIN_CHANNEL_STD, method, &argument, on_response_std, time);
+    if (ok != 0) {
+        free(time);
+        printf("Could not MethodCall STD: %s\n", strerror(ok));
+    }
+    return ok;
 }
 
 static int on_receive_json(char *channel, struct platch_obj *object, FlutterPlatformMessageResponseHandle *responsehandle) {
@@ -286,7 +306,7 @@ static int on_receive_std(char *channel, struct platch_obj *object, FlutterPlatf
         &(struct platch_obj){ .codec = kStandardMethodCallResponse, .success = true, .std_result = { .type = kStdTrue } }
     );
 }
-static int on_receive_ping(char *channel, struct platch_obj *object, FlutterPlatformMessageResponseHandle *responsehandle) {
+static int on_receive_ping(UNUSED char *channel, UNUSED struct platch_obj *object, FlutterPlatformMessageResponseHandle *responsehandle) {
     return platch_respond(responsehandle, &(struct platch_obj){ .codec = kStringCodec, .string_value = "pong" });
 }
 
@@ -321,11 +341,10 @@ fail_remove_json_receiver:
     return PLUGIN_INIT_RESULT_ERROR;
 }
 
-void testp_deinit(struct flutterpi *flutterpi, void *userdata) {
+void testp_deinit(struct flutterpi *flutterpi, UNUSED void *userdata) {
     plugin_registry_remove_receiver_v2_locked(flutterpi_get_plugin_registry(flutterpi), TESTPLUGIN_CHANNEL_PING);
     plugin_registry_remove_receiver_v2_locked(flutterpi_get_plugin_registry(flutterpi), TESTPLUGIN_CHANNEL_STD);
     plugin_registry_remove_receiver_v2_locked(flutterpi_get_plugin_registry(flutterpi), TESTPLUGIN_CHANNEL_JSON);
-    return 0;
 }
 
 FLUTTERPI_PLUGIN("test plugin", test_plugin, testp_init, testp_deinit)

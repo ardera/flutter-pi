@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 #include "platformchannel.h"
 
+#include <float.h>
 #include <limits.h>
 #include <math.h>
 #include <stdalign.h>
@@ -10,34 +11,37 @@
 #define RAW_STD_BUF(...) (const struct raw_std_value *) ((const uint8_t[]){ __VA_ARGS__ })
 #define AS_RAW_STD_VALUE(_value) ((const struct raw_std_value *) (_value))
 
+#define DBL_INFINITY ((double) INFINITY)
+#define DBL_NAN ((double) NAN)
+
 // required by Unity.
-void setUp() {
+void setUp(void) {
 }
 
-void tearDown() {
+void tearDown(void) {
 }
 
-void test_raw_std_value_is_null() {
+void test_raw_std_value_is_null(void) {
     TEST_ASSERT_TRUE(raw_std_value_is_null(RAW_STD_BUF(kStdNull)));
     TEST_ASSERT_FALSE(raw_std_value_is_null(RAW_STD_BUF(kStdTrue)));
 }
 
-void test_raw_std_value_is_true() {
+void test_raw_std_value_is_true(void) {
     TEST_ASSERT_TRUE(raw_std_value_is_true(RAW_STD_BUF(kStdTrue)));
     TEST_ASSERT_FALSE(raw_std_value_is_true(RAW_STD_BUF(kStdFalse)));
 }
 
-void test_raw_std_value_is_false() {
+void test_raw_std_value_is_false(void) {
     TEST_ASSERT_TRUE(raw_std_value_is_false(RAW_STD_BUF(kStdFalse)));
     TEST_ASSERT_FALSE(raw_std_value_is_false(RAW_STD_BUF(kStdTrue)));
 }
 
-void test_raw_std_value_is_int32() {
+void test_raw_std_value_is_int32(void) {
     TEST_ASSERT_TRUE(raw_std_value_is_int32(RAW_STD_BUF(kStdInt32)));
     TEST_ASSERT_FALSE(raw_std_value_is_int32(RAW_STD_BUF(kStdNull)));
 }
 
-void test_raw_std_value_as_int32() {
+void test_raw_std_value_as_int32(void) {
     // clang-format off
     alignas(16) uint8_t buffer[5] = {
         kStdInt32,
@@ -53,12 +57,12 @@ void test_raw_std_value_as_int32() {
     TEST_ASSERT_EQUAL_INT32(-2003205, raw_std_value_as_int32(AS_RAW_STD_VALUE(buffer)));
 }
 
-void test_raw_std_value_is_int64() {
+void test_raw_std_value_is_int64(void) {
     TEST_ASSERT_TRUE(raw_std_value_is_int64(RAW_STD_BUF(kStdInt64)));
     TEST_ASSERT_FALSE(raw_std_value_is_int64(RAW_STD_BUF(kStdNull)));
 }
 
-void test_raw_std_value_as_int64() {
+void test_raw_std_value_as_int64(void) {
     // clang-format off
     alignas(16) uint8_t buffer[9] = {
         kStdInt64,
@@ -74,12 +78,12 @@ void test_raw_std_value_as_int64() {
     TEST_ASSERT_EQUAL_INT64(-7998090352538419200, raw_std_value_as_int64(AS_RAW_STD_VALUE(buffer)));
 }
 
-void test_raw_std_value_is_float64() {
+void test_raw_std_value_is_float64(void) {
     TEST_ASSERT_TRUE(raw_std_value_is_float64(RAW_STD_BUF(kStdFloat64)));
     TEST_ASSERT_FALSE(raw_std_value_is_float64(RAW_STD_BUF(kStdNull)));
 }
 
-void test_raw_std_value_as_float64() {
+void test_raw_std_value_as_float64(void) {
     // clang-format off
     alignas(16) uint8_t buffer[] = {
         kStdFloat64,
@@ -93,18 +97,18 @@ void test_raw_std_value_as_float64() {
 
     TEST_ASSERT_EQUAL_DOUBLE(M_PI, raw_std_value_as_float64(AS_RAW_STD_VALUE(buffer)));
 
-    value = INFINITY;
+    value = DBL_INFINITY;
     memcpy(buffer + 8, &value, sizeof(value));
 
-    TEST_ASSERT_EQUAL_DOUBLE(INFINITY, raw_std_value_as_float64(AS_RAW_STD_VALUE(buffer)));
+    TEST_ASSERT_EQUAL_DOUBLE(DBL_INFINITY, raw_std_value_as_float64(AS_RAW_STD_VALUE(buffer)));
 }
 
-void test_raw_std_value_is_string() {
+void test_raw_std_value_is_string(void) {
     TEST_ASSERT_TRUE(raw_std_value_is_string(RAW_STD_BUF(kStdString)));
     TEST_ASSERT_FALSE(raw_std_value_is_string(RAW_STD_BUF(kStdNull)));
 }
 
-void test_raw_std_string_dup() {
+void test_raw_std_string_dup(void) {
     const char *str = "The quick brown fox jumps over the lazy dog.";
 
     // clang-format off
@@ -129,7 +133,7 @@ void test_raw_std_string_dup() {
     free(str_duped);
 }
 
-void test_raw_std_string_equals() {
+void test_raw_std_string_equals(void) {
     const char *str = "The quick brown fox jumps over the lazy dog.";
 
     alignas(16) uint8_t buffer[1 + 1 + strlen(str)];
@@ -151,12 +155,12 @@ void test_raw_std_string_equals() {
     TEST_ASSERT_FALSE(raw_std_string_equals(AS_RAW_STD_VALUE(buffer), "anything"));
 }
 
-void test_raw_std_value_is_uint8array() {
+void test_raw_std_value_is_uint8array(void) {
     TEST_ASSERT_TRUE(raw_std_value_is_uint8array(RAW_STD_BUF(kStdUInt8Array)));
     TEST_ASSERT_FALSE(raw_std_value_is_uint8array(RAW_STD_BUF(kStdNull)));
 }
 
-void test_raw_std_value_as_uint8array() {
+void test_raw_std_value_as_uint8array(void) {
     // clang-format off
     alignas(16) uint8_t buffer[] = {
         kStdUInt8Array,
@@ -179,12 +183,12 @@ void test_raw_std_value_as_uint8array() {
     TEST_ASSERT_EQUAL_UINT8_ARRAY(expected, raw_std_value_as_uint8array(AS_RAW_STD_VALUE(buffer)), 4);
 }
 
-void test_raw_std_value_is_int32array() {
+void test_raw_std_value_is_int32array(void) {
     TEST_ASSERT_TRUE(raw_std_value_is_int32array(RAW_STD_BUF(kStdInt32Array)));
     TEST_ASSERT_FALSE(raw_std_value_is_int32array(RAW_STD_BUF(kStdNull)));
 }
 
-void test_raw_std_value_as_int32array() {
+void test_raw_std_value_as_int32array(void) {
     // clang-format off
     alignas(16) uint8_t buffer[] = {
         // type
@@ -216,12 +220,12 @@ void test_raw_std_value_as_int32array() {
     TEST_ASSERT_EQUAL_INT32_ARRAY(expected, raw_std_value_as_int32array(AS_RAW_STD_VALUE(buffer)), 2);
 }
 
-void test_raw_std_value_is_int64array() {
+void test_raw_std_value_is_int64array(void) {
     TEST_ASSERT_TRUE(raw_std_value_is_int64array(RAW_STD_BUF(kStdInt64Array)));
     TEST_ASSERT_FALSE(raw_std_value_is_int64array(RAW_STD_BUF(kStdNull)));
 }
 
-void test_raw_std_value_as_int64array() {
+void test_raw_std_value_as_int64array(void) {
     // clang-format off
     alignas(16) uint8_t buffer[] = {
         // type
@@ -251,12 +255,12 @@ void test_raw_std_value_as_int64array() {
     TEST_ASSERT_EQUAL_INT64_ARRAY(expected, raw_std_value_as_int64array(AS_RAW_STD_VALUE(buffer)), 2);
 }
 
-void test_raw_std_value_is_float64array() {
+void test_raw_std_value_is_float64array(void) {
     TEST_ASSERT_TRUE(raw_std_value_is_float64array(RAW_STD_BUF(kStdFloat64Array)));
     TEST_ASSERT_FALSE(raw_std_value_is_float64array(RAW_STD_BUF(kStdNull)));
 }
 
-void test_raw_std_value_as_float64array() {
+void test_raw_std_value_as_float64array(void) {
     // clang-format off
     alignas(16) uint8_t buffer[] = {
         // type
@@ -274,7 +278,7 @@ void test_raw_std_value_as_float64array() {
     // clang-format off
     double expected[] = {
         M_PI,
-        INFINITY,
+        DBL_INFINITY,
     };
     // clang-format on
 
@@ -288,12 +292,12 @@ void test_raw_std_value_as_float64array() {
     TEST_ASSERT_EQUAL_DOUBLE_ARRAY(expected, raw_std_value_as_float64array(AS_RAW_STD_VALUE(buffer)), 2);
 }
 
-void test_raw_std_value_is_list() {
+void test_raw_std_value_is_list(void) {
     TEST_ASSERT_TRUE(raw_std_value_is_list(RAW_STD_BUF(kStdList)));
     TEST_ASSERT_FALSE(raw_std_value_is_list(RAW_STD_BUF(kStdNull)));
 }
 
-void test_raw_std_list_get_size() {
+void test_raw_std_list_get_size(void) {
     // clang-format off
     alignas(16) uint8_t buffer[] = {
         // type
@@ -325,12 +329,12 @@ void test_raw_std_list_get_size() {
     TEST_ASSERT_EQUAL_size_t(0xDEADBEEF, raw_std_list_get_size(AS_RAW_STD_VALUE(buffer)));
 }
 
-void test_raw_std_value_is_map() {
+void test_raw_std_value_is_map(void) {
     TEST_ASSERT_TRUE(raw_std_value_is_map(RAW_STD_BUF(kStdMap)));
     TEST_ASSERT_FALSE(raw_std_value_is_map(RAW_STD_BUF(kStdNull)));
 }
 
-void test_raw_std_map_get_size() {
+void test_raw_std_map_get_size(void) {
     // clang-format off
     alignas(16) uint8_t buffer[] = {
         // type
@@ -362,12 +366,12 @@ void test_raw_std_map_get_size() {
     TEST_ASSERT_EQUAL_size_t(0xDEADBEEF, raw_std_map_get_size(AS_RAW_STD_VALUE(buffer)));
 }
 
-void test_raw_std_value_is_float32array() {
+void test_raw_std_value_is_float32array(void) {
     TEST_ASSERT_TRUE(raw_std_value_is_float32array(RAW_STD_BUF(kStdFloat32Array)));
     TEST_ASSERT_FALSE(raw_std_value_is_float32array(RAW_STD_BUF(kStdNull)));
 }
 
-void test_raw_std_value_as_float32array() {
+void test_raw_std_value_as_float32array(void) {
     // clang-format off
     alignas(16) uint8_t buffer[] = {
         // type
@@ -385,7 +389,7 @@ void test_raw_std_value_as_float32array() {
     // clang-format off
     float expected[] = {
         M_PI,
-        INFINITY,
+        DBL_INFINITY,
     };
     // clang-format on
 
@@ -399,7 +403,7 @@ void test_raw_std_value_as_float32array() {
     TEST_ASSERT_EQUAL_FLOAT_ARRAY(expected, raw_std_value_as_float32array(AS_RAW_STD_VALUE(buffer)), 2);
 }
 
-void test_raw_std_value_equals() {
+void test_raw_std_value_equals(void) {
     TEST_ASSERT_TRUE(raw_std_value_equals(RAW_STD_BUF(kStdNull), RAW_STD_BUF(kStdNull)));
     TEST_ASSERT_FALSE(raw_std_value_equals(RAW_STD_BUF(kStdNull), RAW_STD_BUF(kStdTrue)));
     TEST_ASSERT_FALSE(raw_std_value_equals(RAW_STD_BUF(kStdTrue), RAW_STD_BUF(kStdFalse)));
@@ -479,7 +483,7 @@ void test_raw_std_value_equals() {
 
         TEST_ASSERT_TRUE(raw_std_value_equals(AS_RAW_STD_VALUE(lhs), AS_RAW_STD_VALUE(rhs)));
 
-        f = NAN;
+        f = DBL_NAN;
         memcpy(rhs + 8, &f, sizeof(f));
 
         TEST_ASSERT_FALSE(raw_std_value_equals(AS_RAW_STD_VALUE(lhs), AS_RAW_STD_VALUE(rhs)));
@@ -487,13 +491,13 @@ void test_raw_std_value_equals() {
 
     // string
     {
-        const char *str = "The quick brown fox jumps over the lazy dog.";
+        const char str[] = "The quick brown fox jumps over the lazy dog.";
 
-        alignas(16) uint8_t lhs[1 + 1 + strlen(str)];
+        alignas(16) uint8_t lhs[1 + 1 + (sizeof(str) - 1)];
         lhs[0] = kStdString;
         lhs[1] = strlen(str);
 
-        alignas(16) uint8_t rhs[1 + 1 + strlen(str)];
+        alignas(16) uint8_t rhs[1 + 1 + (sizeof(str) - 1)];
         rhs[0] = kStdString;
         rhs[1] = strlen(str);
 
@@ -501,8 +505,8 @@ void test_raw_std_value_equals() {
         // the standard message codec encoding.
         TEST_ASSERT_LESS_OR_EQUAL_size_t(253, strlen(str));
 
-        memcpy(lhs + 2, str, strlen(str));
-        memcpy(rhs + 2, str, strlen(str));
+        memcpy(lhs + 2, str, sizeof(str) - 1);
+        memcpy(rhs + 2, str, sizeof(str) - 1);
 
         TEST_ASSERT_TRUE(raw_std_value_equals(AS_RAW_STD_VALUE(lhs), AS_RAW_STD_VALUE(rhs)));
 
@@ -510,10 +514,10 @@ void test_raw_std_value_equals() {
 
         TEST_ASSERT_FALSE(raw_std_value_equals(AS_RAW_STD_VALUE(lhs), AS_RAW_STD_VALUE(rhs)));
 
-        const char *str2 = "The quick brown fox jumps over the lazy DOG ";
+        const char str2[] = "The quick brown fox jumps over the lazy DOG ";
         TEST_ASSERT_EQUAL_size_t(strlen(str), strlen(str2));
         rhs[1] = strlen(str2);
-        memcpy(rhs + 2, str2, strlen(str2));
+        memcpy(rhs + 2, str2, sizeof(str2) - 1);
 
         TEST_ASSERT_FALSE(raw_std_value_equals(AS_RAW_STD_VALUE(lhs), AS_RAW_STD_VALUE(rhs)));
     }
@@ -689,7 +693,7 @@ void test_raw_std_value_equals() {
 
         double array[] = {
             M_PI,
-            INFINITY,
+            DBL_INFINITY,
         };
         // clang-format on
 
@@ -705,7 +709,7 @@ void test_raw_std_value_equals() {
         rhs[1] = 2;
         double array2[] = {
             0.0,
-            INFINITY,
+            DBL_INFINITY,
         };
         memcpy(rhs + 8, array2, sizeof(array2));
 
@@ -714,16 +718,16 @@ void test_raw_std_value_equals() {
 
     // list
     {
-        const char *str = "The quick brown fox jumps over the lazy dog.";
+        const char str[] = "The quick brown fox jumps over the lazy dog.";
 
-        alignas(16) uint8_t lhs[1 + 1 + 1 + 1 + strlen(str) + 1];
+        alignas(16) uint8_t lhs[1 + 1 + 1 + 1 + (sizeof(str) - 1) + 1];
         lhs[0] = kStdList;
         lhs[1] = 2;
         lhs[2] = kStdString;
         lhs[3] = strlen(str);
         lhs[4 + strlen(str)] = kStdTrue;
 
-        alignas(16) uint8_t rhs[1 + 1 + 1 + 1 + strlen(str) + 1];
+        alignas(16) uint8_t rhs[1 + 1 + 1 + 1 + (sizeof(str) - 1) + 1];
         rhs[0] = kStdList;
         rhs[1] = 2;
         rhs[2] = kStdString;
@@ -734,8 +738,8 @@ void test_raw_std_value_equals() {
         // the standard message codec encoding.
         TEST_ASSERT_LESS_OR_EQUAL_size_t(253, strlen(str));
 
-        memcpy(lhs + 4, str, strlen(str));
-        memcpy(rhs + 4, str, strlen(str));
+        memcpy(lhs + 4, str, sizeof(str) - 1);
+        memcpy(rhs + 4, str, sizeof(str) - 1);
 
         TEST_ASSERT_TRUE(raw_std_value_equals(AS_RAW_STD_VALUE(lhs), AS_RAW_STD_VALUE(rhs)));
 
@@ -783,7 +787,7 @@ void test_raw_std_value_equals() {
         int64_t int64 = (int64_t) INT64_MIN;
         float floats[] = {
             M_PI,
-            INFINITY,
+            DBL_INFINITY,
         };
         // clang-format on
 
@@ -835,7 +839,7 @@ void test_raw_std_value_equals() {
 
         float array[] = {
             M_PI,
-            INFINITY,
+            DBL_INFINITY,
         };
         // clang-format on
 
@@ -852,7 +856,7 @@ void test_raw_std_value_equals() {
         // clang-format off
         float array2[] = {
             0.0,
-            INFINITY,
+            DBL_INFINITY,
         };
         // clang-format on
         memcpy(rhs + 4, array2, sizeof(array2));
@@ -861,18 +865,18 @@ void test_raw_std_value_equals() {
     }
 }
 
-void test_raw_std_value_is_bool() {
+void test_raw_std_value_is_bool(void) {
     TEST_ASSERT_FALSE(raw_std_value_is_bool(RAW_STD_BUF(kStdNull)));
     TEST_ASSERT_TRUE(raw_std_value_is_bool(RAW_STD_BUF(kStdTrue)));
     TEST_ASSERT_TRUE(raw_std_value_is_bool(RAW_STD_BUF(kStdFalse)));
 }
 
-void test_raw_std_value_as_bool() {
+void test_raw_std_value_as_bool(void) {
     TEST_ASSERT_TRUE(raw_std_value_as_bool(RAW_STD_BUF(kStdTrue)));
     TEST_ASSERT_FALSE(raw_std_value_as_bool(RAW_STD_BUF(kStdFalse)));
 }
 
-void test_raw_std_value_is_int() {
+void test_raw_std_value_is_int(void) {
     TEST_ASSERT_FALSE(raw_std_value_is_int(RAW_STD_BUF(kStdNull)));
     TEST_ASSERT_FALSE(raw_std_value_is_int(RAW_STD_BUF(kStdTrue)));
     TEST_ASSERT_FALSE(raw_std_value_is_int(RAW_STD_BUF(kStdFalse)));
@@ -881,7 +885,7 @@ void test_raw_std_value_is_int() {
     TEST_ASSERT_FALSE(raw_std_value_is_int(RAW_STD_BUF(kStdFloat64)));
 }
 
-void test_raw_std_value_as_int() {
+void test_raw_std_value_as_int(void) {
     // clang-format off
     alignas(16) uint8_t buffer[9] = {
         kStdInt32,
@@ -905,7 +909,7 @@ void test_raw_std_value_as_int() {
     TEST_ASSERT_EQUAL_INT64(INT32_MIN, raw_std_value_as_int(AS_RAW_STD_VALUE(buffer)));
 }
 
-void test_raw_std_value_get_size() {
+void test_raw_std_value_get_size(void) {
     // clang-format off
     alignas(16) uint8_t buffer[] = {
         // type
@@ -938,7 +942,7 @@ void test_raw_std_value_get_size() {
     TEST_ASSERT_EQUAL_size_t(0xDEADBEEF, raw_std_value_get_size(AS_RAW_STD_VALUE(buffer)));
 }
 
-void test_raw_std_value_after() {
+void test_raw_std_value_after(void) {
     // null
     {
         // clang-format off
@@ -1101,14 +1105,14 @@ void test_raw_std_value_after() {
         buffer[1] = 254;
         buffer[2] = 254;
         buffer[3] = 0;
-        TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 2 + 254 * 4, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
+        TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 2 + (size_t) 254 * 4, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
 
         buffer[1] = 255;
         buffer[2] = 0;
         buffer[3] = 0;
         buffer[4] = 1;
         buffer[5] = 0;
-        TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 4 + 2 + 0x010000 * 4, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
+        TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 4 + 2 + (size_t) 0x010000 * 4, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
     }
 
     // int64array
@@ -1127,7 +1131,7 @@ void test_raw_std_value_after() {
         };
         // clang-format on
 
-        TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 6 + 2 * 8, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
+        TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 6 + (size_t) 2 * 8, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
 
         buffer[1] = 0;
         TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 6, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
@@ -1135,14 +1139,14 @@ void test_raw_std_value_after() {
         buffer[1] = 254;
         buffer[2] = 254;
         buffer[3] = 0;
-        TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 4 + 2 + 254 * 8, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
+        TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 4 + 2 + (size_t) 254 * 8, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
 
         buffer[1] = 255;
         buffer[2] = 0;
         buffer[3] = 0;
         buffer[4] = 1;
         buffer[5] = 0;
-        TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 4 + 2 + 0x010000 * 8, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
+        TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 4 + 2 + (size_t) 0x010000 * 8, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
     }
 
     // float64array
@@ -1161,7 +1165,7 @@ void test_raw_std_value_after() {
         };
         // clang-format on
 
-        TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 6 + 2 * 8, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
+        TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 6 + (size_t) 2 * 8, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
 
         buffer[1] = 0;
         TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 6, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
@@ -1169,14 +1173,14 @@ void test_raw_std_value_after() {
         buffer[1] = 254;
         buffer[2] = 254;
         buffer[3] = 0;
-        TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 4 + 2 + 254 * 8, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
+        TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 4 + 2 + (size_t) 254 * 8, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
 
         buffer[1] = 255;
         buffer[2] = 0;
         buffer[3] = 0;
         buffer[4] = 1;
         buffer[5] = 0;
-        TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 4 + 2 + 0x010000 * 8, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
+        TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 4 + 2 + (size_t) 0x010000 * 8, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
     }
 
     // list
@@ -1252,18 +1256,18 @@ void test_raw_std_value_after() {
         buffer[1] = 254;
         buffer[2] = 254;
         buffer[3] = 0;
-        TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 2 + 254 * 4, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
+        TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 2 + (size_t) 254 * 4, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
 
         buffer[1] = 255;
         buffer[2] = 0;
         buffer[3] = 0;
         buffer[4] = 1;
         buffer[5] = 0;
-        TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 4 + 2 + 0x010000 * 4, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
+        TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 4 + 2 + (size_t) 0x010000 * 4, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
     }
 }
 
-void test_raw_std_list_get_first_element() {
+void test_raw_std_list_get_first_element(void) {
     // list
     const char *str = "The quick brown fox jumps over the lazy dog.";
 
@@ -1286,7 +1290,7 @@ void test_raw_std_list_get_first_element() {
     );
 }
 
-void test_raw_std_list_get_nth_element() {
+void test_raw_std_list_get_nth_element(void) {
     // list
     const char *str = "The quick brown fox jumps over the lazy dog.";
 
@@ -1309,7 +1313,7 @@ void test_raw_std_list_get_nth_element() {
     );
 }
 
-void test_raw_std_map_get_first_key() {
+void test_raw_std_map_get_first_key(void) {
     // map
     // clang-format off
     alignas(16) uint8_t buffer[] = {
@@ -1340,31 +1344,231 @@ void test_raw_std_map_get_first_key() {
     TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 4, raw_std_map_get_first_key(AS_RAW_STD_VALUE(buffer)));
 }
 
-void test_raw_std_map_find() {
+void test_raw_std_map_find(void) {
 }
 
-void test_raw_std_map_find_str() {
+void test_raw_std_map_find_str(void) {
 }
 
-void test_raw_std_value_check() {
+void test_raw_std_value_check(void) {
 }
 
-void test_raw_std_method_call_check() {
+void test_raw_std_method_call_check(void) {
 }
 
-void test_raw_std_method_call_response_check() {
+void test_raw_std_method_call_response_check(void) {
 }
 
-void test_raw_std_event_check() {
+void test_raw_std_event_check(void) {
 }
 
-void test_raw_std_method_call_get_method() {
+void test_raw_std_method_call_get_method(void) {
 }
 
-void test_raw_std_method_call_get_method_dup() {
+void test_raw_std_method_call_get_method_dup(void) {
 }
 
-void test_raw_std_method_call_get_arg() {
+void test_raw_std_method_call_get_arg(void) {
+}
+
+static void assert_json_message(struct json_value value, const char *expected) {
+    struct platch_obj obj = PLATCH_OBJ_JSON_MSG(value);
+    uint8_t *buffer = NULL;
+    size_t size = 0;
+
+    TEST_ASSERT_EQUAL_INT(0, platch_encode(&obj, &buffer, &size));
+    TEST_ASSERT_EQUAL_size_t(strlen(expected), size);
+    TEST_ASSERT_EQUAL_MEMORY(expected, buffer, size);
+    TEST_ASSERT_EQUAL_UINT8(0, buffer[size]);
+
+    free(buffer);
+}
+
+void test_platch_encode_json_literals(void) {
+    assert_json_message(JSONNULL, "null");
+    assert_json_message(JSONBOOL(true), "true");
+    assert_json_message(JSONBOOL(false), "false");
+}
+
+void test_platch_encode_json_numbers(void) {
+    assert_json_message(JSONNUM(0), "0");
+    assert_json_message(JSONNUM(42), "42");
+    assert_json_message(JSONNUM(-7), "-7");
+    assert_json_message(JSONNUM(0.5), "0.5");
+    assert_json_message(JSONNUM(0.1), "0.10000000000000001");
+}
+
+void test_platch_encode_json_number_round_trip(void) {
+    struct platch_obj obj = PLATCH_OBJ_JSON_MSG(JSONNUM(0.1));
+    uint8_t *buffer = NULL;
+    size_t size = 0;
+
+    TEST_ASSERT_EQUAL_INT(0, platch_encode(&obj, &buffer, &size));
+    TEST_ASSERT_EQUAL_DOUBLE(0.1, strtod((const char *) buffer, NULL));
+
+    free(buffer);
+}
+
+void test_platch_encode_json_rejects_non_finite_numbers(void) {
+    struct platch_obj obj = PLATCH_OBJ_JSON_MSG(JSONNUM(DBL_NAN));
+    uint8_t *buffer = NULL;
+    size_t size = 0;
+
+    TEST_ASSERT_EQUAL_INT(EINVAL, platch_encode(&obj, &buffer, &size));
+
+    obj = PLATCH_OBJ_JSON_MSG(JSONNUM(DBL_INFINITY));
+    TEST_ASSERT_EQUAL_INT(EINVAL, platch_encode(&obj, &buffer, &size));
+
+    obj = PLATCH_OBJ_JSON_MSG(JSONARRAY2(JSONNUM(1), JSONNUM(-DBL_INFINITY)));
+    TEST_ASSERT_EQUAL_INT(EINVAL, platch_encode(&obj, &buffer, &size));
+}
+
+void test_platch_encode_json_strings(void) {
+    assert_json_message(JSONSTRING(""), "\"\"");
+    assert_json_message(JSONSTRING("abc"), "\"abc\"");
+    assert_json_message(JSONSTRING("a\"b"), "\"a\\\"b\"");
+    assert_json_message(JSONSTRING("a\\b"), "\"a\\\\b\"");
+    assert_json_message(JSONSTRING("a\nb"), "\"a\\nb\"");
+    assert_json_message(JSONSTRING("a\tb"), "\"a\\tb\"");
+    assert_json_message(JSONSTRING("a\rb\bc\fd"), "\"a\\rb\\bc\\fd\"");
+    assert_json_message(JSONSTRING("a\x01z"), "\"a\\u0001z\"");
+    assert_json_message(JSONSTRING("\x1f"), "\"\\u001f\"");
+}
+
+void test_platch_encode_json_containers(void) {
+    assert_json_message((struct json_value){ .type = kJsonArray, .size = 0, .array = NULL }, "[]");
+    assert_json_message((struct json_value){ .type = kJsonObject, .size = 0, .keys = NULL, .values = NULL }, "{}");
+    assert_json_message(JSONARRAY3(JSONNUM(1), JSONSTRING("two"), JSONNULL), "[1,\"two\",null]");
+    assert_json_message(JSONOBJECT2("a", JSONBOOL(true), "b", JSONBOOL(false)), "{\"a\":true,\"b\":false}");
+}
+
+void test_platch_encode_json_escapes_object_keys(void) {
+    assert_json_message(JSONOBJECT1("a\"b\n", JSONNUM(1)), "{\"a\\\"b\\n\":1}");
+}
+
+void test_platch_encode_json_nested(void) {
+    assert_json_message(
+        JSONARRAY2(
+            JSONARRAY2(JSONNUM(1), JSONARRAY1(JSONNULL)),
+            JSONOBJECT2("x", JSONOBJECT1("y", JSONARRAY1(JSONSTRING("z"))), "w", JSONARRAY2(JSONNUM(2), JSONNUM(3)))
+        ),
+        "[[1,[null]],{\"x\":{\"y\":[\"z\"]},\"w\":[2,3]}]"
+    );
+}
+
+void test_platch_encode_json_method_call(void) {
+    struct platch_obj obj = PLATCH_OBJ_JSON_CALL("foo.bar", JSONARRAY2(JSONNUM(1), JSONSTRING("x")));
+    uint8_t *buffer = NULL;
+    size_t size = 0;
+    const char *expected = "{\"method\":\"foo.bar\",\"args\":[1,\"x\"]}";
+
+    TEST_ASSERT_EQUAL_INT(0, platch_encode(&obj, &buffer, &size));
+    TEST_ASSERT_EQUAL_size_t(strlen(expected), size);
+    TEST_ASSERT_EQUAL_MEMORY(expected, buffer, size);
+    TEST_ASSERT_EQUAL_UINT8(0, buffer[size]);
+
+    free(buffer);
+}
+
+void test_platch_encode_json_method_call_escapes_method(void) {
+    struct platch_obj obj = PLATCH_OBJ_JSON_CALL("a\"b", JSONNULL);
+    uint8_t *buffer = NULL;
+    size_t size = 0;
+    const char *expected = "{\"method\":\"a\\\"b\",\"args\":null}";
+
+    TEST_ASSERT_EQUAL_INT(0, platch_encode(&obj, &buffer, &size));
+    TEST_ASSERT_EQUAL_size_t(strlen(expected), size);
+    TEST_ASSERT_EQUAL_MEMORY(expected, buffer, size);
+
+    free(buffer);
+}
+
+void test_platch_encode_json_method_call_response(void) {
+    struct platch_obj obj = PLATCH_OBJ_JSON_CALL_SUCCESS_RESPONSE(JSONSTRING("ok"));
+    uint8_t *buffer = NULL;
+    size_t size = 0;
+    const char *expected = "[\"ok\"]";
+
+    TEST_ASSERT_EQUAL_INT(0, platch_encode(&obj, &buffer, &size));
+    TEST_ASSERT_EQUAL_size_t(strlen(expected), size);
+    TEST_ASSERT_EQUAL_MEMORY(expected, buffer, size);
+    TEST_ASSERT_EQUAL_UINT8(0, buffer[size]);
+
+    free(buffer);
+}
+
+void test_platch_encode_json_method_call_error_response(void) {
+    struct platch_obj obj = {
+        .codec = kJSONMethodCallResponse,
+        .success = false,
+        .error_code = "code",
+        .error_msg = "message",
+        .json_error_details = JSONNUM(5),
+    };
+    uint8_t *buffer = NULL;
+    size_t size = 0;
+    const char *expected = "[\"code\",\"message\",5]";
+
+    TEST_ASSERT_EQUAL_INT(0, platch_encode(&obj, &buffer, &size));
+    TEST_ASSERT_EQUAL_size_t(strlen(expected), size);
+    TEST_ASSERT_EQUAL_MEMORY(expected, buffer, size);
+    TEST_ASSERT_EQUAL_UINT8(0, buffer[size]);
+
+    free(buffer);
+
+    buffer = NULL;
+    obj.error_msg = NULL;
+    obj.json_error_details = JSONNULL;
+    expected = "[\"code\",null,null]";
+
+    TEST_ASSERT_EQUAL_INT(0, platch_encode(&obj, &buffer, &size));
+    TEST_ASSERT_EQUAL_size_t(strlen(expected), size);
+    TEST_ASSERT_EQUAL_MEMORY(expected, buffer, size);
+
+    free(buffer);
+}
+
+void test_platch_encode_json_decode_round_trip(void) {
+    struct platch_obj obj = PLATCH_OBJ_JSON_MSG(JSONOBJECT3(
+        "list",
+        JSONARRAY3(JSONNUM(1), JSONNUM(0.1), JSONNULL),
+        "flags",
+        JSONARRAY2(JSONBOOL(true), JSONBOOL(false)),
+        "name",
+        JSONSTRING("flutter-pi")
+    ));
+    struct platch_obj decoded;
+    uint8_t *first = NULL, *second = NULL;
+    uint8_t input[256];
+    size_t first_size = 0, second_size = 0;
+
+    TEST_ASSERT_EQUAL_INT(0, platch_encode(&obj, &first, &first_size));
+
+    TEST_ASSERT_LESS_THAN_size_t(sizeof(input), first_size + 1);
+    memcpy(input, first, first_size + 1);
+    TEST_ASSERT_EQUAL_INT(0, platch_decode(input, first_size, kJSONMessageCodec, &decoded));
+
+    TEST_ASSERT_EQUAL_INT(kJsonObject, decoded.json_value.type);
+    TEST_ASSERT_EQUAL_size_t(3, decoded.json_value.size);
+
+    TEST_ASSERT_EQUAL_INT(0, platch_encode(&decoded, &second, &second_size));
+    TEST_ASSERT_EQUAL_size_t(first_size, second_size);
+    TEST_ASSERT_EQUAL_MEMORY(first, second, first_size);
+
+    platch_free_obj(&decoded);
+    free(first);
+    free(second);
+}
+
+static void test_platch_encode_std_method_call(void) {
+    struct platch_obj call = PLATCH_OBJ_STD_CALL("test", STDNULL);
+    uint8_t *buffer = NULL;
+    size_t size = 0;
+    const uint8_t expected[] = { kStdString, 4, 't', 'e', 's', 't', kStdNull };
+    TEST_ASSERT_EQUAL_INT(0, platch_encode(&call, &buffer, &size));
+    TEST_ASSERT_EQUAL_size_t(sizeof(expected), size);
+    TEST_ASSERT_EQUAL_MEMORY(expected, buffer, sizeof(expected));
+    free(buffer);
 }
 
 int main(void) {
@@ -1415,6 +1619,20 @@ int main(void) {
     RUN_TEST(test_raw_std_method_call_get_method);
     RUN_TEST(test_raw_std_method_call_get_method_dup);
     RUN_TEST(test_raw_std_method_call_get_arg);
+    RUN_TEST(test_platch_encode_json_literals);
+    RUN_TEST(test_platch_encode_json_numbers);
+    RUN_TEST(test_platch_encode_json_number_round_trip);
+    RUN_TEST(test_platch_encode_json_rejects_non_finite_numbers);
+    RUN_TEST(test_platch_encode_json_strings);
+    RUN_TEST(test_platch_encode_json_containers);
+    RUN_TEST(test_platch_encode_json_escapes_object_keys);
+    RUN_TEST(test_platch_encode_json_nested);
+    RUN_TEST(test_platch_encode_json_method_call);
+    RUN_TEST(test_platch_encode_json_method_call_escapes_method);
+    RUN_TEST(test_platch_encode_json_method_call_response);
+    RUN_TEST(test_platch_encode_json_method_call_error_response);
+    RUN_TEST(test_platch_encode_json_decode_round_trip);
+    RUN_TEST(test_platch_encode_std_method_call);
 
     return UNITY_END();
 }

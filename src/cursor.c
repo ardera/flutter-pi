@@ -7,12 +7,12 @@
 #include "util/collection.h"
 #include "util/geometry.h"
 
-#define PIXEL_RATIO_LDPI 1.25
-#define PIXEL_RATIO_MDPI 1.6666
-#define PIXEL_RATIO_HDPI 2.5
-#define PIXEL_RATIO_XHDPI 3.3333
-#define PIXEL_RATIO_XXHDPI 5
-#define PIXEL_RATIO_XXXHDPI 6.6666
+#define PIXEL_RATIO_LDPI 1.25f
+#define PIXEL_RATIO_MDPI 1.6666f
+#define PIXEL_RATIO_HDPI 2.5f
+#define PIXEL_RATIO_XHDPI 3.3333f
+#define PIXEL_RATIO_XXHDPI 5.0f
+#define PIXEL_RATIO_XXXHDPI 6.6666f
 
 struct pointer_icon {
     enum pointer_kind kind;
@@ -1450,7 +1450,7 @@ static void run_length_decode(void *image_buf, const void *rle_data, size_t size
     }
 }
 
-const struct pointer_icon *pointer_icon_for_details(enum pointer_kind kind, double pixel_ratio) {
+const struct pointer_icon *pointer_icon_for_details(enum pointer_kind kind, float pixel_ratio) {
     const struct pointer_icon *best;
 
     best = NULL;
@@ -1461,7 +1461,7 @@ const struct pointer_icon *pointer_icon_for_details(enum pointer_kind kind, doub
             if (best == NULL) {
                 best = icon;
                 continue;
-            } else if (fabs(pixel_ratio - icon->pixel_ratio) < fabs(pixel_ratio - best->pixel_ratio)) {
+            } else if (fabsf(pixel_ratio - icon->pixel_ratio) < fabsf(pixel_ratio - best->pixel_ratio)) {
                 best = icon;
                 continue;
             }
@@ -1497,12 +1497,12 @@ void *pointer_icon_dup_pixels(const struct pointer_icon *icon) {
 
     ASSERT_EQUALS(icon->bytes_per_pixel, 4);
 
-    buffer = calloc(1, icon->bytes_per_pixel * icon->width * icon->height);
+    buffer = calloc(1, (size_t) icon->bytes_per_pixel * icon->width * icon->height);
     if (buffer == NULL) {
         return NULL;
     }
 
-    run_length_decode(buffer, icon->rle_pixel_data, icon->width * icon->height);
+    run_length_decode(buffer, icon->rle_pixel_data, (size_t) icon->width * icon->height);
 
     return buffer;
 }

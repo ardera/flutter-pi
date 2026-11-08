@@ -178,6 +178,8 @@ struct flutterpi {
 	 */
     struct drmdev *drmdev;
 
+    struct gbm_device *gbm_device;
+
     /**
 	 * @brief The flutter event tracing interface.
 	 *
@@ -399,7 +401,8 @@ static void *proc_resolver(void *userdata, const char *name) {
     flutterpi = userdata;
     ASSERT_NOT_NULL(flutterpi->gl_renderer);
 
-    return gl_renderer_get_proc_address(flutterpi->gl_renderer, name);
+    fn_ptr_t fn = gl_renderer_get_proc_address(flutterpi->gl_renderer, name);
+    return *((void **) &fn);
 }
 #endif
 
@@ -413,7 +416,8 @@ UNUSED static void *on_get_vulkan_proc_address(void *userdata, FlutterVulkanInst
         name = "vkGetInstanceProcAddr";
     }
 
-    return (void *) vkGetInstanceProcAddr((VkInstance) instance, name);
+    PFN_vkVoidFunction fn = vkGetInstanceProcAddr((VkInstance) instance, name);
+    return *(void **) (&fn);
 #else
     (void) userdata;
     (void) instance;
@@ -551,7 +555,7 @@ UNUSED static void on_frame_request(void *userdata, intptr_t baton) {
     req->flutterpi = flutterpi;
     req->baton = baton;
     req->vblank_ns = get_monotonic_time();
-    req->next_vblank_ns = req->vblank_ns + (1000000000.0 / compositor_get_refresh_rate(flutterpi->compositor));
+    req->next_vblank_ns = req->vblank_ns + (uint64_t) (1000000000.0 / compositor_get_refresh_rate(flutterpi->compositor));
 
     if (flutterpi_runs_platform_tasks_on_current_thread(req->flutterpi)) {
         TRACER_INSTANT(req->flutterpi->tracer, "FlutterEngineOnVsync");
@@ -1031,7 +1035,7 @@ const char *flutterpi_get_asset_bundle_path(struct flutterpi *flutterpi) {
 
 /// TODO: Make this refcounted if we're gonna use it from multiple threads.
 struct gbm_device *flutterpi_get_gbm_device(struct flutterpi *flutterpi) {
-    return drmdev_get_gbm_device(flutterpi->drmdev);
+    return flutterpi->gbm_device;
 }
 
 bool flutterpi_has_gl_renderer(struct flutterpi *flutterpi) {
@@ -1045,7 +1049,7 @@ struct gl_renderer *flutterpi_get_gl_renderer(struct flutterpi *flutterpi) {
 }
 
 void flutterpi_set_pointer_kind(struct flutterpi *flutterpi, enum pointer_kind kind) {
-    return compositor_set_cursor(flutterpi->compositor, false, false, true, kind, false, VEC2F(0, 0));
+    compositor_set_cursor(flutterpi->compositor, false, false, true, kind, false, VEC2F(0, 0));
 }
 
 void flutterpi_trace_event_instant(struct flutterpi *flutterpi, const char *name) {
@@ -1171,18 +1175,19 @@ static void unload_flutter_engine_lib(void *handle) {
     dlclose(handle);
 }
 
-static int get_flutter_engine_procs(void *engine_handle, FlutterEngineProcTable *procs_out) {
-    // clang-format off
-    FlutterEngineResult (*get_proc_addresses)(FlutterEngineProcTable *table);
-    // clang-format on
+typedef FlutterEngineResult (*flutter_engine_get_proc_addresses_t)(FlutterEngineProcTable *table);
 
+static int get_flutter_engine_procs(void *engine_handle, FlutterEngineProcTable *procs_out) {
     FlutterEngineResult engine_result;
 
-    get_proc_addresses = dlsym(engine_handle, "FlutterEngineGetProcAddresses");
-    if (get_proc_addresses == NULL) {
+    void *fn = dlsym(engine_handle, "FlutterEngineGetProcAddresses");
+    if (fn == NULL) {
         LOG_ERROR("Could not resolve flutter engine function FlutterEngineGetProcAddresses.\n");
         return EINVAL;
     }
+
+    flutter_engine_get_proc_addresses_t get_proc_addresses;
+    *((void **) &get_proc_addresses) = fn;
 
     procs_out->struct_size = sizeof(FlutterEngineProcTable);
     engine_result = get_proc_addresses(procs_out);
@@ -1456,9 +1461,9 @@ static int flutterpi_run(struct flutterpi *flutterpi) {
     memset(&window_metrics_event, 0, sizeof(window_metrics_event));
 
     window_metrics_event.struct_size = sizeof(FlutterWindowMetricsEvent);
-    window_metrics_event.width = geometry.view_size.x;
-    window_metrics_event.height = geometry.view_size.y;
-    window_metrics_event.pixel_ratio = geometry.device_pixel_ratio;
+    window_metrics_event.width = (size_t) geometry.view_size.x;
+    window_metrics_event.height = (size_t) geometry.view_size.y;
+    window_metrics_event.pixel_ratio = (double) geometry.device_pixel_ratio;
     window_metrics_event.left = 0;
     window_metrics_event.top = 0;
     window_metrics_event.physical_view_inset_top = 0;
@@ -1639,15 +1644,16 @@ static void on_flutter_pointer_event(void *userdata, const FlutterPointerEvent *
     }
 }
 
-static void on_utf8_character(void *userdata, uint8_t *character) {
+static void on_utf8_character(void *userdata, UNUSED uint8_t *character) {
     struct flutterpi *flutterpi;
-    int ok;
 
     flutterpi = userdata;
 
     (void) flutterpi;
 
 #ifdef BUILD_TEXT_INPUT_PLUGIN
+    int ok;
+
     ok = textin_on_utf8_char(character);
     if (ok != 0) {
         LOG_ERROR("Error handling keyboard event. textin_on_utf8_char: %s\n", strerror(ok));
@@ -1656,14 +1662,15 @@ static void on_utf8_character(void *userdata, uint8_t *character) {
 #endif
 }
 
-static void on_xkb_keysym(void *userdata, xkb_keysym_t keysym) {
+static void on_xkb_keysym(void *userdata, UNUSED xkb_keysym_t keysym) {
     struct flutterpi *flutterpi;
-    int ok;
 
     flutterpi = userdata;
     (void) flutterpi;
 
 #ifdef BUILD_TEXT_INPUT_PLUGIN
+    int ok;
+
     ok = textin_on_xkb_keysym(keysym);
     if (ok != 0) {
         LOG_ERROR("Error handling keyboard event. textin_on_xkb_keysym: %s\n", strerror(ok));
@@ -1672,15 +1679,22 @@ static void on_xkb_keysym(void *userdata, xkb_keysym_t keysym) {
 #endif
 }
 
-static void
-on_gtk_keyevent(void *userdata, uint32_t unicode_scalar_values, uint32_t key_code, uint32_t scan_code, uint32_t modifiers, bool is_down) {
+static void on_gtk_keyevent(
+    void *userdata,
+    UNUSED uint32_t unicode_scalar_values,
+    UNUSED uint32_t key_code,
+    UNUSED uint32_t scan_code,
+    UNUSED uint32_t modifiers,
+    UNUSED bool is_down
+) {
     struct flutterpi *flutterpi;
-    int ok;
 
     flutterpi = userdata;
     (void) flutterpi;
 
 #ifdef BUILD_RAW_KEYBOARD_PLUGIN
+    int ok;
+
     ok = rawkb_send_gtk_keyevent(unicode_scalar_values, key_code, scan_code, modifiers, is_down);
     if (ok != 0) {
         LOG_ERROR("Error handling keyboard event. rawkb_send_gtk_keyevent: %s\n", strerror(ok));
@@ -1848,12 +1862,23 @@ static struct flutter_paths *setup_paths(enum flutter_runtime_mode runtime_mode,
 }
 
 static bool parse_vec2i(const char *str, struct vec2i *out) {
-    int ok;
+    char *end;
+    long x, y;
 
-    ok = sscanf(str, "%d,%d", &out->x, &out->y);
-    if (ok != 2) {
+    errno = 0;
+    x = strtol(str, &end, 10);
+    if (errno != 0 || end == str || *end != ',' || x < INT_MIN || x > INT_MAX) {
         return false;
     }
+
+    str = end + 1;
+    y = strtol(str, &end, 10);
+    if (errno != 0 || end == str || y < INT_MIN || y > INT_MAX) {
+        return false;
+    }
+
+    out->x = (int) x;
+    out->y = (int) y;
 
     return true;
 }
@@ -1929,7 +1954,7 @@ bool flutterpi_parse_cmdline_args(int argc, char **argv, struct flutterpi_cmdlin
                         "%s",
                         usage
                     );
-                    return false;
+                    goto fail;
                 }
                 break;
 
@@ -1943,7 +1968,7 @@ bool flutterpi_parse_cmdline_args(int argc, char **argv, struct flutterpi_cmdlin
                         "%s",
                         usage
                     );
-                    return false;
+                    goto fail;
                 }
 
                 result_out->rotation = rotation;
@@ -1954,13 +1979,13 @@ bool flutterpi_parse_cmdline_args(int argc, char **argv, struct flutterpi_cmdlin
                 ok = parse_vec2i(optarg, &result_out->physical_dimensions);
                 if (!ok) {
                     LOG_ERROR("ERROR: Invalid argument for --dimensions passed.\n");
-                    return false;
+                    goto fail;
                 }
 
                 if (result_out->physical_dimensions.x < 0 || result_out->physical_dimensions.y < 0) {
                     LOG_ERROR("ERROR: Invalid argument for --dimensions passed.\n");
                     result_out->physical_dimensions = VEC2I(0, 0);
-                    return false;
+                    goto fail;
                 }
 
                 result_out->has_physical_dimensions = true;
@@ -1998,7 +2023,7 @@ bool flutterpi_parse_cmdline_args(int argc, char **argv, struct flutterpi_cmdlin
                       "%s",
                     usage
                 );
-                return false;
+                goto fail;
 
 valid_format:
                 break;
@@ -2006,7 +2031,11 @@ valid_format:
             case 'v':;
                 char *vmode_dup = strdup(optarg);
                 if (vmode_dup == NULL) {
-                    return false;
+                    goto fail;
+                }
+
+                if (result_out->desired_videomode != NULL) {
+                    free(result_out->desired_videomode);
                 }
 
                 result_out->desired_videomode = vmode_dup;
@@ -2016,7 +2045,7 @@ valid_format:
                 ok = parse_vec2i(optarg, &result_out->dummy_display_size);
                 if (!ok) {
                     LOG_ERROR("ERROR: Invalid argument for --dummy-display-size passed.\n");
-                    return false;
+                    goto fail;
                 }
 
                 break;
@@ -2032,10 +2061,10 @@ valid_format:
                 result_out->drm_fd = fd;
                 break;
 
-            case 'h': printf("%s", usage); return false;
+            case 'h': printf("%s", usage); goto fail;
 
             case '?':
-            case ':': LOG_ERROR("Invalid option specified.\n%s", usage); return false;
+            case ':': LOG_ERROR("Invalid option specified.\n%s", usage); goto fail;
 
             case -1: finished_parsing_options = true; break;
 
@@ -2046,7 +2075,7 @@ valid_format:
     if (optind >= argc) {
         LOG_ERROR("ERROR: Expected asset bundle path after options.\n");
         printf("%s", usage);
-        return false;
+        goto fail;
     }
 
     result_out->bundle_path = strdup(argv[optind]);
@@ -2062,6 +2091,17 @@ valid_format:
     result_out->dummy_display = !!dummy_display_int;
 
     return true;
+
+fail:
+    if (result_out->bundle_path != NULL) {
+        free(result_out->bundle_path);
+    }
+
+    if (result_out->desired_videomode != NULL) {
+        free(result_out->desired_videomode);
+    }
+
+    return false;
 }
 
 static int on_drmdev_open(const char *path, int flags, void **fd_metadata_out, void *userdata) {
@@ -2144,7 +2184,7 @@ static struct drmdev *find_drmdev(struct libseat *libseat) {
     ASSERT_EQUALS(libseat, NULL);
 #endif
 
-    ok = drmGetDevices2(0, devices, sizeof(devices) / sizeof(*devices));
+    ok = drmGetDevices2(0, devices, ARRAY_SIZE(devices));
     if (ok < 0) {
         LOG_ERROR("Could not query DRM device list: %s\n", strerror(-ok));
         return NULL;
@@ -2201,12 +2241,12 @@ fail_free_devices:
     return NULL;
 }
 
-static struct gbm_device *open_rendernode_as_gbm_device() {
+static struct gbm_device *open_rendernode_as_gbm_device(void) {
     struct gbm_device *gbm;
     drmDevicePtr devices[64];
     int ok, n_devices;
 
-    ok = drmGetDevices2(0, devices, sizeof(devices) / sizeof(*devices));
+    ok = drmGetDevices2(0, devices, ARRAY_SIZE(devices));
     if (ok < 0) {
         LOG_ERROR("Could not query DRM device list: %s\n", strerror(-ok));
         return NULL;
@@ -2253,6 +2293,13 @@ static struct gbm_device *open_rendernode_as_gbm_device() {
     }
 
     return gbm;
+}
+
+static void destroy_rendernode_gbm_device(struct gbm_device *gbm) {
+    int fd = gbm_device_get_fd(gbm);
+
+    gbm_device_destroy(gbm);
+    close(fd);
 }
 
 #ifdef HAVE_LIBSEAT
@@ -2354,7 +2401,7 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
     struct tracer *tracer;
     struct window *window;
     void *engine_handle;
-    char *bundle_path, **engine_argv, *desired_videomode;
+    char **engine_argv, *desired_videomode;
     int ok, engine_argc, wakeup_fd;
 
     fpi = malloc(sizeof *fpi);
@@ -2374,15 +2421,14 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
     if (cmd_args.use_vulkan == true) {
         LOG_ERROR("ERROR: --vulkan was specified, but flutter-pi was built without vulkan support.\n");
         printf("%s", usage);
-        return NULL;
+        goto fail_free_cmd_args;
     }
 #endif
 
     runtime_mode = cmd_args.has_runtime_mode ? cmd_args.runtime_mode : FLUTTER_RUNTIME_MODE_DEBUG;
-    bundle_path = cmd_args.bundle_path;
+
     engine_argc = cmd_args.engine_argc;
     engine_argv = cmd_args.engine_argv;
-
 #if defined(HAVE_EGL_GLES2) && defined(HAVE_VULKAN)
     renderer_type = cmd_args.use_vulkan ? kVulkan_RendererType : kOpenGL_RendererType;
 #elif defined(HAVE_EGL_GLES2) && !defined(HAVE_VULKAN)
@@ -2396,15 +2442,12 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
 
     desired_videomode = cmd_args.desired_videomode;
 
-    if (bundle_path == NULL) {
-        LOG_ERROR("ERROR: Bundle path does not exist.\n");
-        goto fail_free_cmd_args;
-    }
-
-    paths = setup_paths(runtime_mode, bundle_path);
+    paths = setup_paths(runtime_mode, cmd_args.bundle_path);
     if (paths == NULL) {
         goto fail_free_cmd_args;
     }
+
+    fpi->flutter.bundle_path = realpath(cmd_args.bundle_path, NULL);
 
     wakeup_fd = eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK);
     if (wakeup_fd < 0) {
@@ -2519,7 +2562,6 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
         vk_renderer = vk_renderer_new();
         if (vk_renderer == NULL) {
             LOG_ERROR("Couldn't create vulkan renderer.\n");
-            ok = EIO;
             goto fail_unref_scheduler;
         }
 #else
@@ -2531,7 +2573,6 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
         gl_renderer = gl_renderer_new_from_gbm_device(tracer, gbm_device, cmd_args.has_pixel_format, cmd_args.pixel_format);
         if (gl_renderer == NULL) {
             LOG_ERROR("Couldn't create EGL/OpenGL renderer.\n");
-            ok = EIO;
             goto fail_unref_scheduler;
         }
 
@@ -2637,8 +2678,8 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
         fpi,
         &geometry.display_to_view_transform,
         &geometry.view_to_display_transform,
-        geometry.display_size.x,
-        geometry.display_size.y
+        (unsigned int) geometry.display_size.x,
+        (unsigned int) geometry.display_size.y
     );
     if (input == NULL) {
         LOG_ERROR("Couldn't initialize user input. flutter-pi will run without user input.\n");
@@ -2740,6 +2781,9 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
     frame_scheduler_unref(scheduler);
     window_unref(window);
 
+    free(cmd_args.bundle_path);
+    free(cmd_args.desired_videomode);
+
     pthread_mutex_init(&fpi->event_loop_mutex, get_default_mutex_attrs());
     fpi->event_loop_thread = pthread_self();
     fpi->wakeup_event_loop_fd = wakeup_fd;
@@ -2751,13 +2795,13 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
     fpi->vk_renderer = vk_renderer;
     fpi->user_input = input;
     fpi->flutter.runtime_mode = runtime_mode;
-    fpi->flutter.bundle_path = realpath(bundle_path, NULL);
     fpi->flutter.engine_argc = engine_argc;
     fpi->flutter.engine_argv = engine_argv;
     fpi->flutter.paths = paths;
     fpi->flutter.engine_handle = engine_handle;
     fpi->flutter.aot_data = aot_data;
     fpi->drmdev = drmdev;
+    fpi->gbm_device = gbm_device;
     fpi->plugin_registry = plugin_registry;
     fpi->texture_registry = texture_registry;
     fpi->libseat = libseat;
@@ -2804,7 +2848,11 @@ fail_unref_tracer:
     tracer_unref(tracer);
 
 fail_destroy_drmdev:
-    drmdev_unref(drmdev);
+    if (drmdev != NULL) {
+        drmdev_unref(drmdev);
+    } else {
+        destroy_rendernode_gbm_device(gbm_device);
+    }
 
 fail_destroy_locales:
     locales_destroy(locales);
@@ -2829,6 +2877,7 @@ fail_free_paths:
 
 fail_free_cmd_args:
     free(cmd_args.bundle_path);
+    free(cmd_args.desired_videomode);
 
 fail_free_fpi:
     free(fpi);
@@ -2861,7 +2910,11 @@ void flutterpi_destroy(struct flutterpi *flutterpi) {
 #endif
     }
     tracer_unref(flutterpi->tracer);
-    drmdev_unref(flutterpi->drmdev);
+    if (flutterpi->drmdev != NULL) {
+        drmdev_unref(flutterpi->drmdev);
+    } else {
+        destroy_rendernode_gbm_device(flutterpi->gbm_device);
+    }
     locales_destroy(flutterpi->locales);
     if (flutterpi->libseat != NULL) {
 #ifdef HAVE_LIBSEAT

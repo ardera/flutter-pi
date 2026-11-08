@@ -3,6 +3,8 @@
 #include <assert.h>
 #include <ctype.h>
 #include <errno.h>
+#include <float.h>
+#include <math.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -16,6 +18,33 @@
 #include "jsmn.h"
 #include "util/asserts.h"
 #include "util/logging.h"
+
+struct buf {
+    uint8_t *data;
+    size_t capacity;
+    size_t pos;
+};
+
+static bool buf_write_bytes(struct buf *b, const void *src, size_t n) {
+    if (b->data != NULL) {
+        if (b->pos > b->capacity || n > b->capacity - b->pos) {
+            return false;
+        }
+
+        memcpy(b->data + b->pos, src, n);
+    }
+
+    b->pos += n;
+    return true;
+}
+
+static bool buf_write_str(struct buf *b, const char *str) {
+    return buf_write_bytes(b, str, strlen(str));
+}
+
+static bool buf_write_char(struct buf *b, char c) {
+    return buf_write_bytes(b, &c, 1);
+}
 
 struct platch_msg_resp_handler_data {
     enum platch_codec codec;
@@ -166,45 +195,48 @@ static int _readSize(const uint8_t **pbuffer, uint32_t *psize, size_t *remaining
     return 0;
 }
 
-int platch_free_value_std(struct std_value *value) {
-    int ok;
-
+void platch_free_value_std(struct std_value *value) {
     switch (value->type) {
+        case kStdNull:
+        case kStdTrue:
+        case kStdFalse:
+        case kStdInt32:
+        case kStdInt64:
+        case kStdLargeInt:
+        case kStdFloat64: break;
         case kStdString: free(value->string_value); break;
+        case kStdUInt8Array:
+        case kStdInt32Array:
+        case kStdInt64Array:
+        case kStdFloat64Array: break;
         case kStdList:
             for (int i = 0; i < value->size; i++) {
-                ok = platch_free_value_std(&(value->list[i]));
-                if (ok != 0)
-                    return ok;
+                platch_free_value_std(value->list + i);
             }
             free(value->list);
             break;
         case kStdMap:
             for (int i = 0; i < value->size; i++) {
-                ok = platch_free_value_std(&(value->keys[i]));
-                if (ok != 0)
-                    return ok;
-                ok = platch_free_value_std(&(value->values[i]));
-                if (ok != 0)
-                    return ok;
+                platch_free_value_std(value->keys + i);
+                platch_free_value_std(value->values + i);
             }
             free(value->keys);
             break;
+        case kStdFloat32Array: break;
         default: break;
     }
-
-    return 0;
 }
-int platch_free_json_value(struct json_value *value, bool shallow) {
-    int ok;
-
+void platch_free_json_value(struct json_value *value, bool shallow) {
     switch (value->type) {
+        case kJsonNull:
+        case kJsonTrue:
+        case kJsonFalse:
+        case kJsonNumber:
+        case kJsonString: break;
         case kJsonArray:
             if (!shallow) {
                 for (int i = 0; i < value->size; i++) {
-                    ok = platch_free_json_value(&(value->array[i]), false);
-                    if (ok != 0)
-                        return ok;
+                    platch_free_json_value(&(value->array[i]), false);
                 }
             }
 
@@ -213,9 +245,7 @@ int platch_free_json_value(struct json_value *value, bool shallow) {
         case kJsonObject:
             if (!shallow) {
                 for (int i = 0; i < value->size; i++) {
-                    ok = platch_free_json_value(&(value->values[i]), false);
-                    if (ok != 0)
-                        return ok;
+                    platch_free_json_value(&(value->values[i]), false);
                 }
             }
 
@@ -224,11 +254,11 @@ int platch_free_json_value(struct json_value *value, bool shallow) {
             break;
         default: break;
     }
-
-    return 0;
 }
-int platch_free_obj(struct platch_obj *object) {
+
+void platch_free_obj(struct platch_obj *object) {
     switch (object->codec) {
+        case kNotImplemented: break;
         case kStringCodec: free(object->string_value); break;
         case kBinaryCodec: break;
         case kJSONMessageCodec: platch_free_json_value(&(object->json_value), false); break;
@@ -237,11 +267,33 @@ int platch_free_obj(struct platch_obj *object) {
             free(object->method);
             platch_free_value_std(&(object->std_arg));
             break;
-        case kJSONMethodCall: platch_free_json_value(&(object->json_arg), false); break;
-        default: break;
-    }
+        case kStandardMethodCallResponse:
+            if (object->success) {
+                platch_free_value_std(&(object->std_result));
+            } else {
+                free(object->error_code);
+                if (object->error_msg) {
+                    free(object->error_msg);
+                }
+                platch_free_value_std(&(object->std_error_details));
+            }
 
-    return 0;
+            break;
+        case kJSONMethodCall: platch_free_json_value(&(object->json_arg), false); break;
+        case kJSONMethodCallResponse:
+            if (object->success) {
+                platch_free_json_value(&(object->json_result), false);
+            } else {
+                free(object->error_code);
+                if (object->error_msg) {
+                    free(object->error_msg);
+                }
+                platch_free_json_value(&(object->json_error_details), false);
+            }
+
+            break;
+        default: UNREACHABLE();
+    }
 }
 
 int platch_calc_value_size_std(struct std_value *value, size_t *size_out) {
@@ -331,6 +383,15 @@ int platch_calc_value_size_std(struct std_value *value, size_t *size_out) {
             }
 
             break;
+        case kStdFloat32Array:
+            element_size = value->size;
+
+            _advance_size_bytes(&size, element_size, NULL);
+            _align(&size, 4, NULL);
+            _advance(&size, element_size * 4, NULL);
+
+            break;
+
         default: return EINVAL;
     }
 
@@ -343,7 +404,7 @@ int platch_write_value_to_buffer_std(struct std_value *value, uint8_t **pbuffer)
     size_t size;
     int ok;
 
-    _write_u8(pbuffer, value->type, NULL);
+    _write_u8(pbuffer, (uint8_t) value->type, NULL);
 
     switch (value->type) {
         case kStdNull:
@@ -426,128 +487,155 @@ int platch_write_value_to_buffer_std(struct std_value *value, uint8_t **pbuffer)
                     return ok;
             }
             break;
+        case kStdFloat32Array:
+            size = value->size;
+
+            _writeSize(pbuffer, size, NULL);
+            _align((uintptr_t *) pbuffer, 4, NULL);
+
+            for (int i = 0; i < size; i++) {
+                _write_float(pbuffer, value->float32array[i], NULL);
+            }
+            break;
         default: return EINVAL;
     }
 
     return 0;
 }
-size_t platch_calc_value_size_json(struct json_value *value) {
-    size_t size = 0;
+static bool buf_write_json_string(struct buf *buf, const char *str) {
+    if (!buf_write_char(buf, '"')) {
+        return false;
+    }
 
+    for (const char *s = str; *s; s++) {
+        bool ok;
+
+        switch (*s) {
+            case '\b': ok = buf_write_str(buf, "\\b"); break;
+            case '\f': ok = buf_write_str(buf, "\\f"); break;
+            case '\n': ok = buf_write_str(buf, "\\n"); break;
+            case '\r': ok = buf_write_str(buf, "\\r"); break;
+            case '\t': ok = buf_write_str(buf, "\\t"); break;
+            case '"': ok = buf_write_str(buf, "\\\""); break;
+            case '\\': ok = buf_write_str(buf, "\\\\"); break;
+            default:
+                if ((unsigned char) *s < 0x20) {
+                    static const char hex[] = "0123456789abcdef";
+                    char escaped[] = { '\\', 'u', '0', '0', hex[(*s >> 4) & 0xF], hex[*s & 0xF] };
+                    ok = buf_write_bytes(buf, escaped, sizeof escaped);
+                } else {
+                    ok = buf_write_char(buf, *s);
+                }
+                break;
+        }
+
+        if (!ok) {
+            return false;
+        }
+    }
+
+    return buf_write_char(buf, '"');
+}
+
+static bool buf_write_json_number(struct buf *buf, double number) {
+    if (!isfinite(number)) {
+        return false;
+    }
+
+    char str[32];
+    int length = snprintf(str, sizeof str, "%.17g", number);
+    if (length < 0 || (size_t) length >= sizeof str) {
+        return false;
+    }
+
+    for (char *c = str; *c; c++) {
+        if (*c == ',') {
+            *c = '.';
+        }
+    }
+
+    return buf_write_bytes(buf, str, (size_t) length);
+}
+
+static bool buf_write_json(struct buf *buf, const struct json_value *value) {
     switch (value->type) {
-        case kJsonNull:
-        case kJsonTrue: return 4;
-        case kJsonFalse: return 5;
-        case kJsonNumber:; char numBuffer[32]; return sprintf(numBuffer, "%g", value->number_value);
-        case kJsonString:
-            size = 2;
+        case kJsonNull: return buf_write_str(buf, "null");
+        case kJsonTrue: return buf_write_str(buf, "true");
+        case kJsonFalse: return buf_write_str(buf, "false");
+        case kJsonNumber: return buf_write_json_number(buf, value->number_value);
+        case kJsonString: return buf_write_json_string(buf, value->string_value);
+        case kJsonArray:
+            if (!buf_write_char(buf, '[')) {
+                return false;
+            }
 
-            // we need to count how many characters we need to escape.
-            for (char *s = value->string_value; *s; s++) {
-                switch (*s) {
-                    case '\b':
-                    case '\f':
-                    case '\n':
-                    case '\r':
-                    case '\t':
-                    case '\"':
-                    case '\\': size += 2; break;
-                    default: size++; break;
+            for (size_t i = 0; i < value->size; i++) {
+                if (i > 0 && !buf_write_char(buf, ',')) {
+                    return false;
+                }
+
+                if (!buf_write_json(buf, &value->array[i])) {
+                    return false;
                 }
             }
 
-            return size;
-        case kJsonArray:
-            size += 2;
-            for (int i = 0; i < value->size; i++) {
-                size += platch_calc_value_size_json(value->array + i);
-                if (i + 1 != value->size)
-                    size += 1;
-            }
-            return size;
+            return buf_write_char(buf, ']');
         case kJsonObject:
-            size += 2;
-            for (int i = 0; i < value->size; i++) {
-                size += strlen(value->keys[i]) + 3 + platch_calc_value_size_json(&(value->values[i]));
-                if (i + 1 != value->size)
-                    size += 1;
+            if (!buf_write_char(buf, '{')) {
+                return false;
             }
-            return size;
-        default: return EINVAL;
-    }
 
-    return 0;
-}
-int platch_write_value_to_buffer_json(struct json_value *value, uint8_t **pbuffer) {
-    switch (value->type) {
-        case kJsonNull: *pbuffer += sprintf((char *) *pbuffer, "null"); break;
-        case kJsonTrue: *pbuffer += sprintf((char *) *pbuffer, "true"); break;
-        case kJsonFalse: *pbuffer += sprintf((char *) *pbuffer, "false"); break;
-        case kJsonNumber: *pbuffer += sprintf((char *) *pbuffer, "%g", value->number_value); break;
-        case kJsonString:
-            *((*pbuffer)++) = '\"';
+            for (size_t i = 0; i < value->size; i++) {
+                if (i > 0 && !buf_write_char(buf, ',')) {
+                    return false;
+                }
 
-            for (char *s = value->string_value; *s; s++) {
-                switch (*s) {
-                    case '\b':
-                        *((*pbuffer)++) = '\\';
-                        *((*pbuffer)++) = 'b';
-                        break;
-                    case '\f':
-                        *((*pbuffer)++) = '\\';
-                        *((*pbuffer)++) = 'f';
-                        break;
-                    case '\n':
-                        *((*pbuffer)++) = '\\';
-                        *((*pbuffer)++) = 'n';
-                        break;
-                    case '\r':
-                        *((*pbuffer)++) = '\\';
-                        *((*pbuffer)++) = 'r';
-                        break;
-                    case '\t':
-                        *((*pbuffer)++) = '\\';
-                        *((*pbuffer)++) = 't';
-                        break;
-                    case '\"':
-                        *((*pbuffer)++) = '\\';
-                        *((*pbuffer)++) = '"';
-                        break;
-                    case '\\':
-                        *((*pbuffer)++) = '\\';
-                        *((*pbuffer)++) = '\\';
-                        break;
-                    default: *((*pbuffer)++) = *s; break;
+                if (!buf_write_json_string(buf, value->keys[i])) {
+                    return false;
+                }
+
+                if (!buf_write_char(buf, ':')) {
+                    return false;
+                }
+
+                if (!buf_write_json(buf, &value->values[i])) {
+                    return false;
                 }
             }
 
-            *((*pbuffer)++) = '\"';
+            return buf_write_char(buf, '}');
+        default: return false;
+    }
+}
 
-            break;
-        case kJsonArray:
-            *pbuffer += sprintf((char *) *pbuffer, "[");
-            for (int i = 0; i < value->size; i++) {
-                platch_write_value_to_buffer_json(&(value->array[i]), pbuffer);
-                if (i + 1 != value->size)
-                    *pbuffer += sprintf((char *) *pbuffer, ",");
-            }
-            *pbuffer += sprintf((char *) *pbuffer, "]");
-            break;
-        case kJsonObject:
-            *pbuffer += sprintf((char *) *pbuffer, "{");
-            for (int i = 0; i < value->size; i++) {
-                *pbuffer += sprintf((char *) *pbuffer, "\"%s\":", value->keys[i]);
-                platch_write_value_to_buffer_json(&(value->values[i]), pbuffer);
-                if (i + 1 != value->size)
-                    *pbuffer += sprintf((char *) *pbuffer, ",");
-            }
-            *pbuffer += sprintf((char *) *pbuffer, "}");
-            break;
-        default: return EINVAL;
+static int json_encode(const struct json_value *value, uint8_t **buffer_out, size_t *size_out) {
+    struct buf b = { .data = NULL, .capacity = 0, .pos = 0 };
+
+    if (!buf_write_json(&b, value)) {
+        return EINVAL;
     }
 
+    size_t size = b.pos;
+
+    uint8_t *buffer = malloc(size + 1);
+    if (buffer == NULL) {
+        return ENOMEM;
+    }
+
+    b = (struct buf){ .data = buffer, .capacity = size, .pos = 0 };
+    if (!buf_write_json(&b, value)) {
+        free(buffer);
+        return EINVAL;
+    }
+
+    ASSERT(b.pos == size);
+    buffer[size] = '\0';
+
+    *buffer_out = buffer;
+    *size_out = size;
     return 0;
 }
+
 int platch_decode_value_std(const uint8_t **pbuffer, size_t *premaining, struct std_value *value_out) {
     enum std_value_type type;
     uint8_t type_byte;
@@ -628,13 +716,13 @@ int platch_decode_value_std(const uint8_t **pbuffer, size_t *premaining, struct 
             if (ok != 0)
                 return ok;
 
-            if (*premaining < size * 4)
+            if (*premaining < (size_t) size * 4)
                 return EBADMSG;
 
             value_out->size = size;
             value_out->int32array = (int32_t *) *pbuffer;
 
-            ok = _advance((uintptr_t *) pbuffer, size * 4, premaining);
+            ok = _advance((uintptr_t *) pbuffer, (size_t) size * 4, premaining);
             if (ok != 0)
                 return ok;
 
@@ -648,13 +736,13 @@ int platch_decode_value_std(const uint8_t **pbuffer, size_t *premaining, struct 
             if (ok != 0)
                 return ok;
 
-            if (*premaining < size * 8)
+            if (*premaining < (size_t) size * 8)
                 return EBADMSG;
 
             value_out->size = size;
             value_out->int64array = (int64_t *) *pbuffer;
 
-            ok = _advance((uintptr_t *) pbuffer, size * 8, premaining);
+            ok = _advance((uintptr_t *) pbuffer, (size_t) size * 8, premaining);
             if (ok != 0)
                 return ok;
 
@@ -668,18 +756,18 @@ int platch_decode_value_std(const uint8_t **pbuffer, size_t *premaining, struct 
             if (ok != 0)
                 return ok;
 
-            if (*premaining < size * 8)
+            if (*premaining < (size_t) size * 8)
                 return EBADMSG;
 
             value_out->size = size;
             value_out->float64array = (double *) *pbuffer;
 
-            ok = _advance((uintptr_t *) pbuffer, size * 8, premaining);
+            ok = _advance((uintptr_t *) pbuffer, (size_t) size * 8, premaining);
             if (ok != 0)
                 return ok;
 
             break;
-        case kStdList:
+        case kStdList: {
             ok = _readSize(pbuffer, &size, premaining);
             if (ok != 0)
                 return ok;
@@ -688,36 +776,80 @@ int platch_decode_value_std(const uint8_t **pbuffer, size_t *premaining, struct 
             value_out->list = calloc(size, sizeof(struct std_value));
 
             for (int i = 0; i < size; i++) {
-                ok = platch_decode_value_std(pbuffer, premaining, &value_out->list[i]);
-                if (ok != 0)
+                ok = platch_decode_value_std(pbuffer, premaining, value_out->list + i);
+                if (ok != 0) {
+                    for (int j = 0; j < i; j++) {
+                        platch_free_value_std(value_out->list + j);
+                    }
+                    free(value_out->list);
                     return ok;
+                }
             }
 
             break;
-        case kStdMap:
+        }
+        case kStdMap: {
             ok = _readSize(pbuffer, &size, premaining);
-            if (ok != 0)
+            if (ok != 0) {
                 return ok;
+            }
 
             value_out->size = size;
 
-            value_out->keys = calloc(size * 2, sizeof(struct std_value));
-            if (!value_out->keys)
+            value_out->keys = calloc((size_t) size * 2, sizeof(struct std_value));
+            if (!value_out->keys) {
                 return ENOMEM;
+            }
 
             value_out->values = &value_out->keys[size];
 
             for (int i = 0; i < size; i++) {
                 ok = platch_decode_value_std(pbuffer, premaining, &(value_out->keys[i]));
-                if (ok != 0)
+                if (ok != 0) {
+                    for (int j = 0; j < i; j++) {
+                        platch_free_value_std(&(value_out->values[j]));
+                        platch_free_value_std(&(value_out->keys[j]));
+                    }
+                    free(value_out->keys);
                     return ok;
+                }
 
                 ok = platch_decode_value_std(pbuffer, premaining, &(value_out->values[i]));
-                if (ok != 0)
+                if (ok != 0) {
+                    platch_free_value_std(&(value_out->keys[i]));
+                    for (int j = 0; j < i; j++) {
+                        platch_free_value_std(&(value_out->values[j]));
+                        platch_free_value_std(&(value_out->keys[j]));
+                    }
+                    free(value_out->keys);
                     return ok;
+                }
             }
 
             break;
+        }
+
+        case kStdFloat32Array: {
+            ok = _readSize(pbuffer, &size, premaining);
+            if (ok != 0)
+                return ok;
+
+            ok = _align((uintptr_t *) pbuffer, 4, premaining);
+            if (ok != 0)
+                return ok;
+
+            if (*premaining < (size_t) size * 4)
+                return EBADMSG;
+
+            value_out->size = size;
+            value_out->float32array = (float *) *pbuffer;
+
+            ok = _advance((uintptr_t *) pbuffer, (size_t) size * 4, premaining);
+            if (ok != 0)
+                return ok;
+
+            break;
+        }
         default: return EBADMSG;
     }
 
@@ -849,8 +981,10 @@ int platch_decode_value_json(char *message, size_t size, jsmntok_t **pptoken, si
 
                 for (int i = 0; i < ptoken->size; i++) {
                     ok = platch_decode_value_json(message, size, pptoken, ptokensremaining, &array[i]);
-                    if (ok != 0)
+                    if (ok != 0) {
+                        free(array);
                         return ok;
+                    }
                 }
 
                 value_out->type = kJsonArray;
@@ -858,25 +992,52 @@ int platch_decode_value_json(char *message, size_t size, jsmntok_t **pptoken, si
                 value_out->array = array;
 
                 break;
-            case JSMN_OBJECT:;
-                struct json_value key;
+            case JSMN_OBJECT: {
                 char **keys = calloc(ptoken->size, sizeof(char *));
-                struct json_value *values = calloc(ptoken->size, sizeof(struct json_value));
-                if ((!keys) || (!values))
+                if (!keys) {
                     return ENOMEM;
+                }
+
+                struct json_value *values = calloc(ptoken->size, sizeof(struct json_value));
+                if (!values) {
+                    free(keys);
+                    return ENOMEM;
+                }
 
                 for (int i = 0; i < ptoken->size; i++) {
-                    ok = platch_decode_value_json(message, size, pptoken, ptokensremaining, &key);
-                    if (ok != 0)
-                        return ok;
+                    struct json_value key;
 
-                    if (key.type != kJsonString)
+                    ok = platch_decode_value_json(message, size, pptoken, ptokensremaining, &key);
+                    if (ok != 0) {
+                        for (int j = 0; j < i; j++) {
+                            free(keys[j]);
+                        }
+                        free(keys);
+                        free(values);
+                        return ok;
+                    }
+
+                    if (key.type != kJsonString) {
+                        platch_free_json_value(&key, true);
+                        for (int j = 0; j < i; j++) {
+                            free(keys[j]);
+                        }
+                        free(keys);
+                        free(values);
                         return EBADMSG;
+                    }
+
                     keys[i] = key.string_value;
 
                     ok = platch_decode_value_json(message, size, pptoken, ptokensremaining, &values[i]);
-                    if (ok != 0)
+                    if (ok != 0) {
+                        for (int j = 0; j < i; j++) {
+                            free(keys[j]);
+                        }
+                        free(keys);
+                        free(values);
                         return ok;
+                    }
                 }
 
                 value_out->type = kJsonObject;
@@ -885,6 +1046,7 @@ int platch_decode_value_json(char *message, size_t size, jsmntok_t **pptoken, si
                 value_out->values = values;
 
                 break;
+            }
             default: return EBADMSG;
         }
     }
@@ -897,135 +1059,191 @@ int platch_decode_json(char *string, struct json_value *out) {
 }
 
 int platch_decode(const uint8_t *buffer, size_t size, enum platch_codec codec, struct platch_obj *object_out) {
-    struct json_value root_jsvalue;
-    const uint8_t *buffer_cursor = buffer;
-    size_t remaining = size;
     int ok;
 
-    if ((size == 0) && (buffer == NULL)) {
-        object_out->codec = kNotImplemented;
-        return 0;
+    if (codec != kNotImplemented && ((size == 0) || (buffer == NULL))) {
+        return EINVAL;
     }
+
+    const uint8_t *buffer_cursor = buffer;
+    size_t remaining = size;
 
     object_out->codec = codec;
     switch (codec) {
-        case kStringCodec:;
-            /// buffer is a non-null-terminated, UTF8-encoded string.
-            /// it's really sad we have to allocate a new memory block for this, but we have to since string codec buffers are not null-terminated.
+        case kNotImplemented: {
+            if (size != 0) {
+                return EINVAL;
+            }
+            if (buffer != NULL) {
+                return EINVAL;
+            }
 
-            char *string;
-            if (!(string = malloc(size + 1)))
+            break;
+        }
+
+        case kStringCodec: {
+            char *string = malloc(size + 1);
+            if (string == NULL) {
                 return ENOMEM;
-            memcpy(string, buffer, size);
+            }
+
+            strncpy(string, (char *) buffer, size);
             string[size] = '\0';
 
             object_out->string_value = string;
-
             break;
-        case kBinaryCodec:
-            object_out->binarydata = buffer;
-            object_out->binarydata_size = size;
-
-            break;
-        case kJSONMessageCodec:
-            ok = platch_decode_value_json((char *) buffer, size, NULL, NULL, &(object_out->json_value));
-            if (ok != 0)
-                return ok;
-
-            break;
-        case kJSONMethodCall:;
-            ok = platch_decode_value_json((char *) buffer, size, NULL, NULL, &root_jsvalue);
-            if (ok != 0)
-                return ok;
-
-            if (root_jsvalue.type != kJsonObject)
-                return EBADMSG;
-
-            for (int i = 0; i < root_jsvalue.size; i++) {
-                if ((streq(root_jsvalue.keys[i], "method")) && (root_jsvalue.values[i].type == kJsonString)) {
-                    object_out->method = root_jsvalue.values[i].string_value;
-                } else if (streq(root_jsvalue.keys[i], "args")) {
-                    object_out->json_arg = root_jsvalue.values[i];
-                } else
-                    return EBADMSG;
+        }
+        case kBinaryCodec: {
+            if (size == 0) {
+                return EINVAL;
+            }
+            if (buffer == NULL) {
+                return EINVAL;
             }
 
-            platch_free_json_value(&root_jsvalue, true);
+            object_out->binarydata = buffer;
+            object_out->binarydata_size = size;
+            break;
+        }
+        case kJSONMessageCodec: {
+            ok = platch_decode_value_json((char *) buffer, size, NULL, NULL, &object_out->json_value);
+            if (ok != 0) {
+                return ok;
+            }
 
             break;
-        case kJSONMethodCallResponse:;
-            ok = platch_decode_value_json((char *) buffer, size, NULL, NULL, &root_jsvalue);
-            if (ok != 0)
-                return ok;
-            if (root_jsvalue.type != kJsonArray)
-                return EBADMSG;
+        }
+        case kJSONMethodCall: {
+            struct json_value root;
 
-            if (root_jsvalue.size == 1) {
+            ok = platch_decode_value_json((char *) buffer, size, NULL, NULL, &root);
+            if (ok != 0) {
+                return ok;
+            }
+
+            if (root.type != kJsonObject) {
+                platch_free_json_value(&root, true);
+                return EINVAL;
+            }
+
+            for (int i = 0; i < root.size; i++) {
+                if ((streq(root.keys[i], "method")) && (root.values[i].type == kJsonString)) {
+                    object_out->method = root.values[i].string_value;
+                } else if (streq(root.keys[i], "args")) {
+                    object_out->json_arg = root.values[i];
+                } else {
+                    return EINVAL;
+                }
+            }
+
+            platch_free_json_value(&root, true);
+            break;
+        }
+        case kJSONMethodCallResponse: {
+            struct json_value root;
+
+            ok = platch_decode_value_json((char *) buffer, size, NULL, NULL, &root);
+            if (ok != 0) {
+                return ok;
+            }
+
+            if (root.type != kJsonArray) {
+                platch_free_json_value(&root, true);
+                return EINVAL;
+            }
+
+            if (root.size == 1) {
                 object_out->success = true;
-                object_out->json_result = root_jsvalue.array[0];
-                return platch_free_json_value(&root_jsvalue, true);
-            } else if ((root_jsvalue.size == 3) &&
-					   (root_jsvalue.array[0].type == kJsonString) &&
-					   ((root_jsvalue.array[1].type == kJsonString) || (root_jsvalue.array[1].type == kJsonNull))) {
+                object_out->json_result = root.array[0];
+            } else if ((root.size == 3) && (root.array[0].type == kJsonString) &&
+                       ((root.array[1].type == kJsonString) || (root.array[1].type == kJsonNull))) {
                 object_out->success = false;
-                object_out->error_code = root_jsvalue.array[0].string_value;
-                object_out->error_msg = root_jsvalue.array[1].string_value;
-                object_out->json_error_details = root_jsvalue.array[2];
-                return platch_free_json_value(&root_jsvalue, true);
-            } else
-                return EBADMSG;
+                object_out->error_code = root.array[0].string_value;
+                object_out->error_msg = root.array[1].string_value;
+                object_out->json_error_details = root.array[2];
+            } else {
+                platch_free_json_value(&root, true);
+                return EINVAL;
+            }
+
+            platch_free_json_value(&root, true);
+            break;
+        }
+        case kStandardMessageCodec: {
+            ok = platch_decode_value_std(&buffer_cursor, &remaining, &object_out->std_value);
+            if (ok != 0) {
+                return ok;
+            }
 
             break;
-        case kStandardMessageCodec:
-            ok = platch_decode_value_std(&buffer_cursor, &remaining, &object_out->std_value);
-            if (ok != 0)
-                return ok;
-            break;
-        case kStandardMethodCall:;
+        }
+        case kStandardMethodCall: {
             struct std_value methodname;
 
             ok = platch_decode_value_std(&buffer_cursor, &remaining, &methodname);
-            if (ok != 0)
+            if (ok != 0) {
                 return ok;
+            }
+
             if (methodname.type != kStdString) {
                 platch_free_value_std(&methodname);
-                return EBADMSG;
+                return EINVAL;
             }
+
             object_out->method = methodname.string_value;
 
             ok = platch_decode_value_std(&buffer_cursor, &remaining, &object_out->std_arg);
-            if (ok != 0)
+            if (ok != 0) {
                 return ok;
+            }
 
             break;
-        case kStandardMethodCallResponse:;
+        }
+        case kStandardMethodCallResponse: {
             ok = _read_u8(&buffer_cursor, (uint8_t *) &object_out->success, &remaining);
+            if (ok != 0) {
+                return ok;
+            }
 
             if (object_out->success) {
                 ok = platch_decode_value_std(&buffer_cursor, &remaining, &(object_out->std_result));
-                if (ok != 0)
+                if (ok != 0) {
                     return ok;
+                }
             } else {
                 struct std_value error_code, error_msg;
 
                 ok = platch_decode_value_std(&buffer_cursor, &remaining, &error_code);
-                if (ok != 0)
+                if (ok != 0) {
                     return ok;
+                }
+
                 ok = platch_decode_value_std(&buffer_cursor, &remaining, &error_msg);
-                if (ok != 0)
+                if (ok != 0) {
+                    platch_free_value_std(&error_code);
                     return ok;
+                }
+
                 ok = platch_decode_value_std(&buffer_cursor, &remaining, &(object_out->std_error_details));
-                if (ok != 0)
+                if (ok != 0) {
+                    platch_free_value_std(&error_msg);
+                    platch_free_value_std(&error_code);
                     return ok;
+                }
 
                 if ((error_code.type == kStdString) && ((error_msg.type == kStdString) || (error_msg.type == kStdNull))) {
                     object_out->error_code = error_code.string_value;
                     object_out->error_msg = (error_msg.type == kStdString) ? error_msg.string_value : NULL;
                 } else {
-                    return EBADMSG;
+                    platch_free_value_std(&object_out->std_error_details);
+                    platch_free_value_std(&error_code);
+                    platch_free_value_std(&error_msg);
+                    return EINVAL;
                 }
             }
+
             break;
+        }
         default: return EINVAL;
     }
 
@@ -1033,180 +1251,196 @@ int platch_decode(const uint8_t *buffer, size_t size, enum platch_codec codec, s
 }
 
 int platch_encode(struct platch_obj *object, uint8_t **buffer_out, size_t *size_out) {
-    struct std_value stdmethod, stderrcode, stderrmessage;
-    uint8_t *buffer, *buffer_cursor;
-    size_t size = 0;
     int ok = 0;
 
-    *size_out = 0;
-    *buffer_out = NULL;
-
     switch (object->codec) {
-        case kNotImplemented:
+        case kNotImplemented: {
             *size_out = 0;
             *buffer_out = NULL;
             return 0;
-        case kStringCodec: size = strlen(object->string_value); break;
-        case kBinaryCodec:
+        }
+        case kStringCodec: {
+            *buffer_out = (uint8_t *) strdup(object->string_value);
+            if (*buffer_out == NULL) {
+                return ENOMEM;
+            }
+
+            *size_out = strlen(object->string_value);
+            return 0;
+        }
+        case kBinaryCodec: {
             /// FIXME: Copy buffer instead
             *buffer_out = (uint8_t *) object->binarydata;
             *size_out = object->binarydata_size;
             return 0;
-        case kJSONMessageCodec:
-            size = platch_calc_value_size_json(&(object->json_value));
-            size += 1;  // JSONMsgCodec uses sprintf, which null-terminates strings,
-                // so lets allocate one more byte for the last null-terminator.
-                // this is decremented again in the second switch-case, so flutter
-                // doesn't complain about a malformed message.
-            break;
-        case kStandardMessageCodec:
-            ok = platch_calc_value_size_std(&(object->std_value), &size);
-            if (ok != 0)
+        }
+        case kJSONMessageCodec: {
+            ok = json_encode(&object->json_value, buffer_out, size_out);
+            if (ok != 0) {
                 return ok;
+            }
             break;
-        case kStandardMethodCall:
+        }
+        case kStandardMessageCodec: {
+            size_t size;
+
+            ok = platch_calc_value_size_std(&object->std_value, &size);
+            if (ok != 0) {
+                return ok;
+            }
+
+            uint8_t *buffer = malloc(size);
+            if (buffer == NULL) {
+                return ENOMEM;
+            }
+
+            uint8_t *buffer_cursor = buffer;
+
+            ok = platch_write_value_to_buffer_std(&object->std_value, &buffer_cursor);
+            if (ok != 0) {
+                free(buffer);
+                return ok;
+            }
+
+            *buffer_out = buffer;
+            *size_out = size;
+            break;
+        }
+        case kStandardMethodCall: {
+            struct std_value stdmethod;
+            size_t size = 0;
+
             stdmethod.type = kStdString;
             stdmethod.string_value = object->method;
 
             ok = platch_calc_value_size_std(&stdmethod, &size);
-            if (ok != 0)
+            if (ok != 0) {
                 return ok;
+            }
 
             ok = platch_calc_value_size_std(&(object->std_arg), &size);
-            if (ok != 0)
+            if (ok != 0) {
                 return ok;
+            }
 
+            uint8_t *buffer = malloc(size);
+            if (buffer == NULL) {
+                return ENOMEM;
+            }
+
+            uint8_t *buffer_cursor = buffer;
+            ok = platch_write_value_to_buffer_std(&stdmethod, &buffer_cursor);
+            if (ok != 0) {
+                free(buffer);
+                return ok;
+            }
+
+            ok = platch_write_value_to_buffer_std(&(object->std_arg), &buffer_cursor);
+            if (ok != 0) {
+                free(buffer);
+                return ok;
+            }
+
+            *buffer_out = buffer;
+            *size_out = size;
             break;
-        case kStandardMethodCallResponse:
-            size += 1;
+        }
+        case kStandardMethodCallResponse: {
+            size_t size = 1;
 
             if (object->success) {
                 ok = platch_calc_value_size_std(&(object->std_result), &size);
-                if (ok != 0)
+                if (ok != 0) {
                     return ok;
+                }
             } else {
-                stderrcode = (struct std_value){ .type = kStdString, .string_value = object->error_code };
-                stderrmessage = (struct std_value){ .type = kStdString, .string_value = object->error_msg };
+                ok = platch_calc_value_size_std(&STDSTRING(object->error_code), &size);
+                if (ok != 0) {
+                    return ok;
+                }
 
-                ok = platch_calc_value_size_std(&stderrcode, &size);
-                if (ok != 0)
+                ok = platch_calc_value_size_std(&STDSTRING(object->error_msg), &size);
+                if (ok != 0) {
                     return ok;
-                ok = platch_calc_value_size_std(&stderrmessage, &size);
-                if (ok != 0)
-                    return ok;
+                }
+
                 ok = platch_calc_value_size_std(&(object->std_error_details), &size);
-                if (ok != 0)
+                if (ok != 0) {
                     return ok;
+                }
             }
-            break;
-        case kJSONMethodCall:
-            size = platch_calc_value_size_json(&JSONOBJECT2("method", JSONSTRING(object->method), "args", object->json_arg));
-            size += 1;
-            break;
-        case kJSONMethodCallResponse:
-            if (object->success) {
-                size = 1 + platch_calc_value_size_json(&JSONARRAY1(object->json_result));
-            } else {
-                size = 1 + platch_calc_value_size_json(&JSONARRAY3(
-                               JSONSTRING(object->error_code),
-                               (object->error_msg != NULL) ? JSONSTRING(object->error_msg) : JSONNULL,
-                               object->json_error_details
-                           ));
+
+            uint8_t *buffer = malloc(size);
+            if (buffer == NULL) {
+                return ENOMEM;
             }
-            break;
-        default: return EINVAL;
-    }
 
-    buffer = malloc(size);
-    if (buffer == NULL) {
-        return ENOMEM;
-    }
-
-    buffer_cursor = buffer;
-
-    switch (object->codec) {
-        case kStringCodec: memcpy(buffer, object->string_value, size); break;
-        case kStandardMessageCodec:
-            ok = platch_write_value_to_buffer_std(&(object->std_value), &buffer_cursor);
-            if (ok != 0)
-                goto free_buffer_and_return_ok;
-            break;
-        case kStandardMethodCall:
-            ok = platch_write_value_to_buffer_std(&stdmethod, &buffer_cursor);
-            if (ok != 0)
-                goto free_buffer_and_return_ok;
-
-            ok = platch_write_value_to_buffer_std(&(object->std_arg), &buffer_cursor);
-            if (ok != 0)
-                goto free_buffer_and_return_ok;
-
-            break;
-        case kStandardMethodCallResponse:
+            uint8_t *buffer_cursor = buffer;
             if (object->success) {
                 _write_u8(&buffer_cursor, 0x00, NULL);
 
-                ok = platch_write_value_to_buffer_std(&(object->std_result), &buffer_cursor);
-                if (ok != 0)
-                    goto free_buffer_and_return_ok;
+                ok = platch_write_value_to_buffer_std(&object->std_result, &buffer_cursor);
+                if (ok != 0) {
+                    free(buffer);
+                    return ok;
+                }
             } else {
                 _write_u8(&buffer_cursor, 0x01, NULL);
 
-                ok = platch_write_value_to_buffer_std(&stderrcode, &buffer_cursor);
-                if (ok != 0)
-                    goto free_buffer_and_return_ok;
-                ok = platch_write_value_to_buffer_std(&stderrmessage, &buffer_cursor);
-                if (ok != 0)
-                    goto free_buffer_and_return_ok;
+                ok = platch_write_value_to_buffer_std(&STDSTRING(object->error_code), &buffer_cursor);
+                if (ok != 0) {
+                    free(buffer);
+                    return ok;
+                }
+
+                ok = platch_write_value_to_buffer_std(&STDSTRING(object->error_msg), &buffer_cursor);
+                if (ok != 0) {
+                    free(buffer);
+                    return ok;
+                }
+
                 ok = platch_write_value_to_buffer_std(&(object->std_error_details), &buffer_cursor);
-                if (ok != 0)
-                    goto free_buffer_and_return_ok;
+                if (ok != 0) {
+                    free(buffer);
+                    return ok;
+                }
             }
 
+            *buffer_out = buffer;
+            *size_out = size;
             break;
-        case kJSONMessageCodec:
-            size -= 1;
-            ok = platch_write_value_to_buffer_json(&(object->json_value), &buffer_cursor);
-            if (ok != 0)
-                goto free_buffer_and_return_ok;
-            break;
-        case kJSONMethodCall:
-            size -= 1;
-            ok = platch_write_value_to_buffer_json(
-                &JSONOBJECT2("method", JSONSTRING(object->method), "args", object->json_arg),
-                &buffer_cursor
-            );
+        }
+        case kJSONMethodCall: {
+            struct json_value *envelope = &JSONOBJECT2("method", JSONSTRING(object->method), "args", object->json_arg);
+            ok = json_encode(envelope, buffer_out, size_out);
             if (ok != 0) {
-                goto free_buffer_and_return_ok;
+                return ok;
             }
             break;
-        case kJSONMethodCallResponse:
+        }
+        case kJSONMethodCallResponse: {
+            struct json_value items[3];
+            struct json_value envelope = { .type = kJsonArray, .array = items };
             if (object->success) {
-                ok = platch_write_value_to_buffer_json(&JSONARRAY1(object->json_result), &buffer_cursor);
+                items[0] = object->json_result;
+                envelope.size = 1;
             } else {
-                ok = platch_write_value_to_buffer_json(
-                    &JSONARRAY3(
-                        JSONSTRING(object->error_code),
-                        (object->error_msg != NULL) ? JSONSTRING(object->error_msg) : JSONNULL,
-                        object->json_error_details
-                    ),
-                    &buffer_cursor
-                );
+                items[0] = JSONSTRING(object->error_code);
+                items[1] = (object->error_msg != NULL) ? JSONSTRING(object->error_msg) : JSONNULL;
+                items[2] = object->json_error_details;
+                envelope.size = 3;
             }
-            size -= 1;
+
+            ok = json_encode(&envelope, buffer_out, size_out);
             if (ok != 0) {
-                goto free_buffer_and_return_ok;
+                return ok;
             }
             break;
+        }
         default: return EINVAL;
     }
 
-    *buffer_out = buffer;
-    *size_out = size;
     return 0;
-
-free_buffer_and_return_ok:
-    free(buffer);
-    return ok;
 }
 
 void platch_on_response_internal(const uint8_t *buffer, size_t size, void *userdata) {
@@ -1225,9 +1459,7 @@ void platch_on_response_internal(const uint8_t *buffer, size_t size, void *userd
 
     free(handlerdata);
 
-    ok = platch_free_obj(&object);
-    if (ok != 0)
-        return;
+    platch_free_obj(&object);
 }
 
 int platch_send(
@@ -1250,7 +1482,8 @@ int platch_send(
     if (on_response) {
         handlerdata = malloc(sizeof(struct platch_msg_resp_handler_data));
         if (!handlerdata) {
-            return ENOMEM;
+            ok = ENOMEM;
+            goto fail_free_object;
         }
 
         handlerdata->codec = response_codec;
@@ -1259,6 +1492,7 @@ int platch_send(
 
         response_handle = flutterpi_create_platform_message_response_handle(flutterpi, platch_on_response_internal, handlerdata);
         if (response_handle == NULL) {
+            ok = EIO;
             goto fail_free_handlerdata;
         }
     }
@@ -1287,6 +1521,11 @@ fail_release_handle:
 fail_free_handlerdata:
     if (on_response) {
         free(handlerdata);
+    }
+
+fail_free_object:
+    if (object->codec != kBinaryCodec) {
+        free(buffer);
     }
 
     return ok;
@@ -1323,7 +1562,7 @@ int platch_respond(const FlutterPlatformMessageResponseHandle *handle, struct pl
         free(buffer);
     }
 
-    return 0;
+    return ok;
 }
 
 int platch_respond_not_implemented(const FlutterPlatformMessageResponseHandle *handle) {
@@ -1631,7 +1870,11 @@ bool stdvalue_equals(struct std_value *a, struct std_value *b) {
             ASSERT_NOT_NULL(a->string_value);
             ASSERT_NOT_NULL(b->string_value);
             return streq(a->string_value, b->string_value);
-        case kStdFloat64: return a->float64_value == b->float64_value;
+        case kStdFloat64:
+            PRAGMA_DIAGNOSTIC_PUSH
+            PRAGMA_DIAGNOSTIC_IGNORED("-Wfloat-equal")
+            return a->float64_value == b->float64_value;
+            PRAGMA_DIAGNOSTIC_POP
         case kStdUInt8Array:
             if (a->size != b->size)
                 return false;
@@ -1669,16 +1912,24 @@ bool stdvalue_equals(struct std_value *a, struct std_value *b) {
                     return false;
             return true;
         case kStdFloat64Array:
-            if (a->size != b->size)
-                return false;
             if (a->float64array == b->float64array)
                 return true;
 
+            if (a->size != b->size)
+                return false;
+
             ASSERT_NOT_NULL(a->float64array);
             ASSERT_NOT_NULL(b->float64array);
-            for (int i = 0; i < a->size; i++)
-                if (a->float64array[i] != b->float64array[i])
+
+            PRAGMA_DIAGNOSTIC_PUSH
+            PRAGMA_DIAGNOSTIC_IGNORED("-Wfloat-equal")
+            for (int i = 0; i < a->size; i++) {
+                if (a->float64array[i] != b->float64array[i]) {
                     return false;
+                }
+            }
+            PRAGMA_DIAGNOSTIC_POP
+
             return true;
         case kStdList:
             // the order of list elements is important
@@ -1737,6 +1988,25 @@ bool stdvalue_equals(struct std_value *a, struct std_value *b) {
 
             return true;
         }
+        case kStdFloat32Array:
+            if (a->float32array == b->float32array)
+                return true;
+
+            if (a->size != b->size)
+                return false;
+
+            ASSERT_NOT_NULL(a->float32array);
+            ASSERT_NOT_NULL(b->float32array);
+
+            PRAGMA_DIAGNOSTIC_PUSH
+            PRAGMA_DIAGNOSTIC_IGNORED("-Wfloat-equal")
+            for (int i = 0; i < a->size; i++) {
+                if (a->float32array[i] != b->float32array[i]) {
+                    return false;
+                }
+            }
+            PRAGMA_DIAGNOSTIC_POP
+            return true;
         default: return false;
     }
 
@@ -1773,23 +2043,21 @@ ATTR_PURE enum std_value_type raw_std_value_get_type(const struct raw_std_value 
 }
 
 ATTR_CONST static const void *get_value_ptr(const struct raw_std_value *value, int alignment) {
+    const uint8_t *ptr = (const uint8_t *) value;
     uintptr_t addr = (uintptr_t) value;
 
     // skip type byte
+    ptr++;
     addr++;
 
     // make sure we're aligned
     if (alignment == 4) {
-        if (addr & 3) {
-            addr = (addr | 3) + 1;
-        }
+        ptr += (4 - (addr & 3)) & 3;
     } else if (alignment == 8) {
-        if (addr & 7) {
-            addr = (addr | 7) + 1;
-        }
+        ptr += (8 - (addr & 7)) & 7;
     }
 
-    return (const void *) addr;
+    return ptr;
 }
 
 ATTR_CONST UNUSED static const void *get_after_ptr(const struct raw_std_value *value, int alignment, int value_size) {
@@ -1797,42 +2065,40 @@ ATTR_CONST UNUSED static const void *get_after_ptr(const struct raw_std_value *v
 }
 
 ATTR_CONST static const void *get_array_value_ptr(const struct raw_std_value *value, int alignment, size_t size) {
-    uintptr_t addr = (uintptr_t) value;
+    const uint8_t *ptr = (const uint8_t *) value;
 
     // skip type byte
-    addr++;
+    ptr++;
 
     // skip initial size byte
-    addr++;
+    ptr++;
     if (size >= 254 && size < 0x00010000) {
         // skip two additional size bytes
-        addr += 2;
+        ptr += 2;
     } else if (size >= 0x00010000) {
         // skip four additional size bytes
-        addr += 4;
+        ptr += 4;
     }
+
+    uintptr_t addr = (uintptr_t) ptr;
 
     // make sure we're aligned
     if (alignment == 4) {
-        if (addr & 3) {
-            addr = (addr | 3) + 1;
-        }
+        ptr += (4 - (addr & 3)) & 3;
     } else if (alignment == 8) {
-        if (addr & 7) {
-            addr = (addr | 7) + 1;
-        }
+        ptr += (8 - (addr & 7)) & 7;
     }
 
-    return (const void *) addr;
+    return ptr;
 }
 
 ATTR_CONST static const void *get_array_after_ptr(const struct raw_std_value *value, int alignment, size_t size, int element_size) {
-    uintptr_t addr = (uintptr_t) get_array_value_ptr(value, alignment, size);
+    const uint8_t *ptr = get_array_value_ptr(value, alignment, size);
 
     // skip all the array elements
-    addr += size * element_size;
+    ptr += size * element_size;
 
-    return (const void *) addr;
+    return ptr;
 }
 
 ATTR_PURE bool raw_std_value_is_null(const struct raw_std_value *value) {
@@ -1914,7 +2180,7 @@ ATTR_PURE const char *raw_std_string_get_nonzero_terminated(const struct raw_std
 ATTR_PURE bool raw_std_string_equals(const struct raw_std_value *value, const char *str) {
     size_t length = raw_std_value_get_size(value);
     const char *as_unterminated_string = get_array_value_ptr(value, 0, length);
-    return strncmp(as_unterminated_string, str, length) == 0 && str[length] == '\0';
+    return strlen(str) == length && memcmp(as_unterminated_string, str, length) == 0;
 }
 
 ATTR_PURE bool raw_std_value_is_uint8array(const struct raw_std_value *value) {
@@ -2001,7 +2267,12 @@ ATTR_PURE bool raw_std_value_equals(const struct raw_std_value *a, const struct 
         case kStdFalse: return true;
         case kStdInt32: return raw_std_value_as_int32(a) == raw_std_value_as_int32(b);
         case kStdInt64: return raw_std_value_as_int64(a) == raw_std_value_as_int64(b);
-        case kStdFloat64: return raw_std_value_as_float64(a) == raw_std_value_as_float64(b);
+        case kStdFloat64:
+            PRAGMA_DIAGNOSTIC_PUSH
+            PRAGMA_DIAGNOSTIC_IGNORED("-Wfloat-equal")
+            return raw_std_value_as_float64(a) == raw_std_value_as_float64(b);
+            PRAGMA_DIAGNOSTIC_POP
+        case kStdLargeInt:
         case kStdString:
             alignment = 0;
             element_size = 1;
@@ -2035,11 +2306,15 @@ memcmp_arrays:
             length = raw_std_value_get_size(a);
             const double *a_doubles = raw_std_value_as_float64array(a);
             const double *b_doubles = raw_std_value_as_float64array(b);
+
+            PRAGMA_DIAGNOSTIC_PUSH
+            PRAGMA_DIAGNOSTIC_IGNORED("-Wfloat-equal")
             for (int i = 0; i < length; i++) {
                 if (a_doubles[i] != b_doubles[i]) {
                     return false;
                 }
             }
+            PRAGMA_DIAGNOSTIC_POP
 
             return true;
         case kStdList:
@@ -2119,11 +2394,15 @@ found:
             length = raw_std_value_get_size(a);
             const float *a_floats = raw_std_value_as_float32array(a);
             const float *b_floats = raw_std_value_as_float32array(b);
+
+            PRAGMA_DIAGNOSTIC_PUSH
+            PRAGMA_DIAGNOSTIC_IGNORED("-Wfloat-equal")
             for (int i = 0; i < length; i++) {
                 if (a_floats[i] != b_floats[i]) {
                     return false;
                 }
             }
+            PRAGMA_DIAGNOSTIC_POP
 
             return true;
         default: assert(false); return false;
@@ -2334,6 +2613,7 @@ ATTR_PURE bool raw_std_value_check(const struct raw_std_value *value, size_t buf
         case kStdInt32: return buffer_size >= 5;
         case kStdInt64: return buffer_size >= 9;
         case kStdFloat64: return buffer_size >= 9;
+        case kStdLargeInt:
         case kStdString:
             alignment = 0;
             element_size = 1;
@@ -2391,9 +2671,6 @@ check_arrays:
                 return false;
             }
 
-            // get the value size.
-            size = raw_std_value_get_size(value);
-
             for_each_element_in_raw_std_list(element, value) {
                 int diff = (intptr_t) element - (intptr_t) value;
                 if (buffer_size < diff) {
@@ -2415,7 +2692,7 @@ check_arrays:
             // get the value size.
             size = raw_std_value_get_size(value);
 
-            const struct raw_std_value *key = NULL, *map_value;
+            const struct raw_std_value *key = NULL, *map_value = NULL;
             for (int diff, i = 0; i < size; i++) {
                 if (key == NULL) {
                     key = raw_std_map_get_first_key(value);
@@ -2479,7 +2756,7 @@ ATTR_PURE bool raw_std_method_call_response_check(const struct raw_std_value *va
 
     bool successful = (*(const uint8_t *) (value)) != 0;
 
-    value = (void *) ((intptr_t) value + (intptr_t) 1);
+    value = (const struct raw_std_value *) ((const uint8_t *) value + 1);
     buffer_size -= 1;
 
     if (successful) {

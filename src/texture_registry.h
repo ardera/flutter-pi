@@ -39,11 +39,11 @@ struct gl_texture_frame {
 
 struct texture_frame;
 struct texture_frame {
-    union {
 #ifdef HAVE_EGL_GLES2
+    union {
         struct gl_texture_frame gl;
-#endif
     };
+#endif
     void (*destroy)(const struct texture_frame *frame, void *userdata);
     void *userdata;
 };

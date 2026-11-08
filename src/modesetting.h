@@ -216,9 +216,9 @@
 #define DECLARE_PROP_ID_AS_UINT32(prop_name, prop_var_name) uint32_t prop_var_name;
 
 enum drm_blend_mode {
-    kPremultiplied_DrmBlendMode,
-    kCoverage_DrmBlendMode,
-    kNone_DrmBlendMode,
+    kPremultiplied_DrmBlendMode = 0,
+    kCoverage_DrmBlendMode = 1,
+    kNone_DrmBlendMode = 2,
 
     kMax_DrmBlendMode = kNone_DrmBlendMode,
     kCount_DrmBlendMode = kMax_DrmBlendMode + 1
@@ -752,7 +752,7 @@ struct kms_req_builder;
 
 struct kms_req_builder *drmdev_create_request_builder(struct drmdev *drmdev, uint32_t crtc_id);
 
-DECLARE_REF_OPS(kms_req_builder);
+DECLARE_REF_OPS(kms_req_builder)
 
 /**
  * @brief Gets the @ref drmdev associated with this KMS request builder.
@@ -906,7 +906,7 @@ int kms_req_builder_push_zpos_placeholder_layer(struct kms_req_builder *builder,
  */
 struct kms_req;
 
-DECLARE_REF_OPS(kms_req);
+DECLARE_REF_OPS(kms_req)
 
 /**
  * @brief Build the KMS request builder into an actual, immutable KMS request

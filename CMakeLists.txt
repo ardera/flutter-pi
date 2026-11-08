@@ -162,16 +162,22 @@ target_link_libraries(flutterpi_module PUBLIC
 )
 
 target_include_directories(flutterpi_module PUBLIC
-  ${CMAKE_SOURCE_DIR}/third_party/flutter_embedder_header/include
   ${CMAKE_SOURCE_DIR}/src
   ${CMAKE_BINARY_DIR}
+  ${CMAKE_SOURCE_DIR}/third_party/mesa3d/include
+  ${CMAKE_SOURCE_DIR}/third_party/flutter_embedder_header/include
 )
 
 target_compile_options(flutterpi_module PUBLIC
-  $<$<CONFIG:Debug>:-O0 -Wall -Wextra -Wno-sign-compare -Werror -ggdb -U_FORTIFY_SOURCE -DDEBUG>
+  $<$<CONFIG:Debug>:-O0 -Wall -Wextra -Wno-sign-compare -Wswitch-enum -Wformat -Wdouble-promotion -Wno-overlength-strings -Wno-gnu-zero-variadic-macro-arguments -pedantic -Werror -ggdb -U_FORTIFY_SOURCE -DDEBUG>
   $<$<CONFIG:RelWithDebInfo>:-O3 -Wall -Wextra -Wno-sign-compare -ggdb -DNDEBUG>
   $<$<CONFIG:Release>:-O3 -Wall -Wextra -Wno-sign-compare -DNDEBUG>
 )
+
+check_c_compiler_flag(-Wc2y-extensions COMPILER_SUPPORTS_WC2Y_EXTENSIONS)
+if (COMPILER_SUPPORTS_WC2Y_EXTENSIONS)
+  target_compile_options(flutterpi_module PUBLIC $<$<CONFIG:Debug>:-Wno-c2y-extensions>)
+endif()
 
 # GCC prior to 11.3 reports false positives for missing-field-initializers warning.
 if (CMAKE_C_COMPILER_ID STREQUAL "GNU")
@@ -237,6 +243,7 @@ if (ENABLE_VULKAN)
     target_sources(flutterpi_module PRIVATE
       src/vk_gbm_render_surface.c
       src/vk_renderer.c
+      src/vulkan.c
     )
     target_link_libraries(flutterpi_module PUBLIC
       PkgConfig::VULKAN

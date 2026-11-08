@@ -405,9 +405,9 @@ static int fetch_crtc(int drm_fd, int crtc_index, uint32_t crtc_id, struct drm_c
             goto fail_free_props;
         }
 
-#define CHECK_ASSIGN_PROPERTY_ID(_name_str, _name)                               \
-    if (strncmp(prop_info->name, _name_str, ARRAY_SIZE(prop_info->name)) == 0) { \
-        ids._name = prop_info->prop_id;                                          \
+#define CHECK_ASSIGN_PROPERTY_ID(_name_str, _name)                           \
+    if (strncmp(prop_info->name, _name_str, sizeof(prop_info->name)) == 0) { \
+        ids._name = prop_info->prop_id;                                      \
     } else
 
         DRM_CRTC_PROPERTIES(CHECK_ASSIGN_PROPERTY_ID) {
@@ -421,8 +421,10 @@ static int fetch_crtc(int drm_fd, int crtc_index, uint32_t crtc_id, struct drm_c
         prop_info = NULL;
     }
 
+    ASSUME(0 <= crtc_index && crtc_index < 32);
+
     crtc_out->id = crtc->crtc_id;
-    crtc_out->index = crtc_index;
+    crtc_out->index = (uint8_t) crtc_index;
     crtc_out->bitmask = 1u << crtc_index;
     crtc_out->ids = ids;
     crtc_out->committed_state.has_mode = crtc->mode_valid;
@@ -614,15 +616,16 @@ extern void drmModeFreeFB2(struct _drmModeFB2 *ptr) __attribute__((weak));
 static int fetch_plane(int drm_fd, uint32_t plane_id, struct drm_plane *plane_out) {
     struct drm_plane_prop_ids ids;
     drmModeObjectProperties *props;
-    drm_plane_transform_t hardcoded_rotation, supported_rotations, committed_rotation;
-    enum drm_blend_mode committed_blend_mode;
-    enum drm_plane_type type;
+    drm_plane_transform_t hardcoded_rotation = PLANE_TRANSFORM_NONE, supported_rotations = PLANE_TRANSFORM_NONE,
+                          committed_rotation = PLANE_TRANSFORM_NONE;
+    enum drm_blend_mode committed_blend_mode = kNone_DrmBlendMode;
+    enum drm_plane_type type = kPrimary_DrmPlaneType;
     drmModePropertyRes *info;
     drmModePlane *plane;
     uint32_t comitted_crtc_x, comitted_crtc_y, comitted_crtc_w, comitted_crtc_h;
     uint32_t comitted_src_x, comitted_src_y, comitted_src_w, comitted_src_h;
-    uint16_t committed_alpha;
-    int64_t min_zpos, max_zpos, hardcoded_zpos, committed_zpos;
+    uint16_t committed_alpha = 0;
+    int64_t min_zpos = 0, max_zpos = 0, hardcoded_zpos = 0, committed_zpos = 0;
     bool supported_blend_modes[kCount_DrmBlendMode] = { 0 };
     bool supported_formats[PIXFMT_COUNT] = { 0 };
     bool has_type, has_rotation, has_zpos, has_hardcoded_zpos, has_hardcoded_rotation, has_alpha, has_blend_mode;
@@ -799,9 +802,9 @@ static int fetch_plane(int drm_fd, uint32_t plane_id, struct drm_plane *plane_ou
             assert(supported_blend_modes[committed_blend_mode]);
         }
 
-#define CHECK_ASSIGN_PROPERTY_ID(_name_str, _name)                     \
-    if (strncmp(info->name, _name_str, ARRAY_SIZE(info->name)) == 0) { \
-        ids._name = info->prop_id;                                     \
+#define CHECK_ASSIGN_PROPERTY_ID(_name_str, _name)                 \
+    if (strncmp(info->name, _name_str, sizeof(info->name)) == 0) { \
+        ids._name = info->prop_id;                                 \
     } else
 
         DRM_PLANE_PROPERTIES(CHECK_ASSIGN_PROPERTY_ID) {
@@ -852,12 +855,12 @@ static int fetch_plane(int drm_fd, uint32_t plane_id, struct drm_plane *plane_ou
     plane_out->id = plane->plane_id;
     plane_out->possible_crtcs = plane->possible_crtcs;
     plane_out->ids = ids;
-    plane_out->type = type;
+    plane_out->type = has_type ? type : kPrimary_DrmPlaneType;
     plane_out->has_zpos = has_zpos;
-    plane_out->min_zpos = min_zpos;
-    plane_out->max_zpos = max_zpos;
+    plane_out->min_zpos = has_zpos ? min_zpos : 0;
+    plane_out->max_zpos = has_zpos ? max_zpos : 0;
     plane_out->has_hardcoded_zpos = has_hardcoded_zpos;
-    plane_out->hardcoded_zpos = hardcoded_zpos;
+    plane_out->hardcoded_zpos = has_hardcoded_zpos ? hardcoded_zpos : 0;
     plane_out->has_rotation = has_rotation;
     plane_out->supported_rotations = supported_rotations;
     plane_out->has_hardcoded_rotation = has_hardcoded_rotation;
@@ -918,7 +921,7 @@ static int fetch_planes(struct drmdev *drmdev, struct drm_plane **planes_out, si
         ok = fetch_plane(drmdev->fd, drmdev->plane_res->planes[i], planes + i);
         if (ok != 0) {
             for (int j = 0; j < i; j++) {
-                free_plane(planes + i);
+                free_plane(planes + j);
             }
             free(planes);
             return ENOMEM;
@@ -940,7 +943,7 @@ static void free_planes(struct drm_plane *planes, size_t n_planes) {
     free(planes);
 }
 
-static void assert_rotations_work() {
+static void assert_rotations_work(void) {
     assert(PLANE_TRANSFORM_ROTATE_0.rotate_0 == true);
     assert(PLANE_TRANSFORM_ROTATE_0.rotate_90 == false);
     assert(PLANE_TRANSFORM_ROTATE_0.rotate_180 == false);
@@ -1035,7 +1038,7 @@ struct drmdev *drmdev_new_from_interface_fd(int fd, void *fd_metadata, const str
     struct gbm_device *gbm_device;
     struct drmdev *drmdev;
     uint64_t cap;
-    bool supports_atomic_modesetting;
+    bool supports_atomic_modesetting = false;
     bool supports_dumb_buffers;
     int ok, master_fd, event_fd;
 
@@ -1211,6 +1214,7 @@ struct drmdev *drmdev_new_from_path(const char *path, const struct drmdev_interf
 }
 
 static void drmdev_destroy(struct drmdev *drmdev) {
+    ASSERT_NOT_NULL(drmdev);
     assert(refcount_is_zero(&drmdev->n_refs));
 
     drmdev->interface.close(drmdev->master_fd, drmdev->master_fd_metadata, drmdev->userdata);
@@ -2006,6 +2010,7 @@ static void drmdev_set_scanout_callback_locked(
 }
 
 UNUSED static struct drm_plane *get_plane_by_id(struct drmdev *drmdev, uint32_t plane_id) {
+    ASSUME(drmdev->n_planes == 0 || drmdev->planes != NULL);
     struct drm_plane *plane;
 
     plane = NULL;
@@ -2020,6 +2025,7 @@ UNUSED static struct drm_plane *get_plane_by_id(struct drmdev *drmdev, uint32_t 
 }
 
 struct drm_connector *__next_connector(const struct drmdev *drmdev, const struct drm_connector *connector) {
+    ASSUME(drmdev->n_connectors == 0 || drmdev->connectors != NULL);
     bool found = connector == NULL;
     for (size_t i = 0; i < drmdev->n_connectors; i++) {
         if (drmdev->connectors + i == connector) {
@@ -2033,6 +2039,7 @@ struct drm_connector *__next_connector(const struct drmdev *drmdev, const struct
 }
 
 struct drm_encoder *__next_encoder(const struct drmdev *drmdev, const struct drm_encoder *encoder) {
+    ASSUME(drmdev->n_encoders == 0 || drmdev->encoders != NULL);
     bool found = encoder == NULL;
     for (size_t i = 0; i < drmdev->n_encoders; i++) {
         if (drmdev->encoders + i == encoder) {
@@ -2046,6 +2053,7 @@ struct drm_encoder *__next_encoder(const struct drmdev *drmdev, const struct drm
 }
 
 struct drm_crtc *__next_crtc(const struct drmdev *drmdev, const struct drm_crtc *crtc) {
+    ASSUME(drmdev->n_crtcs == 0 || drmdev->crtcs != NULL);
     bool found = crtc == NULL;
     for (size_t i = 0; i < drmdev->n_crtcs; i++) {
         if (drmdev->crtcs + i == crtc) {
@@ -2059,6 +2067,7 @@ struct drm_crtc *__next_crtc(const struct drmdev *drmdev, const struct drm_crtc 
 }
 
 struct drm_plane *__next_plane(const struct drmdev *drmdev, const struct drm_plane *plane) {
+    ASSUME(drmdev->n_planes == 0 || drmdev->planes != NULL);
     bool found = plane == NULL;
     for (size_t i = 0; i < drmdev->n_planes; i++) {
         if (drmdev->planes + i == plane) {
@@ -2072,6 +2081,7 @@ struct drm_plane *__next_plane(const struct drmdev *drmdev, const struct drm_pla
 }
 
 drmModeModeInfo *__next_mode(const struct drm_connector *connector, const drmModeModeInfo *mode) {
+    ASSUME(connector->variable_state.n_modes == 0 || connector->variable_state.modes != NULL);
     bool found = mode == NULL;
     for (int i = 0; i < connector->variable_state.n_modes; i++) {
         if (connector->variable_state.modes + i == mode) {
@@ -2230,9 +2240,10 @@ static struct drm_plane *allocate_plane(
     // clang-format on
 ) {
     for (int i = 0; i < BITSET_SIZE(builder->available_planes); i++) {
-        struct drm_plane *plane = builder->drmdev->planes + i;
-
         if (BITSET_TEST(builder->available_planes, i)) {
+            ASSUME((size_t) i < builder->drmdev->n_planes && builder->drmdev->planes != NULL);
+            struct drm_plane *plane = builder->drmdev->planes + i;
+
             // find out if the plane matches our criteria
             bool qualifies = plane_qualifies(
                 plane,
@@ -2306,7 +2317,7 @@ struct kms_req_builder *drmdev_create_request_builder(struct drmdev *drmdev, uin
     }
 
     if (crtc == NULL) {
-        LOG_ERROR("Invalid CRTC id: %" PRId32 "\n", crtc_id);
+        LOG_ERROR("Invalid CRTC id: %" PRIu32 "\n", crtc_id);
         goto fail_unlock;
     }
 
@@ -2773,15 +2784,15 @@ UNUSED struct kms_req *kms_req_ref(struct kms_req *req) {
 }
 
 UNUSED void kms_req_unref(struct kms_req *req) {
-    return kms_req_builder_unref((struct kms_req_builder *) req);
+    kms_req_builder_unref((struct kms_req_builder *) req);
 }
 
 UNUSED void kms_req_unrefp(struct kms_req **req) {
-    return kms_req_builder_unrefp((struct kms_req_builder **) req);
+    kms_req_builder_unrefp((struct kms_req_builder **) req);
 }
 
 UNUSED void kms_req_swap_ptrs(struct kms_req **oldp, struct kms_req *new) {
-    return kms_req_builder_swap_ptrs((struct kms_req_builder **) oldp, (struct kms_req_builder *) new);
+    kms_req_builder_swap_ptrs((struct kms_req_builder **) oldp, (struct kms_req_builder *) new);
 }
 
 static bool drm_plane_is_active(struct drm_plane *plane) {
@@ -2873,13 +2884,13 @@ kms_req_commit_locked(struct kms_req *req, bool blocking, kms_scanout_cb_t scano
             struct drm_plane *plane = layer->plane;
             ASSERT_NOT_NULL(plane);
 
+#ifndef DEBUG
             if (plane->committed_state.has_format && plane->committed_state.format == layer->layer.format) {
                 needs_set_crtc = false;
             } else {
                 needs_set_crtc = true;
             }
-
-#ifdef DEBUG
+#else
             drmModeFBPtr committed_fb = drmModeGetFB(builder->drmdev->master_fd, plane->committed_state.fb_id);
             if (committed_fb == NULL) {
                 needs_set_crtc = true;
@@ -3069,6 +3080,7 @@ kms_req_commit_locked(struct kms_req *req, bool blocking, kms_scanout_cb_t scano
             builder->crtc->id,
             kms_req_ref(req)
         );
+
     } else if (blocking) {
         // handle the page-flip event here, rather than via the eventfd
         ok = drmdev_on_modesetting_fd_ready_locked(builder->drmdev);
@@ -3076,6 +3088,7 @@ kms_req_commit_locked(struct kms_req *req, bool blocking, kms_scanout_cb_t scano
             LOG_ERROR("Couldn't synchronously handle pageflip event.\n");
             goto fail_unset_scanout_callback;
         }
+
     }
 
     return 0;
@@ -3086,8 +3099,13 @@ fail_unset_scanout_callback:
     builder->drmdev->per_crtc_state[builder->crtc->index].userdata = NULL;
     goto fail_unlock;
 
-fail_unref_builder:
+fail_unref_builder: {
     kms_req_builder_unref(builder);
+    if (mode_blob != NULL) {
+        drm_mode_blob_destroy(mode_blob);
+    }
+    return ok;
+}
 
 fail_maybe_destroy_mode_blob:
     if (mode_blob != NULL)

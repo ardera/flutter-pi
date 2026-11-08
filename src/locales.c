@@ -220,7 +220,7 @@ static int add_locale_variants(struct list_head *locales, const char *locale_des
     }
 
     // then append all possible combinations
-    for (int i = 0b111; i >= 0; i--) {
+    for (int i = 7; i >= 0; i--) {
         char *territory_2 = NULL, *codeset_2 = NULL, *modifier_2 = NULL;
 
         if ((i & 1) != 0) {
@@ -311,17 +311,34 @@ struct locales *locales_new(void) {
 
     // Use those to create our flutter locales.
     n_locales = list_length(&locales->locales);
-    fl_locales = calloc(n_locales, sizeof *fl_locales);
+    fl_locales = calloc(n_locales == 0 ? 1 : n_locales, sizeof(const FlutterLocale *));
     if (fl_locales == NULL) {
         goto fail_free_allocated_locales;
     }
 
     int i = 0;
-    for_each_locale_in_locales(locale, locales) {
-        fl_locales[i] = locale_get_fl_locale(locale);
+    if (n_locales > 0) {
+        for_each_locale_in_locales(locale, locales) {
+            // To silence clangsa complaining about an out of bounds access below.
+            ASSUME(i <= n_locales);
+            fl_locales[i] = locale_get_fl_locale(locale);
+            i++;
+        }
+    } else {
+        // Add a default "C" locale if no locales were found.
+        static const FlutterLocale c_locale = {
+            .struct_size = sizeof(FlutterLocale),
+            .language_code = "C",
+            .country_code = NULL,
+            .script_code = NULL,
+            .variant_code = NULL,
+        };
+
+        fl_locales[0] = &c_locale;
         i++;
     }
 
+    ASSERT_NOT_NULL(fl_locales[0]);
     if (streq(fl_locales[0]->language_code, "C")) {
         LOG_LOCALES_ERROR("Warning: The system has no configured locale. The default \"C\" locale may or may not be supported by the app.\n"
         );
