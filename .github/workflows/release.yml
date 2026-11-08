@@ -77,7 +77,7 @@ jobs:
             libgl1-mesa-dev:$ARCH libgles2-mesa-dev:$ARCH libegl1-mesa-dev:$ARCH \
             ${{ matrix.is-cross && format('gcc-{0} g++-{0}', matrix.target) || '' }}
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           submodules: 'recursive'
 
@@ -120,7 +120,7 @@ jobs:
           tar -cJf ../flutterpi-${{ matrix.target }}-${{ matrix.buildtype }}.tar.xz .
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: flutterpi-${{ matrix.target }}-${{ matrix.buildtype }}-tar-xz
           path: flutterpi-${{ matrix.target }}-${{ matrix.buildtype }}.tar.xz
@@ -135,7 +135,7 @@ jobs:
       contents: write
     steps:
       - name: Download artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: artifacts
 
@@ -145,7 +145,7 @@ jobs:
           mv artifacts/*-tar-xz/* release-files/
 
       - name: Publish Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v3
         with:
           fail_on_unmatched_files: true
           files: release-files/*

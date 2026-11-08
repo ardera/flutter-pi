@@ -69,7 +69,7 @@ jobs:
       #       ${{ matrix.vulkan-deps }} \
       #       ${{ matrix.clang-deps }}
 
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v7
         with:
           submodules: "recursive"
 
@@ -185,7 +185,7 @@ jobs:
             ${{ matrix.clang-deps }} \
             ${{ matrix.sentry-deps }}
 
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v7
         with:
           submodules: "recursive"
 
