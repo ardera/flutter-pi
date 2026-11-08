@@ -2694,7 +2694,7 @@ check_arrays:
             // get the value size.
             size = raw_std_value_get_size(value);
 
-            const struct raw_std_value *key = NULL, *map_value;
+            const struct raw_std_value *key = NULL, *map_value = NULL;
             for (int diff, i = 0; i < size; i++) {
                 if (key == NULL) {
                     key = raw_std_map_get_first_key(value);
