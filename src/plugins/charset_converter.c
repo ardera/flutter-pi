@@ -60,6 +60,9 @@ static int on_encode(struct platch_obj *object, FlutterPlatformMessageResponseHa
 
     input = STDVALUE_AS_STRING(*tmp);
     output = malloc(strlen(input) + 1);
+    if (output == NULL) {
+        return platch_respond_native_error_std(response_handle, ENOMEM);
+    }
 
     bool res = convert(input, output, strlen(input) + 1, "UTF-8", charset);
     if(!res) {
@@ -106,6 +109,9 @@ static int on_decode(struct platch_obj *object, FlutterPlatformMessageResponseHa
 
     input = tmp->uint8array;
     output = malloc(strlen((char*) input) + 1);
+    if (output == NULL) {
+        return platch_respond_native_error_std(response_handle, ENOMEM);
+    }
 
     bool res = convert((char*) input, output, strlen((char*) input) + 1, "UTF-8", charset);
     if(!res) {
