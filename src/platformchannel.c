@@ -15,6 +15,7 @@
 #define JSMN_STATIC
 #include "jsmn.h"
 #include "util/asserts.h"
+#include "util/logging.h"
 
 struct platch_msg_resp_handler_data {
     enum platch_codec codec;
@@ -510,7 +511,7 @@ int platch_write_value_to_buffer_json(struct json_value *value, uint8_t **pbuffe
                         break;
                     case '\"':
                         *((*pbuffer)++) = '\\';
-                        *((*pbuffer)++) = 't';
+                        *((*pbuffer)++) = '"';
                         break;
                     case '\\':
                         *((*pbuffer)++) = '\\';
@@ -776,13 +777,69 @@ int platch_decode_value_json(char *message, size_t size, jsmntok_t **pptoken, si
 
                 break;
             case JSMN_STRING:;
-                // use zero-copy approach.
-
-                message[ptoken->end] = '\0';
-                char *string = message + ptoken->start;
+                // Un-escape in place, as the string can only get shorter.
+                // This saves an allocation (and cache invalidation for most strings).
 
                 value_out->type = kJsonString;
-                value_out->string_value = string;
+                value_out->string_value = message + ptoken->start;
+
+                const char *in = value_out->string_value;
+                while (in < message + ptoken->end) {
+                    // Search for the first escape sequence if any
+                    if (*in == '\\') {
+                        break;
+                    }
+                    in++;
+                }
+
+                char *out = (char *)in;
+
+                while (in < message + ptoken->end) {
+                    const char c = *in++;
+
+                    if (c == '\\') {
+                        const char next = *in;
+
+                        // Escape sequences allowed by jsmn_parse_string
+                        switch (next) {
+                            case '\"':
+                                *out++ = '\"';
+                                break;
+                            case '/':
+                                *out++ = '/';
+                                break;
+                            case '\\':
+                                *out++ = '\\';
+                                break;
+                            case 'b':
+                                *out++ = '\b';
+                                break;
+                            case 'f':
+                                *out++ = '\f';
+                                break;
+                            case 'r':
+                                *out++ = '\r';
+                                break;
+                            case 'n':
+                                *out++ = '\n';
+                                break;
+                            case 't':
+                                *out++ = '\t';
+                                break;
+                            case 'u':
+                                LOG_ERROR("Unicode escape sequences not supported");
+                                // Fallthrough
+                            default:
+                                LOG_ERROR("Invalid escape sequence: \\%c", next);
+                                *out++ = '\\';
+                                continue;
+                        }
+                        in++;
+                    } else {
+                        *out++ = c;
+                    }
+                }
+                *out = '\0';
 
                 break;
             case JSMN_ARRAY:;

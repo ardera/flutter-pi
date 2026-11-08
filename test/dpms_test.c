@@ -14,7 +14,7 @@ static struct drm_crtc crtc;
 static struct drm_connector connector;
 static struct window output;
 static drmModeModeInfo mode;
-static int commit_error, property_error;
+static int commit_error, property_error, event_error;
 static int atomic_commits, legacy_commits, event_reads, cursor_moves;
 static uint32_t last_flags;
 static uint64_t last_active, last_legacy_dpms;
@@ -49,7 +49,14 @@ int __wrap_drmModeAtomicCommit(int fd, const drmModeAtomicReq *req, uint32_t fla
         return -1;
     }
     if (flags & DRM_MODE_PAGE_FLIP_EVENT) {
+        TEST_ASSERT_NULL(pending_flip);
         pending_flip = userdata;
+    } else {
+        // Power changes must follow the outstanding flip and must not leave a
+        // queued frame that could enable the CRTC again.
+        TEST_ASSERT_NULL(pending_flip);
+        TEST_ASSERT_FALSE(device.per_crtc_state[0].flip_pending);
+        TEST_ASSERT_NULL(device.per_crtc_state[0].queued);
     }
     return 0;
 }
@@ -81,7 +88,7 @@ int __wrap_drmHandleEvent(int fd, drmEventContext *context) {
     event_reads++;
     // No event is produced by a power-only commit. Catch an accidental read
     // here instead of hanging the test as it would hang on an actual device.
-    if (userdata == NULL) {
+    if (event_error != 0 || userdata == NULL) {
         return -1;
     }
     pending_flip = NULL;
@@ -95,7 +102,12 @@ void setUp(void) {
     memset(&connector, 0, sizeof connector);
     memset(&output, 0, sizeof output);
     memset(&mode, 0, sizeof mode);
-    pthread_mutex_init(&device.mutex, NULL);
+    // Match the debug DRM device mutex so an extra unlock fails immediately.
+    pthread_mutexattr_t mutex_attrs;
+    TEST_ASSERT_EQUAL_INT(0, pthread_mutexattr_init(&mutex_attrs));
+    TEST_ASSERT_EQUAL_INT(0, pthread_mutexattr_settype(&mutex_attrs, PTHREAD_MUTEX_ERRORCHECK));
+    TEST_ASSERT_EQUAL_INT(0, pthread_mutex_init(&device.mutex, &mutex_attrs));
+    TEST_ASSERT_EQUAL_INT(0, pthread_mutexattr_destroy(&mutex_attrs));
     pthread_mutex_init(&output.lock, NULL);
     device.n_refs = REFCOUNT_INIT_1;
     device.fd = 42;
@@ -122,7 +134,7 @@ void setUp(void) {
     output.kms.mode = &mode;
     output.kms.should_apply_mode = true;
     atomic_commits = legacy_commits = event_reads = cursor_moves = 0;
-    commit_error = property_error = 0;
+    commit_error = property_error = event_error = 0;
     pending_flip = NULL;
     last_flags = 0;
     last_active = last_legacy_dpms = UINT64_MAX;
@@ -181,6 +193,140 @@ static void test_off_buffers_newest_composition_and_on_replays_it(void) {
     TEST_ASSERT_EQUAL_PTR(latest, output.composition);
     fl_layer_composition_unref(first);
     fl_layer_composition_unref(latest);
+}
+
+static struct kms_req *present_frame(void) {
+    struct kms_req_builder *builder = drmdev_create_request_builder(&device, crtc.id);
+    TEST_ASSERT_NOT_NULL(builder);
+    TEST_ASSERT_EQUAL_INT(0, kms_req_builder_set_connector(builder, connector.id));
+    struct kms_req *req = kms_req_builder_build(builder);
+    kms_req_builder_unref(builder);
+    TEST_ASSERT_EQUAL_INT(0, kms_req_present(req));
+    return req;
+}
+
+static void test_disable_drains_flip_discards_queue_and_can_replay(void) {
+    struct kms_req *pending = present_frame();
+    struct kms_req *queued = present_frame();
+    TEST_ASSERT_EQUAL_INT(1, atomic_commits);
+    TEST_ASSERT_TRUE(device.per_crtc_state[0].flip_pending);
+    TEST_ASSERT_EQUAL_PTR(queued, device.per_crtc_state[0].queued);
+
+    TEST_ASSERT_EQUAL_INT(0, window_set_dpms(&output, false));
+    TEST_ASSERT_EQUAL_INT(0, window_get_dpms(&output));
+    TEST_ASSERT_FALSE(crtc.committed_state.active);
+    TEST_ASSERT_EQUAL_INT(2, atomic_commits);
+    TEST_ASSERT_EQUAL_INT(1, event_reads);
+    TEST_ASSERT_EQUAL_UINT64(0, last_active);
+    TEST_ASSERT_EQUAL_UINT32(DRM_MODE_ATOMIC_ALLOW_MODESET, last_flags);
+    TEST_ASSERT_NULL(pending_flip);
+    TEST_ASSERT_FALSE(device.per_crtc_state[0].flip_pending);
+    TEST_ASSERT_NULL(device.per_crtc_state[0].queued);
+    TEST_ASSERT_EQUAL_PTR(pending, device.per_crtc_state[0].last_flipped);
+    TEST_ASSERT_EQUAL_INT(2, refcount_get_for_debug(&((struct kms_req_builder *) pending)->n_refs));
+    TEST_ASSERT_EQUAL_INT(1, refcount_get_for_debug(&((struct kms_req_builder *) queued)->n_refs));
+
+    struct fl_layer_composition *latest = fl_layer_composition_new(0);
+    TEST_ASSERT_EQUAL_INT(0, kms_window_push_composition(&output, latest));
+    TEST_ASSERT_EQUAL_INT(2, atomic_commits);
+    TEST_ASSERT_EQUAL_INT(0, window_set_dpms(&output, true));
+    TEST_ASSERT_EQUAL_INT(1, window_get_dpms(&output));
+    TEST_ASSERT_TRUE(crtc.committed_state.active);
+    TEST_ASSERT_EQUAL_INT(3, atomic_commits);
+    TEST_ASSERT_EQUAL_INT(2, event_reads);
+    TEST_ASSERT_EQUAL_UINT64(1, last_active);
+    TEST_ASSERT_EQUAL_PTR(latest, output.composition);
+    TEST_ASSERT_EQUAL_INT(1, refcount_get_for_debug(&((struct kms_req_builder *) pending)->n_refs));
+    fl_layer_composition_unref(latest);
+    kms_req_unref(queued);
+    kms_req_unref(pending);
+}
+
+static void test_failed_flip_drain_preserves_mode_and_can_be_retried(void) {
+    struct kms_req *pending = present_frame();
+    struct kms_req *queued = present_frame();
+    event_error = EIO;
+    TEST_ASSERT_EQUAL_INT(EIO, window_set_dpms(&output, false));
+    TEST_ASSERT_EQUAL_INT(1, window_get_dpms(&output));
+    TEST_ASSERT_TRUE(crtc.committed_state.active);
+    TEST_ASSERT_EQUAL_INT(1, atomic_commits);
+    TEST_ASSERT_EQUAL_INT(1, event_reads);
+    TEST_ASSERT_EQUAL_PTR(pending, pending_flip);
+    TEST_ASSERT_TRUE(device.per_crtc_state[0].flip_pending);
+    TEST_ASSERT_NULL(device.per_crtc_state[0].queued);
+    TEST_ASSERT_EQUAL_INT(1, refcount_get_for_debug(&((struct kms_req_builder *) queued)->n_refs));
+
+    event_error = 0;
+    TEST_ASSERT_EQUAL_INT(0, window_set_dpms(&output, false));
+    TEST_ASSERT_EQUAL_INT(0, window_get_dpms(&output));
+    TEST_ASSERT_EQUAL_INT(2, atomic_commits);
+    TEST_ASSERT_EQUAL_INT(2, event_reads);
+    TEST_ASSERT_NULL(pending_flip);
+    kms_req_unref(queued);
+    kms_req_unref(pending);
+}
+
+static void test_failed_disable_after_flip_drain_preserves_mode(void) {
+    struct kms_req *pending = present_frame();
+    struct kms_req *queued = present_frame();
+    commit_error = EIO;
+    TEST_ASSERT_EQUAL_INT(EIO, window_set_dpms(&output, false));
+    TEST_ASSERT_EQUAL_INT(1, window_get_dpms(&output));
+    TEST_ASSERT_TRUE(crtc.committed_state.active);
+    TEST_ASSERT_EQUAL_INT(2, atomic_commits);
+    TEST_ASSERT_EQUAL_INT(1, event_reads);
+    TEST_ASSERT_NULL(pending_flip);
+    TEST_ASSERT_FALSE(device.per_crtc_state[0].flip_pending);
+    TEST_ASSERT_NULL(device.per_crtc_state[0].queued);
+    TEST_ASSERT_EQUAL_INT(1, refcount_get_for_debug(&((struct kms_req_builder *) queued)->n_refs));
+
+    commit_error = 0;
+    TEST_ASSERT_EQUAL_INT(0, window_set_dpms(&output, false));
+    TEST_ASSERT_EQUAL_INT(0, window_get_dpms(&output));
+    TEST_ASSERT_EQUAL_INT(3, atomic_commits);
+    TEST_ASSERT_EQUAL_INT(1, event_reads);
+    kms_req_unref(queued);
+    kms_req_unref(pending);
+}
+
+static void test_blocking_frame_supersedes_queued_frame(void) {
+    struct kms_req *pending = present_frame();
+    struct kms_req *queued = present_frame();
+    struct kms_req_builder *builder = drmdev_create_request_builder(&device, crtc.id);
+    TEST_ASSERT_NOT_NULL(builder);
+    TEST_ASSERT_EQUAL_INT(0, kms_req_builder_set_connector(builder, connector.id));
+    struct kms_req *replacement = kms_req_builder_build(builder);
+    kms_req_builder_unref(builder);
+
+    uint64_t timestamp = 0;
+    TEST_ASSERT_EQUAL_INT(0, kms_req_commit_blocking(replacement, &timestamp));
+    TEST_ASSERT_EQUAL_UINT64(1000000000, timestamp);
+    TEST_ASSERT_EQUAL_INT(2, atomic_commits);
+    TEST_ASSERT_EQUAL_INT(2, event_reads);
+    TEST_ASSERT_EQUAL_PTR(replacement, device.per_crtc_state[0].last_flipped);
+    TEST_ASSERT_FALSE(device.per_crtc_state[0].flip_pending);
+    TEST_ASSERT_NULL(device.per_crtc_state[0].queued);
+    TEST_ASSERT_EQUAL_INT(1, refcount_get_for_debug(&((struct kms_req_builder *) pending)->n_refs));
+    TEST_ASSERT_EQUAL_INT(1, refcount_get_for_debug(&((struct kms_req_builder *) queued)->n_refs));
+    kms_req_unref(replacement);
+    kms_req_unref(queued);
+    kms_req_unref(pending);
+}
+
+static void test_nonblocking_power_request_does_not_drain_frames(void) {
+    struct kms_req *pending = present_frame();
+    struct kms_req *queued = present_frame();
+    struct kms_req *off = drmdev_create_dpms_req(&device, crtc.id, connector.id, false);
+    TEST_ASSERT_NOT_NULL(off);
+    TEST_ASSERT_EQUAL_INT(ENOTSUP, kms_req_commit_nonblocking(off, NULL, NULL, NULL));
+    TEST_ASSERT_EQUAL_INT(0, event_reads);
+    TEST_ASSERT_EQUAL_INT(1, atomic_commits);
+    TEST_ASSERT_EQUAL_PTR(pending, pending_flip);
+    TEST_ASSERT_EQUAL_PTR(queued, device.per_crtc_state[0].queued);
+    TEST_ASSERT_EQUAL_INT(0, window_set_dpms(&output, false));
+    kms_req_unref(off);
+    kms_req_unref(queued);
+    kms_req_unref(pending);
 }
 
 static void test_failed_disable_preserves_mode(void) {
@@ -283,6 +429,11 @@ int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_power_commit_keeps_scanout_buffers_and_has_no_flip_event);
     RUN_TEST(test_off_buffers_newest_composition_and_on_replays_it);
+    RUN_TEST(test_disable_drains_flip_discards_queue_and_can_replay);
+    RUN_TEST(test_failed_flip_drain_preserves_mode_and_can_be_retried);
+    RUN_TEST(test_failed_disable_after_flip_drain_preserves_mode);
+    RUN_TEST(test_blocking_frame_supersedes_queued_frame);
+    RUN_TEST(test_nonblocking_power_request_does_not_drain_frames);
     RUN_TEST(test_failed_disable_preserves_mode);
     RUN_TEST(test_failed_replay_stays_off_and_can_be_retried);
     RUN_TEST(test_legacy_power_uses_selected_connector);

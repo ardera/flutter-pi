@@ -121,6 +121,8 @@ struct drmdev {
         void_callback_t destroy_callback;
 
         struct kms_req *last_flipped;
+        bool flip_pending;
+        struct kms_req *queued;
     } per_crtc_state[32];
 
     int master_fd;
@@ -1343,6 +1345,10 @@ void drmdev_unmap_dumb_buffer(struct drmdev *drmdev, void *map, size_t size) {
     }
 }
 
+static int kms_req_commit_locked(
+    struct kms_req *req, bool blocking, kms_scanout_cb_t scanout_cb, void *userdata, void_callback_t destroy_cb
+);
+
 static void
 drmdev_on_page_flip_locked(int fd, unsigned int sequence, unsigned int tv_sec, unsigned int tv_usec, unsigned int crtc_id, void *userdata) {
     struct kms_req_builder *builder;
@@ -1387,6 +1393,19 @@ drmdev_on_page_flip_locked(int fd, unsigned int sequence, unsigned int tv_sec, u
 
     kms_req_swap_ptrs(last_flipped, req);
     kms_req_unref(req);
+
+    drmdev->per_crtc_state[crtc->index].flip_pending = false;
+
+    // Release the previous scanout before submitting the newest queued frame.
+    req = drmdev->per_crtc_state[crtc->index].queued;
+    drmdev->per_crtc_state[crtc->index].queued = NULL;
+    if (req != NULL) {
+        int ok = kms_req_commit_locked(req, false, NULL, NULL, NULL);
+        if (ok != 0) {
+            LOG_ERROR("Could not commit queued frame: %s\n", strerror(ok));
+        }
+        kms_req_unref(req);
+    }
 }
 
 static int drmdev_on_modesetting_fd_ready_locked(struct drmdev *drmdev) {
@@ -1877,6 +1896,21 @@ void drmdev_suspend(struct drmdev *drmdev) {
         LOG_ERROR("drmdev_suspend was called, but drmdev is already suspended\n");
         drmdev_unlock(drmdev);
         return;
+    }
+
+    // Do not leave queued buffers or unread page flips behind when closing
+    // the event fd. Waiting here is only needed when relinquishing the display.
+    for (size_t i = 0; i < drmdev->n_crtcs; i++) {
+        kms_req_swap_ptrs(&drmdev->per_crtc_state[i].queued, NULL);
+    }
+    for (size_t i = 0; i < drmdev->n_crtcs; i++) {
+        while (drmdev->per_crtc_state[i].flip_pending) {
+            if (drmdev_on_modesetting_fd_ready_locked(drmdev) != 0) {
+                LOG_ERROR("Could not drain page flips before suspending.\n");
+                drmdev_unlock(drmdev);
+                return;
+            }
+        }
     }
 
     drmdev->interface.close(drmdev->master_fd, drmdev->master_fd_metadata, drmdev->userdata);
@@ -2794,7 +2828,7 @@ static bool drm_plane_is_active(struct drm_plane *plane) {
 }
 
 static int
-kms_req_commit_common(struct kms_req *req, bool blocking, kms_scanout_cb_t scanout_cb, void *userdata, void_callback_t destroy_cb) {
+kms_req_commit_locked(struct kms_req *req, bool blocking, kms_scanout_cb_t scanout_cb, void *userdata, void_callback_t destroy_cb) {
     struct kms_req_builder *builder;
     struct drm_mode_blob *mode_blob;
     uint32_t flags;
@@ -2809,8 +2843,6 @@ kms_req_commit_common(struct kms_req *req, bool blocking, kms_scanout_cb_t scano
     ASSERT_NOT_NULL(req);
     builder = (struct kms_req_builder *) req;
 
-    drmdev_lock(builder->drmdev);
-
     if (builder->drmdev->master_fd < 0) {
         LOG_ERROR("Commit requested, but drmdev doesn't have a DRM master fd right now.\n");
         ok = EBUSY;
@@ -2823,13 +2855,29 @@ kms_req_commit_common(struct kms_req *req, bool blocking, kms_scanout_cb_t scano
         goto fail_unlock;
     }
 
+    if (builder->is_dpms_req && !blocking) {
+        return ENOTSUP;
+    }
+
+    if (blocking) {
+        // A blocking update supersedes the queued frame. Drop it before
+        // draining so the flip handler cannot submit it and enable the CRTC
+        // after a power change.
+        kms_req_swap_ptrs(&builder->drmdev->per_crtc_state[builder->crtc->index].queued, NULL);
+        while (builder->drmdev->per_crtc_state[builder->crtc->index].flip_pending) {
+            ok = drmdev_on_modesetting_fd_ready_locked(builder->drmdev);
+            if (ok != 0) {
+                LOG_ERROR("Could not drain page flips before blocking commit.\n");
+                goto fail_unlock;
+            }
+        }
+    } else if (builder->drmdev->per_crtc_state[builder->crtc->index].flip_pending) {
+        return EBUSY;
+    }
+
     if (builder->is_dpms_req) {
         // A disabled CRTC produces no page-flip event. Do not enter the normal
         // scanout path or replace last_flipped: its buffers remain attached.
-        if (!blocking) {
-            ok = ENOTSUP;
-            goto fail_unlock;
-        }
         if (builder->use_legacy) {
             ok = drmModeConnectorSetProperty(
                 builder->drmdev->master_fd,
@@ -2853,7 +2901,6 @@ kms_req_commit_common(struct kms_req *req, bool blocking, kms_scanout_cb_t scano
         if (scanout_cb != NULL) {
             scanout_cb(builder->drmdev, 0, userdata);
         }
-        drmdev_unlock(builder->drmdev);
         return 0;
     }
 
@@ -3105,6 +3152,7 @@ kms_req_commit_common(struct kms_req *req, bool blocking, kms_scanout_cb_t scano
     // builder->connector->committed_state.encoder_id = 0;
 
     drmdev_set_scanout_callback_locked(builder->drmdev, builder->crtc->id, scanout_cb, userdata, destroy_cb);
+    builder->drmdev->per_crtc_state[builder->crtc->index].flip_pending = !internally_blocking;
 
     if (internally_blocking) {
         uint64_t sequence = 0;
@@ -3135,8 +3183,6 @@ kms_req_commit_common(struct kms_req *req, bool blocking, kms_scanout_cb_t scano
         }
     }
 
-    drmdev_unlock(builder->drmdev);
-
     return 0;
 
 fail_unset_scanout_callback:
@@ -3153,8 +3199,41 @@ fail_maybe_destroy_mode_blob:
         drm_mode_blob_destroy(mode_blob);
 
 fail_unlock:
-    drmdev_unlock(builder->drmdev);
+    return ok;
+}
 
+static int
+kms_req_commit_common(struct kms_req *req, bool blocking, kms_scanout_cb_t scanout_cb, void *userdata, void_callback_t destroy_cb) {
+    struct drmdev *drmdev;
+    int ok;
+
+    ASSERT_NOT_NULL(req);
+    drmdev = ((struct kms_req_builder *) req)->drmdev;
+    drmdev_lock(drmdev);
+    ok = kms_req_commit_locked(req, blocking, scanout_cb, userdata, destroy_cb);
+    drmdev_unlock(drmdev);
+    return ok;
+}
+
+int kms_req_present(struct kms_req *req) {
+    struct kms_req_builder *builder;
+    struct drmdev *drmdev;
+    int ok;
+
+    ASSERT_NOT_NULL(req);
+    builder = (struct kms_req_builder *) req;
+    drmdev = builder->drmdev;
+    drmdev_lock(drmdev);
+    if (drmdev->master_fd < 0) {
+        ok = EBUSY;
+    } else if (!builder->use_legacy && drmdev->per_crtc_state[builder->crtc->index].flip_pending) {
+        // At most one request waits behind the kernel's outstanding page flip.
+        kms_req_swap_ptrs(&drmdev->per_crtc_state[builder->crtc->index].queued, req);
+        ok = 0;
+    } else {
+        ok = kms_req_commit_locked(req, builder->use_legacy, NULL, NULL, NULL);
+    }
+    drmdev_unlock(drmdev);
     return ok;
 }
 

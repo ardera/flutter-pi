@@ -929,9 +929,23 @@ DECLARE_REF_OPS(kms_req);
  */
 struct kms_req *kms_req_builder_build(struct kms_req_builder *builder);
 
+/**
+ * Discard the queued frame for this CRTC and wait for its outstanding flip
+ * before committing the request. Frame requests also wait for their own flip;
+ * power-only requests produce no flip and return a zero vblank timestamp.
+ */
 int kms_req_commit_blocking(struct kms_req *req, uint64_t *vblank_ns_out);
 
 int kms_req_commit_nonblocking(struct kms_req *req, kms_scanout_cb_t scanout_cb, void *userdata, void_callback_t destroy_cb);
+
+/**
+ * Present without waiting for an atomic page flip. If a flip is outstanding,
+ * retain only the newest queued request and submit it when that flip completes.
+ * Takes an internal reference; the caller must still unref its own request.
+ * Returns submission errors immediately; errors for queued frames are logged.
+ * Legacy modesetting retains blocking presentation.
+ */
+int kms_req_present(struct kms_req *req);
 
 struct drm_connector *__next_connector(const struct drmdev *drmdev, const struct drm_connector *connector);
 

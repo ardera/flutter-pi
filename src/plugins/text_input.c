@@ -11,6 +11,7 @@
 #include "flutter-pi.h"
 #include "pluginregistry.h"
 #include "util/asserts.h"
+#include "util/logging.h"
 
 struct text_input {
     int64_t connection_id;
@@ -376,7 +377,11 @@ static int on_set_editing_state(struct platch_obj *object, FlutterPlatformMessag
         composing_extent = (int) temp->number_value;
     }
 
-    strncpy(text_input.text, text, TEXT_INPUT_MAX_CHARS - 1);
+    const int rc = snprintf(text_input.text, TEXT_INPUT_MAX_CHARS, "%s", text);
+    if (rc >= TEXT_INPUT_MAX_CHARS) {
+        LOG_ERROR("Text truncated because it is too long for the buffer");
+    }
+
     text_input.selection_base = selection_base;
     text_input.selection_extent = selection_extent;
     text_input.selection_affinity_is_downstream = selection_affinity_is_downstream;
