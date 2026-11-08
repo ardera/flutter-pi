@@ -6,14 +6,18 @@
 
 static bool convert(char *inbuf, char *outbuf, size_t len, const char *from, const char *to)
 {
+    if (len == 0) {
+        return false;
+    }
+
     iconv_t iconv_cd = iconv_open(to, from);
     if (iconv_cd == (iconv_t) -1) {
         LOG_ERROR("Conversion from charset \"%s\" to charset \"%s\" is not supported. iconv_open: %s\n", from, to, strerror(errno));
         return false;
     }
 
-    size_t inlen = len;
-    size_t outlen = len;
+    size_t inlen = len - 1;
+    size_t outlen = len - 1;
     size_t res = 0;
 
     while (inlen > 0 && outlen > 0) {
