@@ -2,179 +2,26 @@ name: CMake
 
 on:
   push:
-    branches: [master, feature/gh-actions, feature/compositor-ng]
+    branches: [master]
   pull_request:
-    branches: [master, feature/gh-actions, feature/compositor-ng]
+    branches: [master]
   workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   pi4:
-    name: Build and Test on Raspberry Pi 4
-    runs-on: ${{ matrix.runner }}
-    strategy:
-      matrix:
-        runner:
-          # - ARM
-          - ARM64
-        graphics-backends:
-          - vulkan-only
-          - opengl-only
-          - vulkan-and-opengl
-        compiler:
-          - gcc
-          - clang
-        build-type:
-          - Debug
-          - Release
-        include:
-          - graphics-backends: "vulkan-only"
-            enable-vulkan: "on"
-            enable-opengl: "off"
-
-          - graphics-backends: "opengl-only"
-            enable-vulkan: "off"
-            enable-opengl: "on"
-
-          - graphics-backends: "vulkan-and-opengl"
-            enable-vulkan: "on"
-            enable-opengl: "on"
-
-          - enable-opengl: "on"
-            opengl-deps: "libgl1-mesa-dev libgles2-mesa-dev libegl1-mesa-dev"
-
-          - enable-vulkan: "on"
-            vulkan-deps: "libvulkan-dev"
-
-          - compiler: "clang"
-            clang-deps: "clang"
+    name: Build & Test on Raspberry Pi 4
+    if: vars.ENABLE_PI4_RUNNERS == 'true'
+    runs-on: ARM64
+    timeout-minutes: 60
     steps:
-      # On the self-hosted runners, we assume those are already installed.
-      # - name: Install dependencies
-      #   run: |
-      #     id
-      #     sudo apt-get install -y \
-      #       git cmake libgl1-mesa-dev libgles2-mesa-dev libegl1-mesa-dev libdrm-dev libgbm-dev \
-      #       ttf-mscorefonts-installer fontconfig libsystemd-dev libinput-dev libudev-dev \
-      #       libxkbcommon-dev ninja-build libgstreamer-plugins-base1.0-dev \
-      #       ${{ matrix.vulkan-deps }} \
-      #       ${{ matrix.clang-deps }}
-
-      - uses: actions/checkout@v3
-        with:
-          submodules: "recursive"
-
-      - name: Configure CMake
-        run: |
-          cmake \
-            -B ./build \
-            -DCMAKE_BUILD_TYPE=${{ matrix.build-type }} \
-            -DCMAKE_C_COMPILER=${{ matrix.compiler }} \
-            -DBUILD_GSTREAMER_AUDIO_PLAYER_PLUGIN=On \
-            -DBUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN=On \
-            -DENABLE_VULKAN=${{ matrix.enable-vulkan }} \
-            -DENABLE_OPENGL=${{ matrix.enable-opengl }} \
-            -DENABLE_TESTS=On \
-            -GNinja
-          echo test
-
-      - name: Build
-        run: cmake --build ./build --config ${{ matrix.build-type }}
-
-      - name: Test
-        working-directory: build
-        run: ctest -C ${{ matrix.build-type }} --output-on-failure
-
-  container:
-    name: Build & Test in Container
-    runs-on: ubuntu-latest
-    container:
-      image: ${{ matrix.container }}
-      env:
-        DEBIAN_FRONTEND: noninteractive
-    strategy:
-      matrix:
-        container:
-          - "debian:trixie"
-          - "debian:bookworm"
-          - "debian:bullseye"
-        graphics-backends:
-          - vulkan-only
-          - opengl-only
-          - vulkan-and-opengl
-        compiler:
-          - gcc
-          - clang
-        build-type:
-          - Debug
-          - Release
-        sentry-plugin:
-          - "off"
-          - "on-inproc"
-          - "on-crashpad-bundled"
-          - "on-crashpad-unbundled"
-        include:
-          - graphics-backends: "vulkan-only"
-            enable-vulkan: "on"
-            enable-opengl: "off"
-
-          - graphics-backends: "opengl-only"
-            enable-vulkan: "off"
-            enable-opengl: "on"
-
-          - graphics-backends: "vulkan-and-opengl"
-            enable-vulkan: "on"
-            enable-opengl: "on"
-
-          - enable-opengl: "on"
-            opengl-deps: "libgl1-mesa-dev libgles2-mesa-dev libegl1-mesa-dev"
-
-          - enable-vulkan: "on"
-            vulkan-deps: "libvulkan-dev"
-
-          - compiler: "gcc"
-            cxx-compiler: "g++"
-            gcc-deps: "gcc g++"
-
-          - compiler: "clang"
-            cxx-compiler: "clang++"
-            clang-deps: "clang"
-
-          - sentry-plugin: "off"
-            sentry-plugin-enable: "off"
-            sentry-deps: ""
-
-          - sentry-plugin: "on-inproc"
-            sentry-plugin-enable: "on"
-            sentry-backend: "inproc"
-            sentry-deps: "libcurl4-openssl-dev"
-
-          - sentry-plugin: "on-crashpad-bundled"
-            sentry-plugin-enable: "on"
-            sentry-backend: "crashpad"
-            sentry-bundled-crashpad-handler: "on"
-            sentry-deps: "libcurl4-openssl-dev"
-
-          - senty-plugin: "on-crashpad-unbundled"
-            sentry-plugin-enable: "on"
-            sentry-backend: "crashpad"
-            sentry-bundled-crashpad-handler: "off"
-            sentry-deps: "libcurl4-openssl-dev"
-    steps:
-      # git needs to be installed before checking out, otherwise the checkout will fallback to the REST API,
-      # and the submodule download won't work.
-      - name: Install dependencies
-        run: |
-          apt-get update && apt-get install -y \
-            git cmake libdrm-dev libgbm-dev \
-            fonts-liberation fontconfig libsystemd-dev libinput-dev libudev-dev \
-            libxkbcommon-dev ninja-build libgstreamer-plugins-base1.0-dev \
-            ${{ matrix.vulkan-deps }} \
-            ${{ matrix.opengl-deps }} \
-            ${{ matrix.gcc-deps }} \
-            ${{ matrix.clang-deps }} \
-            ${{ matrix.sentry-deps }}
-
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v7
         with:
           submodules: "recursive"
 
@@ -183,30 +30,153 @@ jobs:
           cmake \
             -B ./build \
             -S . \
-            -DCMAKE_BUILD_TYPE=${{ matrix.build-type }} \
-            -DCMAKE_C_COMPILER=${{ matrix.compiler }} \
-            -DCMAKE_CXX_COMPILER=${{ matrix.cxx-compiler }} \
-            -DBUILD_GSTREAMER_AUDIO_PLAYER_PLUGIN=On \
-            -DBUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN=On \
-            -DENABLE_VULKAN=${{ matrix.enable-vulkan }} \
-            -DENABLE_OPENGL=${{ matrix.enable-opengl }} \
-            -DENABLE_TESTS=On \
-            -DBUILD_SENTRY_PLUGIN=${{ matrix.sentry-plugin-enable }} \
-            -DSENTRY_BACKEND=${{ matrix.sentry-backend }} \
-            -DSENTRY_PLUGIN_BUNDLE_CRASHPAD_HANDLER=${{ matrix.sentry-bundled-crashpad-handler }} \
-            -GNinja
+            -GNinja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DENABLE_OPENGL=ON \
+            -DENABLE_VULKAN=ON \
+            -DBUILD_GSTREAMER_AUDIO_PLAYER_PLUGIN=ON \
+            -DBUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN=ON \
+            -DENABLE_TESTS=ON
 
       - name: Build
-        run: cmake --build ./build --config ${{ matrix.build-type }}
+        run: cmake --build ./build
 
       - name: Test
         working-directory: build
-        run: ctest -C ${{ matrix.build-type }} --output-on-failure
+        run: ctest --output-on-failure
+
+  container:
+    name: Build & Test (${{ matrix.os }}, ${{ matrix.compiler.cc }}, ${{ matrix.build-type }}, ${{ matrix.preset }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    container:
+      image: debian:${{ matrix.os }}
+      env:
+        DEBIAN_FRONTEND: noninteractive
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [bookworm, trixie]
+        compiler:
+          - { cc: gcc, cxx: g++, packages: "gcc g++" }
+          - { cc: clang, cxx: clang++, packages: clang }
+        build-type: [Debug, Release]
+        preset: [ci-common]
+        include:
+          - packages: >-
+              libegl1-mesa-dev libgles2-mesa-dev libvulkan-dev
+              libgstreamer-plugins-base1.0-dev libseat-dev
+
+          - os: trixie
+            compiler: { cc: gcc, cxx: g++, packages: "gcc g++" }
+            build-type: Debug
+            preset: ci-opengl-only
+            packages: >-
+              libegl1-mesa-dev libgles2-mesa-dev
+              libgstreamer-plugins-base1.0-dev libseat-dev
+
+          - os: trixie
+            compiler: { cc: gcc, cxx: g++, packages: "gcc g++" }
+            build-type: Debug
+            preset: ci-vulkan-only
+            packages: >-
+              libvulkan-dev libgstreamer-plugins-base1.0-dev libseat-dev
+
+          - os: trixie
+            compiler: { cc: gcc, cxx: g++, packages: "gcc g++" }
+            build-type: Debug
+            preset: ci-minimal
+            packages: libegl1-mesa-dev libgles2-mesa-dev
+
+          - os: trixie
+            compiler: { cc: gcc, cxx: g++, packages: "gcc g++" }
+            build-type: Debug
+            preset: ci-charset-converter
+            packages: >-
+              libegl1-mesa-dev libgles2-mesa-dev libvulkan-dev
+              libgstreamer-plugins-base1.0-dev libseat-dev
+
+          - os: trixie
+            compiler: { cc: gcc, cxx: g++, packages: "gcc g++" }
+            build-type: Debug
+            preset: ci-sentry-inproc
+            packages: >-
+              libegl1-mesa-dev libgles2-mesa-dev libvulkan-dev
+              libgstreamer-plugins-base1.0-dev libseat-dev libcurl4-openssl-dev
+
+          - os: trixie
+            compiler: { cc: gcc, cxx: g++, packages: "gcc g++" }
+            build-type: Debug
+            preset: ci-sentry-crashpad-bundled
+            packages: >-
+              libegl1-mesa-dev libgles2-mesa-dev libvulkan-dev
+              libgstreamer-plugins-base1.0-dev libseat-dev libcurl4-openssl-dev
+
+          - os: trixie
+            compiler: { cc: gcc, cxx: g++, packages: "gcc g++" }
+            build-type: Debug
+            preset: ci-sentry-crashpad-unbundled
+            packages: >-
+              libegl1-mesa-dev libgles2-mesa-dev libvulkan-dev
+              libgstreamer-plugins-base1.0-dev libseat-dev libcurl4-openssl-dev
+
+          - os: trixie
+            compiler: { cc: gcc, cxx: g++, packages: "gcc g++" }
+            build-type: Debug
+            preset: ci-asan-ubsan
+            packages: >-
+              libegl1-mesa-dev libgles2-mesa-dev libvulkan-dev
+              libgstreamer-plugins-base1.0-dev libseat-dev
+    env:
+      CC: ${{ matrix.compiler.cc }}
+      CXX: ${{ matrix.compiler.cxx }}
+      COMPILER_PACKAGES: ${{ matrix.compiler.packages }}
+      PACKAGES: ${{ matrix.packages }}
+    steps:
+      # git needs to be installed before checking out, otherwise the checkout will fallback to the REST API,
+      # and the submodule download won't work.
+      - name: Install dependencies
+        run: |
+          apt-get update && apt-get install -y --no-install-recommends \
+            ca-certificates git cmake ninja-build pkg-config \
+            libdrm-dev libgbm-dev libsystemd-dev libinput-dev libudev-dev libxkbcommon-dev \
+            $COMPILER_PACKAGES $PACKAGES
+
+      - uses: actions/checkout@v7
+        with:
+          submodules: "recursive"
+
+      - name: Configure CMake
+        run: |
+          cmake \
+            --preset ${{ matrix.preset }} \
+            -DCMAKE_BUILD_TYPE=${{ matrix.build-type }}
+
+      - name: Build
+        run: cmake --build ./build/${{ matrix.preset }}
+
+      - name: Test
+        working-directory: build/${{ matrix.preset }}
+        env:
+          ASAN_OPTIONS: detect_leaks=0
+          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+        run: ctest --output-on-failure
 
   required:
     name: required checks
+    if: always()
     needs: [pi4, container]
     runs-on: ubuntu-latest
     steps:
-      - run: |
+      - name: Check results
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "job results: $RESULTS"
+          for r in $RESULTS; do
+            case "$r" in
+              success|skipped) ;;
+              *) echo "some required jobs did not succeed."; exit 1 ;;
+            esac
+          done
           echo 'all required checks passed.'

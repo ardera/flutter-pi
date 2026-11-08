@@ -1,44 +1,159 @@
 {
-    "version": 2,
-    "configurePresets": [
-        {
-            "name": "default",
-            "displayName": "Default OpenGL host build",
-            "description": "Sets Ninja generator, build and install directory",
-            "generator": "Ninja",
-            "binaryDir": "${sourceDir}/out/build/${presetName}",
-            "cacheVariables": {
-                "CMAKE_BUILD_TYPE": "Debug",
-                "CMAKE_INSTALL_PREFIX": "${sourceDir}/out/install/${presetName}",
-                "ENABLE_OPENGL": true,
-                "BUILD_GSTREAMER_AUDIO_PLAYER_PLUGIN": true,
-                "BUILD_SENTRY_PLUGIN": true,
-                "ENABLE_TESTS": true
-            }
-        },
-        {
-            "name": "cross-aarch64-default",
-            "displayName": "OpenGL AArch64 cross-build",
-            "description": "Sets Ninja generator, build and install directory",
-            "generator": "Ninja",
-            "binaryDir": "${sourceDir}/out/build/${presetName}",
-            "inherits": "default",
-            "cacheVariables": {
-                "CMAKE_C_COMPILER": "clang",
-                "CMAKE_C_COMPILER_TARGET": "aarch64-linux-gnu"
-            }
-        },
-        {
-            "name": "cross-armhf-default",
-            "displayName": "OpenGL armhf cross-build",
-            "description": "Sets Ninja generator, build and install directory",
-            "generator": "Ninja",
-            "binaryDir": "${sourceDir}/out/build/${presetName}",
-            "inherits": "default",
-            "cacheVariables": {
-                "CMAKE_C_COMPILER": "clang",
-                "CMAKE_C_COMPILER_TARGET": "arm-linux-gnueabihf"
-            }
-        }
-    ]
+  "version": 2,
+  "configurePresets": [
+    {
+      "name": "default",
+      "displayName": "Default OpenGL host build",
+      "description": "Sets Ninja generator, build and install directory",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/out/build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_INSTALL_PREFIX": "${sourceDir}/out/install/${presetName}",
+        "ENABLE_OPENGL": true,
+        "BUILD_GSTREAMER_AUDIO_PLAYER_PLUGIN": true,
+        "BUILD_SENTRY_PLUGIN": true,
+        "ENABLE_TESTS": true
+      }
+    },
+    {
+      "name": "cross-aarch64-default",
+      "displayName": "OpenGL AArch64 cross-build",
+      "description": "Sets Ninja generator, build and install directory",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/out/build/${presetName}",
+      "inherits": "default",
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "clang",
+        "CMAKE_C_COMPILER_TARGET": "aarch64-linux-gnu"
+      }
+    },
+    {
+      "name": "cross-armhf-default",
+      "displayName": "OpenGL armhf cross-build",
+      "description": "Sets Ninja generator, build and install directory",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/out/build/${presetName}",
+      "inherits": "default",
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "clang",
+        "CMAKE_C_COMPILER_TARGET": "arm-linux-gnueabihf"
+      }
+    },
+    {
+      "name": "ci-base",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "ENABLE_TESTS": true
+      }
+    },
+    {
+      "name": "ci-common",
+      "displayName": "Common features with required dependencies",
+      "inherits": "ci-base",
+      "cacheVariables": {
+        "ENABLE_OPENGL": true,
+        "TRY_ENABLE_OPENGL": false,
+        "ENABLE_VULKAN": true,
+        "TRY_ENABLE_VULKAN": false,
+        "ENABLE_SESSION_SWITCHING": true,
+        "TRY_ENABLE_SESSION_SWITCHING": false,
+        "BUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN": true,
+        "TRY_BUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN": false,
+        "BUILD_GSTREAMER_AUDIO_PLAYER_PLUGIN": true,
+        "TRY_BUILD_GSTREAMER_AUDIO_PLAYER_PLUGIN": false
+      }
+    },
+    {
+      "name": "ci-opengl-only",
+      "inherits": "ci-common",
+      "cacheVariables": {
+        "ENABLE_VULKAN": false
+      }
+    },
+    {
+      "name": "ci-vulkan-only",
+      "inherits": "ci-common",
+      "cacheVariables": {
+        "ENABLE_OPENGL": false,
+        "BUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN": false
+      }
+    },
+    {
+      "name": "ci-minimal",
+      "displayName": "Default options with only required dependencies installed",
+      "inherits": "ci-base"
+    },
+    {
+      "name": "charset-converter",
+      "hidden": true,
+      "cacheVariables": {
+        "BUILD_CHARSET_CONVERTER_PLUGIN": true
+      }
+    },
+    {
+      "name": "ci-charset-converter",
+      "inherits": ["ci-common", "charset-converter"]
+    },
+    {
+      "name": "sentry",
+      "hidden": true,
+      "cacheVariables": {
+        "BUILD_SENTRY_PLUGIN": true
+      }
+    },
+    {
+      "name": "sentry-inproc",
+      "hidden": true,
+      "inherits": "sentry",
+      "cacheVariables": {
+        "SENTRY_BACKEND": "inproc"
+      }
+    },
+    {
+      "name": "sentry-crashpad-bundled",
+      "hidden": true,
+      "inherits": "sentry",
+      "cacheVariables": {
+        "SENTRY_BACKEND": "crashpad",
+        "SENTRY_PLUGIN_BUNDLE_CRASHPAD_HANDLER": true
+      }
+    },
+    {
+      "name": "sentry-crashpad-unbundled",
+      "hidden": true,
+      "inherits": "sentry",
+      "cacheVariables": {
+        "SENTRY_BACKEND": "crashpad",
+        "SENTRY_PLUGIN_BUNDLE_CRASHPAD_HANDLER": false
+      }
+    },
+    {
+      "name": "ci-sentry-inproc",
+      "inherits": ["ci-common", "sentry-inproc"]
+    },
+    {
+      "name": "ci-sentry-crashpad-bundled",
+      "inherits": ["ci-common", "sentry-crashpad-bundled"]
+    },
+    {
+      "name": "ci-sentry-crashpad-unbundled",
+      "inherits": ["ci-common", "sentry-crashpad-unbundled"]
+    },
+    {
+      "name": "asan-ubsan",
+      "hidden": true,
+      "cacheVariables": {
+        "ENABLE_ASAN": true,
+        "ENABLE_UBSAN": true
+      }
+    },
+    {
+      "name": "ci-asan-ubsan",
+      "inherits": ["ci-common", "asan-ubsan"]
+    }
+  ]
 }
