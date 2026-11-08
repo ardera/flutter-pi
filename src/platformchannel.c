@@ -664,13 +664,13 @@ int platch_decode_value_std(const uint8_t **pbuffer, size_t *premaining, struct 
             if (ok != 0)
                 return ok;
 
-            if (*premaining < size * 4)
+            if (*premaining < (size_t) size * 4)
                 return EBADMSG;
 
             value_out->size = size;
             value_out->int32array = (int32_t *) *pbuffer;
 
-            ok = _advance((uintptr_t *) pbuffer, size * 4, premaining);
+            ok = _advance((uintptr_t *) pbuffer, (size_t) size * 4, premaining);
             if (ok != 0)
                 return ok;
 
@@ -684,13 +684,13 @@ int platch_decode_value_std(const uint8_t **pbuffer, size_t *premaining, struct 
             if (ok != 0)
                 return ok;
 
-            if (*premaining < size * 8)
+            if (*premaining < (size_t) size * 8)
                 return EBADMSG;
 
             value_out->size = size;
             value_out->int64array = (int64_t *) *pbuffer;
 
-            ok = _advance((uintptr_t *) pbuffer, size * 8, premaining);
+            ok = _advance((uintptr_t *) pbuffer, (size_t) size * 8, premaining);
             if (ok != 0)
                 return ok;
 
@@ -704,13 +704,13 @@ int platch_decode_value_std(const uint8_t **pbuffer, size_t *premaining, struct 
             if (ok != 0)
                 return ok;
 
-            if (*premaining < size * 8)
+            if (*premaining < (size_t) size * 8)
                 return EBADMSG;
 
             value_out->size = size;
             value_out->float64array = (double *) *pbuffer;
 
-            ok = _advance((uintptr_t *) pbuffer, size * 8, premaining);
+            ok = _advance((uintptr_t *) pbuffer, (size_t) size * 8, premaining);
             if (ok != 0)
                 return ok;
 
@@ -744,7 +744,7 @@ int platch_decode_value_std(const uint8_t **pbuffer, size_t *premaining, struct 
 
             value_out->size = size;
 
-            value_out->keys = calloc(size * 2, sizeof(struct std_value));
+            value_out->keys = calloc((size_t) size * 2, sizeof(struct std_value));
             if (!value_out->keys) {
                 return ENOMEM;
             }
@@ -786,13 +786,13 @@ int platch_decode_value_std(const uint8_t **pbuffer, size_t *premaining, struct 
             if (ok != 0)
                 return ok;
 
-            if (*premaining < size * 4)
+            if (*premaining < (size_t) size * 4)
                 return EBADMSG;
 
             value_out->size = size;
             value_out->float32array = (float *) *pbuffer;
 
-            ok = _advance((uintptr_t *) pbuffer, size * 4, premaining);
+            ok = _advance((uintptr_t *) pbuffer, (size_t) size * 4, premaining);
             if (ok != 0)
                 return ok;
 
