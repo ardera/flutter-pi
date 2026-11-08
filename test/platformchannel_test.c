@@ -1105,14 +1105,14 @@ void test_raw_std_value_after(void) {
         buffer[1] = 254;
         buffer[2] = 254;
         buffer[3] = 0;
-        TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 2 + 254 * 4, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
+        TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 2 + (size_t) 254 * 4, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
 
         buffer[1] = 255;
         buffer[2] = 0;
         buffer[3] = 0;
         buffer[4] = 1;
         buffer[5] = 0;
-        TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 4 + 2 + 0x010000 * 4, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
+        TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 4 + 2 + (size_t) 0x010000 * 4, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
     }
 
     // int64array
@@ -1131,7 +1131,7 @@ void test_raw_std_value_after(void) {
         };
         // clang-format on
 
-        TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 6 + 2 * 8, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
+        TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 6 + (size_t) 2 * 8, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
 
         buffer[1] = 0;
         TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 6, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
@@ -1139,14 +1139,14 @@ void test_raw_std_value_after(void) {
         buffer[1] = 254;
         buffer[2] = 254;
         buffer[3] = 0;
-        TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 4 + 2 + 254 * 8, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
+        TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 4 + 2 + (size_t) 254 * 8, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
 
         buffer[1] = 255;
         buffer[2] = 0;
         buffer[3] = 0;
         buffer[4] = 1;
         buffer[5] = 0;
-        TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 4 + 2 + 0x010000 * 8, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
+        TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 4 + 2 + (size_t) 0x010000 * 8, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
     }
 
     // float64array
@@ -1165,7 +1165,7 @@ void test_raw_std_value_after(void) {
         };
         // clang-format on
 
-        TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 6 + 2 * 8, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
+        TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 6 + (size_t) 2 * 8, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
 
         buffer[1] = 0;
         TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 6, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
@@ -1173,14 +1173,14 @@ void test_raw_std_value_after(void) {
         buffer[1] = 254;
         buffer[2] = 254;
         buffer[3] = 0;
-        TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 4 + 2 + 254 * 8, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
+        TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 4 + 2 + (size_t) 254 * 8, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
 
         buffer[1] = 255;
         buffer[2] = 0;
         buffer[3] = 0;
         buffer[4] = 1;
         buffer[5] = 0;
-        TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 4 + 2 + 0x010000 * 8, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
+        TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 4 + 2 + (size_t) 0x010000 * 8, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
     }
 
     // list
@@ -1256,14 +1256,14 @@ void test_raw_std_value_after(void) {
         buffer[1] = 254;
         buffer[2] = 254;
         buffer[3] = 0;
-        TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 2 + 254 * 4, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
+        TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 2 + (size_t) 254 * 4, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
 
         buffer[1] = 255;
         buffer[2] = 0;
         buffer[3] = 0;
         buffer[4] = 1;
         buffer[5] = 0;
-        TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 4 + 2 + 0x010000 * 4, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
+        TEST_ASSERT_EQUAL_PTR(buffer + 1 + 1 + 4 + 2 + (size_t) 0x010000 * 4, raw_std_value_after(AS_RAW_STD_VALUE(buffer)));
     }
 }
 
