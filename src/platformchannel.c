@@ -2603,9 +2603,6 @@ ATTR_PURE bool raw_std_value_check(const struct raw_std_value *value, size_t buf
         case kStdFloat64: return buffer_size >= 9;
         case kStdLargeInt:
         case kStdString:
-            alignment = 0;
-            element_size = 1;
-            goto check_arrays;
         case kStdUInt8Array:
             alignment = 0;
             element_size = 1;
@@ -2615,9 +2612,6 @@ ATTR_PURE bool raw_std_value_check(const struct raw_std_value *value, size_t buf
             element_size = 4;
             goto check_arrays;
         case kStdInt64Array:
-            alignment = 8;
-            element_size = 8;
-            goto check_arrays;
         case kStdFloat64Array:
             alignment = 8;
             element_size = 8;
