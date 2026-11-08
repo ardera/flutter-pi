@@ -48,6 +48,10 @@ void expect_parsed_cmdline_args_matches(int argc, char **argv, bool expected_res
     TEST_ASSERT_EQUAL_BOOL(expected.dummy_display, actual.dummy_display);
     TEST_ASSERT_EQUAL_INT(expected.dummy_display_size.x, actual.dummy_display_size.x);
     TEST_ASSERT_EQUAL_INT(expected.dummy_display_size.y, actual.dummy_display_size.y);
+    if (result) {
+        free(actual.bundle_path);
+        free(actual.desired_videomode);
+    }
 }
 
 static struct flutterpi_cmdline_args get_default_args(void) {
