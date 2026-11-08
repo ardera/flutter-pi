@@ -15,7 +15,7 @@ static int convert(const char *from, const char *to, const char *input, size_t i
 
     iconv_t iconv_cd = iconv_open(to, from);
     if (iconv_cd == (iconv_t) -1) {
-        int error = errno;
+        int error = errno != 0 ? errno : EIO;
         LOG_ERROR("Conversion from charset \"%s\" to charset \"%s\" is not supported. iconv_open: %s\n", from, to, strerror(error));
         return error == EINVAL ? ENOENT : error;
     }
@@ -53,7 +53,7 @@ static int convert(const char *from, const char *to, const char *input, size_t i
         }
 
         if (errno != E2BIG) {
-            int error = errno;
+            int error = errno != 0 ? errno : EIO;
             LOG_ERROR("Could not convert from charset \"%s\" to charset \"%s\". iconv: %s\n", from, to, strerror(error));
             free(output);
             iconv_close(iconv_cd);
@@ -232,7 +232,7 @@ static int on_available_charsets(struct platch_obj *object, FlutterPlatformMessa
     if (error == 0 && fileno(fp) != STDOUT_FILENO) {
         error = posix_spawn_file_actions_addclose(&actions, fileno(fp));
     }
-    pid_t pid;
+    pid_t pid = -1;
     char *argv[] = { "iconv", "--list", NULL };
     if (error == 0) {
         error = posix_spawnp(&pid, "iconv", &actions, NULL, argv, environ);

@@ -33,7 +33,10 @@ static int capture_success(FlutterPlatformMessageResponseHandle *handle, struct 
         for (size_t i = 0; i < value->size; i++) {
             TEST_ASSERT_EQUAL(kStdString, value->list[i].type);
             const char *name = value->list[i].string_value;
-            TEST_ASSERT_NOT_NULL(name);
+            if (name == NULL) {
+                TEST_FAIL_MESSAGE("Charset name is NULL");
+                return EINVAL;
+            }
             TEST_ASSERT_GREATER_THAN(0, strlen(name));
             TEST_ASSERT_NULL(strpbrk(name, " /\t\r\n"));
             found_utf8 |= strcmp(name, "UTF-8") == 0;
