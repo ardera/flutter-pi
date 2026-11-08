@@ -4,45 +4,88 @@
 #include "util/logging.h"
 #include <iconv.h>
 
-static bool convert(char *inbuf, char *outbuf, size_t len, const char *from, const char *to)
-{
-    if (len == 0) {
-        return false;
-    }
-
+static int convert(const char *from, const char *to, const char *input, size_t input_size, char **output_out, size_t *output_size_out) {
     iconv_t iconv_cd = iconv_open(to, from);
     if (iconv_cd == (iconv_t) -1) {
         LOG_ERROR("Conversion from charset \"%s\" to charset \"%s\" is not supported. iconv_open: %s\n", from, to, strerror(errno));
-        return false;
+        return ENOENT;
     }
 
-    size_t inlen = len - 1;
-    size_t outlen = len - 1;
-    size_t res = 0;
+    size_t capacity = input_size + 16;
+    char *output = malloc(capacity + 1);
+    if (output == NULL) {
+        iconv_close(iconv_cd);
+        return ENOMEM;
+    }
 
-    while (inlen > 0 && outlen > 0) {
-        res = iconv(iconv_cd, &inbuf, &inlen, &outbuf, &outlen);
-        if (res == 0) {
-            break;
+    char *inbuf = (char *) input;
+    size_t inleft = input_size;
+    size_t used = 0;
+
+    while (true) {
+        char *outbuf = output + used;
+        size_t outleft = capacity - used;
+        bool flush = inleft == 0;
+
+        size_t res;
+        if (flush) {
+            res = iconv(iconv_cd, NULL, NULL, &outbuf, &outleft);
+        } else {
+            res = iconv(iconv_cd, &inbuf, &inleft, &outbuf, &outleft);
         }
 
-        if (res == (size_t) (-1)) {
+        used = capacity - outleft;
+
+        if (res != (size_t) -1) {
+            if (flush) {
+                break;
+            }
+            continue;
+        }
+
+        if (errno != E2BIG) {
+            int error = errno;
+            LOG_ERROR("Could not convert from charset \"%s\" to charset \"%s\". iconv: %s\n", from, to, strerror(error));
+            free(output);
             iconv_close(iconv_cd);
-            *outbuf = '\0';
-
-            return false;
+            return error;
         }
+
+        size_t new_capacity = capacity * 2;
+        char *new_output = realloc(output, new_capacity + 1);
+        if (new_output == NULL) {
+            free(output);
+            iconv_close(iconv_cd);
+            return ENOMEM;
+        }
+
+        output = new_output;
+        capacity = new_capacity;
     }
 
     iconv_close(iconv_cd);
-    *outbuf = '\0';
 
-    return true;
+    output[used] = '\0';
+
+    *output_out = output;
+    *output_size_out = used;
+    return 0;
+}
+
+static int respond_conversion_error(FlutterPlatformMessageResponseHandle *response_handle, int error) {
+    if (error == ENOENT) {
+        return platch_respond_error_std(response_handle, "error_id", "Charset not found.", NULL);
+    } else if (error == ENOMEM) {
+        return platch_respond_native_error_std(response_handle, ENOMEM);
+    } else {
+        return platch_respond_error_std(response_handle, "error_id", strerror(error), NULL);
+    }
 }
 
 static int on_encode(struct platch_obj *object, FlutterPlatformMessageResponseHandle *response_handle) {
     struct std_value *args, *tmp;
     char *charset, *input, *output;
+    size_t output_size;
 
     args = &object->std_arg;
 
@@ -63,23 +106,18 @@ static int on_encode(struct platch_obj *object, FlutterPlatformMessageResponseHa
     }
 
     input = STDVALUE_AS_STRING(*tmp);
-    output = malloc(strlen(input) + 1);
-    if (output == NULL) {
-        return platch_respond_native_error_std(response_handle, ENOMEM);
+
+    int ok = convert("UTF-8", charset, input, strlen(input), &output, &output_size);
+    if (ok != 0) {
+        return respond_conversion_error(response_handle, ok);
     }
 
-    bool res = convert(input, output, strlen(input) + 1, "UTF-8", charset);
-    if(!res) {
-        free(output);
-        return platch_respond_error_std(response_handle, "error_id", "charset_name_unrecognized", NULL);
-    }
-
-    int ok = platch_respond_success_std(
+    ok = platch_respond_success_std(
         response_handle,
         &(struct std_value) {
             .type = kStdUInt8Array,
-            .size = strlen(output),
-            .uint8array = (uint8_t*) output,
+            .size = output_size,
+            .uint8array = (uint8_t *) output,
         }
     );
 
@@ -91,7 +129,7 @@ static int on_encode(struct platch_obj *object, FlutterPlatformMessageResponseHa
 static int on_decode(struct platch_obj *object, FlutterPlatformMessageResponseHandle *response_handle) {
     struct std_value *args, *tmp;
     char *charset, *output;
-    const uint8_t *input;
+    size_t output_size;
 
     args = &object->std_arg;
 
@@ -107,28 +145,21 @@ static int on_decode(struct platch_obj *object, FlutterPlatformMessageResponseHa
     charset = STDVALUE_AS_STRING(*tmp);
 
     tmp = stdmap_get_str(&object->std_arg, "data");
-    if (tmp == NULL || (*tmp).type != kStdUInt8Array ) {
+    if (tmp == NULL || (*tmp).type != kStdUInt8Array) {
         return platch_respond_illegal_arg_std(response_handle, "Expected `arg['data'] to be a uint8_t list.");
     }
 
-    input = tmp->uint8array;
-    output = malloc(tmp->size + 1);
-    if (output == NULL) {
-        return platch_respond_native_error_std(response_handle, ENOMEM);
+    int ok = convert("UTF-8", charset, (const char *) tmp->uint8array, tmp->size, &output, &output_size);
+    if (ok != 0) {
+        return respond_conversion_error(response_handle, ok);
     }
 
-    bool res = convert((char *) input, output, tmp->size + 1, "UTF-8", charset);
-    if(!res) {
-        free(output);
-        return platch_respond_error_std(response_handle, "error_id", "charset_name_unrecognized", NULL);
-    }
-
-    int ok = platch_respond_success_std(
+    ok = platch_respond_success_std(
         response_handle,
         &(struct std_value) {
             .type = kStdUInt8Array,
-            .size = strlen(output),
-            .uint8array = (uint8_t*) output,
+            .size = output_size,
+            .uint8array = (uint8_t *) output,
         }
     );
 
