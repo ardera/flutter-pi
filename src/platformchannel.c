@@ -1485,6 +1485,7 @@ int platch_send(
 
         response_handle = flutterpi_create_platform_message_response_handle(flutterpi, platch_on_response_internal, handlerdata);
         if (response_handle == NULL) {
+            ok = EIO;
             goto fail_free_handlerdata;
         }
     }
