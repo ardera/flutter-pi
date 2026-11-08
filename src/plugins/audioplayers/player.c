@@ -528,10 +528,10 @@ void audio_player_set_balance(struct audio_player *self, double balance) {
         return;
     }
 
-    if (balance > 1.0l) {
-        balance = 1.0l;
-    } else if (balance < -1.0l) {
-        balance = -1.0l;
+    if (balance > 1.0) {
+        balance = 1.0;
+    } else if (balance < -1.0) {
+        balance = -1.0;
     }
     g_object_set(G_OBJECT(self->panorama), "panorama", balance, NULL);
 }
