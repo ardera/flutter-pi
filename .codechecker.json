@@ -1,22 +1,26 @@
 {
     "analyze": [
-        "-d",
-        "clang-diagnostic-reserved-macro-identifier",
-        "-d",
-        "clang-diagnostic-reserved-identifier",
-        "-d",
-        "cert-err33-c",
-        "-d",
-        "clang-diagnostic-sign-compare",
-        "-d",
-        "clang-diagnostic-implicit-int-float-conversion",
-        "-d",
-        "clang-diagnostic-switch-enum",
         "--analyzers",
         "clangsa",
         "clang-tidy",
+        "cppcheck",
         "gcc",
-        "-i",
+        "--enable",
+        "sensitive",
+        "--enable",
+        "gcc-analyzer",
+        "--disable",
+        "gcc-analyzer-too-complex",
+        "--disable",
+        "gcc-analyzer-symbol-too-complex",
+        "--analyzer-config",
+        "clang-tidy:take-config-from-directory=true",
+        "--ctu",
+        "--ignore",
+        ".codechecker.skipfile"
+    ],
+    "parse": [
+        "--ignore",
         ".codechecker.skipfile"
     ]
 }

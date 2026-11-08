@@ -1,0 +1,29 @@
+Checks: >
+  -*,
+  bugprone-*,
+  cert-*,
+  concurrency-*,
+  misc-*,
+  performance-*,
+  portability-*,
+  clang-diagnostic-conditional-uninitialized,
+  -bugprone-easily-swappable-parameters,
+  -bugprone-macro-parentheses,
+  -bugprone-multi-level-implicit-pointer-conversion,
+  -bugprone-narrowing-conversions,
+  -bugprone-reserved-identifier,
+  -bugprone-signed-bitwise,
+  -cert-dcl03-c,
+  -cert-dcl37-c,
+  -cert-dcl51-cpp,
+  -cert-err33-c,
+  -cert-err34-c,
+  -concurrency-mt-unsafe,
+  -misc-include-cleaner,
+  -misc-no-recursion,
+  -misc-static-assert,
+  -misc-use-internal-linkage
+HeaderFilterRegex: '.*/(src|test)/.*'
+ExcludeHeaderFilterRegex: '.*/third_party/.*'
+ExtraArgs:
+  - -Wconditional-uninitialized

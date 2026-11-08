@@ -1,2 +1,4 @@
-+*/flutter-pi/src
+-*/third_party/*
++*/src/*
++*/test/*
 -*
