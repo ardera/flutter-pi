@@ -2837,7 +2837,9 @@ fail_unref_tracer:
     tracer_unref(tracer);
 
 fail_destroy_drmdev:
-    drmdev_unref(drmdev);
+    if (drmdev != NULL) {
+        drmdev_unref(drmdev);
+    }
 
 fail_destroy_locales:
     locales_destroy(locales);
@@ -2895,7 +2897,9 @@ void flutterpi_destroy(struct flutterpi *flutterpi) {
 #endif
     }
     tracer_unref(flutterpi->tracer);
-    drmdev_unref(flutterpi->drmdev);
+    if (flutterpi->drmdev != NULL) {
+        drmdev_unref(flutterpi->drmdev);
+    }
     locales_destroy(flutterpi->locales);
     if (flutterpi->libseat != NULL) {
 #ifdef HAVE_LIBSEAT
