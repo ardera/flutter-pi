@@ -4,6 +4,7 @@
 #include <ctype.h>
 #include <errno.h>
 #include <float.h>
+#include <math.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -17,6 +18,33 @@
 #include "jsmn.h"
 #include "util/asserts.h"
 #include "util/logging.h"
+
+struct buf {
+    uint8_t *data;
+    size_t capacity;
+    size_t pos;
+};
+
+static bool buf_write_bytes(struct buf *b, const void *src, size_t n) {
+    if (b->data != NULL) {
+        if (b->pos > b->capacity || n > b->capacity - b->pos) {
+            return false;
+        }
+
+        memcpy(b->data + b->pos, src, n);
+    }
+
+    b->pos += n;
+    return true;
+}
+
+static bool buf_write_str(struct buf *b, const char *str) {
+    return buf_write_bytes(b, str, strlen(str));
+}
+
+static bool buf_write_char(struct buf *b, char c) {
+    return buf_write_bytes(b, &c, 1);
+}
 
 struct platch_msg_resp_handler_data {
     enum platch_codec codec;
@@ -467,123 +495,140 @@ int platch_write_value_to_buffer_std(struct std_value *value, uint8_t **pbuffer)
 
     return 0;
 }
-size_t platch_calc_value_size_json(struct json_value *value) {
-    size_t size = 0;
+static bool buf_write_json_string(struct buf *buf, const char *str) {
+    if (!buf_write_char(buf, '"')) {
+        return false;
+    }
 
+    for (const char *s = str; *s; s++) {
+        bool ok;
+
+        switch (*s) {
+            case '\b': ok = buf_write_str(buf, "\\b"); break;
+            case '\f': ok = buf_write_str(buf, "\\f"); break;
+            case '\n': ok = buf_write_str(buf, "\\n"); break;
+            case '\r': ok = buf_write_str(buf, "\\r"); break;
+            case '\t': ok = buf_write_str(buf, "\\t"); break;
+            case '"': ok = buf_write_str(buf, "\\\""); break;
+            case '\\': ok = buf_write_str(buf, "\\\\"); break;
+            default:
+                if ((unsigned char) *s < 0x20) {
+                    static const char hex[] = "0123456789abcdef";
+                    char escaped[] = { '\\', 'u', '0', '0', hex[(*s >> 4) & 0xF], hex[*s & 0xF] };
+                    ok = buf_write_bytes(buf, escaped, sizeof escaped);
+                } else {
+                    ok = buf_write_char(buf, *s);
+                }
+                break;
+        }
+
+        if (!ok) {
+            return false;
+        }
+    }
+
+    return buf_write_char(buf, '"');
+}
+
+static bool buf_write_json_number(struct buf *buf, double number) {
+    if (!isfinite(number)) {
+        return false;
+    }
+
+    char str[32];
+    int length = snprintf(str, sizeof str, "%.17g", number);
+    if (length < 0 || (size_t) length >= sizeof str) {
+        return false;
+    }
+
+    for (char *c = str; *c; c++) {
+        if (*c == ',') {
+            *c = '.';
+        }
+    }
+
+    return buf_write_bytes(buf, str, (size_t) length);
+}
+
+static bool buf_write_json(struct buf *buf, const struct json_value *value) {
     switch (value->type) {
-        case kJsonNull:
-        case kJsonTrue: return 4;
-        case kJsonFalse: return 5;
-        case kJsonNumber:; char numBuffer[32]; return sprintf(numBuffer, "%g", value->number_value);
-        case kJsonString:
-            size = 2;
+        case kJsonNull: return buf_write_str(buf, "null");
+        case kJsonTrue: return buf_write_str(buf, "true");
+        case kJsonFalse: return buf_write_str(buf, "false");
+        case kJsonNumber: return buf_write_json_number(buf, value->number_value);
+        case kJsonString: return buf_write_json_string(buf, value->string_value);
+        case kJsonArray:
+            if (!buf_write_char(buf, '[')) {
+                return false;
+            }
 
-            // we need to count how many characters we need to escape.
-            for (char *s = value->string_value; *s; s++) {
-                switch (*s) {
-                    case '\b':
-                    case '\f':
-                    case '\n':
-                    case '\r':
-                    case '\t':
-                    case '\"':
-                    case '\\': size += 2; break;
-                    default: size++; break;
+            for (size_t i = 0; i < value->size; i++) {
+                if (i > 0 && !buf_write_char(buf, ',')) {
+                    return false;
+                }
+
+                if (!buf_write_json(buf, &value->array[i])) {
+                    return false;
                 }
             }
 
-            return size;
-        case kJsonArray:
-            size += 2;
-            for (int i = 0; i < value->size; i++) {
-                size += platch_calc_value_size_json(value->array + i);
-                if (i + 1 != value->size)
-                    size += 1;
-            }
-            return size;
+            return buf_write_char(buf, ']');
         case kJsonObject:
-            size += 2;
-            for (int i = 0; i < value->size; i++) {
-                size += strlen(value->keys[i]) + 3 + platch_calc_value_size_json(&(value->values[i]));
-                if (i + 1 != value->size)
-                    size += 1;
+            if (!buf_write_char(buf, '{')) {
+                return false;
             }
-            return size;
-        default: return EINVAL;
-    }
 
-    return 0;
-}
-int platch_write_value_to_buffer_json(struct json_value *value, uint8_t **pbuffer) {
-    switch (value->type) {
-        case kJsonNull: *pbuffer += sprintf((char *) *pbuffer, "null"); break;
-        case kJsonTrue: *pbuffer += sprintf((char *) *pbuffer, "true"); break;
-        case kJsonFalse: *pbuffer += sprintf((char *) *pbuffer, "false"); break;
-        case kJsonNumber: *pbuffer += sprintf((char *) *pbuffer, "%g", value->number_value); break;
-        case kJsonString:
-            *((*pbuffer)++) = '\"';
+            for (size_t i = 0; i < value->size; i++) {
+                if (i > 0 && !buf_write_char(buf, ',')) {
+                    return false;
+                }
 
-            for (char *s = value->string_value; *s; s++) {
-                switch (*s) {
-                    case '\b':
-                        *((*pbuffer)++) = '\\';
-                        *((*pbuffer)++) = 'b';
-                        break;
-                    case '\f':
-                        *((*pbuffer)++) = '\\';
-                        *((*pbuffer)++) = 'f';
-                        break;
-                    case '\n':
-                        *((*pbuffer)++) = '\\';
-                        *((*pbuffer)++) = 'n';
-                        break;
-                    case '\r':
-                        *((*pbuffer)++) = '\\';
-                        *((*pbuffer)++) = 'r';
-                        break;
-                    case '\t':
-                        *((*pbuffer)++) = '\\';
-                        *((*pbuffer)++) = 't';
-                        break;
-                    case '\"':
-                        *((*pbuffer)++) = '\\';
-                        *((*pbuffer)++) = '"';
-                        break;
-                    case '\\':
-                        *((*pbuffer)++) = '\\';
-                        *((*pbuffer)++) = '\\';
-                        break;
-                    default: *((*pbuffer)++) = *s; break;
+                if (!buf_write_json_string(buf, value->keys[i])) {
+                    return false;
+                }
+
+                if (!buf_write_char(buf, ':')) {
+                    return false;
+                }
+
+                if (!buf_write_json(buf, &value->values[i])) {
+                    return false;
                 }
             }
 
-            *((*pbuffer)++) = '\"';
+            return buf_write_char(buf, '}');
+        default: return false;
+    }
+}
 
-            break;
-        case kJsonArray:
-            *pbuffer += sprintf((char *) *pbuffer, "[");
-            for (int i = 0; i < value->size; i++) {
-                platch_write_value_to_buffer_json(&(value->array[i]), pbuffer);
-                if (i + 1 != value->size)
-                    *pbuffer += sprintf((char *) *pbuffer, ",");
-            }
-            *pbuffer += sprintf((char *) *pbuffer, "]");
-            break;
-        case kJsonObject:
-            *pbuffer += sprintf((char *) *pbuffer, "{");
-            for (int i = 0; i < value->size; i++) {
-                *pbuffer += sprintf((char *) *pbuffer, "\"%s\":", value->keys[i]);
-                platch_write_value_to_buffer_json(&(value->values[i]), pbuffer);
-                if (i + 1 != value->size)
-                    *pbuffer += sprintf((char *) *pbuffer, ",");
-            }
-            *pbuffer += sprintf((char *) *pbuffer, "}");
-            break;
-        default: return EINVAL;
+static int json_encode(const struct json_value *value, uint8_t **buffer_out, size_t *size_out) {
+    struct buf b = { .data = NULL, .capacity = 0, .pos = 0 };
+
+    if (!buf_write_json(&b, value)) {
+        return EINVAL;
     }
 
+    size_t size = b.pos;
+
+    uint8_t *buffer = malloc(size + 1);
+    if (buffer == NULL) {
+        return ENOMEM;
+    }
+
+    b = (struct buf){ .data = buffer, .capacity = size, .pos = 0 };
+    if (!buf_write_json(&b, value)) {
+        free(buffer);
+        return EINVAL;
+    }
+
+    ASSERT(b.pos == size);
+    buffer[size] = '\0';
+
+    *buffer_out = buffer;
+    *size_out = size;
     return 0;
 }
+
 int platch_decode_value_std(const uint8_t **pbuffer, size_t *premaining, struct std_value *value_out) {
     enum std_value_type type;
     uint8_t type_byte;
@@ -1223,27 +1268,10 @@ int platch_encode(struct platch_obj *object, uint8_t **buffer_out, size_t *size_
             return 0;
         }
         case kJSONMessageCodec: {
-            size_t size = platch_calc_value_size_json(&(object->json_value));
-            size += 1;  // JSONMsgCodec uses sprintf, which null-terminates strings,
-                // so lets allocate one more byte for the last null-terminator.
-                // this is decremented again in the second switch-case, so flutter
-                // doesn't complain about a malformed message.
-
-            uint8_t *buffer = malloc(size);
-            if (buffer == NULL) {
-                return ENOMEM;
-            }
-
-            uint8_t *buffer_cursor = buffer;
-
-            ok = platch_write_value_to_buffer_json(&(object->json_value), &buffer_cursor);
+            ok = json_encode(&object->json_value, buffer_out, size_out);
             if (ok != 0) {
-                free(buffer);
                 return ok;
             }
-
-            *buffer_out = buffer;
-            *size_out = size;
             break;
         }
         case kStandardMessageCodec: {
@@ -1376,68 +1404,30 @@ int platch_encode(struct platch_obj *object, uint8_t **buffer_out, size_t *size_
             break;
         }
         case kJSONMethodCall: {
-            size_t size = platch_calc_value_size_json(&JSONOBJECT2("method", JSONSTRING(object->method), "args", object->json_arg));
-
-            uint8_t *buffer = malloc(size + 1);
-            if (buffer == NULL) {
-                return ENOMEM;
-            }
-
-            uint8_t *buffer_cursor = buffer;
-
-            ok = platch_write_value_to_buffer_json(
-                &JSONOBJECT2("method", JSONSTRING(object->method), "args", object->json_arg),
-                &buffer_cursor
-            );
+            struct json_value *envelope = &JSONOBJECT2("method", JSONSTRING(object->method), "args", object->json_arg);
+            ok = json_encode(envelope, buffer_out, size_out);
             if (ok != 0) {
-                free(buffer);
                 return ok;
             }
-
-            *buffer_out = buffer;
-            *size_out = size;
             break;
         }
         case kJSONMethodCallResponse: {
-            size_t size;
-
+            struct json_value items[3];
+            struct json_value envelope = { .type = kJsonArray, .array = items };
             if (object->success) {
-                size = platch_calc_value_size_json(&JSONARRAY1(object->json_result));
+                items[0] = object->json_result;
+                envelope.size = 1;
             } else {
-                size = platch_calc_value_size_json(&JSONARRAY3(
-                    JSONSTRING(object->error_code),
-                    (object->error_msg != NULL) ? JSONSTRING(object->error_msg) : JSONNULL,
-                    object->json_error_details
-                ));
+                items[0] = JSONSTRING(object->error_code);
+                items[1] = (object->error_msg != NULL) ? JSONSTRING(object->error_msg) : JSONNULL;
+                items[2] = object->json_error_details;
+                envelope.size = 3;
             }
 
-            uint8_t *buffer = malloc(size + 1);
-            if (buffer == NULL) {
-                return ENOMEM;
-            }
-
-            uint8_t *buffer_cursor = buffer;
-            if (object->success) {
-                ok = platch_write_value_to_buffer_json(&JSONARRAY1(object->json_result), &buffer_cursor);
-            } else {
-                ok = platch_write_value_to_buffer_json(
-                    &JSONARRAY3(
-                        JSONSTRING(object->error_code),
-                        (object->error_msg != NULL) ? JSONSTRING(object->error_msg) : JSONNULL,
-                        object->json_error_details
-                    ),
-                    &buffer_cursor
-                );
-            }
-
+            ok = json_encode(&envelope, buffer_out, size_out);
             if (ok != 0) {
-                free(buffer);
                 return ok;
             }
-
-            *buffer_out = buffer;
-            *size_out = size;
-
             break;
         }
         default: return EINVAL;
