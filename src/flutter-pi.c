@@ -178,6 +178,8 @@ struct flutterpi {
 	 */
     struct drmdev *drmdev;
 
+    struct gbm_device *gbm_device;
+
     /**
 	 * @brief The flutter event tracing interface.
 	 *
@@ -1033,7 +1035,7 @@ const char *flutterpi_get_asset_bundle_path(struct flutterpi *flutterpi) {
 
 /// TODO: Make this refcounted if we're gonna use it from multiple threads.
 struct gbm_device *flutterpi_get_gbm_device(struct flutterpi *flutterpi) {
-    return drmdev_get_gbm_device(flutterpi->drmdev);
+    return flutterpi->gbm_device;
 }
 
 bool flutterpi_has_gl_renderer(struct flutterpi *flutterpi) {
@@ -2293,6 +2295,13 @@ static struct gbm_device *open_rendernode_as_gbm_device(void) {
     return gbm;
 }
 
+static void destroy_rendernode_gbm_device(struct gbm_device *gbm) {
+    int fd = gbm_device_get_fd(gbm);
+
+    gbm_device_destroy(gbm);
+    close(fd);
+}
+
 #ifdef HAVE_LIBSEAT
 static void on_session_enable(struct libseat *seat, void *userdata) {
     struct flutterpi *fpi;
@@ -2792,6 +2801,7 @@ struct flutterpi *flutterpi_new_from_args(int argc, char **argv) {
     fpi->flutter.engine_handle = engine_handle;
     fpi->flutter.aot_data = aot_data;
     fpi->drmdev = drmdev;
+    fpi->gbm_device = gbm_device;
     fpi->plugin_registry = plugin_registry;
     fpi->texture_registry = texture_registry;
     fpi->libseat = libseat;
@@ -2840,6 +2850,8 @@ fail_unref_tracer:
 fail_destroy_drmdev:
     if (drmdev != NULL) {
         drmdev_unref(drmdev);
+    } else {
+        destroy_rendernode_gbm_device(gbm_device);
     }
 
 fail_destroy_locales:
@@ -2900,6 +2912,8 @@ void flutterpi_destroy(struct flutterpi *flutterpi) {
     tracer_unref(flutterpi->tracer);
     if (flutterpi->drmdev != NULL) {
         drmdev_unref(flutterpi->drmdev);
+    } else {
+        destroy_rendernode_gbm_device(flutterpi->gbm_device);
     }
     locales_destroy(flutterpi->locales);
     if (flutterpi->libseat != NULL) {
