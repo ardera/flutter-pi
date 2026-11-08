@@ -538,9 +538,7 @@ int client_perform_action(double connection_id, enum text_input_action action) {
 }
 
 int client_perform_private_command(double connection_id, char *action, struct json_value *data) {
-    if (data == NULL) {
-        return EINVAL;
-    } else if (data->type != kJsonNull && data->type != kJsonObject) {
+    if (data == NULL || (data->type != kJsonNull && data->type != kJsonObject)) {
         return EINVAL;
     }
 
