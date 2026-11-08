@@ -41,17 +41,17 @@ jobs:
           - target: 'x86_64-linux-gnu'
             is-cross: false
             debian-arch: 'amd64'
-            container: 'debian:bullseye'
+            container: 'debian:bookworm'
 
           - target: 'aarch64-linux-gnu'
             is-cross: true
             debian-arch: 'arm64'
-            container: 'debian:bullseye'
+            container: 'debian:bookworm'
 
           - target: 'arm-linux-gnueabihf'
             is-cross: true
             debian-arch: 'armhf'
-            container: 'debian:bullseye'
+            container: 'debian:bookworm'
 
           - target: 'riscv64-linux-gnu'
             is-cross: true
