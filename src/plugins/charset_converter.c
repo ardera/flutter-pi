@@ -96,7 +96,7 @@ static int respond_conversion_error(FlutterPlatformMessageResponseHandle *respon
 static int on_encode(struct platch_obj *object, FlutterPlatformMessageResponseHandle *response_handle) {
     struct std_value *args, *tmp;
     char *charset, *input, *output;
-    size_t output_size;
+    size_t input_size, output_size;
 
     args = &object->std_arg;
 
@@ -112,13 +112,21 @@ static int on_encode(struct platch_obj *object, FlutterPlatformMessageResponseHa
     charset = STDVALUE_AS_STRING(*tmp);
 
     tmp = stdmap_get_str(&object->std_arg, "data");
-    if (tmp == NULL || !STDVALUE_IS_STRING(*tmp)) {
-        return platch_respond_illegal_arg_std(response_handle, "Expected `arg['data'] to be a string.");
+    if (tmp == NULL) {
+        return platch_respond_illegal_arg_std(response_handle, "Expected `arg['data'] to be a string or uint8_t list.");
     }
 
-    input = STDVALUE_AS_STRING(*tmp);
+    if (STDVALUE_IS_STRING(*tmp)) {
+        input = STDVALUE_AS_STRING(*tmp);
+        input_size = strlen(input);
+    } else if (tmp->type == kStdUInt8Array && tmp->size > 0 && tmp->uint8array[tmp->size - 1] == 0) {
+        input = (char *) tmp->uint8array;
+        input_size = tmp->size - 1;
+    } else {
+        return platch_respond_illegal_arg_std(response_handle, "Expected `arg['data'] to be a string or NUL-terminated uint8_t list.");
+    }
 
-    int ok = convert("UTF-8", charset, input, strlen(input), &output, &output_size);
+    int ok = convert("UTF-8", charset, input, input_size, &output, &output_size);
     if (ok != 0) {
         return respond_conversion_error(response_handle, ok);
     }
