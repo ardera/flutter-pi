@@ -1371,6 +1371,195 @@ void test_raw_std_method_call_get_method_dup(void) {
 void test_raw_std_method_call_get_arg(void) {
 }
 
+static void assert_json_message(struct json_value value, const char *expected) {
+    struct platch_obj obj = PLATCH_OBJ_JSON_MSG(value);
+    uint8_t *buffer = NULL;
+    size_t size = 0;
+
+    TEST_ASSERT_EQUAL_INT(0, platch_encode(&obj, &buffer, &size));
+    TEST_ASSERT_EQUAL_size_t(strlen(expected), size);
+    TEST_ASSERT_EQUAL_MEMORY(expected, buffer, size);
+    TEST_ASSERT_EQUAL_UINT8(0, buffer[size]);
+
+    free(buffer);
+}
+
+void test_platch_encode_json_literals(void) {
+    assert_json_message(JSONNULL, "null");
+    assert_json_message(JSONBOOL(true), "true");
+    assert_json_message(JSONBOOL(false), "false");
+}
+
+void test_platch_encode_json_numbers(void) {
+    assert_json_message(JSONNUM(0), "0");
+    assert_json_message(JSONNUM(42), "42");
+    assert_json_message(JSONNUM(-7), "-7");
+    assert_json_message(JSONNUM(0.5), "0.5");
+    assert_json_message(JSONNUM(0.1), "0.10000000000000001");
+}
+
+void test_platch_encode_json_number_round_trip(void) {
+    struct platch_obj obj = PLATCH_OBJ_JSON_MSG(JSONNUM(0.1));
+    uint8_t *buffer = NULL;
+    size_t size = 0;
+
+    TEST_ASSERT_EQUAL_INT(0, platch_encode(&obj, &buffer, &size));
+    TEST_ASSERT_EQUAL_DOUBLE(0.1, strtod((const char *) buffer, NULL));
+
+    free(buffer);
+}
+
+void test_platch_encode_json_rejects_non_finite_numbers(void) {
+    struct platch_obj obj = PLATCH_OBJ_JSON_MSG(JSONNUM(DBL_NAN));
+    uint8_t *buffer = NULL;
+    size_t size = 0;
+
+    TEST_ASSERT_EQUAL_INT(EINVAL, platch_encode(&obj, &buffer, &size));
+
+    obj = PLATCH_OBJ_JSON_MSG(JSONNUM(DBL_INFINITY));
+    TEST_ASSERT_EQUAL_INT(EINVAL, platch_encode(&obj, &buffer, &size));
+
+    obj = PLATCH_OBJ_JSON_MSG(JSONARRAY2(JSONNUM(1), JSONNUM(-DBL_INFINITY)));
+    TEST_ASSERT_EQUAL_INT(EINVAL, platch_encode(&obj, &buffer, &size));
+}
+
+void test_platch_encode_json_strings(void) {
+    assert_json_message(JSONSTRING(""), "\"\"");
+    assert_json_message(JSONSTRING("abc"), "\"abc\"");
+    assert_json_message(JSONSTRING("a\"b"), "\"a\\\"b\"");
+    assert_json_message(JSONSTRING("a\\b"), "\"a\\\\b\"");
+    assert_json_message(JSONSTRING("a\nb"), "\"a\\nb\"");
+    assert_json_message(JSONSTRING("a\tb"), "\"a\\tb\"");
+    assert_json_message(JSONSTRING("a\rb\bc\fd"), "\"a\\rb\\bc\\fd\"");
+    assert_json_message(JSONSTRING("a\x01z"), "\"a\\u0001z\"");
+    assert_json_message(JSONSTRING("\x1f"), "\"\\u001f\"");
+}
+
+void test_platch_encode_json_containers(void) {
+    assert_json_message((struct json_value){ .type = kJsonArray, .size = 0, .array = NULL }, "[]");
+    assert_json_message((struct json_value){ .type = kJsonObject, .size = 0, .keys = NULL, .values = NULL }, "{}");
+    assert_json_message(JSONARRAY3(JSONNUM(1), JSONSTRING("two"), JSONNULL), "[1,\"two\",null]");
+    assert_json_message(JSONOBJECT2("a", JSONBOOL(true), "b", JSONBOOL(false)), "{\"a\":true,\"b\":false}");
+}
+
+void test_platch_encode_json_escapes_object_keys(void) {
+    assert_json_message(JSONOBJECT1("a\"b\n", JSONNUM(1)), "{\"a\\\"b\\n\":1}");
+}
+
+void test_platch_encode_json_nested(void) {
+    assert_json_message(
+        JSONARRAY2(
+            JSONARRAY2(JSONNUM(1), JSONARRAY1(JSONNULL)),
+            JSONOBJECT2("x", JSONOBJECT1("y", JSONARRAY1(JSONSTRING("z"))), "w", JSONARRAY2(JSONNUM(2), JSONNUM(3)))
+        ),
+        "[[1,[null]],{\"x\":{\"y\":[\"z\"]},\"w\":[2,3]}]"
+    );
+}
+
+void test_platch_encode_json_method_call(void) {
+    struct platch_obj obj = PLATCH_OBJ_JSON_CALL("foo.bar", JSONARRAY2(JSONNUM(1), JSONSTRING("x")));
+    uint8_t *buffer = NULL;
+    size_t size = 0;
+    const char *expected = "{\"method\":\"foo.bar\",\"args\":[1,\"x\"]}";
+
+    TEST_ASSERT_EQUAL_INT(0, platch_encode(&obj, &buffer, &size));
+    TEST_ASSERT_EQUAL_size_t(strlen(expected), size);
+    TEST_ASSERT_EQUAL_MEMORY(expected, buffer, size);
+    TEST_ASSERT_EQUAL_UINT8(0, buffer[size]);
+
+    free(buffer);
+}
+
+void test_platch_encode_json_method_call_escapes_method(void) {
+    struct platch_obj obj = PLATCH_OBJ_JSON_CALL("a\"b", JSONNULL);
+    uint8_t *buffer = NULL;
+    size_t size = 0;
+    const char *expected = "{\"method\":\"a\\\"b\",\"args\":null}";
+
+    TEST_ASSERT_EQUAL_INT(0, platch_encode(&obj, &buffer, &size));
+    TEST_ASSERT_EQUAL_size_t(strlen(expected), size);
+    TEST_ASSERT_EQUAL_MEMORY(expected, buffer, size);
+
+    free(buffer);
+}
+
+void test_platch_encode_json_method_call_response(void) {
+    struct platch_obj obj = PLATCH_OBJ_JSON_CALL_SUCCESS_RESPONSE(JSONSTRING("ok"));
+    uint8_t *buffer = NULL;
+    size_t size = 0;
+    const char *expected = "[\"ok\"]";
+
+    TEST_ASSERT_EQUAL_INT(0, platch_encode(&obj, &buffer, &size));
+    TEST_ASSERT_EQUAL_size_t(strlen(expected), size);
+    TEST_ASSERT_EQUAL_MEMORY(expected, buffer, size);
+    TEST_ASSERT_EQUAL_UINT8(0, buffer[size]);
+
+    free(buffer);
+}
+
+void test_platch_encode_json_method_call_error_response(void) {
+    struct platch_obj obj = {
+        .codec = kJSONMethodCallResponse,
+        .success = false,
+        .error_code = "code",
+        .error_msg = "message",
+        .json_error_details = JSONNUM(5),
+    };
+    uint8_t *buffer = NULL;
+    size_t size = 0;
+    const char *expected = "[\"code\",\"message\",5]";
+
+    TEST_ASSERT_EQUAL_INT(0, platch_encode(&obj, &buffer, &size));
+    TEST_ASSERT_EQUAL_size_t(strlen(expected), size);
+    TEST_ASSERT_EQUAL_MEMORY(expected, buffer, size);
+    TEST_ASSERT_EQUAL_UINT8(0, buffer[size]);
+
+    free(buffer);
+
+    buffer = NULL;
+    obj.error_msg = NULL;
+    obj.json_error_details = JSONNULL;
+    expected = "[\"code\",null,null]";
+
+    TEST_ASSERT_EQUAL_INT(0, platch_encode(&obj, &buffer, &size));
+    TEST_ASSERT_EQUAL_size_t(strlen(expected), size);
+    TEST_ASSERT_EQUAL_MEMORY(expected, buffer, size);
+
+    free(buffer);
+}
+
+void test_platch_encode_json_decode_round_trip(void) {
+    struct platch_obj obj = PLATCH_OBJ_JSON_MSG(JSONOBJECT3(
+        "list",
+        JSONARRAY3(JSONNUM(1), JSONNUM(0.1), JSONNULL),
+        "flags",
+        JSONARRAY2(JSONBOOL(true), JSONBOOL(false)),
+        "name",
+        JSONSTRING("flutter-pi")
+    ));
+    struct platch_obj decoded;
+    uint8_t *first = NULL, *second = NULL;
+    uint8_t input[256];
+    size_t first_size = 0, second_size = 0;
+
+    TEST_ASSERT_EQUAL_INT(0, platch_encode(&obj, &first, &first_size));
+
+    TEST_ASSERT_LESS_THAN_size_t(sizeof(input), first_size + 1);
+    memcpy(input, first, first_size + 1);
+    TEST_ASSERT_EQUAL_INT(0, platch_decode(input, first_size, kJSONMessageCodec, &decoded));
+
+    TEST_ASSERT_EQUAL_INT(kJsonObject, decoded.json_value.type);
+    TEST_ASSERT_EQUAL_size_t(3, decoded.json_value.size);
+
+    TEST_ASSERT_EQUAL_INT(0, platch_encode(&decoded, &second, &second_size));
+    TEST_ASSERT_EQUAL_size_t(first_size, second_size);
+    TEST_ASSERT_EQUAL_MEMORY(first, second, first_size);
+
+    platch_free_obj(&decoded);
+    free(first);
+    free(second);
+}
+
 int main(void) {
     UNITY_BEGIN();
 
@@ -1419,6 +1608,19 @@ int main(void) {
     RUN_TEST(test_raw_std_method_call_get_method);
     RUN_TEST(test_raw_std_method_call_get_method_dup);
     RUN_TEST(test_raw_std_method_call_get_arg);
+    RUN_TEST(test_platch_encode_json_literals);
+    RUN_TEST(test_platch_encode_json_numbers);
+    RUN_TEST(test_platch_encode_json_number_round_trip);
+    RUN_TEST(test_platch_encode_json_rejects_non_finite_numbers);
+    RUN_TEST(test_platch_encode_json_strings);
+    RUN_TEST(test_platch_encode_json_containers);
+    RUN_TEST(test_platch_encode_json_escapes_object_keys);
+    RUN_TEST(test_platch_encode_json_nested);
+    RUN_TEST(test_platch_encode_json_method_call);
+    RUN_TEST(test_platch_encode_json_method_call_escapes_method);
+    RUN_TEST(test_platch_encode_json_method_call_response);
+    RUN_TEST(test_platch_encode_json_method_call_error_response);
+    RUN_TEST(test_platch_encode_json_decode_round_trip);
 
     return UNITY_END();
 }
