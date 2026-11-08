@@ -1209,7 +1209,7 @@ int platch_encode(struct platch_obj *object, uint8_t **buffer_out, size_t *size_
         }
         case kStringCodec: {
             *buffer_out = (uint8_t *) strdup(object->string_value);
-            if (buffer_out == NULL) {
+            if (*buffer_out == NULL) {
                 return ENOMEM;
             }
 
