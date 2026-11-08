@@ -8,3 +8,10 @@ updates:
       github-actions:
         patterns:
           - "*"
+
+  - package-ecosystem: "gitsubmodule"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    allow:
+      - dependency-name: "third_party/sentry-native"
