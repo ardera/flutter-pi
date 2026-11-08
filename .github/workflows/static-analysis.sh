@@ -48,6 +48,7 @@ configure full \
     -DBUILD_GSTREAMER_AUDIO_PLAYER_PLUGIN=ON \
     -DENABLE_SESSION_SWITCHING=ON \
     -DBUILD_CHARSET_CONVERTER_PLUGIN=ON \
+    -DBUILD_TEST_PLUGIN=ON \
     -DENABLE_TESTS=ON
 
 configure opengl-only "${minimal[@]}" \
