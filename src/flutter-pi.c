@@ -1860,12 +1860,23 @@ static struct flutter_paths *setup_paths(enum flutter_runtime_mode runtime_mode,
 }
 
 static bool parse_vec2i(const char *str, struct vec2i *out) {
-    int ok;
+    char *end;
+    long x, y;
 
-    ok = sscanf(str, "%d,%d", &out->x, &out->y);
-    if (ok != 2) {
+    errno = 0;
+    x = strtol(str, &end, 10);
+    if (errno != 0 || end == str || *end != ',' || x < INT_MIN || x > INT_MAX) {
         return false;
     }
+
+    str = end + 1;
+    y = strtol(str, &end, 10);
+    if (errno != 0 || end == str || y < INT_MIN || y > INT_MAX) {
+        return false;
+    }
+
+    out->x = (int) x;
+    out->y = (int) y;
 
     return true;
 }
