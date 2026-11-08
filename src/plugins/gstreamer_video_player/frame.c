@@ -527,7 +527,7 @@ static bool calculate_plane_size(const GstVideoInfo *info, int plane_index, size
     if (GST_VIDEO_FORMAT_INFO_IS_TILED(info->finfo)) {
         guint x_tiles = GST_VIDEO_TILE_X_TILES(info->stride[plane_index]);
         guint y_tiles = GST_VIDEO_TILE_Y_TILES(info->stride[plane_index]);
-        *plane_size_out = x_tiles * y_tiles * GST_VIDEO_FORMAT_INFO_TILE_SIZE(info->finfo, plane_index);
+        *plane_size_out = (size_t) x_tiles * y_tiles * GST_VIDEO_FORMAT_INFO_TILE_SIZE(info->finfo, plane_index);
         return true;
     }
     #endif
@@ -539,7 +539,7 @@ static bool calculate_plane_size(const GstVideoInfo *info, int plane_index, size
     gst_video_format_info_component(info->finfo, plane_index, comp);
     plane_height = GST_VIDEO_FORMAT_INFO_SCALE_HEIGHT(info->finfo, comp[0], GST_VIDEO_INFO_FIELD_HEIGHT(info));
 
-    *plane_size_out = plane_height * GST_VIDEO_INFO_PLANE_STRIDE(info, plane_index);
+    *plane_size_out = (size_t) plane_height * GST_VIDEO_INFO_PLANE_STRIDE(info, plane_index);
     return true;
 }
 
