@@ -775,7 +775,7 @@ static int on_execute_flutter_task(void *userdata) {
 
     result = flutterpi->flutter.procs.RunTask(flutterpi->flutter.engine, task);
     if (result != kSuccess) {
-        LOG_ERROR("Error running platform task. FlutterEngineRunTask: %u\n", result);
+        LOG_ERROR("Error running platform task. FlutterEngineRunTask: %d\n", result);
         free(task);
         return EINVAL;
     }
