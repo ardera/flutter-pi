@@ -174,6 +174,11 @@ target_compile_options(flutterpi_module PUBLIC
   $<$<CONFIG:Release>:-O3 -Wall -Wextra -Wno-sign-compare -DNDEBUG>
 )
 
+check_c_compiler_flag(-Wc2y-extensions COMPILER_SUPPORTS_WC2Y_EXTENSIONS)
+if (COMPILER_SUPPORTS_WC2Y_EXTENSIONS)
+  target_compile_options(flutterpi_module PUBLIC $<$<CONFIG:Debug>:-Wno-c2y-extensions>)
+endif()
+
 # GCC prior to 11.3 reports false positives for missing-field-initializers warning.
 if (CMAKE_C_COMPILER_ID STREQUAL "GNU")
   if (CMAKE_C_COMPILER_VERSION VERSION_LESS "11.3")
