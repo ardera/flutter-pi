@@ -1493,12 +1493,12 @@ void *pointer_icon_dup_pixels(const struct pointer_icon *icon) {
 
     ASSERT_EQUALS(icon->bytes_per_pixel, 4);
 
-    buffer = calloc(1, icon->bytes_per_pixel * icon->width * icon->height);
+    buffer = calloc(1, (size_t) icon->bytes_per_pixel * icon->width * icon->height);
     if (buffer == NULL) {
         return NULL;
     }
 
-    run_length_decode(buffer, icon->rle_pixel_data, icon->width * icon->height);
+    run_length_decode(buffer, icon->rle_pixel_data, (size_t) icon->width * icon->height);
 
     return buffer;
 }
