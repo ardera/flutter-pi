@@ -5,10 +5,15 @@
 #include <iconv.h>
 
 static int convert(const char *from, const char *to, const char *input, size_t input_size, char **output_out, size_t *output_size_out) {
+    if (input_size > SIZE_MAX - 17) {
+        return EOVERFLOW;
+    }
+
     iconv_t iconv_cd = iconv_open(to, from);
     if (iconv_cd == (iconv_t) -1) {
-        LOG_ERROR("Conversion from charset \"%s\" to charset \"%s\" is not supported. iconv_open: %s\n", from, to, strerror(errno));
-        return ENOENT;
+        int error = errno;
+        LOG_ERROR("Conversion from charset \"%s\" to charset \"%s\" is not supported. iconv_open: %s\n", from, to, strerror(error));
+        return error == EINVAL ? ENOENT : error;
     }
 
     size_t capacity = input_size + 16;
@@ -49,6 +54,12 @@ static int convert(const char *from, const char *to, const char *input, size_t i
             free(output);
             iconv_close(iconv_cd);
             return error;
+        }
+
+        if (capacity > (SIZE_MAX - 1) / 2) {
+            free(output);
+            iconv_close(iconv_cd);
+            return EOVERFLOW;
         }
 
         size_t new_capacity = capacity * 2;
