@@ -222,7 +222,7 @@ void platch_free_value_std(struct std_value *value) {
             }
             free(value->keys);
             break;
-        case kStdFloat32Array:
+        case kStdFloat32Array: break;
         default: break;
     }
 }
@@ -334,6 +334,13 @@ int platch_calc_value_size_std(struct std_value *value, size_t *size_out) {
 
             break;
         case kStdInt64Array:
+            element_size = value->size;
+
+            _advance_size_bytes(&size, element_size, NULL);
+            _align(&size, 8, NULL);
+            _advance(&size, element_size * 8, NULL);
+
+            break;
         case kStdFloat64Array:
             element_size = value->size;
 
@@ -2267,6 +2274,9 @@ ATTR_PURE bool raw_std_value_equals(const struct raw_std_value *a, const struct 
             PRAGMA_DIAGNOSTIC_POP
         case kStdLargeInt:
         case kStdString:
+            alignment = 0;
+            element_size = 1;
+            goto memcmp_arrays;
         case kStdUInt8Array:
             alignment = 0;
             element_size = 1;
@@ -2458,8 +2468,8 @@ ATTR_PURE const struct raw_std_value *raw_std_value_after(const struct raw_std_v
     size_t size;
 
     switch (raw_std_value_get_type(value)) {
-        case kStdNull:
-        case kStdTrue:
+        case kStdNull: return get_after_ptr(value, 0, 0);
+        case kStdTrue: return get_after_ptr(value, 0, 0);
         case kStdFalse: return get_after_ptr(value, 0, 0);
         case kStdInt32: return get_after_ptr(value, 0, 4);
         case kStdInt64: return get_after_ptr(value, 0, 8);
@@ -2468,7 +2478,7 @@ ATTR_PURE const struct raw_std_value *raw_std_value_after(const struct raw_std_v
         case kStdFloat64: return get_after_ptr(value, 8, 8);
         case kStdUInt8Array: return get_array_after_ptr(value, 0, raw_std_value_get_size(value), 1);
         case kStdInt32Array: return get_array_after_ptr(value, 4, raw_std_value_get_size(value), 4);
-        case kStdInt64Array:
+        case kStdInt64Array: return get_array_after_ptr(value, 8, raw_std_value_get_size(value), 8);
         case kStdFloat64Array: return get_array_after_ptr(value, 8, raw_std_value_get_size(value), 8);
         case kStdList:;
             size = raw_std_value_get_size(value);
@@ -2601,7 +2611,7 @@ ATTR_PURE bool raw_std_value_check(const struct raw_std_value *value, size_t buf
         case kStdTrue:
         case kStdFalse: return true;
         case kStdInt32: return buffer_size >= 5;
-        case kStdInt64:
+        case kStdInt64: return buffer_size >= 9;
         case kStdFloat64: return buffer_size >= 9;
         case kStdLargeInt:
         case kStdString:
