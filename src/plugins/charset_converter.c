@@ -154,6 +154,7 @@ static int on_available_charsets(struct platch_obj *object, FlutterPlatformMessa
 
     fp = popen("iconv --list", "r");
     if(!fp) {
+        free(output);
         return platch_respond_error_std(response_handle, "error_id", "charsets_not_available", NULL);
     }
 
@@ -163,7 +164,8 @@ static int on_available_charsets(struct platch_obj *object, FlutterPlatformMessa
     values.size = count;
     values.list = alloca(sizeof(struct std_value) * count);
 
-    for (int index = 0; index < count; index++) {
+    size_t index;
+    for (index = 0; index < count; index++) {
         if(getline(&output, &length, fp) < 0) {
             break;
         }
@@ -175,8 +177,17 @@ static int on_available_charsets(struct platch_obj *object, FlutterPlatformMessa
     }
 
     pclose(fp);
+    free(output);
 
-    return platch_respond_success_std(response_handle, &values);
+    values.size = index;
+
+    int ok = platch_respond_success_std(response_handle, &values);
+
+    for (size_t i = 0; i < index; i++) {
+        free(values.list[i].string_value);
+    }
+
+    return ok;
 }
 
 static int on_check(struct platch_obj *object, FlutterPlatformMessageResponseHandle *response_handle) {
