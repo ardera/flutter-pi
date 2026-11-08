@@ -85,7 +85,6 @@ jobs:
             -DENABLE_OPENGL=${{ matrix.enable-opengl }} \
             -DENABLE_TESTS=On \
             -GNinja
-          echo test
 
       - name: Build
         run: cmake --build ./build --config ${{ matrix.build-type }}
