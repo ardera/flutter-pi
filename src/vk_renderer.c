@@ -122,17 +122,16 @@ static int score_physical_device(VkPhysicalDevice device, const char **required_
     }
 
     for (const char **cursor = required_device_extensions; *cursor != NULL; cursor++) {
-        bool found = false;
         for (unsigned i = 0; i < n_available_extensions; i++) {
             if (streq(available_extensions[i].extensionName, *cursor)) {
-                found = true;
-                break;
+                goto found;
             }
         }
-        if (!found) {
-            LOG_ERROR("Required extension %s is not supported by vulkan device.\n", *cursor);
-            return 0;
-        }
+        LOG_ERROR("Required extension %s is not supported by vulkan device.\n", *cursor);
+        return 0;
+
+found:
+        continue;
     }
 
     return score;
