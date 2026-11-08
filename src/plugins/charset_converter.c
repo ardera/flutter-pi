@@ -147,7 +147,7 @@ static int on_available_charsets(struct platch_obj *object, FlutterPlatformMessa
     }
 
     while (getline(&output, &length, fp) >= 0) {
-        count = atoi(output);
+        count = strtoul(output, NULL, 10);
     }
 
     pclose(fp);
