@@ -112,12 +112,12 @@ static int on_decode(struct platch_obj *object, FlutterPlatformMessageResponseHa
     }
 
     input = tmp->uint8array;
-    output = malloc(strlen((char*) input) + 1);
+    output = malloc(tmp->size + 1);
     if (output == NULL) {
         return platch_respond_native_error_std(response_handle, ENOMEM);
     }
 
-    bool res = convert((char*) input, output, strlen((char*) input) + 1, "UTF-8", charset);
+    bool res = convert((char *) input, output, tmp->size + 1, "UTF-8", charset);
     if(!res) {
         free(output);
         return platch_respond_error_std(response_handle, "error_id", "charset_name_unrecognized", NULL);
