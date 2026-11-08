@@ -2843,9 +2843,8 @@ kms_req_commit_locked(struct kms_req *req, bool blocking, kms_scanout_cb_t scano
     //  - or: the old mode differs from the new mode
     bool upload_mode = false;
     if (builder->has_mode) {
-        if (!builder->crtc->committed_state.has_mode) {
-            upload_mode = true;
-        } else if (memcmp(&builder->crtc->committed_state.mode, &builder->mode, sizeof(drmModeModeInfo)) != 0) {
+        if (!builder->crtc->committed_state.has_mode ||
+            memcmp(&builder->crtc->committed_state.mode, &builder->mode, sizeof(drmModeModeInfo)) != 0) {
             upload_mode = true;
         }
     }
