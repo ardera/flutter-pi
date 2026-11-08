@@ -136,8 +136,8 @@ static int on_decode(struct platch_obj *object, FlutterPlatformMessageResponseHa
 static int on_available_charsets(struct platch_obj *object, FlutterPlatformMessageResponseHandle *response_handle) {
     (void) object;
 
-    char* output;
-    size_t length, count;
+    char *output = NULL;
+    size_t length = 0, count = 0;
     FILE *fp;
 
     // Count the available charsets
