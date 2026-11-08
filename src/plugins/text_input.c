@@ -781,11 +781,14 @@ int textin_on_xkb_keysym(xkb_keysym_t keysym) {
         case XKB_KEY_KP_Home: needs_sync = model_move_cursor_to_beginning(); break;
         case XKB_KEY_Left:
         case XKB_KEY_KP_Left:
+            // handled inside of flutter
+            // needs_sync = model_move_cursor_back();
+            break;
         case XKB_KEY_Right:
         case XKB_KEY_KP_Right:
             // handled inside of flutter
-            // needs_sync = model_move_cursor_back();
             // needs_sync = model_move_cursor_forward();
+            break;
         default: break;
     }
 
