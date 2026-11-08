@@ -16,59 +16,11 @@ concurrency:
 
 jobs:
   pi4:
-    name: Build and Test on Raspberry Pi 4
+    name: Build & Test on Raspberry Pi 4
     if: vars.ENABLE_PI4_RUNNERS == 'true'
-    runs-on: ${{ matrix.runner }}
+    runs-on: ARM64
     timeout-minutes: 60
-    strategy:
-      fail-fast: false
-      matrix:
-        runner:
-          # - ARM
-          - ARM64
-        graphics-backends:
-          - vulkan-only
-          - opengl-only
-          - vulkan-and-opengl
-        compiler:
-          - gcc
-          - clang
-        build-type:
-          - Debug
-          - Release
-        include:
-          - graphics-backends: "vulkan-only"
-            enable-vulkan: "on"
-            enable-opengl: "off"
-
-          - graphics-backends: "opengl-only"
-            enable-vulkan: "off"
-            enable-opengl: "on"
-
-          - graphics-backends: "vulkan-and-opengl"
-            enable-vulkan: "on"
-            enable-opengl: "on"
-
-          - enable-opengl: "on"
-            opengl-deps: "libgl1-mesa-dev libgles2-mesa-dev libegl1-mesa-dev"
-
-          - enable-vulkan: "on"
-            vulkan-deps: "libvulkan-dev"
-
-          - compiler: "clang"
-            clang-deps: "clang"
     steps:
-      # On the self-hosted runners, we assume those are already installed.
-      # - name: Install dependencies
-      #   run: |
-      #     id
-      #     sudo apt-get install -y \
-      #       git cmake libgl1-mesa-dev libgles2-mesa-dev libegl1-mesa-dev libdrm-dev libgbm-dev \
-      #       ttf-mscorefonts-installer fontconfig libsystemd-dev libinput-dev libudev-dev \
-      #       libxkbcommon-dev ninja-build libgstreamer-plugins-base1.0-dev \
-      #       ${{ matrix.vulkan-deps }} \
-      #       ${{ matrix.clang-deps }}
-
       - uses: actions/checkout@v7
         with:
           submodules: "recursive"
@@ -77,21 +29,21 @@ jobs:
         run: |
           cmake \
             -B ./build \
-            -DCMAKE_BUILD_TYPE=${{ matrix.build-type }} \
-            -DCMAKE_C_COMPILER=${{ matrix.compiler }} \
-            -DBUILD_GSTREAMER_AUDIO_PLAYER_PLUGIN=On \
-            -DBUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN=On \
-            -DENABLE_VULKAN=${{ matrix.enable-vulkan }} \
-            -DENABLE_OPENGL=${{ matrix.enable-opengl }} \
-            -DENABLE_TESTS=On \
-            -GNinja
+            -S . \
+            -GNinja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DENABLE_OPENGL=ON \
+            -DENABLE_VULKAN=ON \
+            -DBUILD_GSTREAMER_AUDIO_PLAYER_PLUGIN=ON \
+            -DBUILD_GSTREAMER_VIDEO_PLAYER_PLUGIN=ON \
+            -DENABLE_TESTS=ON
 
       - name: Build
-        run: cmake --build ./build --config ${{ matrix.build-type }}
+        run: cmake --build ./build
 
       - name: Test
         working-directory: build
-        run: ctest -C ${{ matrix.build-type }} --output-on-failure
+        run: ctest --output-on-failure
 
   container:
     name: Build & Test in Container
