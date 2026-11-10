@@ -41,6 +41,7 @@ struct gstplayer_meta {
     */
 
     atomic_bool is_buffering;
+    atomic_bool sent_initialized;
 
     struct listener *video_info_listener;
     struct listener *buffering_state_listener;
@@ -52,6 +53,7 @@ static struct plugin {
     struct flutterpi *flutterpi;
     bool initialized;
     struct list_head players;
+    struct list_head retired_channels;
 } plugin;
 
 DEFINE_LOCK_OPS(plugin, lock);
@@ -80,14 +82,20 @@ static struct gstplayer *get_player_by_texture_id(int64_t texture_id) {
     return NULL;
 }
 
-/// Get a player instance by its event channel name.
-static struct gstplayer *get_player_by_evch(const char *const event_channel_name) {
+/// Get active or terminal metadata by its event channel name.
+static struct gstplayer_meta *get_meta_by_evch(const char *const event_channel_name) {
     plugin_lock(&plugin);
 
     list_for_each_entry(struct gstplayer_meta, meta, &plugin.players, entry) {
         if (streq(meta->event_channel_name, event_channel_name)) {
             plugin_unlock(&plugin);
-            return meta->player;
+            return meta;
+        }
+    }
+    list_for_each_entry(struct gstplayer_meta, meta, &plugin.retired_channels, entry) {
+        if (streq(meta->event_channel_name, event_channel_name)) {
+            plugin_unlock(&plugin);
+            return meta;
         }
     }
 
@@ -304,6 +312,10 @@ static enum listener_return on_video_info_notify(void *arg, void *userdata) {
         return kNoAction;
     }
 
+    if (atomic_exchange(&meta->sent_initialized, true)) {
+        return kNoAction;
+    }
+
     LOG_DEBUG(
         "Got video info: stream? %s, w x h: % 4d x % 4d, duration: %" GST_TIME_FORMAT "\n",
         !info->can_seek ? "yes" : "no",
@@ -315,14 +327,8 @@ static enum listener_return on_video_info_notify(void *arg, void *userdata) {
     /// on_video_info_notify is called on an internal thread,
     /// but send_initialized_event is (should be) mt-safe
     send_initialized_event(meta, !info->can_seek, info->width, info->height, info->duration_ms);
-    
-    /// FIXME: Threading
-    /// Set this to NULL here so we don't unlisten to it twice.
-    meta->video_info_listener = NULL;
 
-    /// TODO: We should only send the initialized event once,
-    /// but maybe it's also okay if we send it multiple times?
-    return kUnlisten;
+    return kNoAction;
 }
 
 static enum listener_return on_buffering_state_notify(void *arg, void *userdata) {
@@ -356,26 +362,66 @@ static enum listener_return on_buffering_state_notify(void *arg, void *userdata)
  * CHANNEL HANDLERS                                    *
  * handle method calls on the method and event channel *
  *******************************************************/
+static void destroy_meta(struct gstplayer_meta *meta);
+
+static int on_receive_retired_evch(char *channel, struct platch_obj *object, FlutterPlatformMessageResponseHandle *responsehandle) {
+    if (object->codec != kStandardMethodCall || object->method == NULL) {
+        return platch_respond_not_implemented(responsehandle);
+    }
+    struct gstplayer_meta *meta = get_meta_by_evch(channel);
+    if (meta == NULL || meta->player != NULL || !streq(object->method, "cancel")) {
+        return platch_respond_not_implemented(responsehandle);
+    }
+
+    // EventChannel's broadcast onCancel is asynchronous: native dispose may
+    // arrive first. Acknowledge only the pending cancel for this known channel.
+    plugin_registry_remove_receiver(channel);
+    remove_player(meta);
+    destroy_meta(meta);
+    return platch_respond_success_std(responsehandle, NULL);
+}
+
+static void stop_listening(struct gstplayer_meta *meta) {
+    meta->has_listener = false;
+    if (meta->video_info_listener != NULL) {
+        notifier_unlisten(gstplayer_get_video_info_notifier(meta->player), meta->video_info_listener);
+        meta->video_info_listener = NULL;
+    }
+    if (meta->buffering_state_listener != NULL) {
+        notifier_unlisten(gstplayer_get_buffering_state_notifier(meta->player), meta->buffering_state_listener);
+        meta->buffering_state_listener = NULL;
+    }
+}
+
 static int on_receive_evch(char *channel, struct platch_obj *object, FlutterPlatformMessageResponseHandle *responsehandle) {
     struct gstplayer_meta *meta;
     struct gstplayer *player;
     const char *method;
 
+    if (object->codec != kStandardMethodCall || object->method == NULL) {
+        return platch_respond_not_implemented(responsehandle);
+    }
     method = object->method;
 
-    player = get_player_by_evch(channel);
-    if (player == NULL) {
+    meta = get_meta_by_evch(channel);
+    if (meta == NULL || meta->player == NULL) {
         return platch_respond_not_implemented(responsehandle);
     }
 
-    meta = gstplayer_get_userdata_locked(player);
+    player = meta->player;
 
     if (streq("listen", method)) {
+        // A new listen replaces the previous subscription (e.g. hot restart).
+        stop_listening(meta);
+        meta->sent_initialized = false;
+        meta->is_buffering = false;
         platch_respond_success_std(responsehandle, NULL);
         meta->has_listener = true;
 
         meta->video_info_listener = notifier_listen(gstplayer_get_video_info_notifier(player), on_video_info_notify, NULL, meta);
-        // We don't care if it's NULL, it could also be on_video_info_notify was called synchronously. (And returned kUnlisten)
+        if (meta->video_info_listener == NULL) {
+            LOG_ERROR("Couldn't listen for video info in gstplayer.\n");
+        }
 
         meta->buffering_state_listener =
             notifier_listen(gstplayer_get_buffering_state_notifier(player), on_buffering_state_notify, NULL, meta);
@@ -384,16 +430,7 @@ static int on_receive_evch(char *channel, struct platch_obj *object, FlutterPlat
         }
     } else if (streq("cancel", method)) {
         platch_respond_success_std(responsehandle, NULL);
-        meta->has_listener = false;
-
-        if (meta->video_info_listener != NULL) {
-            notifier_unlisten(gstplayer_get_video_info_notifier(player), meta->video_info_listener);
-            meta->video_info_listener = NULL;
-        }
-        if (meta->buffering_state_listener != NULL) {
-            notifier_unlisten(gstplayer_get_buffering_state_notifier(player), meta->buffering_state_listener);
-            meta->buffering_state_listener = NULL;
-        }
+        stop_listening(meta);
     } else {
         return platch_respond_not_implemented(responsehandle);
     }
@@ -496,6 +533,9 @@ static struct gstplayer_meta *create_meta(int64_t texture_id, struct gstplayer *
     meta->event_channel_name = event_channel_name;
     meta->has_listener = false;
     meta->is_buffering = false;
+    meta->sent_initialized = false;
+    meta->video_info_listener = NULL;
+    meta->buffering_state_listener = NULL;
     return meta;
 }
 
@@ -509,7 +549,12 @@ static void dispose_player(struct gstplayer *player, bool plugin_registry_locked
 
     meta = get_meta(player);
 
-    if (plugin_registry_locked) {
+    // At plugin shutdown there can be no further Dart cancel. Otherwise keep
+    // a terminal receiver only if its subscription still needs cancellation.
+    bool pending_cancel = meta->has_listener && !plugin_registry_locked;
+    if (pending_cancel) {
+        plugin_registry_set_receiver(meta->event_channel_name, kStandardMethodCall, on_receive_retired_evch);
+    } else if (plugin_registry_locked) {
         plugin_registry_remove_receiver_locked(meta->event_channel_name);
     } else {
         plugin_registry_remove_receiver(meta->event_channel_name);
@@ -521,18 +566,17 @@ static void dispose_player(struct gstplayer *player, bool plugin_registry_locked
         remove_player(meta);
     }
 
-    if (meta->video_info_listener != NULL) {
-        notifier_unlisten(gstplayer_get_video_info_notifier(player), meta->video_info_listener);
-        meta->video_info_listener = NULL;
-    }
-    if (meta->buffering_state_listener != NULL) {
-        notifier_unlisten(gstplayer_get_buffering_state_notifier(player), meta->buffering_state_listener);
-        meta->buffering_state_listener = NULL;
-    }
-
-    destroy_meta(meta);
+    stop_listening(meta);
 
     gstplayer_destroy(player);
+    meta->player = NULL;
+    if (pending_cancel) {
+        plugin_lock(&plugin);
+        list_add(&meta->entry, &plugin.retired_channels);
+        plugin_unlock(&plugin);
+    } else {
+        destroy_meta(meta);
+    }
 }
 
 /// Creates a new video player.
@@ -1602,6 +1646,7 @@ enum plugin_init_result gstplayer_plugin_init(struct flutterpi *flutterpi, void 
     }
 
     list_inithead(&plugin.players);
+    list_inithead(&plugin.retired_channels);
 
     ok = plugin_registry_set_receiver_locked("dev.flutter.pigeon.VideoPlayerApi.initialize", kStandardMessageCodec, on_initialize);
     if (ok != 0) {
@@ -1732,6 +1777,12 @@ void gstplayer_plugin_deinit(struct flutterpi *flutterpi, void *userdata) {
     list_for_each_entry_safe(struct gstplayer_meta, meta, &plugin.players, entry) {
         // will also remove the player from the player list.
         dispose_player(meta->player, true, true);
+    }
+
+    list_for_each_entry_safe(struct gstplayer_meta, meta, &plugin.retired_channels, entry) {
+        plugin_registry_remove_receiver_locked(meta->event_channel_name);
+        list_del(&meta->entry);
+        destroy_meta(meta);
     }
 
     if (plugin.initialized) {

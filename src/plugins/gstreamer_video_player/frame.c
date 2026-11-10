@@ -28,7 +28,7 @@
 #define DRM_FOURCC_ARGS(format) (format) & 0xFF, ((format) >> 8) & 0xFF, ((format) >> 16) & 0xFF, ((format) >> 24) & 0xFF
 
 struct video_frame {
-    GstSample *sample;
+    GstBuffer *buffer;
 
     struct frame_interface *interface;
 
@@ -339,116 +339,72 @@ DEFINE_LOCK_OPS(frame_interface, context_lock)
 
 DEFINE_REF_OPS(frame_interface, n_refs)
 
-/**
- * @brief Create a dmabuf fd from the given GstBuffer.
- *
- * Calls gst_buffer_map on the buffer, so buffer could have changed after the call.
- *
- */
-UNUSED int dup_gst_buffer_range_as_dmabuf(struct gbm_device *gbm_device, GstBuffer *buffer, unsigned int memory_index, int n_memories) {
+// GBM's software mapping context belongs to the device, not to a BO or player.
+// All software uploads must serialize the complete BO lifetime, including unmap
+// and destruction. Per-player EGL context locks do not protect this context.
+static pthread_mutex_t software_upload_lock = PTHREAD_MUTEX_INITIALIZER;
+
+static int copy_to_dmabuf(struct gbm_device *gbm_device, const void *data, size_t size) {
     struct gbm_bo *bo;
-    GstMapInfo map_info;
     uint32_t stride;
-    gboolean gst_ok;
-    void *map, *map_data;
+    void *map, *map_data = NULL;
+    int fd = -1;
+
+    pthread_mutex_lock(&software_upload_lock);
+    bo = gbm_bo_create(gbm_device, size, 1, GBM_FORMAT_R8, GBM_BO_USE_LINEAR);
+    if (bo == NULL) {
+        LOG_ERROR("Couldn't create GBM BO to copy video frame into.\n");
+        goto out_unlock;
+    }
+
+    map = gbm_bo_map(bo, 0, 0, size, 1, GBM_BO_TRANSFER_WRITE, &stride, &map_data);
+    if (map == NULL) {
+        LOG_ERROR("Couldn't mmap GBM BO to copy video frame into it.\n");
+        goto out_destroy_bo;
+    }
+
+    memcpy(map, data, size);
+    gbm_bo_unmap(bo, map_data);
+
+    // gbm_bo_get_fd exports a new fd owned by the caller, independent of the BO.
+    fd = gbm_bo_get_fd(bo);
+    if (fd < 0) {
+        LOG_ERROR("Couldn't export video frame GBM BO.\n");
+    }
+
+out_destroy_bo:
+    gbm_bo_destroy(bo);
+out_unlock:
+    pthread_mutex_unlock(&software_upload_lock);
+    return fd;
+}
+
+UNUSED int dup_gst_buffer_range_as_dmabuf(struct gbm_device *gbm_device, GstBuffer *buffer, unsigned int memory_index, int n_memories) {
+    GstMapInfo map_info;
     int fd;
 
-    gst_ok = gst_buffer_map_range(buffer, memory_index, n_memories, &map_info, GST_MAP_READ);
-    if (gst_ok == FALSE) {
+    if (!gst_buffer_map_range(buffer, memory_index, n_memories, &map_info, GST_MAP_READ)) {
         LOG_ERROR("Couldn't map gstreamer video frame buffer to copy it into a dma buffer.\n");
         return -1;
     }
 
-    bo = gbm_bo_create(gbm_device, map_info.size, 1, GBM_FORMAT_R8, GBM_BO_USE_LINEAR);
-    if (bo == NULL) {
-        LOG_ERROR("Couldn't create GBM BO to copy video frame into.\n");
-        goto fail_unmap_buffer;
-    }
-
-    map_data = NULL;
-    map = gbm_bo_map(bo, 0, 0, map_info.size, 1, GBM_BO_TRANSFER_WRITE, &stride, &map_data);
-    if (map == NULL) {
-        LOG_ERROR("Couldn't mmap GBM BO to copy video frame into it.\n");
-        goto fail_destroy_bo;
-    }
-
-    memcpy(map, map_info.data, map_info.size);
-
-    gbm_bo_unmap(bo, map_data);
-
-    fd = gbm_bo_get_fd(bo);
-    if (fd < 0) {
-        LOG_ERROR("Couldn't filedescriptor of video frame GBM BO.\n");
-        goto fail_destroy_bo;
-    }
-
-    /// TODO: Should we dup the fd before we destroy the bo?
-    gbm_bo_destroy(bo);
+    fd = copy_to_dmabuf(gbm_device, map_info.data, map_info.size);
     gst_buffer_unmap(buffer, &map_info);
     return fd;
-
-fail_destroy_bo:
-    gbm_bo_destroy(bo);
-
-fail_unmap_buffer:
-    gst_buffer_unmap(buffer, &map_info);
-    return -1;
 }
 
-/**
- * @brief Create a dmabuf fd from the given GstMemory.
- *
- * Calls gst_memory_map on the memory.
- *
- */
 UNUSED int dup_gst_memory_as_dmabuf(struct gbm_device *gbm_device, GstMemory *memory) {
-    struct gbm_bo *bo;
     GstMapInfo map_info;
-    uint32_t stride;
-    gboolean gst_ok;
-    void *map, *map_data;
     int fd;
 
-    gst_ok = gst_memory_map(memory, &map_info, GST_MAP_READ);
-    if (gst_ok == FALSE) {
+    if (!gst_memory_map(memory, &map_info, GST_MAP_READ)) {
         LOG_ERROR("Couldn't map gstreamer video frame memory to copy it into a dma buffer.\n");
         return -1;
     }
 
-    bo = gbm_bo_create(gbm_device, map_info.size, 1, GBM_FORMAT_R8, GBM_BO_USE_LINEAR);
-    if (bo == NULL) {
-        LOG_ERROR("Couldn't create GBM BO to copy video frame into.\n");
-        goto fail_unmap_buffer;
-    }
-
-    map_data = NULL;
-    map = gbm_bo_map(bo, 0, 0, map_info.size, 1, GBM_BO_TRANSFER_WRITE, &stride, &map_data);
-    if (map == NULL) {
-        LOG_ERROR("Couldn't mmap GBM BO to copy video frame into it.\n");
-        goto fail_destroy_bo;
-    }
-
-    memcpy(map, map_info.data, map_info.size);
-
-    gbm_bo_unmap(bo, map_data);
-
-    fd = gbm_bo_get_fd(bo);
-    if (fd < 0) {
-        LOG_ERROR("Couldn't filedescriptor of video frame GBM BO.\n");
-        goto fail_destroy_bo;
-    }
-
-    /// TODO: Should we dup the fd before we destroy the bo?
-    gbm_bo_destroy(bo);
+    fd = copy_to_dmabuf(gbm_device, map_info.data, map_info.size);
     gst_memory_unmap(memory, &map_info);
     return fd;
-
-fail_destroy_bo:
-    gbm_bo_destroy(bo);
-
-fail_unmap_buffer:
-    gst_memory_unmap(memory, &map_info);
-    return -1;
 }
 
 struct plane_info {
@@ -673,8 +629,8 @@ get_plane_infos(GstBuffer *buffer, const GstVideoInfo *info, struct gbm_device *
         continue;
 
 fail_close_fds:
-        for (int j = i - 1; j > 0; j--) {
-            close(plane_infos[i].fd);
+        for (int j = i - 1; j >= 0; j--) {
+            close(plane_infos[j].fd);
         }
         return ok;
     }
@@ -1091,7 +1047,9 @@ format_supported:
 
     frame_interface_unlock(interface);
 
-    frame->sample = gst_sample_ref(sample);
+    // Keep the pixels alive without retaining appsink's reusable sample.
+    // GStreamer 1.22 updates that sample's caps during a flushing seek.
+    frame->buffer = gst_buffer_ref(buffer);
     frame->interface = frame_interface_ref(interface);
     frame->drm_format = drm_format;
     frame->n_dmabuf_fds = n_planes;
@@ -1152,7 +1110,7 @@ void frame_destroy(struct video_frame *frame) {
         (void) ok;
     }
 
-    gst_sample_unref(frame->sample);
+    gst_buffer_unref(frame->buffer);
     free(frame);
 }
 

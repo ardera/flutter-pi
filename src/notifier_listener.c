@@ -112,13 +112,14 @@ struct listener *notifier_listen(struct notifier *notifier, listener_cb_t notify
         return NULL;
     }
 
+    notifier_lock(notifier);
+
     r = listener_notify(l, notifier->state);
     if (r == kUnlisten) {
         listener_destroy(l);
+        notifier_unlock(notifier);
         return NULL;
     }
-
-    notifier_lock(notifier);
 
     list_add(&l->entry, &notifier->listeners);
 

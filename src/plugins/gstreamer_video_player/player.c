@@ -566,7 +566,17 @@ static void on_bus_message(struct gstplayer *player, GstMessage *msg) {
             DEBUG_TRACE_END(player, "gst_bin_recalculate_latency");
             break;
 
-        case GST_MESSAGE_EOS: LOG_DEBUG("end of stream, src: %s\n", GST_MESSAGE_SRC_NAME(msg)); break;
+        case GST_MESSAGE_EOS:
+            LOG_DEBUG("end of stream, src: %s\n", GST_MESSAGE_SRC_NAME(msg));
+            // Wait for the pipeline's aggregated EOS. Seeking from appsink's
+            // callback can race the sink finishing the same EOS event.
+            if (player->looping && GST_MESSAGE_SRC(msg) == GST_OBJECT(player->pipeline)) {
+                int ok = gstplayer_seek_to(player, 0, false);
+                if (ok != 0) {
+                    LOG_ERROR("Could not restart looping video. seek: %s\n", strerror(ok));
+                }
+            }
+            break;
 
         case GST_MESSAGE_REQUEST_STATE:
             gst_message_parse_request_state(msg, &requested);
@@ -580,27 +590,7 @@ static void on_bus_message(struct gstplayer *player, GstMessage *msg) {
             DEBUG_TRACE_END(player, "gst_element_set_state");
             break;
 
-        case GST_MESSAGE_APPLICATION:
-            if (player->looping && gst_message_has_name(msg, "appsink-eos")) {
-                // we have an appsink end of stream event
-                // and we should be looping, so seek back to start
-                LOG_DEBUG("appsink eos, seeking back to segment start (flushing)\n");
-                DEBUG_TRACE_BEGIN(player, "gst_element_seek");
-                gst_element_seek(
-                    GST_ELEMENT(player->pipeline),
-                    player->current_playback_rate,
-                    GST_FORMAT_TIME,
-                    GST_SEEK_FLAG_FLUSH | GST_SEEK_FLAG_ACCURATE,
-                    GST_SEEK_TYPE_SET,
-                    0,
-                    GST_SEEK_TYPE_SET,
-                    GST_CLOCK_TIME_NONE
-                );
-                DEBUG_TRACE_END(player, "gst_element_seek");
-
-                apply_playback_state(player);
-            }
-            break;
+        case GST_MESSAGE_APPLICATION: break;
 
         default: LOG_DEBUG("gstreamer message: %s, src: %s\n", GST_MESSAGE_TYPE_NAME(msg), GST_MESSAGE_SRC_NAME(msg)); break;
     }
@@ -728,29 +718,6 @@ static void on_destroy_texture_frame(const struct texture_frame *texture_frame, 
     frame_destroy(frame);
 }
 
-static void on_appsink_eos(GstAppSink *appsink, void *userdata) {
-    gboolean ok;
-
-    ASSERT_NOT_NULL(appsink);
-    ASSERT_NOT_NULL(userdata);
-
-    (void) userdata;
-
-    LOG_DEBUG("on_appsink_eos()\n");
-
-    // this method is called from the streaming thread.
-    // we shouldn't access the player directly here, it could change while we use it.
-    // post a message to the gstreamer bus instead, will be handled by
-    // @ref on_bus_message.
-    ok = gst_element_post_message(
-        GST_ELEMENT(appsink),
-        gst_message_new_application(GST_OBJECT(appsink), gst_structure_new_empty("appsink-eos"))
-    );
-    if (ok == FALSE) {
-        LOG_ERROR("Could not post appsink end-of-stream event to the message bus.\n");
-    }
-}
-
 static GstFlowReturn on_appsink_new_preroll(GstAppSink *appsink, void *userdata) {
     struct video_frame *frame;
     struct gstplayer *player;
@@ -834,6 +801,11 @@ static void on_appsink_cbs_destroy(void *userdata) {
 
 void on_source_setup(GstElement *bin, GstElement *source, gpointer userdata) {
     (void) bin;
+
+    const GstStructure *headers = userdata;
+    if (headers == NULL || gst_structure_n_fields(headers) == 0) {
+        return;
+    }
 
     if (g_object_class_find_property(G_OBJECT_GET_CLASS(source), "extra-headers") != NULL) {
         g_object_set(source, "extra-headers", (GstStructure *) userdata, NULL);
@@ -933,7 +905,7 @@ static int init(struct gstplayer *player, bool force_sw_decoders) {
     gst_app_sink_set_callbacks(
         GST_APP_SINK(sink),
         &(GstAppSinkCallbacks
-        ){ .eos = on_appsink_eos, .new_preroll = on_appsink_new_preroll, .new_sample = on_appsink_new_sample, ._gst_reserved = { 0 } },
+        ){ .eos = NULL, .new_preroll = on_appsink_new_preroll, .new_sample = on_appsink_new_sample, ._gst_reserved = { 0 } },
         player,
         on_appsink_cbs_destroy
     );
@@ -991,6 +963,12 @@ static void maybe_deinit(struct gstplayer *player) {
     if (player->busfd_events != NULL) {
         sd_event_source_unrefp(&player->busfd_events);
     }
+    // Downward state changes join streaming tasks. Keep their sink and bus
+    // references, as well as the notifiers, valid until those callbacks stop.
+    if (player->pipeline != NULL) {
+        gst_element_set_state(GST_ELEMENT(player->pipeline), GST_STATE_READY);
+        gst_element_set_state(GST_ELEMENT(player->pipeline), GST_STATE_NULL);
+    }
     if (player->sink != NULL) {
         gst_object_unref(GST_OBJECT(player->sink));
         player->sink = NULL;
@@ -1000,8 +978,6 @@ static void maybe_deinit(struct gstplayer *player) {
         player->bus = NULL;
     }
     if (player->pipeline != NULL) {
-        gst_element_set_state(GST_ELEMENT(player->pipeline), GST_STATE_READY);
-        gst_element_set_state(GST_ELEMENT(player->pipeline), GST_STATE_NULL);
         gst_object_unref(GST_OBJECT(player->pipeline));
         player->pipeline = NULL;
     }
@@ -1166,10 +1142,11 @@ struct gstplayer *gstplayer_new_from_pipeline(struct flutterpi *flutterpi, const
 
 void gstplayer_destroy(struct gstplayer *player) {
     LOG_DEBUG("gstplayer_destroy(%p)\n", player);
+    // Stop streaming callbacks before destroying the notifiers they use.
+    maybe_deinit(player);
     notifier_deinit(&player->video_info_notifier);
     notifier_deinit(&player->buffering_state_notifier);
     notifier_deinit(&player->error_notifier);
-    maybe_deinit(player);
     pthread_mutex_destroy(&player->lock);
     if (player->headers != NULL) {
         gst_structure_free(player->headers);
@@ -1191,6 +1168,7 @@ int64_t gstplayer_get_texture_id(struct gstplayer *player) {
 
 void gstplayer_put_http_header(struct gstplayer *player, const char *key, const char *value) {
     GValue gvalue = G_VALUE_INIT;
+    g_value_init(&gvalue, G_TYPE_STRING);
     g_value_set_string(&gvalue, value);
     gst_structure_take_value(player->headers, key, &gvalue);
 }

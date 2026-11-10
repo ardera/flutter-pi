@@ -108,6 +108,9 @@ DECLARE_LOCK_OPS(notifier)
  * @param notify   will be called when the event-producing object calls notifier_notify, and additionally
  *                 (if the notifier is a value notifier) one time with the current value immediately inside
  *                 the notifier_listen function.
+ *                 Callbacks run with the notifier locked, including initial delivery;
+ *                 do not re-enter the same notifier from a callback.
+ *
  * @param destroy  will be called when the listener is destroyed for some reason. Either when @ref notifier_unlisten
  *                 was called or when the notify callback returned kUnlisten, or when the notifier is destroyed.
  * @param userdata The userdata to be passed to the @param notify and @param destroy callbacks.

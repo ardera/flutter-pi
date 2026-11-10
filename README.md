@@ -414,6 +414,10 @@ of the flutter app you're trying to run.
 `[flutter engine options...]` will be passed as commandline arguments to the flutter engine. You can find a list of commandline options for the flutter engine [Here](https://github.com/flutter/engine/blob/master/shell/common/switches.h).
 
 ### gstreamer video player
+
+See [video frame lifetime, cancellation and regression tests](docs/video-player-lifecycle.md)
+for overlapping-player and cleanup behavior, and the
+[OpenGL video benchmark guide](docs/video-benchmarks.md) for hardware verification.
 Gstreamer video player is a newer video player based on gstreamer.
 
 To use the gstreamer video player, just rebuild flutter-pi (delete your build folder and reconfigure) and make sure the necessary gstreamer packages are installed. (See [dependencies](#dependencies))
