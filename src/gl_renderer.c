@@ -556,6 +556,12 @@ void *gl_renderer_get_proc_address(ASSERTED struct gl_renderer *renderer, const 
     return get_proc_address(name);
 }
 
+void *gl_renderer_try_get_proc_address(ASSERTED struct gl_renderer *renderer, const char *name) {
+    ASSERT_NOT_NULL(renderer);
+    ASSERT_NOT_NULL(name);
+    return try_get_proc_address(name);
+}
+
 EGLDisplay gl_renderer_get_egl_display(struct gl_renderer *renderer) {
     ASSERT_NOT_NULL(renderer);
     return renderer->egl_display;

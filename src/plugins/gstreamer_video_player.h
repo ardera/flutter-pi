@@ -200,7 +200,7 @@ ATTR_PURE int frame_interface_get_n_formats(struct frame_interface *interface);
 ATTR_PURE const struct egl_modified_format *frame_interface_get_format(struct frame_interface *interface, int index);
 
 #define for_each_format_in_frame_interface(index, format, interface)                                                          \
-    for (const struct egl_modified_format *format = frame_interface_get_format((interface), 0), *guard = NULL; guard == NULL; \
+    for (const struct egl_modified_format *format = frame_interface_get_n_formats(interface) > 0 ? frame_interface_get_format(interface, 0) : NULL, *guard = NULL; guard == NULL; \
          guard = (void *) 1)                                                                                                  \
         for (size_t index = 0; index < frame_interface_get_n_formats(interface); index++,                                     \
                     format = (index) < frame_interface_get_n_formats(interface) ? frame_interface_get_format((interface), (index)) : NULL)

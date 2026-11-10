@@ -61,6 +61,8 @@ EGLContext gl_renderer_create_context(struct gl_renderer *renderer);
 
 void *gl_renderer_get_proc_address(struct gl_renderer *renderer, const char *name);
 
+void *gl_renderer_try_get_proc_address(ASSERTED struct gl_renderer *renderer, const char *name);
+
 EGLDisplay gl_renderer_get_egl_display(struct gl_renderer *renderer);
 
 bool gl_renderer_supports_egl_extension(struct gl_renderer *renderer, const char *name);
