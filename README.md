@@ -71,7 +71,7 @@ If you encounter issues running flutter-pi on any of the supported platforms lis
 
 3. Install cmake, graphics, system libraries and fonts:
     ```shell
-    sudo apt install cmake libgl1-mesa-dev libgles2-mesa-dev libegl1-mesa-dev libdrm-dev libgbm-dev ttf-mscorefonts-installer fontconfig libsystemd-dev libinput-dev libudev-dev  libxkbcommon-dev
+    sudo apt install cmake libgl1-mesa-dev libgles2-mesa-dev libegl1-mesa-dev libdrm-dev libgbm-dev ttf-mscorefonts-installer fontconfig libsystemd-dev libinput-dev libudev-dev  libxkbcommon-dev git
     ```
 
     If you want to use the [gstreamer video player](#gstreamer-video-player), install these too:
