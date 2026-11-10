@@ -180,7 +180,7 @@ static int egl_gbm_render_surface_init(
     /// TODO: Think about allowing different tilings / modifiers here
     if (egl_config == EGL_NO_CONFIG_KHR) {
         // choose a config
-        egl_config = gl_renderer_choose_config_direct(renderer, pixel_format);
+        egl_config = gl_renderer_choose_gbm_window_config(renderer, pixel_format);
         if (egl_config == EGL_NO_CONFIG_KHR) {
             LOG_ERROR(
                 "EGL doesn't supported the specified pixel format %s. Try a different one (ARGB8888 should always work).\n",

@@ -207,6 +207,7 @@ if (ENABLE_OPENGL)
   if (EGL_FOUND AND GLES2_FOUND)
     target_sources(flutterpi_module PRIVATE
       src/egl_gbm_render_surface.c
+      src/egl_offscreen_render_surface.c
       src/gl_renderer.c
     )
     target_link_libraries(flutterpi_module PUBLIC
