@@ -581,3 +581,15 @@ void compositor_set_cursor(
 
     compositor_unlock(compositor);
 }
+
+int compositor_get_dpms(struct compositor *compositor) {
+    return window_get_dpms(compositor->main_window);
+}
+
+int compositor_set_dpms(struct compositor *compositor, bool enabled) {
+    return window_set_dpms(compositor->main_window, enabled);
+}
+
+bool compositor_supports_dpms(struct compositor *compositor) {
+    return window_supports_dpms(compositor->main_window);
+}

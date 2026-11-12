@@ -156,6 +156,8 @@ struct window {
      */
     struct fl_layer_composition *composition;
 
+    bool active;
+
     /**
      * @brief KMS-specific fields if this is a KMS window.
      *
@@ -226,6 +228,7 @@ struct window {
      */
     struct vec2i cursor_pos;
 
+    int (*set_dpms_locked)(struct window *window, bool enabled);
     int (*push_composition)(struct window *window, struct fl_layer_composition *composition);
     struct render_surface *(*get_render_surface)(struct window *window, struct vec2i size);
 
@@ -407,6 +410,8 @@ static int window_init(
     window->has_forced_pixel_format = has_forced_pixel_format;
     window->forced_pixel_format = forced_pixel_format;
     window->composition = NULL;
+    window->active = true;
+    window->set_dpms_locked = NULL;
     window->renderer_type = kOpenGL_RendererType;
     window->gl_renderer = NULL;
     window->vk_renderer = NULL;
@@ -448,6 +453,37 @@ int window_push_composition(struct window *window, struct fl_layer_composition *
     ASSERT_NOT_NULL(composition);
     ASSERT_NOT_NULL(window->push_composition);
     return window->push_composition(window, composition);
+}
+
+bool window_supports_dpms(struct window *window) {
+    ASSERT_NOT_NULL(window);
+    return window->set_dpms_locked != NULL;
+}
+
+int window_get_dpms(struct window *window) {
+    int mode;
+
+    ASSERT_NOT_NULL(window);
+    window_lock(window);
+    mode = window_supports_dpms(window) ? window->active : -ENOTSUP;
+    window_unlock(window);
+    return mode;
+}
+
+int window_set_dpms(struct window *window, bool enabled) {
+    int ok;
+
+    ASSERT_NOT_NULL(window);
+    window_lock(window);
+    if (!window_supports_dpms(window)) {
+        ok = ENOTSUP;
+    } else if (window->active == enabled) {
+        ok = 0;
+    } else {
+        ok = window->set_dpms_locked(window, enabled);
+    }
+    window_unlock(window);
+    return ok;
 }
 
 struct view_geometry window_get_view_geometry(struct window *window) {
@@ -874,6 +910,7 @@ static int select_mode(
     return 0;
 }
 
+static int kms_window_set_dpms_locked(struct window *window, bool enabled);
 static int kms_window_push_composition(struct window *window, struct fl_layer_composition *composition);
 static struct render_surface *kms_window_get_render_surface(struct window *window, struct vec2i size);
 
@@ -1022,6 +1059,9 @@ MUST_CHECK struct window *kms_window_new(
     } else {
         window->vk_renderer = NULL;
     }
+    if (drmdev_supports_dpms(drmdev, selected_crtc, selected_connector)) {
+        window->set_dpms_locked = kms_window_set_dpms_locked;
+    }
     window->push_composition = kms_window_push_composition;
     window->get_render_surface = kms_window_get_render_surface;
 #ifdef HAVE_EGL_GLES2
@@ -1133,7 +1173,7 @@ static void on_cancel_frame(void *userdata) {
     free(frame);
 }
 
-static int kms_window_push_composition_locked(struct window *window, struct fl_layer_composition *composition) {
+static int kms_window_present_composition_locked(struct window *window, struct fl_layer_composition *composition, bool synchronous) {
     struct kms_req_builder *builder;
     struct kms_req *req;
     struct frame *frame;
@@ -1159,11 +1199,13 @@ static int kms_window_push_composition_locked(struct window *window, struct fl_l
 
     /// TODO: If we don't have new revisions, we don't need to scanout anything.
     fl_layer_composition_swap_ptrs(&window->composition, composition);
+    if (!window->active) {
+        return 0;
+    }
 
     builder = drmdev_create_request_builder(window->kms.drmdev, window->kms.crtc->id);
     if (builder == NULL) {
-        ok = ENOMEM;
-        goto fail_unref_builder;
+        return ENOMEM;
     }
 
     // We only set the mode once, at the first atomic request.
@@ -1235,14 +1277,22 @@ static int kms_window_push_composition_locked(struct window *window, struct fl_l
 
     req = kms_req_builder_build(builder);
     if (req == NULL) {
+        ok = ENOMEM;
         goto fail_unref_builder;
     }
 
     kms_req_builder_unref(builder);
     builder = NULL;
 
+    if (synchronous) {
+        ok = kms_req_commit_blocking(req, NULL);
+        kms_req_unref(req);
+        return ok;
+    }
+
     frame = malloc(sizeof *frame);
     if (frame == NULL) {
+        ok = ENOMEM;
         goto fail_unref_req;
     }
 
@@ -1312,6 +1362,47 @@ fail_unref_req:
 
 fail_unref_builder:
     kms_req_builder_unref(builder);
+    return ok;
+}
+
+static int kms_window_push_composition_locked(struct window *window, struct fl_layer_composition *composition) {
+    return kms_window_present_composition_locked(window, composition, false);
+}
+
+static int kms_window_commit_dpms_locked(struct window *window, bool enabled) {
+    struct kms_req *req = drmdev_create_dpms_req(window->kms.drmdev, window->kms.crtc->id, window->kms.connector->id, enabled);
+    if (req == NULL) {
+        return errno;
+    }
+    int ok = kms_req_commit_blocking(req, NULL);
+    kms_req_unref(req);
+    return ok;
+}
+
+static int kms_window_set_dpms_locked(struct window *window, bool enabled) {
+    int ok;
+
+    if (enabled && window->composition != NULL) {
+        // Normal frame requests implicitly enable the CRTC. Replay the newest
+        // composition, including updates received while the screen was off.
+        window->active = true;
+        ok = kms_window_present_composition_locked(window, window->composition, true);
+        if (ok != 0) {
+            window->active = false;
+            // Legacy modesetting (or a failed event read after a successful
+            // atomic commit) may already have enabled the output. Restore off.
+            int rollback = kms_window_commit_dpms_locked(window, false);
+            if (rollback != 0) {
+                LOG_ERROR("Could not restore DPMS off after failed frame replay: %s\n", strerror(rollback));
+            }
+        }
+        return ok;
+    }
+
+    ok = kms_window_commit_dpms_locked(window, enabled);
+    if (ok == 0) {
+        window->active = enabled;
+    }
     return ok;
 }
 
@@ -1596,7 +1687,7 @@ static int kms_window_set_cursor_locked(
             // cursor movements in the same vsync interval we couldn't show on screen anymore.
             //
             // Mutter (GNOME's compositor) has an extra KMS cursor thread with high priority for that purpose.
-            if (window->kms.has_cursor_plane) {
+            if (window->active && window->kms.has_cursor_plane) {
                 drmdev_move_cursor(window->kms.drmdev, window->kms.crtc->id, vec2i_sub(pos, window->kms.cursor->hotspot));
             } else {
                 // for now just don't do anything.

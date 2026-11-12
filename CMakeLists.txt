@@ -147,6 +147,7 @@ add_library(
   src/window.c
   src/dummy_render_surface.c
   src/plugins/services.c
+  src/plugins/dpms_plugin.c
 )
 
 target_link_libraries(flutterpi_module PUBLIC

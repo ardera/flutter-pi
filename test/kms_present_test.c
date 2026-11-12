@@ -87,8 +87,8 @@ static void flip(struct drmdev *dev) {
 }
 
 int main(void) {
-    struct drm_crtc crtc = { .id = 1, .index = 0 };
-    struct drm_connector connector = {0};
+    struct drm_crtc crtc = { .id = 1, .index = 0, .ids.active = 2 };
+    struct drm_connector connector = { .id = 3, .ids.crtc_id = 4 };
     struct drm_plane plane = {0};
     struct drmdev dev = {
         .n_refs = REFCOUNT_INIT_1,

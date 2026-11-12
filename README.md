@@ -432,6 +432,11 @@ There are several things you need to keep in mind:
         - One of the common reasons is outdated ALSA config in which case you should delete existing config and replace it with up to date one
 - Finally, if you want to verify your audio setup is good, you can use `gst-launch` command to invoke `playbin` on audio file directly.
 
+### Display power management (DPMS)
+
+The `dpms` Dart package can turn the selected KMS display off and back on.
+See [DPMS usage, implementation and hardware checks](docs/DPMS.md).
+
 ## 📊 Performance
 ### Graphics Performance
 Graphics performance is actually pretty good. With most of the apps inside the `flutter SDK -> examples -> catalog` directory I get smooth 50-60fps on the Pi 4 2GB and Pi 3 A+.

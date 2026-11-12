@@ -109,6 +109,15 @@ MUST_CHECK struct window *dummy_window_new(
  */
 int window_push_composition(struct window *window, struct fl_layer_composition *composition);
 
+/** Whether the selected window supports display power management. */
+bool window_supports_dpms(struct window *window);
+
+/** Last successfully requested mode: 0 off, 1 on, or a negative errno. */
+int window_get_dpms(struct window *window);
+
+/** Set display power; returns zero on success, otherwise a positive errno. */
+int window_set_dpms(struct window *window, bool enabled);
+
 /**
  * @brief Get the current view geometry of this window.
  *

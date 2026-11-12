@@ -960,6 +960,11 @@ int flutterpi_respond_to_platform_message(
     return 0;
 }
 
+struct compositor *flutterpi_get_compositor(struct flutterpi *flutterpi) {
+    ASSERT_NOT_NULL(flutterpi);
+    return flutterpi->compositor;
+}
+
 struct texture_registry *flutterpi_get_texture_registry(struct flutterpi *flutterpi) {
     ASSERT_NOT_NULL(flutterpi);
     ASSERT_NOT_NULL(flutterpi->texture_registry);

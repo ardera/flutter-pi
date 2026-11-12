@@ -394,6 +394,7 @@ struct drm_crtc {
     struct drm_crtc_prop_ids ids;
 
     struct {
+        bool active;
         bool has_mode;
         drmModeModeInfo mode;
         struct drm_mode_blob *mode_blob;
@@ -635,6 +636,7 @@ struct _drmModeModeInfo;
 int drmdev_get_fd(struct drmdev *drmdev);
 int drmdev_get_event_fd(struct drmdev *drmdev);
 bool drmdev_supports_dumb_buffers(struct drmdev *drmdev);
+bool drmdev_supports_dpms(struct drmdev *drmdev, const struct drm_crtc *crtc, const struct drm_connector *connector);
 int drmdev_create_dumb_buffer(
     struct drmdev *drmdev,
     int width,
@@ -751,6 +753,13 @@ typedef void (*kms_deferred_fb_release_cb_t)(void *userdata, int syncfile_fd);
 struct kms_req_builder;
 
 struct kms_req_builder *drmdev_create_request_builder(struct drmdev *drmdev, uint32_t crtc_id);
+
+/**
+ * Create a power-only request for the selected output. Keeps its mode, planes and
+ * framebuffer references intact. Commit with kms_req_commit_blocking; there is
+ * no page-flip event and its returned vblank timestamp is zero.
+ */
+struct kms_req *drmdev_create_dpms_req(struct drmdev *drmdev, uint32_t crtc_id, uint32_t connector_id, bool enabled);
 
 DECLARE_REF_OPS(kms_req_builder);
 
@@ -901,8 +910,8 @@ int kms_req_builder_push_zpos_placeholder_layer(struct kms_req_builder *builder,
  * @brief A KMS request (atomic or legacy modesetting) that can be committed to
  * change the state of a single CRTC.
  *
- * Only way to construct this is by building a KMS request using
- * @ref kms_req_builder and then calling @ref kms_req_builder_build.
+ * Construct a frame request using @ref kms_req_builder_build, or a power-only
+ * request using @ref drmdev_create_dpms_req.
  */
 struct kms_req;
 
@@ -920,6 +929,11 @@ DECLARE_REF_OPS(kms_req);
  */
 struct kms_req *kms_req_builder_build(struct kms_req_builder *builder);
 
+/**
+ * Discard the queued frame for this CRTC and wait for its outstanding flip
+ * before committing the request. Frame requests also wait for their own flip;
+ * power-only requests produce no flip and return a zero vblank timestamp.
+ */
 int kms_req_commit_blocking(struct kms_req *req, uint64_t *vblank_ns_out);
 
 int kms_req_commit_nonblocking(struct kms_req *req, kms_scanout_cb_t scanout_cb, void *userdata, void_callback_t destroy_cb);

@@ -203,4 +203,9 @@ DECLARE_REF_OPS(fl_layer_composition)
 size_t fl_layer_composition_get_n_layers(struct fl_layer_composition *composition);
 struct fl_layer *fl_layer_composition_peek_layer(struct fl_layer_composition *composition, int layer);
 
+/** DPMS applies to the output selected by the main window. */
+bool compositor_supports_dpms(struct compositor *compositor);
+int compositor_get_dpms(struct compositor *compositor);
+int compositor_set_dpms(struct compositor *compositor, bool enabled);
+
 #endif  // _FLUTTERPI_SRC_COMPOSITOR_NG_H

@@ -177,6 +177,8 @@ struct texture_registry *flutterpi_get_texture_registry(struct flutterpi *flutte
 
 struct plugin_registry *flutterpi_get_plugin_registry(struct flutterpi *flutterpi);
 
+struct compositor *flutterpi_get_compositor(struct flutterpi *flutterpi);
+
 FlutterPlatformMessageResponseHandle *
 flutterpi_create_platform_message_response_handle(struct flutterpi *flutterpi, FlutterDataCallback data_callback, void *userdata);
 
